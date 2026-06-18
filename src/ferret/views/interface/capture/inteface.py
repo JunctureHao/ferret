@@ -1,0 +1,1899 @@
+import json
+from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, urlencode, urlparse
+
+from PySide6.QtCore import (
+    QEvent,
+    QModelIndex,
+    QPoint,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+    Slot,
+)
+from PySide6.QtGui import (
+    QFont,
+    QKeyEvent,
+    QKeySequence,
+    QPainter,
+    QPalette,
+    QPen,
+    QShortcut,
+)
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QHBoxLayout,
+    QHeaderView,
+    QPlainTextEdit,
+    QSizePolicy,
+    QStackedWidget,
+    QStyledItemDelegate,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    FluentIcon,
+    FlyoutViewBase,
+    InfoBar,
+    MessageBoxBase,
+    PopupTeachingTip,
+    RoundMenu,
+    SimpleCardWidget,
+    SpinBox,
+    StrongBodyLabel,
+    SubtitleLabel,
+    TableItemDelegate,
+    TableView,
+    TeachingTipTailPosition,
+    ToolTipFilter,
+    ToolTipPosition,
+    TransparentToolButton,
+    TreeWidget,
+    VerticalSeparator,
+)
+
+from ferret.config.settings import CONFIG
+from ferret.controllers.capture_controller import CaptureController
+from ferret.core.model import PacketProxyModel, PacketTableModel
+from ferret.utils.http_parser import (
+    decode_body,
+    format_bytes,
+    format_time,
+    parse_cookies_from_headers,
+)
+from ferret.views.common.dialog import TextCopyDialog
+from ferret.views.common.edit import CodeViewPanel
+from ferret.views.common.filter import MultiFilterManager
+from ferret.views.common.header_card import HeaderCard
+from ferret.views.common.icon import BaseAction, BaseIcon
+from ferret.views.common.info_bar import show_success
+from ferret.views.common.json_edit import JsonCard
+from ferret.views.common.line_edit import CodeCard
+from ferret.views.common.panel import TabPanel
+from ferret.views.common.splitter import (
+    OrientationSplitter,
+)
+
+if TYPE_CHECKING:
+    from ferret.views.window import MainWindow
+
+
+class CapturesInterface(QWidget):
+    """抓包主界面 - 包含工具栏、搜索面板和内容区域"""
+
+    def __init__(self, parent: "MainWindow | None" = None):
+        """初始化抓包界面
+
+        Args:
+            parent: 父窗口，通常是 MainWindow
+        """
+        super().__init__(parent)
+        self.setObjectName("CapturesInterface")
+        self.controller = CaptureController(self)
+
+        self.__init_widget()
+        self.__init_layout()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.toolbar = CapturesToolBar(self)
+        self.search_panel = MultiFilterManager(self)
+        self.search_panel_container = QWidget(self)
+        self.search_panel_container.setVisible(False)
+        self.content = CapturesContentArea(self, self.controller)
+
+        # Ctrl+F 快捷键切换搜索面板（应用级事件过滤，优先于子控件的按键处理）
+        QApplication.instance().installEventFilter(self)
+
+    def __init_layout(self):
+        """初始化布局结构"""
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+
+        # 搜索面板容器：水平内缩，与工具栏拉开主次层次
+        container_layout = QVBoxLayout(self.search_panel_container)
+        container_layout.setContentsMargins(12, 0, 12, 0)
+        container_layout.addWidget(self.search_panel)
+
+        self.main_layout.addWidget(self.toolbar)
+        self.main_layout.addWidget(self.search_panel_container)
+        self.main_layout.addWidget(self.content)
+
+    def __connect_signal_to_slot(self):
+        """协调层：连接组件业务信号到 Controller"""
+        # 工具栏业务信号 → Controller
+        self.toolbar.captureToggled.connect(self.__on_capture_toggled)
+
+        # 简单点击：直接连接按钮原生信号
+        self.toolbar.search_btn.toggled.connect(self.__toggle_search_panel)
+        self.toolbar.proxy_setting_btn.clicked.connect(self.__show_proxy_port_dialog)
+        self.toolbar.locate_selection_btn.clicked.connect(
+            self.content.table.on_locate_selection
+        )
+        self.toolbar.captures_delete_btn.clicked.connect(self.content.table.clear_all)
+
+        # Controller 状态信号 → UI 更新
+        self.controller.captureStateChanged.connect(self.__on_capture_state_changed)
+        self.controller.packet_received.connect(
+            self.content.table.source_model.set_data
+        )
+        self.controller.capture_started.connect(self.content.table.set_traffic_addon)
+
+        # 搜索面板
+        self.search_panel.conditionsChanged.connect(self.__on_search_changed)
+        self.search_panel.panelCloseRequested.connect(self.__toggle_search_panel)
+
+        # 统计信息更新
+        self.content.table.stats_updated.connect(self.toolbar.update_stats)
+
+    def eventFilter(self, obj, event):
+        """应用级事件过滤：拦截 Ctrl+F 快捷键"""
+        if event.type() == QEvent.Type.KeyPress:
+            if (
+                event.modifiers() == Qt.KeyboardModifier.ControlModifier
+                and event.key() == Qt.Key.Key_F
+            ):
+                # 确保只在本窗口激活时响应
+                if self.window().isActiveWindow():
+                    self.__toggle_search_panel()
+                    return True
+        return super().eventFilter(obj, event)
+
+    @Slot(bool)
+    def __on_capture_toggled(self, is_on: bool):
+        """协调：toolbar 信号 → controller 操作"""
+        self.toolbar.control_btn.setEnabled(False)
+        try:
+            self.controller.toggle_capture()
+        finally:
+            self.toolbar.control_btn.setEnabled(True)
+
+    @Slot(bool)
+    def __on_capture_state_changed(self, is_capturing: bool):
+        """协调：controller 状态信号 → UI 更新"""
+        if is_capturing:
+            self.toolbar.control_btn.setIcon(FluentIcon.PAUSE)
+            show_success("成功", "代理已启动", parent=self)
+        else:
+            self.toolbar.control_btn.setIcon(FluentIcon.PLAY)
+            show_success("成功", "代理已关闭", parent=self)
+
+    @Slot()
+    def __toggle_search_panel(self):
+        """切换搜索面板显示/隐藏"""
+        visible = not self.search_panel_container.isVisible()
+        self.search_panel_container.setVisible(visible)
+        # blockSignals 阻止 setChecked 触发 toggled 信号，避免无限递归
+        self.toolbar.search_btn.blockSignals(True)
+        self.toolbar.search_btn.setChecked(visible)
+        self.toolbar.search_btn.blockSignals(False)
+        if visible:
+            self.search_panel.focus_first_input()
+
+    @Slot()
+    def __on_search_changed(self):
+        """搜索条件变更时更新过滤"""
+        conditions = self.search_panel.get_conditions()
+        self.content.table.proxy_model.set_multi_search(conditions)
+
+    @Slot()
+    def __show_proxy_port_dialog(self):
+        """弹出端口设置对话框"""
+        w = ProxyPortDialog(self.controller.current_port, self.window())
+        if w.exec():
+            new_port = w.get_port()
+            if new_port and new_port != self.controller.current_port:
+                self.controller.update_port(new_port)
+
+    def stop_capture(self):
+        """停止抓包（供外部调用，如MainWindow.closeEvent）"""
+        self.controller.stop_capture()
+
+
+class CapturesContentArea(OrientationSplitter):
+    """抓包内容区域 - 包含数据表格和详情面板的分割视图"""
+
+    def __init__(
+        self,
+        parent: "CapturesInterface|None" = None,
+        controller=None,
+    ):
+        """初始化内容区域
+
+        Args:
+            parent: 父组件，通常是 CapturesInterface
+            controller: 抓包控制器实例
+        """
+        super().__init__(parent=parent)
+        self.controller = controller  # 保存 controller 引用
+
+        self.__init_widget()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.table = CapturesDataTable(self)
+        self.panel = CapturesDataPanel(self, self.controller)
+        self.addWidget(self.table)
+        self.addWidget(self.panel)
+
+        self.setStretchFactor(0, 1)  # ← table 占 1 份
+        self.setStretchFactor(1, 1)  # ← panel 占 1 份 → 严格 50:50
+        self.setSizes([1, 0])
+
+    def __connect_signal_to_slot(self):
+        """连接信号与槽函数"""
+        self.table.row_double_clicked.connect(self.__on_show_panel)
+        self.table.row_selected.connect(self.__on_select_row)  # ← 新增
+
+    @Slot(dict)
+    def __on_show_panel(self, data):
+        """双击：打开面板，严格 50/50
+
+        Args:
+            data: 行数据字典
+        """
+        self.panel.set_data(data)
+        # 延迟设置尺寸，确保布局已完成
+        QTimer.singleShot(0, self.__apply_equal_sizes)
+
+    def __apply_equal_sizes(self):
+        """确保 table 和 panel 严格 50:50"""
+        if self.orientation() == Qt.Orientation.Horizontal:
+            w = self.width()
+            if w > 0:
+                self.setSizes([w // 2, w // 2])
+        else:
+            h = self.height()
+            if h > 0:
+                self.setSizes([h // 2, h // 2])
+
+    @Slot(dict)  # ← 新增方法
+    def __on_select_row(self, data):
+        """单击：面板已打开时，切换数据
+
+        Args:
+            data: 行数据字典
+        """
+        if self.sizes()[1] > 0:  # 面板可见（宽度 > 0）
+            self.panel.set_data(data)
+
+
+class GridTreeWidget(TreeWidget):
+    """带原生网格线的 TreeWidget（通过 QPainter 绘制，不使用 QSS）"""
+
+    def paintEvent(self, event):
+        """绘制网格线
+
+        Args:
+            event: 绘制事件
+        """
+        super().paintEvent(event)
+        painter = QPainter(self.viewport())
+        pen = QPen(self.palette().color(QPalette.ColorRole.Mid), 1)
+        pen.setStyle(Qt.PenStyle.SolidLine)
+        painter.setPen(pen)
+
+        # 绘制每行下方的水平线
+        for i in range(self.topLevelItemCount()):
+            item = self.topLevelItem(i)
+            if item is None:
+                continue
+            rect = self.visualRect(self.indexFromItem(item))
+            if rect.isValid():
+                y = rect.bottom()
+                painter.drawLine(0, y, self.viewport().width(), y)
+
+        # 绘制列分隔线（垂直）
+        header = self.header()
+        for col in range(1, self.columnCount()):
+            x = header.sectionViewportPosition(col)
+            if x > 0:
+                painter.drawLine(x, 0, x, self.viewport().height())
+
+        painter.end()
+
+
+class CapturesToolBar(QWidget):
+    """自定义工具栏 - 组件自管理事件，对外暴露业务信号"""
+
+    # 业务信号：有状态转换的操作才需要
+    captureToggled = Signal(bool)
+
+    def __init__(self, parent: "CapturesInterface"):
+        """初始化工具栏
+
+        Args:
+            parent: 父组件，通常是 CapturesInterface
+        """
+        super().__init__(parent)
+
+        self.__init_widget()
+        self.__init_layout()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        # 设置大小策略 — 固定高度，防止横向布局时被拉伸
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(36)
+
+        # 左侧：过滤按钮
+        self.search_btn = TransparentToolButton(FluentIcon.FILTER, self)
+        self.search_btn.setCheckable(True)
+        self.search_btn.setToolTip(self.tr("高级搜索") + " (Ctrl+F)")
+        self.search_btn.installEventFilter(
+            ToolTipFilter(self.search_btn, 1000, ToolTipPosition.TOP)
+        )
+        self.search_btn.setFixedSize(32, 32)
+        self.search_btn.setIconSize(QSize(20, 20))
+
+        # 统计标签 — 直接显示数字，简洁直观
+        self.stats_label = CaptionLabel("0", self)
+
+        # 右侧：操作按钮
+        self.proxy_setting_btn = TransparentToolButton(FluentIcon.GLOBE, self)
+        self.proxy_setting_btn.setToolTip(self.tr("端口设置"))
+        self.proxy_setting_btn.installEventFilter(
+            ToolTipFilter(self.proxy_setting_btn, 1000, ToolTipPosition.TOP)
+        )
+        self.proxy_setting_btn.setFixedSize(32, 32)
+        self.proxy_setting_btn.setIconSize(QSize(20, 20))
+
+        self.locate_selection_btn = TransparentToolButton(
+            BaseIcon.LOCATION_TARGET, self
+        )
+        self.locate_selection_btn.setToolTip(self.tr("定位选中"))
+        self.locate_selection_btn.installEventFilter(
+            ToolTipFilter(self.locate_selection_btn, 1000, ToolTipPosition.TOP)
+        )
+        self.locate_selection_btn.setFixedSize(32, 32)
+        self.locate_selection_btn.setIconSize(QSize(20, 20))
+
+        self.control_btn = TransparentToolButton(FluentIcon.PLAY, self)
+        self.control_btn.setCheckable(True)
+        self.control_btn.setToolTip(self.tr("系统代理"))
+        self.control_btn.installEventFilter(
+            ToolTipFilter(self.control_btn, 1000, ToolTipPosition.TOP)
+        )
+        self.control_btn.setFixedSize(32, 32)
+        self.control_btn.setIconSize(QSize(20, 20))
+
+        self.captures_delete_btn = TransparentToolButton(FluentIcon.DELETE, self)
+        self.captures_delete_btn.setToolTip(self.tr("清空数据"))
+        self.captures_delete_btn.installEventFilter(
+            ToolTipFilter(self.captures_delete_btn, 1000, ToolTipPosition.TOP)
+        )
+        self.captures_delete_btn.setFixedSize(32, 32)
+        self.captures_delete_btn.setIconSize(QSize(20, 20))
+
+    def __init_layout(self):
+        """初始化布局结构 - 左侧过滤+统计，右侧操作按钮"""
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+
+        # 左侧：过滤按钮 + 统计标签
+        layout.addWidget(self.search_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.stats_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # 弹簧：将右侧按钮推到最右
+        layout.addStretch(1)
+
+        # 右侧：端口设置、定位、播放、删除
+        layout.addWidget(self.proxy_setting_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.locate_selection_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.control_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.captures_delete_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
+    def __connect_signal_to_slot(self):
+        """组件内部事件管理：按钮点击 → 业务信号"""
+        self.control_btn.toggled.connect(self.captureToggled.emit)
+
+    @Slot(int, int, int)
+    def update_stats(self, total: int, shown: int, selected: int):
+        """更新统计标签"""
+        if shown == total:
+            self.stats_label.setText(str(total))
+        else:
+            self.stats_label.setText(f"{shown}/{total}")
+
+
+class ProxyPortDialog(MessageBoxBase):
+    """代理端口设置对话框"""
+
+    PORT_MIN = 1024
+    PORT_MAX = 65535
+
+    def __init__(self, current_port, parent: QWidget):
+        """初始化端口设置对话框
+
+        Args:
+            current_port: 当前端口号
+            parent: 父组件
+        """
+        super().__init__(parent)
+        self.__init_widget(current_port)
+        self.__init_layout()
+
+    def __init_widget(self, current_port):
+        """初始化界面组件
+
+        Args:
+            current_port: 当前端口号
+        """
+        self.title_label = SubtitleLabel(self)
+        self.title_label.setText(self.tr("设置代理端口"))
+        self.port_spin = SpinBox(self)
+        self.port_spin.setRange(self.PORT_MIN, self.PORT_MAX)
+        self.port_spin.setValue(current_port)
+        self.port_spin.setSingleStep(1)
+
+    def __init_layout(self):
+        """初始化布局结构"""
+        self.viewLayout.addWidget(self.title_label)
+        self.viewLayout.addWidget(self.port_spin)
+        self.widget.setMinimumWidth(350)
+
+    def get_port(self) -> int:
+        """获取用户设置的端口号
+
+        Returns:
+            int: 用户设置的端口号
+        """
+        return self.port_spin.value()
+
+
+class ReadOnlyDelegate(TableItemDelegate):
+    """只读文本 delegate — 双击时弹出可复制但不可编辑的文本框"""
+
+    def createEditor(self, parent, option, index):
+        """创建只读文本编辑器"""
+        editor = QPlainTextEdit(parent)
+        editor.setReadOnly(True)
+        editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        # 设置等宽字体
+        font = QFont("Consolas", 10)
+        font.setFixedPitch(True)
+        editor.setFont(font)
+        return editor
+
+    def setEditorData(self, editor, index):
+        """设置编辑器数据"""
+        value = index.data(Qt.ItemDataRole.DisplayRole)
+        editor.setPlainText(str(value) if value else "")
+        # 全选文本方便复制
+        editor.selectAll()
+
+    def setModelData(self, editor, model, index):
+        """不修改模型数据（只读）"""
+        pass
+
+    def updateEditorGeometry(self, editor, option, index):
+        """设置编辑器位置和大小"""
+        editor.setGeometry(option.rect)
+
+
+class CapturesDataTable(TableView):
+    """抓包数据表格 - 显示网络请求数据"""
+
+    row_double_clicked = Signal(dict)  # 双击行信号
+    row_selected = Signal(dict)  # 选中行信号
+    stats_updated = Signal(int, int, int)  # 统计更新信号：总条数、显示条数、选中条数
+
+    def __init__(self, parent: "CapturesContentArea | None" = None):
+        """初始化数据表格
+
+        Args:
+            parent: 父组件，通常是 CapturesContentArea
+        """
+        super().__init__(parent)
+
+        self.__init_widget()
+        self.__init_view()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.source_model = PacketTableModel(self)
+        self.proxy_model = PacketProxyModel(self)
+
+        self.context_menu = PacketContextMenu(self)
+        self.setSelectRightClickedRow(True)
+        self.proxy_model.setSourceModel(self.source_model)
+        self.setModel(self.proxy_model)
+
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+    def __init_view(self):
+        """初始化表格视图"""
+        self.setSortingEnabled(True)
+        self.setWordWrap(False)
+        # self.setAlternatingRowColors(False) # 斑马纹
+
+        # 关闭平滑滚动，避免晃眼
+        self.scrollDelagate.verticalSmoothScroll.setDynamicEngineEnabled(False)
+
+        self.verticalHeader().hide()
+        widths = [80, 100, 500, 100, 100, 0]
+        h_header = self.horizontalHeader()
+        h_header.setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        h_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for i, w in enumerate(widths):
+            self.setColumnWidth(i, w)
+        h_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        # self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+        # 设置只读 delegate — 双击时弹出可复制但不可编辑的文本框
+        self._read_only_delegate = ReadOnlyDelegate(self)
+        self.setItemDelegate(self._read_only_delegate)
+
+    def __connect_signal_to_slot(self):
+        """连接信号与槽函数"""
+        self.proxy_model.rowsInserted.connect(self.__on_sync_visual)
+        self.proxy_model.layoutChanged.connect(self.__on_sync_visual)
+        self.proxy_model.rowsRemoved.connect(self.__on_sync_visual)
+        self.proxy_model.modelReset.connect(self.__on_sync_visual)
+        # 同时监听 source_model，确保过滤条件排除所有行时 total 仍能正确更新
+        self.source_model.rowsInserted.connect(self.__on_sync_visual)
+
+        self.customContextMenuRequested.connect(self.__on_show_context_menu)
+        self.context_menu.delete_requested.connect(self.source_model.remove_row)
+
+        self.selectionModel().selectionChanged.connect(self.__on_selection_changed)
+
+        self.doubleClicked.connect(self.__on_row_double_clicked)
+
+    @Slot()
+    def __on_selection_changed(self, selected):
+        """选择变更时触发
+
+        Args:
+            selected: 选中的项
+        """
+        indexes = selected.indexes()
+        if indexes:
+            index = indexes[0]
+            source_index = self.proxy_model.mapToSource(index)
+            row = source_index.row()
+            data = self.source_model.get_row_data(row)
+            self.row_selected.emit(data)
+
+        # 更新统计信息
+        QTimer.singleShot(0, self.__emit_stats_updated)
+
+    @Slot(QPoint)
+    def __on_show_context_menu(self, pos: QPoint):
+        """右键选中打开上下文菜单
+
+        Args:
+            pos: 鼠标位置
+        """
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return
+
+        source_index = self.proxy_model.mapToSource(index)
+        row = source_index.row()
+        row_data = self.source_model.get_row_data(row)  # ← 就来自这里
+        self.context_menu.update_context(row, row_data)
+        self.context_menu.exec(self.viewport().mapToGlobal(pos))
+
+    @Slot()
+    def __on_sync_visual(self):
+        """视图更新（动态的插入需要）"""
+        QTimer.singleShot(0, self.updateSelectedRows)
+        QTimer.singleShot(0, self.__emit_stats_updated)
+
+    def __emit_stats_updated(self):
+        """发出统计更新信号"""
+        total = self.source_model.rowCount()
+        shown = self.proxy_model.rowCount()
+        selected = len(self.selectionModel().selectedRows())
+        self.stats_updated.emit(total, shown, selected)
+
+    @Slot()
+    def clear_all(self):
+        """清除所有数据"""
+        self.source_model.clear_data()
+
+    def set_traffic_addon(self, traffic_addon):
+        """设置 UITrafficAddon 实例
+
+        Args:
+            traffic_addon: 流量插件实例
+        """
+        self.source_model._traffic_addon = traffic_addon
+
+    @Slot()
+    def on_locate_selection(self):
+        """定位 滑动到选中"""
+        index = self.selectionModel().currentIndex()
+        if not index.isValid():
+            return
+        self.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.horizontalScrollBar().setValue(0)
+
+    @Slot(QModelIndex)
+    def __on_row_double_clicked(self, index: QModelIndex):
+        """双击行时触发
+
+        Args:
+            index: 被双击的索引
+        """
+        source_index = self.proxy_model.mapToSource(index)
+        row = source_index.row()
+        data = self.source_model.get_row_data(row)
+        self.row_double_clicked.emit(data)
+
+
+class PacketContextMenu(RoundMenu):
+    """数据包上下文菜单 - 提供复制、删除、查看等操作"""
+
+    delete_requested = Signal(int)  # 删除请求信号
+
+    def __init__(self, parent: CapturesDataTable):
+        """初始化上下文菜单
+
+        Args:
+            parent: 父组件，通常是 CapturesDataTable
+        """
+        super().__init__(parent=parent)
+        self.row_index = -1  # 初始化一个无效行号
+        self.row_data = {}
+        self.main_window = parent.window()
+
+        self.__init_widget()
+        self.__init_action()
+        self.__connect_signal_to_slot()
+
+    def update_context(self, row_index: int, row_data: dict):
+        """统一的数据更新入口
+
+        Args:
+            row_index: 行索引
+            row_data: 行数据字典
+        """
+        self.row_index = row_index
+        self.row_data = row_data
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.curl_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.COPY,
+            text=self.tr("复制 cURL"),
+            shortcut=QKeySequence("Ctrl+Shift+C"),
+        )
+        self.delete_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.DELETE,
+            text=self.tr("删除"),
+            shortcut=QKeySequence.StandardKey.Delete,
+        )
+        self.view_menu = PacketSubViewMenu(self)
+
+    def __init_action(self):
+        """初始化菜单动作"""
+        self.addAction(self.curl_action)
+        self.addAction(self.delete_action)
+        self.addMenu(self.view_menu)
+
+    def __connect_signal_to_slot(self):
+        """连接信号与槽函数"""
+        self.curl_action.triggered.connect(self.__export_curl)
+        self.delete_action.triggered.connect(self.__on_delete_triggered)
+
+    @Slot()
+    def __on_delete_triggered(self):
+        """删除动作触发时"""
+        if self.row_index != -1:
+            self.delete_requested.emit(self.row_index)
+
+    @Slot()
+    def __export_curl(self):
+        """使用预生成的 cURL 命令"""
+        curl_cmd = self.row_data.get("curl_command")
+        if not curl_cmd:
+            # 如果没有预生成的 cURL 命令（例如非 complete 状态），显示错误
+            InfoBar.warning(
+                title=self.tr("警告"),
+                content=self.tr("cURL 命令尚未生成，请等待请求完成"),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position="BottomCenter",
+                duration=3000,
+                parent=self.main_window,
+            )
+            return
+
+        QApplication.clipboard().setText(curl_cmd)
+        InfoBar.success(
+            title=self.tr("成功"),
+            content=self.tr("cURL 已复制到剪贴板"),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position="BottomCenter",
+            duration=3000,
+            parent=self.main_window,
+        )
+
+    def keyPressEvent(self, event: QKeyEvent):
+        """键盘按下事件
+
+        Args:
+            event: 键盘事件
+        """
+        if event.key() == Qt.Key.Key_Delete:
+            self.delete_action.trigger()
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+
+class PacketSubViewMenu(RoundMenu):
+    """数据包子菜单 - 提供查看详细信息的功能"""
+
+    def __init__(self, parent: PacketContextMenu):
+        """初始化子菜单
+
+        Args:
+            parent: 父组件，通常是 PacketContextMenu
+        """
+        super().__init__(parent=parent)
+        self.parent = parent
+
+        self.__init_widget()
+        self.__init_action()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.setIcon(FluentIcon.VIEW)
+        self.setTitle(self.tr("查看"))
+        self.url_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.LINK,
+            text=self.tr("URL"),
+            shortcut=QKeySequence("Ctrl+U"),
+        )
+
+    def __init_action(self):
+        """初始化菜单动作"""
+        self.addAction(self.url_action)
+
+    def __connect_signal_to_slot(self):
+        """连接信号与槽函数"""
+        self.url_action.triggered.connect(self.__show_url_window)
+
+    @Slot()
+    def __show_url_window(self):
+        """显示 URL 窗口"""
+        data = self.parent.row_data
+        window = self.parent.main_window
+        url = data.get("URL", "No URL")
+        msg = TextCopyDialog(url, "URL", window)
+        if msg.exec():
+            InfoBar.success(
+                title=self.tr("成功"),
+                content=self.tr("URL 已复制到剪贴板"),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position="BottomCenter",
+                duration=3000,
+                parent=window,
+            )
+
+
+class CapturesDataPanel(SimpleCardWidget):
+    """抓包数据面板 - 显示请求和响应详情"""
+
+    def __init__(self, parent: "CapturesContentArea", controller=None):
+        """初始化数据面板
+
+        Args:
+            parent: 父组件，通常是 CapturesContentArea
+            controller: 抓包控制器实例
+        """
+        super().__init__(parent=parent)
+        self.parent = parent
+        self.controller = controller  # 保存 controller 引用
+        self.__init_widget()
+        self.__init_layout()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        # 空
+        self.empty_page = QWidget()
+        self.empty_label = SubtitleLabel(self.empty_page)
+        self.empty_label.setText(self.tr("这里空空如也"))
+        self.empty_close_button = TransparentToolButton(self.empty_page)  # 空页面的 X
+        self.empty_close_button.setIcon(FluentIcon.CLOSE)
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # 有数据
+        self.detail_page = OrientationSplitter(inverted=True)
+        self.req_panel = RequestPanel(self.detail_page, self.controller)
+        self.res_panel = ResponsePanel(self.detail_page, self.controller)
+        self.detail_page.addWidget(self.req_panel)
+        self.detail_page.addWidget(self.res_panel)
+        self.detail_page.setStretchFactor(0, 1)
+        self.detail_page.setStretchFactor(1, 1)
+        self._detail_shown = False
+
+        self.stack = QStackedWidget(self)
+        self.stack.addWidget(self.empty_page)  # index 0
+        self.stack.addWidget(self.detail_page)  # index 1
+
+        self.setBorderRadius(0)  # ← 去掉圆角，与表格对齐
+
+        self.__update_close_buttons()
+
+    def __init_layout(self):
+        """初始化布局结构"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.stack)
+
+        # 空页面布局：顶部右侧 X + 中间文字
+        empty_layout = QVBoxLayout(self.empty_page)
+        empty_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 顶部行：弹簧 + X 按钮（靠右）
+        top_layout = QHBoxLayout()
+        top_layout.addStretch(1)
+        top_layout.addWidget(self.empty_close_button)
+
+        empty_layout.addLayout(top_layout)
+        empty_layout.addStretch(1)
+        empty_layout.addWidget(self.empty_label, 0, Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addStretch(1)
+
+    def __connect_signal_to_slot(self):
+        """连接信号与槽函数"""
+        CONFIG.layout.valueChanged.connect(self.__update_close_buttons)
+        CONFIG.layout.valueChanged.connect(self.__on_layout_changed)
+        self.req_panel.close_button.clicked.connect(self.__collapse_panel)
+        self.res_panel.close_button.clicked.connect(self.__collapse_panel)
+        self.empty_close_button.clicked.connect(self.__collapse_panel)
+
+    @Slot()
+    def __update_close_buttons(self):
+        """更新关闭按钮显示状态"""
+        if self.detail_page.orientation() == Qt.Orientation.Vertical:
+            self.req_panel.close_button.show()
+            self.res_panel.close_button.hide()
+        else:
+            self.req_panel.close_button.hide()
+            self.res_panel.close_button.show()
+
+    @Slot()
+    def __on_layout_changed(self):
+        """布局方向切换时，延迟重新设置 50:50 比例"""
+        if self.stack.currentIndex() == 1:  # 详情页可见
+            QTimer.singleShot(100, self.__apply_detail_equal_sizes)
+
+    @Slot()
+    def __collapse_panel(self):
+        """折叠面板"""
+        self.parent.setSizes([1, 0])
+
+    def set_data(self, data: dict):
+        """有数据时调用，切换到详情页并填充
+
+        Args:
+            data: 数据字典
+        """
+        self.req_panel.set_data(data, "request")  # 请求面板
+        self.res_panel.set_data(data)  # 响应面板
+        self.stack.setCurrentIndex(1)
+        # 首次显示时，安装事件过滤器在布局完成后设置比例
+        if not self._detail_shown:
+            self.detail_page.installEventFilter(self)
+            self._detail_shown = True
+        # 立即尝试 + 延迟设置
+        self.__apply_detail_equal_sizes()
+        QTimer.singleShot(50, self.__apply_detail_equal_sizes)
+
+    def eventFilter(self, obj, event):
+        """拦截 detail_page 的 Resize 事件，在布局完成后设置 50:50（仅首次）"""
+        if obj is self.detail_page and self._detail_shown:
+            if event.type() == QEvent.Type.Resize:
+                QTimer.singleShot(0, self.__apply_detail_equal_sizes)
+                # 首次设置成功后移除事件过滤器
+                w = self.detail_page.width()
+                if w > 100:  # 布局已完成（宽度足够大）
+                    self.detail_page.removeEventFilter(self)
+                    self._detail_shown = False
+        return super().eventFilter(obj, event)
+
+    def __apply_detail_equal_sizes(self):
+        """确保请求面板和响应面板严格 50:50"""
+        w = self.detail_page.width()
+        h = self.detail_page.height()
+        if self.detail_page.orientation() == Qt.Orientation.Horizontal:
+            if w > 0:
+                self.detail_page.setSizes([w // 2, w // 2])
+        else:
+            if h > 0:
+                self.detail_page.setSizes([h // 2, h // 2])
+
+
+class CookieWidget(QWidget):
+    """Cookie 显示组件 - 以 TreeWidget 显示键值对，支持复制"""
+
+    def __init__(self, parent=None):
+        """初始化 Cookie 组件
+
+        Args:
+            parent: 父组件
+        """
+        super().__init__(parent)
+        self.cookies = {}
+        self.__init_widget()
+        self.__init_layout()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.tree = TreeWidget()
+        self.tree.setHeaderLabels(["Name", "Value"])
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setIndentation(0)
+        self.tree.header().setVisible(False)
+
+        self.copy_button = TransparentToolButton(self)
+        self.copy_button.setIcon(FluentIcon.COPY)
+        self.copy_button.setToolTip(self.tr("复制 Cookie"))
+        self.copy_button.installEventFilter(
+            ToolTipFilter(self.copy_button, 1000, ToolTipPosition.TOP)
+        )
+
+    def __init_layout(self):
+        """初始化布局结构"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(4, 2, 4, 2)
+        btn_layout.addWidget(self.copy_button)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        layout.addWidget(self.tree, 1)
+
+    def __connect_signal_to_slot(self):
+        """连接信号与槽函数"""
+        self.copy_button.clicked.connect(self.__on_copy)
+
+    def set_cookies(self, cookies: dict):
+        """设置 cookie 数据 {name: value, ...}
+
+        Args:
+            cookies: Cookie 字典
+        """
+        self.cookies = cookies
+        self.tree.clear()
+
+        for key, value in cookies.items():
+            item = QTreeWidgetItem(self.tree)
+            item.setText(0, str(key))
+            item.setText(1, str(value))
+            item.setTextAlignment(0, Qt.AlignmentFlag.AlignLeft)
+            item.setTextAlignment(1, Qt.AlignmentFlag.AlignLeft)
+
+        self.tree.setColumnWidth(0, 150)
+        self.tree.header().setStretchLastSection(True)
+
+    @Slot()
+    def __on_copy(self):
+        """复制 Cookie 到剪贴板"""
+        if not self.cookies:
+            InfoBar.warning(
+                title=self.tr("提示"),
+                content=self.tr("没有可复制的 Cookie"),
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position="BottomCenter",
+                duration=3000,
+                parent=self.window(),
+            )
+            return
+
+        cookie_str = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+        QApplication.clipboard().setText(cookie_str)
+        InfoBar.success(
+            title=self.tr("成功"),
+            content=self.tr("Cookie 已复制到剪贴板"),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position="BottomCenter",
+            duration=3000,
+            parent=self.window(),
+        )
+
+
+class RequestPanel(TabPanel):
+    """请求面板 - 显示请求详情，包含总览、原始、请求头、参数、请求体、Cookies"""
+
+    def __init__(self, parent=None, controller=None):
+        """初始化请求面板
+
+        Args:
+            parent: 父组件
+            controller: 抓包控制器实例
+        """
+        super().__init__(parent)
+        self.datas = None
+        self.mode = "request"  # "request" or "response"
+        self.controller = controller  # 保存 controller 引用
+
+        self.__init_widget()
+        self.__init_layout()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.raw_edit = CodeViewPanel()
+
+        self.body_card = JsonCard()
+        self.body_card.text_edit.setReadOnly(True)
+
+        self.params_widget = HeaderCard(
+            copy_tooltip="复制为 Query 格式",
+            empty_copy_content="没有可复制的参数",
+            copy_success_content="Query 参数已复制到剪贴板",
+            copy_formatter=lambda items: urlencode(items),
+            key_column_width=150,
+        )
+        self.cookie_widget = CookieWidget()
+
+        self.header_card = HeaderCard()
+
+        self.cookie_card = SimpleCardWidget()
+        self.cookie_card.setBorderRadius(0)
+        cookie_layout = QVBoxLayout(self.cookie_card)
+        cookie_layout.setContentsMargins(0, 0, 0, 0)
+        cookie_layout.addWidget(self.cookie_widget)
+
+        self.overview = Overview(self)
+
+    def __init_layout(self):
+        """初始化布局结构"""
+        self.addTab("总览", self.overview, self.tr("总览"))
+        self.addTab("原始", self.raw_edit, "原始")
+        self.addTab("请求头", self.header_card, "请求头")
+        self.addTab("参数", self.params_widget, "参数")
+        self.addTab("请求体", self.body_card, "请求体")
+        self.addTab("Cookies", self.cookie_card, "Cookies")
+        self.setTabFontSize(12)
+
+    def set_data(self, data: dict, mode: str = "request"):
+        """填充请求或响应数据
+
+        Args:
+            data: 数据字典
+            mode: 模式，"request" 或 "response"
+        """
+        self.mode = mode
+        self.datas = data  # 保存数据，供 _fill_raw 使用
+
+        # 总览 tab 始终用完整数据
+        self.overview.set_data(data)
+
+        # 请求头
+        if mode == "request":
+            headers = data.get("Request Headers", {})
+            self.header_card.set_headers(headers)
+            body = data.get("Request Body", b"")
+            flow_id = data.get("Connection ID", "")
+            content_type = data.get("Request Content-Type", "")
+            self._fill_raw(body, content_type, flow_id)
+            self._fill_body(body, content_type)
+
+            # 解析 URL 参数
+            url = data.get("URL", "")
+            params = self.__parse_url_params(url)
+            self.params_widget.set_items(params)
+
+            # 解析 Cookie
+            cookies = parse_cookies_from_headers(headers, "Cookie")
+            self.cookie_widget.set_cookies(cookies)
+        else:
+            headers = data.get("Response Headers", {})
+            self.header_card.set_headers(headers)
+            body = data.get("Response Body", b"")
+            flow_id = data.get("Connection ID", "")
+            content_type = data.get("Response Content-Type", "")
+            self._fill_raw(body, content_type, flow_id)
+            self._fill_body(body, content_type)
+
+            # 解析 Cookie
+            cookies = parse_cookies_from_headers(headers, "Cookie")
+            self.cookie_widget.set_cookies(cookies)
+
+    def _fill_raw(self, body: bytes, content_type: str = "", flow_id: str = ""):
+        """生成完整的原始HTTP请求/响应格式
+
+        Args:
+            body: 请求/响应体
+            content_type: 内容类型
+            flow_id: 流 ID
+        """
+        # 尝试使用controller获取原始HTTP请求/响应
+        if self.controller and flow_id:
+            try:
+                if self.mode == "request":
+                    raw_data = self.controller.get_raw_request(flow_id)
+                else:
+                    raw_data = self.controller.get_raw_response(flow_id)
+
+                if raw_data:
+                    # 如果成功获取到原始数据，直接使用
+                    if isinstance(raw_data, bytes):
+                        text = raw_data.decode("utf-8", errors="replace")
+                    else:
+                        text = str(raw_data)
+                    self.raw_edit.set_text(text)
+                    return
+            except Exception as e:
+                print(f"获取原始HTTP数据失败: {e}")
+
+        # 如果获取失败，使用手动构建的格式
+        raw_lines = []
+
+        if self.mode == "request":
+            # 请求行
+            method = self.datas.get("Method", "GET")
+            path = self.datas.get("Path", "/")
+            http_version = self.datas.get("HTTP Version", "HTTP/1.1")
+            raw_lines.append(f"{method} {path} {http_version}")
+
+            # 请求头
+            headers = self.datas.get("Request Headers", {})
+            for key, value in headers.items():
+                raw_lines.append(f"{key}: {value}")
+        else:
+            # 响应状态行
+            status_code = self.datas.get("Status Code", 200)
+            reason = self.datas.get("Reason", "OK")
+            http_version = self.datas.get("Response HTTP Version", "HTTP/1.1")
+            raw_lines.append(f"{http_version} {status_code} {reason}")
+
+            # 响应头
+            headers = self.datas.get("Response Headers", {})
+            for key, value in headers.items():
+                raw_lines.append(f"{key}: {value}")
+
+        # 空行分隔头部和body
+        raw_lines.append("")
+
+        # body内容
+        if body:
+            if isinstance(body, bytes):
+                try:
+                    text = body.decode("utf-8", errors="replace")
+                except Exception:
+                    text = str(body)
+            else:
+                text = str(body)
+            raw_lines.append(text)
+
+        self.raw_edit.set_text("\n".join(raw_lines))
+
+    def _fill_body(self, body: bytes, content_type: str = ""):
+        """填充请求/响应体
+
+        Args:
+            body: 请求/响应体
+            content_type: 内容类型
+        """
+        text = decode_body(body, content_type)
+        # 尝试格式化 JSON
+        text = self._try_format_json(text)
+        self.body_card.text_edit.setPlainText(text)
+
+    def _try_format_json(self, text: str) -> str:
+        """尝试将文本格式化为 JSON
+
+        Args:
+            text: 文本内容
+
+        Returns:
+            str: 格式化后的 JSON 文本
+        """
+        if not text or not text.strip():
+            return text
+
+        try:
+            parsed = json.loads(text.strip())
+            return json.dumps(parsed, indent=4, ensure_ascii=False)
+        except (json.JSONDecodeError, ValueError):
+            # 不是 JSON 或解析失败，返回原文
+            return text
+
+    def __parse_url_params(self, url: str) -> dict[str, str]:
+        """解析 URL 中的 query 参数
+
+        Args:
+            url: URL 字符串
+
+        Returns:
+            参数字典 {key: value}
+        """
+        if not url:
+            return {}
+        try:
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query, keep_blank_values=True)
+            return {
+                k: (v[0] if len(v) == 1 else ", ".join(v)) for k, v in params.items()
+            }
+        except Exception:
+            return {}
+
+
+class ResponsePanel(TabPanel):
+    """响应面板 - 包含原始、响应头、响应体三个标签"""
+
+    def __init__(self, parent=None, controller=None):
+        """初始化响应面板
+
+        Args:
+            parent: 父组件
+            controller: 抓包控制器实例
+        """
+        super().__init__(parent)
+        self.datas = None
+        self.controller = controller  # 保存 controller 引用
+
+        self.__init_widget()
+        self.__init_layout()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.raw_edit = CodeCard()
+
+        self.body_card = JsonCard()
+        self.body_card.text_edit.setReadOnly(True)
+
+        self.header_card = HeaderCard()
+
+    def __init_layout(self):
+        """初始化布局结构"""
+        self.addTab("原始", self.raw_edit, "原始")
+        self.addTab("响应头", self.header_card, "响应头")
+        self.addTab("响应体", self.body_card, "响应体")
+        self.setTabFontSize(12)
+
+    def set_data(self, data: dict):
+        """填充响应数据
+
+        Args:
+            data: 数据字典
+        """
+        self.datas = data
+
+        # 响应头
+        headers = data.get("Response Headers", {})
+        self.header_card.set_headers(headers)
+
+        # 响应体
+        body = data.get("Response Body", b"")
+        flow_id = data.get("Connection ID", "")
+        content_type = data.get("Response Content-Type", "")
+        self._fill_raw(body, content_type, flow_id)
+        self._fill_body(body, content_type)
+
+    def _fill_raw(self, body: bytes, content_type: str = "", flow_id: str = ""):
+        """生成完整的原始HTTP响应格式
+
+        Args:
+            body: 响应体
+            content_type: 内容类型
+            flow_id: 流 ID
+        """
+        # 尝试使用controller获取原始HTTP响应
+        if self.controller and flow_id:
+            try:
+                raw_data = self.controller.get_raw_response(flow_id)
+
+                if raw_data:
+                    # 如果成功获取到原始数据，直接使用
+                    if isinstance(raw_data, bytes):
+                        text = raw_data.decode("utf-8", errors="replace")
+                    else:
+                        text = str(raw_data)
+                    self.raw_edit.set_text(text)
+                    return
+            except Exception as e:
+                print(f"获取原始HTTP数据失败: {e}")
+
+        # 如果获取失败，使用手动构建的格式
+        raw_lines = []
+
+        # 响应状态行
+        status_code = self.datas.get("Status Code", 200)
+        reason = self.datas.get("Reason", "OK")
+        http_version = self.datas.get("Response HTTP Version", "HTTP/1.1")
+        raw_lines.append(f"{http_version} {status_code} {reason}")
+
+        # 响应头
+        headers = self.datas.get("Response Headers", {})
+        for key, value in headers.items():
+            raw_lines.append(f"{key}: {value}")
+
+        # 空行分隔头部和body
+        raw_lines.append("")
+
+        # body内容
+        if body:
+            if isinstance(body, bytes):
+                try:
+                    text = body.decode("utf-8", errors="replace")
+                except Exception:
+                    text = str(body)
+            else:
+                text = str(body)
+            raw_lines.append(text)
+
+        self.raw_edit.set_text("\n".join(raw_lines))
+
+    def _fill_body(self, body: bytes, content_type: str = ""):
+        """填充响应体
+
+        Args:
+            body: 响应体
+            content_type: 内容类型
+        """
+        text = decode_body(body, content_type)
+        # 尝试格式化 JSON
+        text = self._try_format_json(text)
+        self.body_card.text_edit.setPlainText(text)
+
+    def _try_format_json(self, text: str) -> str:
+        """尝试将文本格式化为 JSON
+
+        Args:
+            text: 文本内容
+
+        Returns:
+            str: 格式化后的 JSON 文本
+        """
+        if not text or not text.strip():
+            return text
+
+        try:
+            parsed = json.loads(text.strip())
+            return json.dumps(parsed, indent=4, ensure_ascii=False)
+        except (json.JSONDecodeError, ValueError):
+            # 不是 JSON 或解析失败，返回原文
+            return text
+
+
+class Overview(SimpleCardWidget):
+    """总览组件 - 显示 URL 和基本信息"""
+
+    def __init__(self, parent: "RequestPanel"):
+        """初始化总览组件
+
+        Args:
+            parent: 父组件，通常是 RequestPanel
+        """
+        super().__init__(parent)
+        self.parent = parent
+        self.__init_widget()
+        self.__init_layout()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.setBorderRadius(0)
+        self.data = OverviewTree(self)
+
+    def __init_layout(self):
+        """初始化布局结构"""
+        self.v_layout = QVBoxLayout(self)
+        self.v_layout.addWidget(self.data)
+
+    def set_data(self, data: dict):
+        """设置数据
+
+        Args:
+            data: 数据字典
+        """
+        self.data.set_data(data)  # 填充树
+
+
+class OverviewTree(TreeWidget):
+    """总览树形控件 - 显示请求/响应的详细信息"""
+
+    # 基本信息字段
+    FIELDS = [
+        (
+            "状态",
+            lambda d: {
+                "request_headers": "等待中...",
+                "request": "请求已发送",
+                "response_headers": "已收到响应头",
+                "complete": "Completed",
+                "error": "Error",
+            }.get(d.get("state", ""), "未知"),
+        ),
+        ("方法", "Method"),
+        ("协议", "Protocol"),
+        ("Code", "Status Code"),
+        ("服务器地址", "Server Address"),
+        ("Keep Alive", "Keep Alive"),
+        ("流", "id"),
+        ("Content Type", "Response Content-Type"),
+        ("代理协议", "Proxy Protocol"),
+    ]
+
+    # 应用程序信息（仅在有数据时显示）
+    APP_FIELDS = [
+        ("名称", "App Name"),
+        ("ID", "App ID"),
+        ("路径", "App Path"),
+        ("进程ID", "Process ID"),
+    ]
+
+    # 连接信息
+    CONN_FIELDS = [
+        ("ID", "Connection ID"),
+        ("时间", "Connection Time"),
+    ]
+    CONN_FRONT_FIELDS = [
+        ("客户端 地址", "Front Client Address"),
+        ("客户端 端口", "Front Client Port"),
+        ("服务端 地址", "Front Server Address"),
+        ("服务端 端口", "Front Server Port"),
+    ]
+    CONN_BACK_FIELDS = [
+        ("客户端 地址", "Back Client Address"),
+        ("客户端 端口", "Back Client Port"),
+        ("服务端 地址", "Back Server Address"),
+        ("服务端 端口", "Back Server Port"),
+    ]
+
+    # TLS 信息
+    TLS_FIELDS = [
+        ("版本", "TLS Version"),
+        ("SNI", "TLS SNI"),
+        ("ALPN", "TLS ALPN Offers"),
+        ("选择ALPN", "TLS ALPN Selected"),
+        ("加密算法列表", "TLS Cipher List"),
+        ("选择算法", "TLS Cipher"),
+    ]
+
+    # 证书信息 - Subject
+    CERT_SUBJECT_FIELDS = [
+        ("Common Name", "Subject Common Name"),
+        ("国家", "Subject Country"),
+        ("省（州）", "Subject State"),
+        ("地区", "Subject Locality"),
+        ("组织", "Subject Organization"),
+        ("单位", "Subject Organizational Unit"),
+    ]
+
+    # 证书信息 - 签发者
+    CERT_ISSUER_FIELDS = [
+        ("Common Name", "Issuer Common Name"),
+        ("国家", "Issuer Country"),
+        ("省（州）", "Issuer State"),
+        ("地区", "Issuer Locality"),
+        ("组织", "Issuer Organization"),
+        ("单位", "Issuer Organizational Unit"),
+    ]
+
+    # 证书详细信息
+    CERT_DETAIL_FIELDS = [
+        ("开始时间", "Not Before"),
+        ("截止时间", "Not After"),
+        ("指纹", "Fingerprint SHA1"),
+        ("序列号", "Serial Number Hex"),
+    ]
+
+    # 时间信息
+    TIME_FIELDS = [
+        ("请求开始", lambda d: format_time(d.get("req_time"))),
+        ("请求结束", lambda d: format_time(d.get("req_timestamp_end"))),
+        (
+            "请求时长",
+            lambda d: (
+                f"{d.get('req_duration', 0):.1f} ms"
+                if d.get("req_duration") is not None
+                else "-"
+            ),
+        ),
+        ("响应开始", lambda d: format_time(d.get("res_timestamp_start"))),
+        ("响应结束", lambda d: format_time(d.get("res_time"))),
+        (
+            "响应时长",
+            lambda d: (
+                f"{d.get('res_duration', 0):.1f} ms"
+                if d.get("res_duration") is not None
+                else "-"
+            ),
+        ),
+        ("总时长", "Duration"),
+    ]
+
+    # 大小信息
+    SIZE_FIELDS = [
+        (
+            "请求",
+            lambda d: format_bytes(d.get("req_size", 0) + d.get("req_headers_size", 0)),
+        ),
+        ("- 请求头", lambda d: format_bytes(d.get("req_headers_size", 0))),
+        ("- 请求体", lambda d: format_bytes(d.get("req_size", 0))),
+        (
+            "响应",
+            lambda d: format_bytes(d.get("res_size", 0) + d.get("res_headers_size", 0)),
+        ),
+        ("- 响应头", lambda d: format_bytes(d.get("res_headers_size", 0))),
+        ("- 响应体", lambda d: format_bytes(d.get("res_size", 0))),
+        ("总计", lambda d: format_bytes(d.get("total_size", 0))),
+    ]
+
+    def __init__(self, parent: QWidget):
+        """初始化总览树形控件
+
+        Args:
+            parent: 父组件
+        """
+        super().__init__(parent)
+        self.__init_widget()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.setHeaderHidden(True)
+        self.setColumnCount(2)
+        self.setColumnWidth(0, 160)
+
+    def set_data(self, data: dict):
+        """填充扁平数据，只显示有值的字段
+
+        Args:
+            data: 数据字典
+        """
+        self.clear()
+
+        # ── 基本信息 ──
+        for label, key_or_func in self.FIELDS:
+            if callable(key_or_func):
+                value = key_or_func(data)
+            else:
+                value = data.get(key_or_func)
+
+            # 跳过空值
+            if value in (None, "", "N/A", "-"):
+                continue
+
+            item = QTreeWidgetItem(self)
+            item.setText(0, label)
+            item.setText(1, str(value))
+            item.setTextAlignment(
+                0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            item.setTextAlignment(
+                1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+
+        # ── 应用程序信息（仅在有数据时显示） ──
+        has_app = any(data.get(k) for _, k in self.APP_FIELDS)
+        if has_app:
+            parent = QTreeWidgetItem(self)
+            parent.setText(0, self.tr("应用程序"))
+
+            # 加粗父级标题，与子级 key 区分
+            bold_font = QFont()
+            bold_font.setBold(True)
+            parent.setFont(0, bold_font)
+
+            for label, key in self.APP_FIELDS:
+                value = data.get(key)
+                if value in (None, "", "N/A", "-", 0):
+                    continue
+                item = QTreeWidgetItem(parent)
+                item.setText(0, label)
+                item.setText(1, str(value))
+                item.setTextAlignment(
+                    0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+                item.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+
+        # ── 连接信息（仅在有数据时显示） ──
+        has_conn = any(data.get(k) for _, k in self.CONN_FIELDS)
+        if has_conn:
+            conn_parent = QTreeWidgetItem(self)
+            conn_parent.setText(0, self.tr("连接"))
+
+            bold_font = QFont()
+            bold_font.setBold(True)
+            conn_parent.setFont(0, bold_font)
+
+            # ID / 时间（平级）
+            for label, key in self.CONN_FIELDS:
+                value = data.get(key)
+                if value in (None, "", "N/A", "-"):
+                    continue
+                item = QTreeWidgetItem(conn_parent)
+                item.setText(0, label)
+                item.setText(1, str(value))
+                item.setTextAlignment(
+                    0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+                item.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+
+            # 前端（子级父节点）
+            front_items = [
+                (label, data.get(key))
+                for label, key in self.CONN_FRONT_FIELDS
+                if data.get(key) not in (None, "", "N/A", "-")
+            ]
+            if front_items:
+                front_parent = QTreeWidgetItem(conn_parent)
+                front_parent.setText(0, self.tr("前端"))
+                front_parent.setFont(0, bold_font)
+
+                for label, value in front_items:
+                    item = QTreeWidgetItem(front_parent)
+                    item.setText(0, label)
+                    item.setText(1, str(value))
+                    item.setTextAlignment(
+                        0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    )
+                    item.setTextAlignment(
+                        1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    )
+
+            # 后端（子级父节点）
+            back_items = [
+                (label, data.get(key))
+                for label, key in self.CONN_BACK_FIELDS
+                if data.get(key) not in (None, "", "N/A", "-")
+            ]
+            if back_items:
+                back_parent = QTreeWidgetItem(conn_parent)
+                back_parent.setText(0, self.tr("后端"))
+                back_parent.setFont(0, bold_font)
+
+                for label, value in back_items:
+                    item = QTreeWidgetItem(back_parent)
+                    item.setText(0, label)
+                    item.setText(1, str(value))
+                    item.setTextAlignment(
+                        0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    )
+                    item.setTextAlignment(
+                        1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    )
+
+        # ── TLS 信息（仅在有数据时显示） ──
+        has_tls = any(data.get(k) for _, k in self.TLS_FIELDS)
+        if has_tls:
+            tls_parent = QTreeWidgetItem(self)
+            tls_parent.setText(0, self.tr("TLS"))
+
+            bold_font = QFont()
+            bold_font.setBold(True)
+            tls_parent.setFont(0, bold_font)
+
+            for label, key in self.TLS_FIELDS:
+                value = data.get(key)
+
+                # 跳过空值
+                if value in (None, "", "N/A", "-"):
+                    continue
+
+                if isinstance(value, list):
+                    # 列表类字段：如 ALPN Offers、Cipher List
+                    count_item = QTreeWidgetItem(tls_parent)
+                    count_item.setText(0, label)
+                    count_item.setText(1, f"{len(value)}项")
+                    count_item.setFont(0, bold_font)
+
+                    for i, entry in enumerate(value):
+                        sub_item = QTreeWidgetItem(count_item)
+                        sub_item.setText(0, f"  - 算法{i + 1}")
+                        sub_item.setText(1, str(entry))
+                        sub_item.setTextAlignment(
+                            0,
+                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                        )
+                        sub_item.setTextAlignment(
+                            1,
+                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                        )
+                else:
+                    # 普通字段
+                    item = QTreeWidgetItem(tls_parent)
+                    item.setText(0, label)
+                    item.setText(1, str(value))
+                    item.setTextAlignment(
+                        0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    )
+                    item.setTextAlignment(
+                        1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    )
+
+        # ── 证书信息（仅在有数据时显示） ──
+        has_cert = any(
+            data.get(k)
+            for _, k in self.CERT_SUBJECT_FIELDS
+            + self.CERT_ISSUER_FIELDS
+            + self.CERT_DETAIL_FIELDS
+        )
+        if has_cert:
+            cert_parent = QTreeWidgetItem(self)
+            cert_parent.setText(0, self.tr("服务端证书"))
+
+            bold_font = QFont()
+            bold_font.setBold(True)
+            cert_parent.setFont(0, bold_font)
+
+            underline_font = QFont()
+            underline_font.setUnderline(True)
+
+            # ── Subject 信息 ──
+            subject_parent = QTreeWidgetItem(cert_parent)
+            subject_parent.setText(0, "Subject")
+            subject_parent.setFont(0, underline_font)
+
+            for label, key in self.CERT_SUBJECT_FIELDS:
+                value = data.get(key, "")
+                item = QTreeWidgetItem(subject_parent)
+                item.setText(0, f"- {label}")
+                item.setText(1, str(value) if value else "-")
+                item.setTextAlignment(
+                    0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+                item.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+
+            # ── 签发者信息 ──
+            issuer_parent = QTreeWidgetItem(cert_parent)
+            issuer_parent.setText(0, "签发者")
+            issuer_parent.setFont(0, underline_font)
+
+            for label, key in self.CERT_ISSUER_FIELDS:
+                value = data.get(key, "")
+                item = QTreeWidgetItem(issuer_parent)
+                item.setText(0, f"- {label}")
+                item.setText(1, str(value) if value else "-")
+                item.setTextAlignment(
+                    0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+                item.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+
+            # ── 证书详细信息（平级） ──
+            for label, key_or_func in self.CERT_DETAIL_FIELDS:
+                if callable(key_or_func):
+                    value = key_or_func(data)
+                else:
+                    value = data.get(key_or_func, "")
+                if value in (None, "", "N/A", "-"):
+                    continue
+                item = QTreeWidgetItem(cert_parent)
+                item.setText(0, label)
+                item.setText(1, str(value))
+                item.setTextAlignment(
+                    0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+                item.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+
+        # ── 时间信息（仅在有数据时显示） ──
+        has_time = any(
+            data.get(k) is not None
+            for k in (
+                "req_time",
+                "req_timestamp_end",
+                "req_duration",
+                "res_timestamp_start",
+                "res_time",
+                "res_duration",
+                "Duration",
+            )
+        )
+        if has_time:
+            time_parent = QTreeWidgetItem(self)
+            time_parent.setText(0, self.tr("时间"))
+
+            bold_font = QFont()
+            bold_font.setBold(True)
+            time_parent.setFont(0, bold_font)
+
+            for label, key_or_func in self.TIME_FIELDS:
+                if callable(key_or_func):
+                    value = key_or_func(data)
+                else:
+                    value = data.get(key_or_func)
+
+                if value in (None, "", "N/A", "-"):
+                    continue
+
+                item = QTreeWidgetItem(time_parent)
+                item.setText(0, label)
+                item.setText(1, str(value))
+                item.setTextAlignment(
+                    0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+                item.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+
+        # ── 大小信息（仅在有数据时显示） ──
+        has_size = any(
+            data.get(k) is not None
+            for k in (
+                "req_size",
+                "req_headers_size",
+                "res_size",
+                "res_headers_size",
+                "total_size",
+            )
+        )
+        if has_size:
+            size_parent = QTreeWidgetItem(self)
+            size_parent.setText(0, self.tr("大小"))
+
+            bold_font = QFont()
+            bold_font.setBold(True)
+            size_parent.setFont(0, bold_font)
+
+            for label, key_or_func in self.SIZE_FIELDS:
+                if callable(key_or_func):
+                    value = key_or_func(data)
+                else:
+                    value = data.get(key_or_func)
+
+                if value in (None, "", "N/A", "-"):
+                    continue
+
+                item = QTreeWidgetItem(size_parent)
+                item.setText(0, label)
+                item.setText(1, str(value))
+                item.setTextAlignment(
+                    0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+                item.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )

@@ -1,0 +1,22 @@
+<RCC>
+    <qresource>
+        <file alias="icon">icon.png</file>
+    </qresource>
+    <qresource>
+        <file>i18n/zh_CN.qm</file>
+
+        <file>icons/Location_black.svg</file>
+        <file>icons/Location_white.svg</file>
+
+        <file>icons/Location_target_black.svg</file>
+        <file>icons/Location_target_white.svg</file>
+
+        <file>icons/Bookmark_Add_white.svg</file>
+        <file>icons/Bookmark_Add_black.svg</file>
+
+        <file>icons/Document_Search_black.svg</file>
+        <file>icons/Document_Search_white.svg</file>
+
+
+    </qresource>
+</RCC>
