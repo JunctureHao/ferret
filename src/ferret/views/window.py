@@ -1,4 +1,4 @@
-from PySide6.QtCore import QRect, Qt, Signal, Slot
+from PySide6.QtCore import QRect, Signal, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 from qfluentwidgets import (
@@ -67,7 +67,7 @@ class MainWindow(FluentWindow):
 
     def __connect_signal_to_slot(self):
         qconfig.themeChanged.connect(lambda theme: setTheme(theme))
-        self.pin_button.pin_status_changed.connect(self.__on_pin_status_changed)
+        self.pin_button.clicked.connect(self.toggleStayOnTop)
         self.tray_icon.activated.connect(self.__on_activated)
 
     def __center_window(self):
@@ -75,12 +75,6 @@ class MainWindow(FluentWindow):
         desktop: QRect = QApplication.primaryScreen().availableGeometry()
         w, h = desktop.width(), desktop.height()
         self.move(w // 2 - self.width() // 2, h // 2 - self.height() // 2)
-
-    @Slot()
-    def __on_pin_status_changed(self, is_pinned: bool):
-        """处理置顶状态改变"""
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, is_pinned)
-        self.show()
 
     @Slot()
     def __on_activated(self, reason: QSystemTrayIcon.ActivationReason):
@@ -131,9 +125,6 @@ class SystemTray(QSystemTrayIcon):
 class PinButton(FluentTitleBarButton):
     """置顶按钮组件"""
 
-    # 添加信号：状态改变时发出
-    pin_status_changed = Signal(bool)
-
     def __init__(self, parent=None, shortcut: str = "Ctrl+T"):
         super().__init__(FluentIcon.PIN, parent)
 
@@ -159,24 +150,11 @@ class PinButton(FluentTitleBarButton):
         """连接信号到槽"""
         self.clicked.connect(self.toggle)
 
-    @property
-    def is_pinned(self) -> bool:
-        """是否置顶"""
-        return self._is_pinned
-
     @Slot()
     def toggle(self):
         """切换置顶状态"""
         self._is_pinned = not self._is_pinned
         self.__update_ui()
-        self.pin_status_changed.emit(self._is_pinned)  # ← 发出信号
-
-    def set_pinned(self, pinned: bool):
-        """设置置顶状态"""
-        if self._is_pinned != pinned:
-            self._is_pinned = pinned
-            self.__update_ui()
-            self.pin_status_changed.emit(self._is_pinned)  # ← 发出信号
 
     def __update_ui(self):
         """更新 UI"""
