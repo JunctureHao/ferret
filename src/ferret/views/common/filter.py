@@ -12,6 +12,7 @@ from qfluentwidgets import (
     LineEdit,
     TransparentToolButton,
 )
+from qfluentwidgets.components.widgets.card_widget import SimpleCardWidget
 
 
 class FilterRow(QWidget):
@@ -82,7 +83,7 @@ class FilterRow(QWidget):
         }
 
 
-class MultiFilterManager(QWidget):
+class MultiFilterManager(SimpleCardWidget):
     """管理多行 FilterRow 的容器"""
 
     MAX_ROWS = 5
@@ -97,7 +98,7 @@ class MultiFilterManager(QWidget):
         self.__connect_signal_to_slot()
 
     def __init_widget(self):
-        pass
+        self.setVisible(False)
 
     def __init_layout(self):
         self.v_layout = QVBoxLayout(self)

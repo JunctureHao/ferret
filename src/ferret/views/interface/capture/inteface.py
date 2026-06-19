@@ -83,7 +83,7 @@ if TYPE_CHECKING:
     from ferret.views.window import MainWindow
 
 
-class CapturesInterface(QWidget):
+class CapturesInterface(SimpleCardWidget):
     """抓包主界面 - 包含工具栏、搜索面板和内容区域"""
 
     def __init__(self, parent: "MainWindow | None" = None):
@@ -103,27 +103,14 @@ class CapturesInterface(QWidget):
     def __init_widget(self):
         """初始化界面组件"""
         self.toolbar = CapturesToolBar(self)
-        self.search_panel = MultiFilterManager(self)
-        self.search_panel_container = QWidget(self)
-        self.search_panel_container.setVisible(False)
         self.content = CapturesContentArea(self, self.controller)
-
-        # Ctrl+F 快捷键切换搜索面板（应用级事件过滤，优先于子控件的按键处理）
-        QApplication.instance().installEventFilter(self)
 
     def __init_layout(self):
         """初始化布局结构"""
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
-
-        # 搜索面板容器：水平内缩，与工具栏拉开主次层次
-        container_layout = QVBoxLayout(self.search_panel_container)
-        container_layout.setContentsMargins(12, 0, 12, 0)
-        container_layout.addWidget(self.search_panel)
-
         self.main_layout.addWidget(self.toolbar)
-        self.main_layout.addWidget(self.search_panel_container)
         self.main_layout.addWidget(self.content)
 
     def __connect_signal_to_slot(self):
@@ -132,7 +119,6 @@ class CapturesInterface(QWidget):
         self.toolbar.captureToggled.connect(self.__on_capture_toggled)
 
         # 简单点击：直接连接按钮原生信号
-        self.toolbar.search_btn.toggled.connect(self.__toggle_search_panel)
         self.toolbar.proxy_setting_btn.clicked.connect(self.__show_proxy_port_dialog)
         self.toolbar.locate_selection_btn.clicked.connect(
             self.content.table.on_locate_selection
@@ -146,25 +132,11 @@ class CapturesInterface(QWidget):
         )
         self.controller.capture_started.connect(self.content.table.set_traffic_addon)
 
-        # 搜索面板
-        self.search_panel.conditionsChanged.connect(self.__on_search_changed)
-        self.search_panel.panelCloseRequested.connect(self.__toggle_search_panel)
+        # 搜索面板（通过 toolbar 暴露的信号）
+        self.toolbar.conditionsChanged.connect(self.__on_search_changed)
 
         # 统计信息更新
         self.content.table.stats_updated.connect(self.toolbar.update_stats)
-
-    def eventFilter(self, obj, event):
-        """应用级事件过滤：拦截 Ctrl+F 快捷键"""
-        if event.type() == QEvent.Type.KeyPress:
-            if (
-                event.modifiers() == Qt.KeyboardModifier.ControlModifier
-                and event.key() == Qt.Key.Key_F
-            ):
-                # 确保只在本窗口激活时响应
-                if self.window().isActiveWindow():
-                    self.__toggle_search_panel()
-                    return True
-        return super().eventFilter(obj, event)
 
     @Slot(bool)
     def __on_capture_toggled(self, is_on: bool):
@@ -186,21 +158,9 @@ class CapturesInterface(QWidget):
             show_success("成功", "代理已关闭", parent=self)
 
     @Slot()
-    def __toggle_search_panel(self):
-        """切换搜索面板显示/隐藏"""
-        visible = not self.search_panel_container.isVisible()
-        self.search_panel_container.setVisible(visible)
-        # blockSignals 阻止 setChecked 触发 toggled 信号，避免无限递归
-        self.toolbar.search_btn.blockSignals(True)
-        self.toolbar.search_btn.setChecked(visible)
-        self.toolbar.search_btn.blockSignals(False)
-        if visible:
-            self.search_panel.focus_first_input()
-
-    @Slot()
     def __on_search_changed(self):
         """搜索条件变更时更新过滤"""
-        conditions = self.search_panel.get_conditions()
+        conditions = self.toolbar.search_panel.get_conditions()
         self.content.table.proxy_model.set_multi_search(conditions)
 
     @Slot()
@@ -322,10 +282,11 @@ class GridTreeWidget(TreeWidget):
 
 
 class CapturesToolBar(QWidget):
-    """自定义工具栏 - 组件自管理事件，对外暴露业务信号"""
+    """自定义工具栏 - 内嵌搜索面板，自管理显隐，对外暴露业务信号"""
 
-    # 业务信号：有状态转换的操作才需要
+    # 业务信号
     captureToggled = Signal(bool)
+    conditionsChanged = Signal()  # 搜索面板条件变更（透传）
 
     def __init__(self, parent: "CapturesInterface"):
         """初始化工具栏
@@ -341,9 +302,8 @@ class CapturesToolBar(QWidget):
 
     def __init_widget(self):
         """初始化界面组件"""
-        # 设置大小策略 — 固定高度，防止横向布局时被拉伸
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(36)
+        # 垂直方向只占所需空间，不被 VBoxLayout 拉伸
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         # 左侧：过滤按钮
         self.search_btn = TransparentToolButton(FluentIcon.FILTER, self)
@@ -355,7 +315,7 @@ class CapturesToolBar(QWidget):
         self.search_btn.setFixedSize(32, 32)
         self.search_btn.setIconSize(QSize(20, 20))
 
-        # 统计标签 — 直接显示数字，简洁直观
+        # 统计标签
         self.stats_label = CaptionLabel("0", self)
 
         # 右侧：操作按钮
@@ -394,27 +354,70 @@ class CapturesToolBar(QWidget):
         self.captures_delete_btn.setFixedSize(32, 32)
         self.captures_delete_btn.setIconSize(QSize(20, 20))
 
+        # 搜索面板（内嵌）
+        self.search_panel = MultiFilterManager(self)
+        self.search_panel.setContentsMargins(0, 0, 0, 4)
+
+        # Ctrl+F 快捷键（应用级事件过滤）
+        QApplication.instance().installEventFilter(self)
+
     def __init_layout(self):
-        """初始化布局结构 - 左侧过滤+统计，右侧操作按钮"""
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 2)
+        """初始化布局结构 - 按钮行 + 搜索面板（垂直）"""
+        v_layout = QVBoxLayout(self)
+        v_layout.setContentsMargins(0, 0, 0, 0)
+        v_layout.setSpacing(0)
 
-        # 左侧：过滤按钮 + 统计标签
-        layout.addWidget(self.search_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.stats_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        # 按钮行
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.addWidget(self.search_btn)
+        btn_layout.addWidget(self.stats_label)
+        btn_layout.addStretch(1)
+        btn_layout.addWidget(self.proxy_setting_btn)
+        btn_layout.addWidget(self.locate_selection_btn)
+        btn_layout.addWidget(self.control_btn)
+        btn_layout.addWidget(self.captures_delete_btn)
 
-        # 弹簧：将右侧按钮推到最右
-        layout.addStretch(1)
-
-        # 右侧：端口设置、定位、播放、删除
-        layout.addWidget(self.proxy_setting_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.locate_selection_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.control_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.captures_delete_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        v_layout.addLayout(btn_layout)
+        v_layout.addWidget(self.search_panel)
 
     def __connect_signal_to_slot(self):
-        """组件内部事件管理：按钮点击 → 业务信号"""
+        """组件内部事件管理"""
         self.control_btn.toggled.connect(self.captureToggled.emit)
+        self.search_btn.toggled.connect(self.__toggle_search_panel)
+        self.search_panel.conditionsChanged.connect(self.conditionsChanged.emit)
+        self.search_panel.panelCloseRequested.connect(self.__on_search_panel_close)
+
+    @Slot()
+    def __toggle_search_panel(self):
+        """切换搜索面板显示/隐藏"""
+        visible = not self.search_panel.isVisible()
+        self.search_panel.setVisible(visible)
+        self.search_btn.blockSignals(True)
+        self.search_btn.setChecked(visible)
+        self.search_btn.blockSignals(False)
+        if visible:
+            self.search_panel.focus_first_input()
+
+    @Slot()
+    def __on_search_panel_close(self):
+        """搜索面板请求关闭（最后一行被删除）"""
+        self.search_panel.setHidden(True)
+        self.search_btn.blockSignals(True)
+        self.search_btn.setChecked(False)
+        self.search_btn.blockSignals(False)
+
+    def eventFilter(self, obj, event):
+        """应用级事件过滤：拦截 Ctrl+F 快捷键"""
+        if event.type() == QEvent.Type.KeyPress:
+            if (
+                event.modifiers() == Qt.KeyboardModifier.ControlModifier
+                and event.key() == Qt.Key.Key_F
+            ):
+                if self.window().isActiveWindow():
+                    self.__toggle_search_panel()
+                    return True
+        return super().eventFilter(obj, event)
 
     @Slot(int, int, int)
     def update_stats(self, total: int, shown: int, selected: int):
