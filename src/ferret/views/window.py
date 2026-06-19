@@ -1,4 +1,4 @@
-from PySide6.QtCore import QRect, Signal, Slot
+from PySide6.QtCore import QRect, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 from qfluentwidgets import (
