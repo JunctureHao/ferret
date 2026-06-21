@@ -8,6 +8,7 @@ from qfluentwidgets import (
     ExpandLayout,
     FluentIcon,
     InfoBar,
+    InfoBarPosition,
     OptionsSettingCard,
     ScrollArea,
     SettingCardGroup,
@@ -147,7 +148,7 @@ class SettingsInterface(ScrollArea):
             content=self.tr("Configuration takes effect after restart"),
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
-            position="BottomCenter",
+            position=InfoBarPosition.BOTTOM,
             duration=3000,
             parent=self.window(),
         )

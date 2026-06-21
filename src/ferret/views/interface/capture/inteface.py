@@ -246,41 +246,6 @@ class CapturesContentArea(OrientationSplitter):
             self.panel.set_data(data)
 
 
-class GridTreeWidget(TreeWidget):
-    """带原生网格线的 TreeWidget（通过 QPainter 绘制，不使用 QSS）"""
-
-    def paintEvent(self, event):
-        """绘制网格线
-
-        Args:
-            event: 绘制事件
-        """
-        super().paintEvent(event)
-        painter = QPainter(self.viewport())
-        pen = QPen(self.palette().color(QPalette.ColorRole.Mid), 1)
-        pen.setStyle(Qt.PenStyle.SolidLine)
-        painter.setPen(pen)
-
-        # 绘制每行下方的水平线
-        for i in range(self.topLevelItemCount()):
-            item = self.topLevelItem(i)
-            if item is None:
-                continue
-            rect = self.visualRect(self.indexFromItem(item))
-            if rect.isValid():
-                y = rect.bottom()
-                painter.drawLine(0, y, self.viewport().width(), y)
-
-        # 绘制列分隔线（垂直）
-        header = self.header()
-        for col in range(1, self.columnCount()):
-            x = header.sectionViewportPosition(col)
-            if x > 0:
-                painter.drawLine(x, 0, x, self.viewport().height())
-
-        painter.end()
-
-
 class CapturesToolBar(QWidget):
     """自定义工具栏 - 内嵌搜索面板，自管理显隐，对外暴露业务信号"""
 

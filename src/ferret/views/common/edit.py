@@ -1,11 +1,10 @@
 import sys
 
-from PySide6.QtCore import QRect, QSize, Qt, Signal, Slot
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import QRect, QSize, Qt, Slot
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
-    QPlainTextEdit,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -24,7 +23,7 @@ from qfluentwidgets import (
 from ferret.views.common.icon import BaseIcon
 
 
-class LineNumberArea(QWidget):
+class LineNumberArea(SimpleCardWidget):
     """行号区域 — 只负责绘制"""
 
     def __init__(self, editor: "CodeEditor"):
@@ -166,8 +165,15 @@ class CodeEditor(SimpleCardWidget):
     def line_number_area_paint_event(self, event):
         painter = QPainter(self.line_number_area)
 
-        bg = QColor("#2b2b2b") if isDarkTheme() else QColor("#f5f5f5")
-        painter.fillRect(event.rect(), bg)
+        palette = self.text_edit.palette()
+        painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
+
+        # 绘制右侧分隔线（与 SimpleCardWidget 边框风格一致）
+        sep_color = QColor(0, 0, 0, 48) if isDarkTheme() else QColor(0, 0, 0, 12)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(sep_color, 1))
+        right = self.line_number_area.width() - 1
+        painter.drawLine(right, 0, right, self.line_number_area.height())
 
         current_block = self.text_edit.current_highlight_block()
         block = self.text_edit.firstVisibleBlock()
@@ -185,19 +191,23 @@ class CodeEditor(SimpleCardWidget):
 
             if block.isVisible() and bottom >= event.rect().top():
                 if block_number == current_block:
-                    color = (
+                    highlight = (
                         QColor(255, 255, 255, 15)
                         if isDarkTheme()
                         else QColor(0, 0, 0, 8)
                     )
                     painter.fillRect(
-                        0, top, self.line_number_area.width() + 5, bottom - top, color
+                        0,
+                        top,
+                        self.line_number_area.width() + 5,
+                        bottom - top,
+                        highlight,
                     )
-                    painter.setPen(
-                        QColor(200, 200, 200) if isDarkTheme() else QColor(30, 30, 30)
-                    )
+                    painter.setPen(palette.color(QPalette.ColorRole.Text))
                 else:
-                    painter.setPen(QColor(128, 128, 128, 120))
+                    inactive = palette.color(QPalette.ColorRole.Text)
+                    inactive.setAlpha(100)
+                    painter.setPen(inactive)
 
                 painter.drawText(
                     0,
