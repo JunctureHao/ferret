@@ -511,9 +511,36 @@ class CodeEditorContainer(QWidget):
 
 
 if __name__ == "__main__":
+    from qfluentwidgets import Theme, TransparentToolButton, setTheme
+    from qfluentwidgets.window.fluent_window import FluentWidget
+
     from ferret.config import resources_rc  # noqa: F401
 
     app = QApplication(sys.argv)
+    setTheme(Theme.DARK)
+
+    window = FluentWidget()
+    window.setWindowTitle("CodeViewPanel Demo")
+    window.resize(700, 500)
+
+    # 在窗口控制按钮左侧插入主题切换按钮
+    btn_theme = TransparentToolButton(FluentIcon.CONSTRACT)
+    btn_theme.setToolTip("切换主题")
+    title_layout = window.titleBar.hBoxLayout
+    title_layout.insertWidget(
+        title_layout.count() - 1, btn_theme, 0, Qt.AlignmentFlag.AlignVCenter
+    )
+
+    @btn_theme.clicked.connect
+    def _():
+        setTheme(Theme.LIGHT if isDarkTheme() else Theme.DARK)
+
+    # 内容区域，顶部预留标题栏高度
+    layout = QVBoxLayout(window)
+    title_height = window.titleBar.height()
+    layout.setContentsMargins(12, title_height + 4, 12, 12)
+    layout.setSpacing(8)
+
     editor = CodeViewPanel()
     editor.set_text(
         "\n".join(
@@ -523,7 +550,7 @@ if __name__ == "__main__":
             ]
         )
     )
+    layout.addWidget(editor, stretch=1)
 
-    editor.resize(600, 400)
-    editor.show()
+    window.show()
     sys.exit(app.exec())
