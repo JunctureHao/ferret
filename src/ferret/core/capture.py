@@ -99,7 +99,7 @@ class UITrafficAddon:
 
             # 进程信息
             client_addr = flow.client_conn.peername if flow.client_conn else None
-            proc_info = resolve_process(client_addr)
+            proc_info = resolve_process(client_addr) if client_addr else None
             app = proc_info.to_dict() if proc_info else {}
 
             # 连接信息
@@ -300,7 +300,7 @@ class UITrafficAddon:
 
         self._flow_cache[flow_id] = flow
 
-    def get_flow(self, flow_id: str) -> HTTPFlow:
+    def get_flow(self, flow_id: str) -> HTTPFlow | None:
         """获取缓存的 flow 对象（用于导出）"""
         return self._flow_cache.get(flow_id)
 

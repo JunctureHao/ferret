@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any, Dict, List
 
 from PySide6.QtCore import (
@@ -11,8 +10,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor
 from qfluentwidgets import isDarkTheme
-
-from ferret.utils.process_resolver import resolve_process
 
 
 class PacketTableModel(QAbstractTableModel):
@@ -81,12 +78,12 @@ class PacketTableModel(QAbstractTableModel):
             # Method 列着色
             if column_name == "Method":
                 method_colors = {
-                    "GET":    ("#0550AE", "#7EE787"),
-                    "POST":   ("#8250DF", "#D2A8FF"),
-                    "PUT":    ("#9A6700", "#E3B341"),
-                    "PATCH":  ("#9A6700", "#E3B341"),
+                    "GET": ("#0550AE", "#7EE787"),
+                    "POST": ("#8250DF", "#D2A8FF"),
+                    "PUT": ("#9A6700", "#E3B341"),
+                    "PATCH": ("#9A6700", "#E3B341"),
                     "DELETE": ("#CF222E", "#FFA198"),
-                    "HEAD":   ("#0E7490", "#56D4DD"),
+                    "HEAD": ("#0E7490", "#56D4DD"),
                     "OPTIONS": ("#6E7781", "#8B949E"),
                 }
                 v = str(value).upper()
@@ -367,7 +364,6 @@ class PacketProxyModel(QSortFilterProxyModel):
         # 2. 内容类型过滤
         if self._content_type_filter:
             resp_ct = data.get("Response Content-Type", "") or ""
-            req_ct = data.get("Request Content-Type", "") or ""
             ct = resp_ct.lower()
             matched = False
             for t in self._content_type_filter:

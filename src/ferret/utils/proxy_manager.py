@@ -1,5 +1,5 @@
-import sys
 import subprocess
+import sys
 
 
 class SystemProxyManager:
@@ -44,7 +44,7 @@ class SystemProxyManager:
                     wininet = ctypes.windll.Wininet
                     wininet.InternetSetOptionW(0, 39, 0, 0)  # SETTINGS_CHANGED
                     wininet.InternetSetOptionW(0, 37, 0, 0)  # REFRESH
-                except:
+                except Exception:
                     pass
                 print(f"✅ Windows 代理已开启: {proxy_addr}")
                 return True
@@ -75,7 +75,7 @@ class SystemProxyManager:
                     check=True,
                 )
                 return True
-            except:
+            except Exception:
                 return False
 
         elif platform.startswith("linux"):
@@ -99,7 +99,7 @@ class SystemProxyManager:
                     ["gsettings", "set", base, "ignore-hosts", "[]"], check=True
                 )
                 return True
-            except:
+            except Exception:
                 return False
 
         return False
@@ -115,7 +115,7 @@ class SystemProxyManager:
 
                     ctypes.windll.Wininet.InternetSetOptionW(0, 39, 0, 0)
                     ctypes.windll.Wininet.InternetSetOptionW(0, 37, 0, 0)
-                except:
+                except Exception:
                     pass
                 print("✅ Windows 代理已关闭")
                 return True
@@ -132,7 +132,7 @@ class SystemProxyManager:
                     check=True,
                 )
                 return True
-            except:
+            except Exception:
                 return False
 
         elif platform.startswith("linux"):
@@ -142,7 +142,7 @@ class SystemProxyManager:
                     check=True,
                 )
                 return True
-            except:
+            except Exception:
                 return False
 
         return False
