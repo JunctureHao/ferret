@@ -436,7 +436,7 @@ class CodeEditorPanel(SimpleCardWidget):
         self._code_editor.text_edit.setReadOnly(read_only)
 
 
-class CodeViewPanel(CodeEditorPanel):
+class RawViewPanel(CodeEditorPanel):
     """代码查看面板 — 只读的 CodeEditorPanel"""
 
     def __init__(self, parent: QWidget | None = None):
@@ -541,7 +541,7 @@ if __name__ == "__main__":
     layout.setContentsMargins(12, title_height + 4, 12, 12)
     layout.setSpacing(8)
 
-    editor = CodeViewPanel()
+    editor = RawViewPanel()
     editor.set_text(
         "\n".join(
             [

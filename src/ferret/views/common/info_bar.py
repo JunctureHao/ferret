@@ -1,6 +1,7 @@
 """自定义 InfoBar 位置管理器 - 底部中央显示"""
 
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtWidgets import QWidget
 from qfluentwidgets import InfoBar, InfoBarManager, InfoBarPosition
 
 
@@ -46,6 +47,8 @@ class BottomCenterInfoBarManager(InfoBarManager):
 
     def _pos(self, infoBar: InfoBar, parentSize=None):
         p = infoBar.parent()
+        if not isinstance(p, QWidget):
+            return QPoint(0, 0)
         parentSize = parentSize or p.size()
 
         # 水平居中

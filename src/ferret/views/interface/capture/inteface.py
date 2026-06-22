@@ -14,12 +14,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QFont,
-    QKeyEvent,
-    QKeySequence,
-    QPainter,
-    QPalette,
-    QPen,
-    QShortcut,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -29,32 +23,23 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QSizePolicy,
     QStackedWidget,
-    QStyledItemDelegate,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
-    BodyLabel,
     CaptionLabel,
     FluentIcon,
-    FlyoutViewBase,
-    InfoBar,
     MessageBoxBase,
-    PopupTeachingTip,
-    RoundMenu,
     SimpleCardWidget,
     SpinBox,
-    StrongBodyLabel,
     SubtitleLabel,
     TableItemDelegate,
     TableView,
-    TeachingTipTailPosition,
     ToolTipFilter,
     ToolTipPosition,
     TransparentToolButton,
     TreeWidget,
-    VerticalSeparator,
 )
 
 from ferret.config.settings import CONFIG
@@ -66,18 +51,17 @@ from ferret.utils.http_parser import (
     format_time,
     parse_cookies_from_headers,
 )
-from ferret.views.common.dialog import TextCopyDialog
-from ferret.views.common.edit import CodeViewPanel
+from ferret.views.common.edit import RawViewPanel
 from ferret.views.common.filter import MultiFilterManager
 from ferret.views.common.header_card import HeaderCard
-from ferret.views.common.icon import BaseAction, BaseIcon
-from ferret.views.common.info_bar import show_success
+from ferret.views.common.icon import BaseIcon
+from ferret.views.common.info_bar import show_success, show_warning
 from ferret.views.common.json_edit import JsonCard
-from ferret.views.common.line_edit import CodeCard
 from ferret.views.common.panel import TabPanel
 from ferret.views.common.splitter import (
     OrientationSplitter,
 )
+from ferret.views.interface.capture.packet_menu import PacketContextMenu
 
 if TYPE_CHECKING:
     from ferret.views.window import MainWindow
@@ -212,6 +196,7 @@ class CapturesContentArea(OrientationSplitter):
         """连接信号与槽函数"""
         self.table.row_double_clicked.connect(self.__on_show_panel)
         self.table.row_selected.connect(self.__on_select_row)  # ← 新增
+        self.panel.collapseRequested.connect(lambda: self.setSizes([1, 0]))
 
     @Slot(dict)
     def __on_show_panel(self, data):
@@ -324,7 +309,9 @@ class CapturesToolBar(QWidget):
         self.search_panel.setContentsMargins(0, 0, 0, 4)
 
         # Ctrl+F 快捷键（应用级事件过滤）
-        QApplication.instance().installEventFilter(self)
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
 
     def __init_layout(self):
         """初始化布局结构 - 按钮行 + 搜索面板（垂直）"""
@@ -623,176 +610,13 @@ class CapturesDataTable(TableView):
         self.row_double_clicked.emit(data)
 
 
-class PacketContextMenu(RoundMenu):
-    """数据包上下文菜单 - 提供复制、删除、查看等操作"""
-
-    delete_requested = Signal(int)  # 删除请求信号
-
-    def __init__(self, parent: CapturesDataTable):
-        """初始化上下文菜单
-
-        Args:
-            parent: 父组件，通常是 CapturesDataTable
-        """
-        super().__init__(parent=parent)
-        self.row_index = -1  # 初始化一个无效行号
-        self.row_data = {}
-        self.main_window = parent.window()
-
-        self.__init_widget()
-        self.__init_action()
-        self.__connect_signal_to_slot()
-
-    def update_context(self, row_index: int, row_data: dict):
-        """统一的数据更新入口
-
-        Args:
-            row_index: 行索引
-            row_data: 行数据字典
-        """
-        self.row_index = row_index
-        self.row_data = row_data
-
-    def __init_widget(self):
-        """初始化界面组件"""
-        self.curl_action = BaseAction(
-            parent=self,
-            icon=FluentIcon.COPY,
-            text=self.tr("复制 cURL"),
-            shortcut=QKeySequence("Ctrl+Shift+C"),
-        )
-        self.delete_action = BaseAction(
-            parent=self,
-            icon=FluentIcon.DELETE,
-            text=self.tr("删除"),
-            shortcut=QKeySequence.StandardKey.Delete,
-        )
-        self.view_menu = PacketSubViewMenu(self)
-
-    def __init_action(self):
-        """初始化菜单动作"""
-        self.addAction(self.curl_action)
-        self.addAction(self.delete_action)
-        self.addMenu(self.view_menu)
-
-    def __connect_signal_to_slot(self):
-        """连接信号与槽函数"""
-        self.curl_action.triggered.connect(self.__export_curl)
-        self.delete_action.triggered.connect(self.__on_delete_triggered)
-
-    @Slot()
-    def __on_delete_triggered(self):
-        """删除动作触发时"""
-        if self.row_index != -1:
-            self.delete_requested.emit(self.row_index)
-
-    @Slot()
-    def __export_curl(self):
-        """使用预生成的 cURL 命令"""
-        curl_cmd = self.row_data.get("curl_command")
-        if not curl_cmd:
-            # 如果没有预生成的 cURL 命令（例如非 complete 状态），显示错误
-            InfoBar.warning(
-                title=self.tr("警告"),
-                content=self.tr("cURL 命令尚未生成，请等待请求完成"),
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position="BottomCenter",
-                duration=3000,
-                parent=self.main_window,
-            )
-            return
-
-        QApplication.clipboard().setText(curl_cmd)
-        InfoBar.success(
-            title=self.tr("成功"),
-            content=self.tr("cURL 已复制到剪贴板"),
-            orient=Qt.Orientation.Horizontal,
-            isClosable=True,
-            position="BottomCenter",
-            duration=3000,
-            parent=self.main_window,
-        )
-
-    def keyPressEvent(self, event: QKeyEvent):
-        """键盘按下事件
-
-        Args:
-            event: 键盘事件
-        """
-        if event.key() == Qt.Key.Key_Delete:
-            self.delete_action.trigger()
-            self.close()
-        else:
-            super().keyPressEvent(event)
-
-
-class PacketSubViewMenu(RoundMenu):
-    """数据包子菜单 - 提供查看详细信息的功能"""
-
-    def __init__(self, parent: PacketContextMenu):
-        """初始化子菜单
-
-        Args:
-            parent: 父组件，通常是 PacketContextMenu
-        """
-        super().__init__(parent=parent)
-        self.parent = parent
-
-        self.__init_widget()
-        self.__init_action()
-        self.__connect_signal_to_slot()
-
-    def __init_widget(self):
-        """初始化界面组件"""
-        self.setIcon(FluentIcon.VIEW)
-        self.setTitle(self.tr("查看"))
-        self.url_action = BaseAction(
-            parent=self,
-            icon=FluentIcon.LINK,
-            text=self.tr("URL"),
-            shortcut=QKeySequence("Ctrl+U"),
-        )
-
-    def __init_action(self):
-        """初始化菜单动作"""
-        self.addAction(self.url_action)
-
-    def __connect_signal_to_slot(self):
-        """连接信号与槽函数"""
-        self.url_action.triggered.connect(self.__show_url_window)
-
-    @Slot()
-    def __show_url_window(self):
-        """显示 URL 窗口"""
-        data = self.parent.row_data
-        window = self.parent.main_window
-        url = data.get("URL", "No URL")
-        msg = TextCopyDialog(url, "URL", window)
-        if msg.exec():
-            InfoBar.success(
-                title=self.tr("成功"),
-                content=self.tr("URL 已复制到剪贴板"),
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position="BottomCenter",
-                duration=3000,
-                parent=window,
-            )
-
-
 class CapturesDataPanel(SimpleCardWidget):
     """抓包数据面板 - 显示请求和响应详情"""
 
-    def __init__(self, parent: "CapturesContentArea", controller=None):
-        """初始化数据面板
+    collapseRequested = Signal()  # 请求折叠面板
 
-        Args:
-            parent: 父组件，通常是 CapturesContentArea
-            controller: 抓包控制器实例
-        """
+    def __init__(self, parent: "CapturesContentArea", controller=None):
         super().__init__(parent=parent)
-        self.parent = parent
         self.controller = controller  # 保存 controller 引用
         self.__init_widget()
         self.__init_layout()
@@ -803,7 +627,7 @@ class CapturesDataPanel(SimpleCardWidget):
         # 空
         self.empty_page = QWidget()
         self.empty_label = SubtitleLabel(self.empty_page)
-        self.empty_label.setText(self.tr("这里空空如也"))
+        self.empty_label.setText(self.tr("什么都没有"))
         self.empty_close_button = TransparentToolButton(self.empty_page)  # 空页面的 X
         self.empty_close_button.setIcon(FluentIcon.CLOSE)
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -873,7 +697,7 @@ class CapturesDataPanel(SimpleCardWidget):
     @Slot()
     def __collapse_panel(self):
         """折叠面板"""
-        self.parent.setSizes([1, 0])
+        self.collapseRequested.emit()
 
     def set_data(self, data: dict):
         """有数据时调用，切换到详情页并填充
@@ -881,7 +705,7 @@ class CapturesDataPanel(SimpleCardWidget):
         Args:
             data: 数据字典
         """
-        self.req_panel.set_data(data, "request")  # 请求面板
+        self.req_panel.set_data(data)  # 请求面板
         self.res_panel.set_data(data)  # 响应面板
         self.stack.setCurrentIndex(1)
         # 首次显示时，安装事件过滤器在布局完成后设置比例
@@ -892,17 +716,17 @@ class CapturesDataPanel(SimpleCardWidget):
         self.__apply_detail_equal_sizes()
         QTimer.singleShot(50, self.__apply_detail_equal_sizes)
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, obj, e):
         """拦截 detail_page 的 Resize 事件，在布局完成后设置 50:50（仅首次）"""
         if obj is self.detail_page and self._detail_shown:
-            if event.type() == QEvent.Type.Resize:
+            if e.type() == QEvent.Type.Resize:
                 QTimer.singleShot(0, self.__apply_detail_equal_sizes)
                 # 首次设置成功后移除事件过滤器
                 w = self.detail_page.width()
                 if w > 100:  # 布局已完成（宽度足够大）
                     self.detail_page.removeEventFilter(self)
                     self._detail_shown = False
-        return super().eventFilter(obj, event)
+        return super().eventFilter(obj, e)
 
     def __apply_detail_equal_sizes(self):
         """确保请求面板和响应面板严格 50:50"""
@@ -987,28 +811,12 @@ class CookieWidget(QWidget):
     def __on_copy(self):
         """复制 Cookie 到剪贴板"""
         if not self.cookies:
-            InfoBar.warning(
-                title=self.tr("提示"),
-                content=self.tr("没有可复制的 Cookie"),
-                orient=Qt.Orientation.Horizontal,
-                isClosable=True,
-                position="BottomCenter",
-                duration=3000,
-                parent=self.window(),
-            )
+            show_warning(self.tr("提示"), self.tr("没有可复制的 Cookie"), self.window())
             return
 
         cookie_str = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
         QApplication.clipboard().setText(cookie_str)
-        InfoBar.success(
-            title=self.tr("成功"),
-            content=self.tr("Cookie 已复制到剪贴板"),
-            orient=Qt.Orientation.Horizontal,
-            isClosable=True,
-            position="BottomCenter",
-            duration=3000,
-            parent=self.window(),
-        )
+        show_success(self.tr("成功"), self.tr("Cookie 已复制到剪贴板"), self.window())
 
 
 class RequestPanel(TabPanel):
@@ -1022,8 +830,7 @@ class RequestPanel(TabPanel):
             controller: 抓包控制器实例
         """
         super().__init__(parent)
-        self.datas = None
-        self.mode = "request"  # "request" or "response"
+        self.datas: dict | None = None
         self.controller = controller  # 保存 controller 引用
 
         self.__init_widget()
@@ -1031,7 +838,7 @@ class RequestPanel(TabPanel):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.raw_edit = CodeViewPanel()
+        self.raw_edit = RawViewPanel()
 
         self.body_card = JsonCard()
         self.body_card.text_edit.setReadOnly(True)
@@ -1065,68 +872,48 @@ class RequestPanel(TabPanel):
         self.addTab("Cookies", self.cookie_card, "Cookies")
         self.setTabFontSize(12)
 
-    def set_data(self, data: dict, mode: str = "request"):
-        """填充请求或响应数据
+    def set_data(self, data: dict):
+        """填充请求数据
 
         Args:
             data: 数据字典
-            mode: 模式，"request" 或 "response"
         """
-        self.mode = mode
         self.datas = data  # 保存数据，供 _fill_raw 使用
 
         # 总览 tab 始终用完整数据
         self.overview.set_data(data)
 
-        # 请求头
-        if mode == "request":
-            headers = data.get("Request Headers", {})
-            self.header_card.set_headers(headers)
-            body = data.get("Request Body", b"")
-            flow_id = data.get("Connection ID", "")
-            content_type = data.get("Request Content-Type", "")
-            self._fill_raw(body, content_type, flow_id)
-            self._fill_body(body, content_type)
+        headers = data.get("Request Headers", {})
+        self.header_card.set_headers(headers)
+        body = data.get("Request Body", b"")
+        flow_id = data.get("Connection ID", "")
+        content_type = data.get("Request Content-Type", "")
+        self._fill_raw(body, content_type, flow_id)
+        self._fill_body(body, content_type)
 
-            # 解析 URL 参数
-            url = data.get("URL", "")
-            params = self.__parse_url_params(url)
-            self.params_widget.set_items(params)
+        # 解析 URL 参数
+        url = data.get("URL", "")
+        params = self.__parse_url_params(url)
+        self.params_widget.set_items(params)
 
-            # 解析 Cookie
-            cookies = parse_cookies_from_headers(headers, "Cookie")
-            self.cookie_widget.set_cookies(cookies)
-        else:
-            headers = data.get("Response Headers", {})
-            self.header_card.set_headers(headers)
-            body = data.get("Response Body", b"")
-            flow_id = data.get("Connection ID", "")
-            content_type = data.get("Response Content-Type", "")
-            self._fill_raw(body, content_type, flow_id)
-            self._fill_body(body, content_type)
-
-            # 解析 Cookie
-            cookies = parse_cookies_from_headers(headers, "Cookie")
-            self.cookie_widget.set_cookies(cookies)
+        # 解析 Cookie
+        cookies = parse_cookies_from_headers(headers, "Cookie")
+        self.cookie_widget.set_cookies(cookies)
 
     def _fill_raw(self, body: bytes, content_type: str = "", flow_id: str = ""):
-        """生成完整的原始HTTP请求/响应格式
+        """生成完整的原始HTTP请求格式
 
         Args:
-            body: 请求/响应体
+            body: 请求体
             content_type: 内容类型
             flow_id: 流 ID
         """
-        # 尝试使用controller获取原始HTTP请求/响应
+        # 尝试使用controller获取原始HTTP请求
         if self.controller and flow_id:
             try:
-                if self.mode == "request":
-                    raw_data = self.controller.get_raw_request(flow_id)
-                else:
-                    raw_data = self.controller.get_raw_response(flow_id)
+                raw_data = self.controller.get_raw_request(flow_id)
 
                 if raw_data:
-                    # 如果成功获取到原始数据，直接使用
                     if isinstance(raw_data, bytes):
                         text = raw_data.decode("utf-8", errors="replace")
                     else:
@@ -1137,30 +924,20 @@ class RequestPanel(TabPanel):
                 print(f"获取原始HTTP数据失败: {e}")
 
         # 如果获取失败，使用手动构建的格式
+        if not self.datas:
+            return
         raw_lines = []
 
-        if self.mode == "request":
-            # 请求行
-            method = self.datas.get("Method", "GET")
-            path = self.datas.get("Path", "/")
-            http_version = self.datas.get("HTTP Version", "HTTP/1.1")
-            raw_lines.append(f"{method} {path} {http_version}")
+        # 请求行
+        method = self.datas.get("Method", "GET")
+        path = self.datas.get("Path", "/")
+        http_version = self.datas.get("HTTP Version", "HTTP/1.1")
+        raw_lines.append(f"{method} {path} {http_version}")
 
-            # 请求头
-            headers = self.datas.get("Request Headers", {})
-            for key, value in headers.items():
-                raw_lines.append(f"{key}: {value}")
-        else:
-            # 响应状态行
-            status_code = self.datas.get("Status Code", 200)
-            reason = self.datas.get("Reason", "OK")
-            http_version = self.datas.get("Response HTTP Version", "HTTP/1.1")
-            raw_lines.append(f"{http_version} {status_code} {reason}")
-
-            # 响应头
-            headers = self.datas.get("Response Headers", {})
-            for key, value in headers.items():
-                raw_lines.append(f"{key}: {value}")
+        # 请求头
+        headers = self.datas.get("Request Headers", {})
+        for key, value in headers.items():
+            raw_lines.append(f"{key}: {value}")
 
         # 空行分隔头部和body
         raw_lines.append("")
@@ -1241,7 +1018,7 @@ class ResponsePanel(TabPanel):
             controller: 抓包控制器实例
         """
         super().__init__(parent)
-        self.datas = None
+        self.datas: dict | None = None
         self.controller = controller  # 保存 controller 引用
 
         self.__init_widget()
@@ -1249,7 +1026,7 @@ class ResponsePanel(TabPanel):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.raw_edit = CodeCard()
+        self.raw_edit = RawViewPanel()
 
         self.body_card = JsonCard()
         self.body_card.text_edit.setReadOnly(True)
@@ -1307,6 +1084,8 @@ class ResponsePanel(TabPanel):
                 print(f"获取原始HTTP数据失败: {e}")
 
         # 如果获取失败，使用手动构建的格式
+        if not self.datas:
+            return
         raw_lines = []
 
         # 响应状态行
@@ -1378,7 +1157,6 @@ class Overview(SimpleCardWidget):
             parent: 父组件，通常是 RequestPanel
         """
         super().__init__(parent)
-        self.parent = parent
         self.__init_widget()
         self.__init_layout()
 
