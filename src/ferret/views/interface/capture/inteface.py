@@ -1,6 +1,6 @@
 import json
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlparse
 
 from PySide6.QtCore import (
     QEvent,
@@ -51,9 +51,8 @@ from ferret.utils.http_parser import (
     format_time,
     parse_cookies_from_headers,
 )
-from ferret.views.common.edit import RawViewPanel
+from ferret.views.common.edit import KVDualPanel, KVEditToolWidget
 from ferret.views.common.filter import MultiFilterManager
-from ferret.views.common.header_card import HeaderCard
 from ferret.views.common.icon import BaseIcon
 from ferret.views.common.info_bar import show_success, show_warning
 from ferret.views.common.json_edit import JsonCard
@@ -838,29 +837,25 @@ class RequestPanel(TabPanel):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.raw_edit = RawViewPanel()
+        self.overview = Overview(self)
+
+        self.raw_edit = KVEditToolWidget(self)
+        self.raw_edit.set_read_only(True)
+        self.params_widget = KVDualPanel(self)
+        self.params_widget.set_read_only(True)
+        self.header_card = KVDualPanel(self)
+        self.header_card.set_read_only(True)
 
         self.body_card = JsonCard()
         self.body_card.text_edit.setReadOnly(True)
 
-        self.params_widget = HeaderCard(
-            copy_tooltip="复制为 Query 格式",
-            empty_copy_content="没有可复制的参数",
-            copy_success_content="Query 参数已复制到剪贴板",
-            copy_formatter=lambda items: urlencode(items),
-            key_column_width=150,
-        )
         self.cookie_widget = CookieWidget()
-
-        self.header_card = HeaderCard()
 
         self.cookie_card = SimpleCardWidget()
         self.cookie_card.setBorderRadius(0)
         cookie_layout = QVBoxLayout(self.cookie_card)
         cookie_layout.setContentsMargins(0, 0, 0, 0)
         cookie_layout.addWidget(self.cookie_widget)
-
-        self.overview = Overview(self)
 
     def __init_layout(self):
         """初始化布局结构"""
@@ -884,7 +879,7 @@ class RequestPanel(TabPanel):
         self.overview.set_data(data)
 
         headers = data.get("Request Headers", {})
-        self.header_card.set_headers(headers)
+        self.header_card.set_items(headers)
         body = data.get("Request Body", b"")
         flow_id = data.get("Connection ID", "")
         content_type = data.get("Request Content-Type", "")
@@ -1026,12 +1021,13 @@ class ResponsePanel(TabPanel):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.raw_edit = RawViewPanel()
+        self.raw_edit = KVEditToolWidget()
 
         self.body_card = JsonCard()
         self.body_card.text_edit.setReadOnly(True)
 
-        self.header_card = HeaderCard()
+        self.header_card = KVDualPanel()
+        self.header_card.set_read_only(True)
 
     def __init_layout(self):
         """初始化布局结构"""
@@ -1050,7 +1046,7 @@ class ResponsePanel(TabPanel):
 
         # 响应头
         headers = data.get("Response Headers", {})
-        self.header_card.set_headers(headers)
+        self.header_card.set_items(headers)
 
         # 响应体
         body = data.get("Response Body", b"")

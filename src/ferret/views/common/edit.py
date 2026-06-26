@@ -1,11 +1,16 @@
+import json
 import sys
+from enum import Enum, auto
 
 from PySide6.QtCore import QRect, QSize, Qt, Slot
-from PySide6.QtGui import QColor, QPainter, QPalette, QPen
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
+    QHeaderView,
+    QSizePolicy,
     QStackedWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -15,19 +20,22 @@ from qfluentwidgets import (
     LineEdit,
     PlainTextEdit,
     SimpleCardWidget,
+    TableWidget,
     TransparentToolButton,
     isDarkTheme,
     setCustomStyleSheet,
 )
 
+from ferret.views.common.button import TransparentTooltipButton
 from ferret.views.common.icon import BaseIcon
+from ferret.views.common.info_bar import show_success, show_warning
 
 
-class LineNumberArea(SimpleCardWidget):
-    """行号区域 — 只负责绘制"""
+class LineNumberArea(QWidget):
+    """行号区域 — 只负责绘制，作为 text_edit 的子控件覆盖在左侧 margin 上"""
 
     def __init__(self, editor: "CodeEditor"):
-        super().__init__(editor)
+        super().__init__(editor.text_edit)
         self.editor = editor
 
     def sizeHint(self) -> QSize:
@@ -38,9 +46,14 @@ class LineNumberArea(SimpleCardWidget):
 
 
 class CodePlainTextEdit(PlainTextEdit):
-    """纯文本编辑器 — 基础设置 + 当前行高亮绘制"""
+    """纯文本编辑器 — 基础设置 + 当前行高亮绘制
+
+    复用 qfluentwidgets SmoothScrollDelegate 自带的横向滚动条，
+    覆盖其 _adjustPos 定位逻辑，让滚动条避开左侧行号区域。
+    """
 
     def __init__(self, parent=None):
+        self._left_margin = 0
         super().__init__(parent)
         self.__init_widget()
         self.__connect_signal_to_slot()
@@ -51,6 +64,7 @@ class CodePlainTextEdit(PlainTextEdit):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.set_wrap(False)
         self.layer.hide()
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         _qss = (
             "PlainTextEdit { background: transparent; border: none; padding: 0; }"
             "PlainTextEdit:hover { background: transparent; border: none; }"
@@ -60,11 +74,42 @@ class CodePlainTextEdit(PlainTextEdit):
         )
         setCustomStyleSheet(self, _qss, _qss)
 
+        # 复用 delegate 提供的 fluent 风格横向滚动条，仅覆盖其定位逻辑
+        # （不要调用 setHorizontalScrollBarPolicy，那会触发 delegate 的 forceHidden）
+        self._hbar = self.scrollDelegate.hScrollBar
+        self._hbar._adjustPos = self._reposition_hbar
+
     def __connect_signal_to_slot(self):
         self.cursorPositionChanged.connect(self.viewport().update)
+        # range 变化时滚动条显隐会变，需同步 viewport bottom margin
+        self._hbar.rangeChanged.connect(lambda _: self.__update_viewport_margins())
 
     def contextMenuEvent(self, e):
         e.accept()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reposition_hbar()
+
+    def set_left_margin(self, width: int):
+        """设置左侧 viewport margin（行号区域宽度）"""
+        self._left_margin = width
+        self.__update_viewport_margins()
+        self._reposition_hbar()
+
+    def __update_viewport_margins(self):
+        # bottom 留给横向滚动条，避免遮挡最后一行文本
+        bottom = 13 if self._hbar.isVisible() else 0
+        self.setViewportMargins(self._left_margin, 0, 0, bottom)
+
+    def _reposition_hbar(self, size=None):
+        """覆盖 ScrollBar._adjustPos — 横向滚动条只在文本区域下方，避开行号区域"""
+        if size is None:
+            size = self.size()
+        vbar = self.scrollDelegate.vScrollBar
+        vbar_w = 13 if vbar.isVisible() else 0
+        self._hbar.resize(size.width() - self._left_margin - vbar_w - 2, 12)
+        self._hbar.move(self._left_margin + 1, size.height() - 13)
 
     def set_wrap(self, wrap: bool = True):
         """设置是否换行"""
@@ -91,7 +136,7 @@ class CodePlainTextEdit(PlainTextEdit):
         offset = self.contentOffset()
 
         painter = QPainter(self.viewport())
-        color = QColor(255, 255, 255, 15) if isDarkTheme() else QColor(0, 0, 0, 8)
+        color = QColor(255, 255, 255, 18) if isDarkTheme() else QColor(0, 0, 0, 10)
 
         while block.isValid():
             top = round(self.blockBoundingGeometry(block).translated(offset).top())
@@ -122,24 +167,64 @@ class CodeEditor(SimpleCardWidget):
         self.text_edit = CodePlainTextEdit(self)
         self.line_number_area = LineNumberArea(self)
 
+        # 内置搜索栏
+        self.search_bar = SearchBar(self.text_edit, self)
+        self.search_bar.hide()
+
+        self.__init_layout()
         self.__connect_signal_to_slot()
         self.__update_line_number_area_width(0)
+
+    def __init_layout(self):
+        # 主布局：搜索栏 + 编辑器（line_number_area 作为 text_edit 子控件，不放进布局）
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # 搜索栏
+        main_layout.addWidget(self.search_bar)
+
+        # 文本编辑器（行号区域覆盖在其左侧 viewport margin 上）
+        main_layout.addWidget(self.text_edit)
 
     def __connect_signal_to_slot(self):
         self.text_edit.blockCountChanged.connect(self.__update_line_number_area_width)
         self.text_edit.updateRequest.connect(self.__update_line_number_area)
         self.text_edit.cursorPositionChanged.connect(self.line_number_area.update)
 
+    def set_read_only(self, read_only: bool):
+        self.text_edit.setReadOnly(read_only)
+
+    def toggle_search(self):
+        """显示/隐藏搜索栏"""
+        if self.search_bar.isVisible():
+            self.search_bar.close_bar()
+            self.search_bar.hide()
+            self.resize(self.width(), self.height() - self.search_bar.height())
+            self.text_edit.updateGeometry()
+            self.text_edit.viewport().update()
+        else:
+            self.search_bar.show()
+            self.search_bar.open_bar()
+            self.resize(self.width(), self.height() + self.search_bar.height())
+            self.text_edit.updateGeometry()
+            self.text_edit.viewport().update()
+
     # —— 行号区域 ——
 
     def line_number_area_width(self) -> int:
-        digits = len(str(max(1, self.text_edit.blockCount())))
-        return 10 + self.text_edit.fontMetrics().horizontalAdvance("9") * (digits + 1)
+        block_count = self.text_edit.blockCount()
+        max_digits = max(1, len(str(block_count)))
+        max_width = self.text_edit.fontMetrics().horizontalAdvance("9" * max_digits)
+        # 左 padding 12 + 右 padding 10 + 分隔线 1 + 安全余量 2
+        padding = 25
+        min_width = 48  # 即使单行号也保持舒适宽度
+        return max(min_width, max_width + padding)
 
     @Slot(int)
     def __update_line_number_area_width(self, _):
-        self.text_edit.setViewportMargins(0, 0, 0, 0)
-        self.resize(self.size())
+        line_width = self.line_number_area_width()
+        self.text_edit.set_left_margin(line_width)
 
     @Slot(QRect, int)
     def __update_line_number_area(self, rect, dy):
@@ -155,30 +240,57 @@ class CodeEditor(SimpleCardWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         line_width = self.line_number_area_width()
-        self.line_number_area.setGeometry(QRect(0, 0, line_width + 1, self.height()))
-        self.text_edit.setGeometry(
-            QRect(line_width, 0, self.width() - line_width, self.height())
+        # line_number_area 定位到 text_edit 内容区域的左侧
+        cr = self.text_edit.contentsRect()
+        self.line_number_area.setGeometry(
+            QRect(cr.left(), cr.top(), line_width, cr.height())
         )
+        self.text_edit.updateGeometry()
 
     # —— 绘制行号 ——
 
     def line_number_area_paint_event(self, event):
         painter = QPainter(self.line_number_area)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
         palette = self.text_edit.palette()
-        painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
 
-        # 绘制右侧分隔线（与 SimpleCardWidget 边框风格一致）
-        sep_color = QColor(0, 0, 0, 48) if isDarkTheme() else QColor(0, 0, 0, 12)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # 绘制右侧分隔线（淡化，不抢视觉）
+        sep_color = QColor(0, 0, 0, 30) if isDarkTheme() else QColor(0, 0, 0, 10)
         painter.setPen(QPen(sep_color, 1))
         right = self.line_number_area.width() - 1
         painter.drawLine(right, 0, right, self.line_number_area.height())
+
+        # 行号字体：比正文小一号
+        ln_font = self.text_edit.font()
+        ps = ln_font.pointSize()
+        if ps > 0:
+            ln_font.setPointSize(max(1, ps - 1))
+        else:
+            px = ln_font.pixelSize()
+            if px > 0:
+                ln_font.setPixelSize(max(1, px - 1))
+        painter.setFont(ln_font)
+
+        # 行号颜色
+        text_color = palette.color(QPalette.ColorRole.Text)
+        active_color = QColor(text_color)
+        active_color.setAlpha(220)
+        inactive_color = QColor(text_color)
+        inactive_color.setAlpha(90)
 
         current_block = self.text_edit.current_highlight_block()
         block = self.text_edit.firstVisibleBlock()
         block_number = block.blockNumber()
         offset = self.text_edit.contentOffset()
+
+        # 当前行高亮背景（行号区部分）
+        highlight = QColor(255, 255, 255, 18) if isDarkTheme() else QColor(0, 0, 0, 10)
+
+        # 左右内边距
+        left_pad = 12
+        right_pad = 10
+        text_rect_w = self.line_number_area.width() - left_pad - right_pad
 
         while block.isValid():
             top = round(
@@ -190,31 +302,22 @@ class CodeEditor(SimpleCardWidget):
                 break
 
             if block.isVisible() and bottom >= event.rect().top():
+                # 当前行高亮背景
                 if block_number == current_block:
-                    highlight = (
-                        QColor(255, 255, 255, 15)
-                        if isDarkTheme()
-                        else QColor(0, 0, 0, 8)
-                    )
                     painter.fillRect(
-                        0,
-                        top,
-                        self.line_number_area.width() + 5,
-                        bottom - top,
-                        highlight,
+                        0, top, self.line_number_area.width(), bottom - top, highlight
                     )
-                    painter.setPen(palette.color(QPalette.ColorRole.Text))
+                    painter.setPen(active_color)
                 else:
-                    inactive = palette.color(QPalette.ColorRole.Text)
-                    inactive.setAlpha(100)
-                    painter.setPen(inactive)
+                    painter.setPen(inactive_color)
 
+                # 右对齐 + 垂直居中
                 painter.drawText(
-                    0,
+                    left_pad,
                     top,
-                    self.line_number_area.width() - 15,
+                    text_rect_w,
                     bottom - top,
-                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                     str(block_number + 1),
                 )
 
@@ -235,7 +338,7 @@ class CodeEditor(SimpleCardWidget):
 class SearchBar(QWidget):
     """搜索栏 — 文本查找与导航"""
 
-    def __init__(self, text_edit: CodePlainTextEdit, parent=None):
+    def __init__(self, text_edit: PlainTextEdit, parent=None):
         super().__init__(parent)
         self.__text_edit = text_edit
         self.__init_widget()
@@ -344,174 +447,363 @@ class SearchBar(QWidget):
         self.label_count.setText(f"{current}/{total}")
 
 
-class CodeEditorPanel(SimpleCardWidget):
-    """代码编辑器面板 — 工具栏 + 搜索栏 + 编辑器的完整组件
-
-    Signals:
-        copyClicked: 复制按钮点击
-    """
+class ToolWidget(SimpleCardWidget):
+    """工具栏  初始空 layout形式"""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.__init_widget()
+
         self.__init_layout()
-        self.__connect_signal_to_slot()
-
-    def __init_widget(self):
-        # —— 工具栏 ——
-        self._toolbar = QWidget(self)
-        self._btn_search = TransparentToolButton(BaseIcon.DOCUMENT_SEARCH, self)
-        self._btn_search.setToolTip("查找")
-        self._btn_copy = TransparentToolButton(FluentIcon.COPY, self)
-        self._btn_copy.setToolTip("复制全部")
-        self._btn_wrap = TransparentToolButton(FluentIcon.ALIGNMENT, self)
-        self._btn_wrap.setToolTip("切换自动换行")
-
-        # —— 编辑器 ——
-        self._code_editor = CodeEditor(self)
-
-        # —— 搜索栏 ——
-        self._search_bar = SearchBar(self._code_editor.text_edit, self)
-        self._search_bar.hide()
 
     def __init_layout(self):
-        self.toolbar_layout = QHBoxLayout(self.toolbar)
-        self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
-        self.toolbar_layout.setSpacing(0)
-        self.toolbar_layout.addStretch()
-        self.toolbar_layout.addWidget(self._btn_search)
-        self.toolbar_layout.addWidget(self._btn_copy)
-        self.toolbar_layout.addWidget(self._btn_wrap)
+        self._main_layout = QHBoxLayout(self)
+        self._main_layout.setContentsMargins(0, 0, 0, 0)
+        self._left_layout = QHBoxLayout()
+        self._left_layout.setContentsMargins(0, 0, 0, 0)
+        self._right_layout = QHBoxLayout()
+        self._right_layout.setContentsMargins(0, 0, 0, 0)
+        self._right_layout.setSpacing(0)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self._toolbar)
-        layout.addWidget(self._search_bar)
-        layout.addWidget(self._code_editor, stretch=1)
-
-    def __connect_signal_to_slot(self):
-        self._btn_search.clicked.connect(self.__toggle_search)
-        self._btn_copy.clicked.connect(self.__on_btn_copy_clicked)
-        self._btn_wrap.clicked.connect(self._code_editor.text_edit.toggle_wrap)
-
-    # ========== 私有方法 ==========
-
-    @Slot()
-    def __on_btn_copy_clicked(self):
-        QApplication.clipboard().setText(self.to_text())
-
-    @Slot()
-    def __toggle_search(self):
-        if self._search_bar.isVisible():
-            self._search_bar.close_bar()
-        else:
-            self._search_bar.open_bar()
-
-    # ========== 公共接口 ==========
+        self._main_layout.addLayout(self._left_layout)
+        self._main_layout.addStretch()
+        self._main_layout.addLayout(self._right_layout)
 
     @property
-    def toolbar(self) -> QWidget:
-        """获取工具栏（用于添加自定义按钮）"""
-        return self._toolbar
+    def left_layout(self) -> QHBoxLayout:
+        return self._left_layout
 
-    def add_toolbar_widget(self, widget: QWidget) -> None:
-        """在工具栏 stretch 前添加组件"""
-        self.toolbar_layout.insertWidget(self.toolbar_layout.count() - 1, widget)
-
-    def add_toolbar_trailing_widget(self, widget: QWidget) -> None:
-        """在工具栏 stretch 后添加组件（右侧）"""
-        self.toolbar_layout.addWidget(widget)
-
-    def set_text(self, text: str) -> None:
-        """设置编辑器文本"""
-        self._code_editor.set_text(text)
-
-    def to_text(self) -> str:
-        """获取编辑器文本"""
-        return self._code_editor.to_text()
-
-    def set_read_only(self, read_only: bool = True) -> None:
-        """设置编辑器只读模式"""
-        self._code_editor.text_edit.setReadOnly(read_only)
+    @property
+    def right_layout(self) -> QHBoxLayout:
+        return self._right_layout
 
 
-class RawViewPanel(CodeEditorPanel):
-    """代码查看面板 — 只读的 CodeEditorPanel"""
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.set_read_only(True)
-
-
-class CodeEditorContainer(QWidget):
-    """编辑器容器 — 双面板切换"""
+class KVTableWidget(SimpleCardWidget):
+    """键值对表格"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._table = TableWidget(self)
+        self._init_table()
+        self._init_layout()
+
+    def _init_table(self):
+        self._table.setColumnCount(3)
+        self._table.setWordWrap(False)
+        self._table.horizontalHeader().setVisible(False)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setColumnHidden(0, True)
+
+        # 设置列宽策略
+        header = self._table.horizontalHeader()
+
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        # 让第三列(操作)固定宽度
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+    def _init_layout(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._table, stretch=1)
+
+    def set_items(self, items: dict):
+        """设置键值对数据 - 优化大数据量处理"""
+        data_size = len(items)
+        self._table.setRowCount(data_size)
+        # 批量设置，减少界面更新次数
+        self._table.setUpdatesEnabled(False)
+
+        try:
+            for i, (k, v) in enumerate(items.items()):
+                # --- 新增：第 0 列存原始索引 ---
+                idx_item = QTableWidgetItem()
+                idx_item.setData(Qt.ItemDataRole.DisplayRole, i)  # 存入数字 i
+                self._table.setItem(i, 0, idx_item)
+
+                # --- 修改：Key 放在第 1 列，Value 放在第 2 列 ---
+                key_item = QTableWidgetItem(str(k))
+                value_item = QTableWidgetItem(str(v))
+
+                key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                value_item.setFlags(value_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+                if len(str(k)) > 50:
+                    key_item.setToolTip(str(k))
+                if len(str(v)) > 50:
+                    value_item.setToolTip(str(v))
+
+                self._table.setItem(i, 1, key_item)  # Key 在 1
+                self._table.setItem(i, 2, value_item)  # Value 在 2
+        finally:
+            self._table.setUpdatesEnabled(True)
+
+    @property
+    def table(self) -> TableWidget:
+        return self._table
+
+
+class SortState(Enum):
+    ORIGINAL = auto()  # 原始顺序
+    ASCENDING = auto()  # 升序
+    DESCENDING = auto()  # 降序
+
+
+SORT_TRANSITION = {
+    SortState.ORIGINAL: (SortState.ASCENDING, FluentIcon.UP, "升序"),
+    SortState.ASCENDING: (SortState.DESCENDING, FluentIcon.DOWN, "降序"),
+    SortState.DESCENDING: (SortState.ORIGINAL, FluentIcon.SCROLL, "原始顺序"),
+}
+
+
+class KVTableToolWidget(SimpleCardWidget):
+    """键值对表格工具条"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._sort_state = SortState.ORIGINAL
+        self._items: dict[str, str] = {}
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
 
     def __init_widget(self):
-        # —— 编辑器面板 ——
-        self.code_editor_panel = CodeEditorPanel(self)
-        self.btn_switch_to_plan = TransparentToolButton(FluentIcon.VIEW, self)
-        self.code_editor_panel.add_toolbar_trailing_widget(self.btn_switch_to_plan)
+        self._tool_widget = ToolWidget(self)
+        self._table_widget = KVTableWidget(self)
+        self._table = self._table_widget.table
 
-        # —— 工具栏 2：计划面板 ——
-        self.toolbar_plan = QWidget(self)
-        self.btn_plan_add = TransparentToolButton(FluentIcon.ADD, self)
-        self.btn_plan_remove = TransparentToolButton(FluentIcon.REMOVE, self)
-        self.btn_plan_save = TransparentToolButton(FluentIcon.SAVE, self)
-        self.btn_plan_refresh = TransparentToolButton(FluentIcon.SYNC, self)
-        self.btn_switch_to_editor = TransparentToolButton(FluentIcon.EDIT, self)
-        self.toolbar_plan.hide()
-
-        # —— 面板 ——
-        self.stack = QStackedWidget(self)
-        self.plan_panel = QWidget()
-        self.stack.addWidget(self.code_editor_panel)
-        self.stack.addWidget(self.plan_panel)
+        self.copy_plain_button = TransparentTooltipButton(
+            FluentIcon.COPY, self._tool_widget
+        )
+        self.copy_plain_button.setToolTip(self.tr("复制"))
+        self.sort_order_button = TransparentTooltipButton(
+            FluentIcon.SCROLL, self._tool_widget
+        )
+        self.sort_order_button.setToolTip(self.tr("排序"))
+        self.copy_json_button = TransparentTooltipButton(
+            FluentIcon.CODE, self._tool_widget
+        )
+        self.copy_json_button.setToolTip(self.tr("复制JSON"))
 
     def __init_layout(self):
-        plan_layout = QHBoxLayout(self.toolbar_plan)
-        plan_layout.setContentsMargins(0, 0, 0, 0)
-        plan_layout.setSpacing(0)
-        plan_layout.addWidget(self.btn_plan_add)
-        plan_layout.addWidget(self.btn_plan_remove)
-        plan_layout.addWidget(self.btn_plan_save)
-        plan_layout.addWidget(self.btn_plan_refresh)
-        plan_layout.addStretch()
-        plan_layout.addWidget(self.btn_switch_to_editor)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self._tool_widget)
+        main_layout.addWidget(self._table_widget, stretch=1)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self.toolbar_plan)
-        layout.addWidget(self.stack)
+        tool_right_layout = self._tool_widget.right_layout
+        tool_right_layout.addWidget(self.copy_plain_button)
+        tool_right_layout.addWidget(self.sort_order_button)
+        tool_right_layout.addWidget(self.copy_json_button)
 
     def __connect_signal_to_slot(self):
-        self.btn_switch_to_plan.clicked.connect(lambda: self.__switch_panel(1))
-        self.btn_switch_to_editor.clicked.connect(lambda: self.__switch_panel(0))
+        self.copy_plain_button.clicked.connect(self.handle_copy_plain_button_clicked)
+        self.sort_order_button.clicked.connect(self.handle_sort_order_button_clicked)
+        self.copy_json_button.clicked.connect(self.handle_copy_json_button_clicked)
 
-    @Slot(int)
-    def __switch_panel(self, index: int):
-        self.stack.setCurrentIndex(index)
-        self.code_editor_panel.setVisible(index == 0)
-        self.toolbar_plan.setVisible(index == 1)
+    def set_items(self, items: dict):
+        self._items = items or {}
+        self._table_widget.set_items(self._items)
 
-    # —— 代理方法 ——
+    # —— 数据获取 ——
+
+    def _get_items(self) -> dict[str, str]:
+        """获取当前键值对：优先用缓存，降级从表格读取"""
+        if self._items:
+            return self._items
+        return self._read_items_from_table()
+
+    def _read_items_from_table(self) -> dict[str, str]:
+        """从表格单元格读取键值对（应对排序等动态变化）"""
+        items: dict[str, str] = {}
+        for row in range(self._table.rowCount()):
+            key_item = self._table.item(row, 0)
+            value_item = self._table.item(row, 1)
+            if key_item is None:
+                continue
+            key = key_item.text()
+            value = value_item.text() if value_item is not None else ""
+            items[key] = value
+        return items
+
+    # —— 复制 ——
+
+    def _copy_to_clipboard(self, text: str, success_message: str):
+        """通用剪贴板复制方法"""
+        if not text:
+            show_warning(self.tr("提示"), self.tr("没有可复制的内容"), self.window())
+            return
+        QApplication.clipboard().setText(text)
+        show_success(self.tr("成功"), success_message, self.window())
+
+    @Slot()
+    def handle_copy_plain_button_clicked(self):
+        """复制为 Key: Value 格式（每行一个）"""
+        items = self._get_items()
+        text = "\n".join(f"{k}: {v}" for k, v in items.items())
+        self._copy_to_clipboard(text, self.tr("已复制到剪贴板"))
+
+    @Slot()
+    def handle_copy_json_button_clicked(self):
+        """复制为 JSON 格式（缩进 4 空格）"""
+        items = self._get_items()
+        text = json.dumps(items, indent=4, ensure_ascii=False)
+        self._copy_to_clipboard(text, self.tr("JSON 已复制到剪贴板"))
+
+    @Slot()
+    def handle_sort_order_button_clicked(self):
+        # 1. 获取下一阶段的信息
+        next_state, icon, tip = SORT_TRANSITION[self._sort_state]
+
+        # 2. 执行表格排序动作
+        if next_state == SortState.ASCENDING:
+            self._table.sortItems(1, Qt.SortOrder.AscendingOrder)
+        elif next_state == SortState.DESCENDING:
+            self._table.sortItems(1, Qt.SortOrder.DescendingOrder)
+        else:
+            self._table.sortItems(0, Qt.SortOrder.AscendingOrder)  # 原始/默认排第一列
+
+        # 3. 更新状态和 UI
+        self._sort_state = next_state
+        self.sort_order_button.setIcon(icon)
+        self.sort_order_button.setToolTip(self.tr(tip))
+
+    @property
+    def tool_layout(self) -> QHBoxLayout:
+        return self._tool_widget.left_layout
+
+
+class KVEditToolWidget(SimpleCardWidget):
+    """键值对编辑工具条"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._sort_state = SortState.ORIGINAL
+        self._original_text = ""
+
+        self.__init_widget()
+        self.__init_layout()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        self.tool_widget = ToolWidget(self)
+        self.code_widget = CodeEditor(self)
+
+        self._btn_search = TransparentTooltipButton(BaseIcon.DOCUMENT_SEARCH, self)
+        self._btn_search.setToolTip("查找")
+        self._btn_sort = TransparentTooltipButton(FluentIcon.SCROLL, self)
+        self._btn_sort.setToolTip("排序")
+        self._btn_wrap = TransparentTooltipButton(FluentIcon.ALIGNMENT, self)
+        self._btn_wrap.setToolTip("换行")
+
+    def __init_layout(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self.tool_widget)
+        main_layout.addWidget(self.code_widget, stretch=1)
+
+        tool_right_layout = self.tool_widget.right_layout
+        tool_right_layout.addWidget(self._btn_search)
+        tool_right_layout.addWidget(self._btn_sort)
+        tool_right_layout.addWidget(self._btn_wrap)
+
+    def __connect_signal_to_slot(self):
+        self._btn_search.clicked.connect(self.handle_btn_search_clicked)
+        self._btn_sort.clicked.connect(self.handle_btn_sort_clicked)
+        self._btn_wrap.clicked.connect(self.handle_btn_wrap_clicked)
+
+    @Slot()
+    def handle_btn_search_clicked(self):
+        self.code_widget.toggle_search()
+
+    @Slot()
+    def handle_btn_sort_clicked(self):
+        # 1. 获取下一阶段信息
+        next_state, icon, tip = SORT_TRANSITION[self._sort_state]
+
+        # 2. 执行文本排序动作
+        if self._sort_state == SortState.ORIGINAL:  # 只有进入排序前才备份
+            self._original_text = self.code_widget.to_text()
+
+        lines = self.code_widget.to_text().splitlines()
+        if next_state == SortState.ASCENDING:
+            new_text = "\n".join(sorted(lines, key=str.lower))
+        elif next_state == SortState.DESCENDING:
+            new_text = "\n".join(sorted(lines, key=str.lower, reverse=True))
+        else:
+            new_text = self._original_text
+
+        # 3. 更新状态、UI 和编辑器
+        self._sort_state = next_state
+        self._btn_sort.setIcon(icon)
+        self._btn_sort.setToolTip(self.tr(tip))
+        cursor = self.code_widget.text_edit.textCursor()
+        cursor.beginEditBlock()
+        cursor.select(QTextCursor.SelectionType.Document)
+        cursor.insertText(new_text)
+        cursor.endEditBlock()
+
+    @Slot()
+    def handle_btn_wrap_clicked(self):
+        self.code_widget.text_edit.toggle_wrap()
+
+    @property
+    def tool_layout(self) -> QHBoxLayout:
+        return self.tool_widget.left_layout
 
     def set_text(self, text: str):
-        self.code_editor_panel.set_text(text)
+        self.code_widget.set_text(text)
 
-    def to_text(self) -> str:
-        return self.code_editor_panel.to_text()
+    def set_read_only(self, read_only: bool):
+        self.code_widget.set_read_only(read_only)
+
+
+class KVDualPanel(SimpleCardWidget):
+    """文本、表格双重面板 可切换"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.__init_widget()
+        self.__init_layout()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        self.text = KVEditToolWidget(self)
+        self.table = KVTableToolWidget(self)
+
+        self.stack = QStackedWidget(self)
+        self.stack.addWidget(self.text)
+        self.stack.addWidget(self.table)
+
+        self._btn_text = TransparentTooltipButton(FluentIcon.DOCUMENT, self)
+        self._btn_text.setToolTip(self.tr("文本模式"))
+        self._btn_table = TransparentTooltipButton(FluentIcon.TILES, self)
+        self._btn_table.setToolTip(self.tr("表格模式"))
+
+    def __init_layout(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.addWidget(self.stack)
+
+        self.text.tool_layout.addWidget(self._btn_table)
+        self.table.tool_layout.addWidget(self._btn_text)
+
+    def __connect_signal_to_slot(self):
+        self._btn_text.clicked.connect(lambda: self.stack.setCurrentWidget(self.text))
+        self._btn_table.clicked.connect(lambda: self.stack.setCurrentWidget(self.table))
+
+    def set_items(self, items: dict):
+        self.table.set_items(items)
+        text_content = "\n".join(f"{k}: {v}" for k, v in items.items())
+        self.text.set_text(text_content)
+
+    def set_read_only(self, read_only: bool):
+        self.text.set_read_only(read_only)
+        # self.table.set_read_only(read_only)
 
 
 if __name__ == "__main__":
-    from qfluentwidgets import Theme, TransparentToolButton, setTheme
+    from qfluentwidgets import Theme, setTheme
     from qfluentwidgets.window.fluent_window import FluentWidget
 
     from ferret.config import resources_rc  # noqa: F401
@@ -520,8 +812,8 @@ if __name__ == "__main__":
     setTheme(Theme.DARK)
 
     window = FluentWidget()
-    window.setWindowTitle("CodeViewPanel Demo")
-    window.resize(700, 500)
+    window.setWindowTitle("KeyValueViewPanel Demo")
+    # window.resize(700, 500)
 
     # 在窗口控制按钮左侧插入主题切换按钮
     btn_theme = TransparentToolButton(FluentIcon.CONSTRACT)
@@ -541,15 +833,18 @@ if __name__ == "__main__":
     layout.setContentsMargins(12, title_height + 4, 12, 12)
     layout.setSpacing(8)
 
-    editor = RawViewPanel()
-    editor.set_text(
-        "\n".join(
-            [
-                f"Line {i}: Hello World1111111111111111111111111111111111111111111111111111111111111111111111111111111"
-                for i in range(1, 101)
-            ]
-        )
-    )
+    editor = KVDualPanel()
+    # editor.set_items(
+    #     # "dsadadad:sdadasda\ndsaaaaaaaaaa"
+    #     {
+    #         "Content-Type": "application/json",
+    #         "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ91111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    #         "Accept": "text/html,application/xhtml+xml",
+    #         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    #         "Host": "api.example.com",
+    #         "Connection": "keep-alive",
+    #     }
+    # )
     layout.addWidget(editor, stretch=1)
 
     window.show()

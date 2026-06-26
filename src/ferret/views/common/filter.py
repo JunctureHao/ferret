@@ -102,7 +102,7 @@ class MultiFilterManager(SimpleCardWidget):
 
     def __init_layout(self):
         self.v_layout = QVBoxLayout(self)
-        self.v_layout.setContentsMargins(4, 4, 4, 4)
+        self.v_layout.setContentsMargins(6, 6, 0, 0)
         self.v_layout.setSpacing(2)
         self.add_new_row()
 

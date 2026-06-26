@@ -3,7 +3,6 @@
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
