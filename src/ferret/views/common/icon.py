@@ -10,6 +10,16 @@ class BaseIcon(FluentIconBase, Enum):
 
     DOCUMENT_SEARCH = "Document_Search"
 
+    CHEVRON_DOWN = "Chevron_Down"
+    CHEVRON_UP = "Chevron_Up"
+
+    TABLE = "Table"
+
+    LINE_BREAK = "Line_Break"
+
+    CONVERT_TO_TABLE = "Convert_To_Table"
+    CONVERT_TO_TEXT = "Convert_To_Text"
+
     def path(self, theme: Theme = Theme.AUTO) -> str:
         return f":/icons/{self.value}_{getIconColor(theme)}.svg"
 

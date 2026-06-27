@@ -13,4 +13,15 @@
     "allow_concurrent_runs": false,
     "reveal": "always",
   },
+  {
+    "label": "启动 App",
+    "command": "uv",
+    "args": ["run", "python", "-m", "ferret"],
+    "env": {
+      "PYTHONPATH": "src",
+    },
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+  },
 ]

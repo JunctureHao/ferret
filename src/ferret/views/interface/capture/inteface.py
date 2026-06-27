@@ -51,11 +51,10 @@ from ferret.utils.http_parser import (
     format_time,
     parse_cookies_from_headers,
 )
-from ferret.views.common.edit import KVDualPanel, KVEditToolWidget
+from ferret.views.common.edit import KVDualPanel, ToolPlainTextEdit
 from ferret.views.common.filter import MultiFilterManager
 from ferret.views.common.icon import BaseIcon
 from ferret.views.common.info_bar import show_success, show_warning
-from ferret.views.common.json_edit import JsonCard
 from ferret.views.common.panel import TabPanel
 from ferret.views.common.splitter import (
     OrientationSplitter,
@@ -839,15 +838,15 @@ class RequestPanel(TabPanel):
         """初始化界面组件"""
         self.overview = Overview(self)
 
-        self.raw_edit = KVEditToolWidget(self)
+        self.raw_edit = ToolPlainTextEdit(self)
         self.raw_edit.set_read_only(True)
         self.params_widget = KVDualPanel(self)
         self.params_widget.set_read_only(True)
         self.header_card = KVDualPanel(self)
         self.header_card.set_read_only(True)
 
-        self.body_card = JsonCard()
-        self.body_card.text_edit.setReadOnly(True)
+        self.body_card = ToolPlainTextEdit()
+        self.body_card.set_read_only(True)
 
         self.cookie_widget = CookieWidget()
 
@@ -862,7 +861,6 @@ class RequestPanel(TabPanel):
         self.addTab("总览", self.overview, self.tr("总览"))
         self.addTab("原始", self.raw_edit, "原始")
         self.addTab("请求头", self.header_card, "请求头")
-        self.addTab("参数", self.params_widget, "参数")
         self.addTab("请求体", self.body_card, "请求体")
         self.addTab("Cookies", self.cookie_card, "Cookies")
         self.setTabFontSize(12)
@@ -886,10 +884,21 @@ class RequestPanel(TabPanel):
         self._fill_raw(body, content_type, flow_id)
         self._fill_body(body, content_type)
 
-        # 解析 URL 参数
+        # 解析 URL 参数，动态决定是否显示"参数"tab
         url = data.get("URL", "")
         params = self.__parse_url_params(url)
         self.params_widget.set_items(params)
+        if params:
+            if "参数" not in self.pivot.items:
+                self.addTab("参数", self.params_widget, "参数", index=2)
+        else:
+            if "参数" in self.pivot.items:
+                if self.pivot.currentRouteKey() == "参数":
+                    self.pivot.setCurrentItem("原始")
+                self.pivot.removeWidget("参数")
+                idx = self.stacked.indexOf(self.params_widget)
+                if idx >= 0:
+                    self.stacked.removeWidget(self.params_widget)
 
         # 解析 Cookie
         cookies = parse_cookies_from_headers(headers, "Cookie")
@@ -907,7 +916,6 @@ class RequestPanel(TabPanel):
         if self.controller and flow_id:
             try:
                 raw_data = self.controller.get_raw_request(flow_id)
-
                 if raw_data:
                     if isinstance(raw_data, bytes):
                         text = raw_data.decode("utf-8", errors="replace")
@@ -960,7 +968,7 @@ class RequestPanel(TabPanel):
         text = decode_body(body, content_type)
         # 尝试格式化 JSON
         text = self._try_format_json(text)
-        self.body_card.text_edit.setPlainText(text)
+        self.body_card.set_text(text)
 
     def _try_format_json(self, text: str) -> str:
         """尝试将文本格式化为 JSON
@@ -1021,10 +1029,10 @@ class ResponsePanel(TabPanel):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.raw_edit = KVEditToolWidget()
+        self.raw_edit = ToolPlainTextEdit()
 
-        self.body_card = JsonCard()
-        self.body_card.text_edit.setReadOnly(True)
+        self.body_card = ToolPlainTextEdit()
+        self.body_card.set_read_only(True)
 
         self.header_card = KVDualPanel()
         self.header_card.set_read_only(True)
@@ -1121,7 +1129,7 @@ class ResponsePanel(TabPanel):
         text = decode_body(body, content_type)
         # 尝试格式化 JSON
         text = self._try_format_json(text)
-        self.body_card.text_edit.setPlainText(text)
+        self.body_card.set_text(text)
 
     def _try_format_json(self, text: str) -> str:
         """尝试将文本格式化为 JSON

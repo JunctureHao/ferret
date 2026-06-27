@@ -17,6 +17,21 @@
         <file>icons/Document_Search_black.svg</file>
         <file>icons/Document_Search_white.svg</file>
 
+        <file>icons/Chevron_Up_black.svg</file>
+        <file>icons/Chevron_Up_white.svg</file>
+        <file>icons/Chevron_Down_black.svg</file>
+        <file>icons/Chevron_Down_white.svg</file>
+
+        <file>icons/Table_black.svg</file>
+        <file>icons/Table_white.svg</file>
+
+        <file>icons/Line_Break_black.svg</file>
+        <file>icons/Line_Break_white.svg</file>
+
+        <file>icons/Convert_To_Table_black.svg</file>
+        <file>icons/Convert_To_Table_white.svg</file>
+        <file>icons/Convert_To_Text_black.svg</file>
+        <file>icons/Convert_To_Text_white.svg</file>
 
     </qresource>
 </RCC>

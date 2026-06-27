@@ -14,24 +14,38 @@ class TabPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._tab_font_size = 18
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
 
     # ── 公开接口 ──────────────────────────────
 
-    def addTab(self, route_key: str, widget: QWidget, text: str):
+    def addTab(self, route_key: str, widget: QWidget, text: str, index: int = -1):
         widget.setObjectName(route_key)
-        self.stacked.addWidget(widget)
-        self.pivot.addItem(
-            routeKey=route_key,
-            text=text,
+
+        if index < 0 or index >= self.stacked.count():
+            self.stacked.addWidget(widget)
+        else:
+            self.stacked.insertWidget(index, widget)
+
+        self.pivot.insertItem(
+            index, routeKey=route_key, text=text,
             onClick=lambda _, w=widget: self.stacked.setCurrentWidget(w),
         )
+
+        item = self.pivot.items.get(route_key)
+        if item and self._tab_font_size != 18:
+            font = item.font()
+            font.setPixelSize(self._tab_font_size)
+            item.setFont(font)
+            item.adjustSize()
+
         if self.stacked.count() == 1:
             self.pivot.setCurrentItem(route_key)
 
     def setTabFontSize(self, size: int):
+        self._tab_font_size = size
         self.pivot.setItemFontSize(size)
 
     def setCurrentTab(self, route_key: str):

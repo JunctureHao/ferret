@@ -2,7 +2,7 @@ import json
 import sys
 from enum import Enum, auto
 
-from PySide6.QtCore import QRect, QSize, Qt, Slot
+from PySide6.QtCore import QRect, QSize, Qt, QTimer, Slot
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -34,7 +34,7 @@ from ferret.views.common.info_bar import show_success, show_warning
 class LineNumberArea(QWidget):
     """行号区域 — 只负责绘制，作为 text_edit 的子控件覆盖在左侧 margin 上"""
 
-    def __init__(self, editor: "CodeEditor"):
+    def __init__(self, editor: "LineNumberTextEdit"):
         super().__init__(editor.text_edit)
         self.editor = editor
 
@@ -45,7 +45,7 @@ class LineNumberArea(QWidget):
         self.editor.line_number_area_paint_event(e)
 
 
-class CodePlainTextEdit(PlainTextEdit):
+class PlainTextEditWithSearch(PlainTextEdit):
     """纯文本编辑器 — 基础设置 + 当前行高亮绘制
 
     复用 qfluentwidgets SmoothScrollDelegate 自带的横向滚动条，
@@ -78,36 +78,64 @@ class CodePlainTextEdit(PlainTextEdit):
         # （不要调用 setHorizontalScrollBarPolicy，那会触发 delegate 的 forceHidden）
         self._hbar = self.scrollDelegate.hScrollBar
         self._hbar._adjustPos = self._reposition_hbar
+        # 确保滚动条容器本身透明，只有 groove/handle 自绘内容可见
+        self._hbar.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._hbar.setAutoFillBackground(False)
+        self._hbar.setStyleSheet("background: transparent;")
 
     def __connect_signal_to_slot(self):
         self.cursorPositionChanged.connect(self.viewport().update)
-        # range 变化时滚动条显隐会变，需同步 viewport bottom margin
-        self._hbar.rangeChanged.connect(lambda _: self.__update_viewport_margins())
+        # updateRequest 在内容/视口变化时触发，是更新 margin 的最可靠时机
+        self.updateRequest.connect(self.__on_update_request)
+
+    def __on_update_request(self, rect, dy):
+        """视口更新时检查并同步 bottom margin"""
+        self.__sync_bottom_margin()
 
     def contextMenuEvent(self, e):
         e.accept()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.__sync_bottom_margin()
         self._reposition_hbar()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self.__sync_bottom_margin)
+        self._reposition_hbar()
+
+    def setPlainText(self, text: str):
+        super().setPlainText(text)
+        QTimer.singleShot(0, self.__sync_bottom_margin)
 
     def set_left_margin(self, width: int):
         """设置左侧 viewport margin（行号区域宽度）"""
         self._left_margin = width
-        self.__update_viewport_margins()
+        self.__sync_bottom_margin()
         self._reposition_hbar()
 
-    def __update_viewport_margins(self):
-        # bottom 留给横向滚动条，避免遮挡最后一行文本
-        bottom = 13 if self._hbar.isVisible() else 0
-        self.setViewportMargins(self._left_margin, 0, 0, bottom)
+    def __sync_bottom_margin(self):
+        """根据文档内容是否超宽，动态设置 viewport bottom margin
+
+        不依赖滚动条的 range 信号（存在竞态），直接用文档理想宽度判断。
+        """
+        vp = self.viewport()
+        if vp is None or vp.width() <= 0:
+            return
+        need_hbar = self.document().idealWidth() > vp.width()
+        need_bottom = 13 if need_hbar else 0
+        current = self.viewportMargins()
+        if current.bottom() == need_bottom and current.left() == self._left_margin:
+            return  # 没变化，避免触发 layoutChildren 导致回环
+        self.setViewportMargins(self._left_margin, 0, 0, need_bottom)
 
     def _reposition_hbar(self, size=None):
         """覆盖 ScrollBar._adjustPos — 横向滚动条只在文本区域下方，避开行号区域"""
         if size is None:
             size = self.size()
         vbar = self.scrollDelegate.vScrollBar
-        vbar_w = 13 if vbar.isVisible() else 0
+        vbar_w = 13 if vbar.maximum() > 0 else 0
         self._hbar.resize(size.width() - self._left_margin - vbar_w - 2, 12)
         self._hbar.move(self._left_margin + 1, size.height() - 13)
 
@@ -159,12 +187,12 @@ class CodePlainTextEdit(PlainTextEdit):
         painter.end()
 
 
-class CodeEditor(SimpleCardWidget):
+class LineNumberTextEdit(QWidget):
     """带行号的编辑器 — 覆盖方案"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.text_edit = CodePlainTextEdit(self)
+        self.text_edit = PlainTextEditWithSearch(self)
         self.line_number_area = LineNumberArea(self)
 
         # 内置搜索栏
@@ -477,47 +505,42 @@ class ToolWidget(SimpleCardWidget):
         return self._right_layout
 
 
-class KVTableWidget(SimpleCardWidget):
+class KVTableWidget(TableWidget):
     """键值对表格"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._table = TableWidget(self)
         self._init_table()
-        self._init_layout()
 
     def _init_table(self):
-        self._table.setColumnCount(3)
-        self._table.setWordWrap(False)
-        self._table.horizontalHeader().setVisible(False)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setColumnHidden(0, True)
+        self.setColumnCount(3)
+        self.setWordWrap(False)
+        self.horizontalHeader().setVisible(False)
+        self.verticalHeader().setVisible(False)
+        self.setColumnHidden(0, True)
+
+        self.setAlternatingRowColors(False)
 
         # 设置列宽策略
-        header = self._table.horizontalHeader()
+        header = self.horizontalHeader()
 
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         # 让第三列(操作)固定宽度
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
-    def _init_layout(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._table, stretch=1)
-
     def set_items(self, items: dict):
         """设置键值对数据 - 优化大数据量处理"""
         data_size = len(items)
-        self._table.setRowCount(data_size)
+        self.setRowCount(data_size)
         # 批量设置，减少界面更新次数
-        self._table.setUpdatesEnabled(False)
+        self.setUpdatesEnabled(False)
 
         try:
             for i, (k, v) in enumerate(items.items()):
                 # --- 新增：第 0 列存原始索引 ---
                 idx_item = QTableWidgetItem()
                 idx_item.setData(Qt.ItemDataRole.DisplayRole, i)  # 存入数字 i
-                self._table.setItem(i, 0, idx_item)
+                self.setItem(i, 0, idx_item)
 
                 # --- 修改：Key 放在第 1 列，Value 放在第 2 列 ---
                 key_item = QTableWidgetItem(str(k))
@@ -526,19 +549,15 @@ class KVTableWidget(SimpleCardWidget):
                 key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 value_item.setFlags(value_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
-                if len(str(k)) > 50:
+                if len(str(k)) > 30:
                     key_item.setToolTip(str(k))
-                if len(str(v)) > 50:
+                if len(str(v)) > 30:
                     value_item.setToolTip(str(v))
 
-                self._table.setItem(i, 1, key_item)  # Key 在 1
-                self._table.setItem(i, 2, value_item)  # Value 在 2
+                self.setItem(i, 1, key_item)  # Key 在 1
+                self.setItem(i, 2, value_item)  # Value 在 2
         finally:
-            self._table.setUpdatesEnabled(True)
-
-    @property
-    def table(self) -> TableWidget:
-        return self._table
+            self.setUpdatesEnabled(True)
 
 
 class SortState(Enum):
@@ -548,8 +567,8 @@ class SortState(Enum):
 
 
 SORT_TRANSITION = {
-    SortState.ORIGINAL: (SortState.ASCENDING, FluentIcon.UP, "升序"),
-    SortState.ASCENDING: (SortState.DESCENDING, FluentIcon.DOWN, "降序"),
+    SortState.ORIGINAL: (SortState.ASCENDING, BaseIcon.CHEVRON_UP, "升序"),
+    SortState.ASCENDING: (SortState.DESCENDING, BaseIcon.CHEVRON_DOWN, "降序"),
     SortState.DESCENDING: (SortState.ORIGINAL, FluentIcon.SCROLL, "原始顺序"),
 }
 
@@ -568,7 +587,6 @@ class KVTableToolWidget(SimpleCardWidget):
     def __init_widget(self):
         self._tool_widget = ToolWidget(self)
         self._table_widget = KVTableWidget(self)
-        self._table = self._table_widget.table
 
         self.copy_plain_button = TransparentTooltipButton(
             FluentIcon.COPY, self._tool_widget
@@ -615,9 +633,9 @@ class KVTableToolWidget(SimpleCardWidget):
     def _read_items_from_table(self) -> dict[str, str]:
         """从表格单元格读取键值对（应对排序等动态变化）"""
         items: dict[str, str] = {}
-        for row in range(self._table.rowCount()):
-            key_item = self._table.item(row, 0)
-            value_item = self._table.item(row, 1)
+        for row in range(self._table_widget.rowCount()):
+            key_item = self._table_widget.item(row, 0)
+            value_item = self._table_widget.item(row, 1)
             if key_item is None:
                 continue
             key = key_item.text()
@@ -656,11 +674,13 @@ class KVTableToolWidget(SimpleCardWidget):
 
         # 2. 执行表格排序动作
         if next_state == SortState.ASCENDING:
-            self._table.sortItems(1, Qt.SortOrder.AscendingOrder)
+            self._table_widget.sortItems(1, Qt.SortOrder.AscendingOrder)
         elif next_state == SortState.DESCENDING:
-            self._table.sortItems(1, Qt.SortOrder.DescendingOrder)
+            self._table_widget.sortItems(1, Qt.SortOrder.DescendingOrder)
         else:
-            self._table.sortItems(0, Qt.SortOrder.AscendingOrder)  # 原始/默认排第一列
+            self._table_widget.sortItems(
+                0, Qt.SortOrder.AscendingOrder
+            )  # 原始/默认排第一列
 
         # 3. 更新状态和 UI
         self._sort_state = next_state
@@ -672,7 +692,7 @@ class KVTableToolWidget(SimpleCardWidget):
         return self._tool_widget.left_layout
 
 
-class KVEditToolWidget(SimpleCardWidget):
+class ToolPlainTextEdit(SimpleCardWidget):
     """键值对编辑工具条"""
 
     def __init__(self, parent: QWidget | None = None):
@@ -686,13 +706,13 @@ class KVEditToolWidget(SimpleCardWidget):
 
     def __init_widget(self):
         self.tool_widget = ToolWidget(self)
-        self.code_widget = CodeEditor(self)
+        self.code_widget = LineNumberTextEdit(self)
 
         self._btn_search = TransparentTooltipButton(BaseIcon.DOCUMENT_SEARCH, self)
         self._btn_search.setToolTip("查找")
         self._btn_sort = TransparentTooltipButton(FluentIcon.SCROLL, self)
         self._btn_sort.setToolTip("排序")
-        self._btn_wrap = TransparentTooltipButton(FluentIcon.ALIGNMENT, self)
+        self._btn_wrap = TransparentTooltipButton(BaseIcon.LINE_BREAK, self)
         self._btn_wrap.setToolTip("换行")
 
     def __init_layout(self):
@@ -758,7 +778,7 @@ class KVEditToolWidget(SimpleCardWidget):
         self.code_widget.set_read_only(read_only)
 
 
-class KVDualPanel(SimpleCardWidget):
+class KVDualPanel(QWidget):
     """文本、表格双重面板 可切换"""
 
     def __init__(self, parent: QWidget | None = None):
@@ -768,16 +788,16 @@ class KVDualPanel(SimpleCardWidget):
         self.__connect_signal_to_slot()
 
     def __init_widget(self):
-        self.text = KVEditToolWidget(self)
+        self.text = ToolPlainTextEdit(self)
         self.table = KVTableToolWidget(self)
 
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.text)
         self.stack.addWidget(self.table)
 
-        self._btn_text = TransparentTooltipButton(FluentIcon.DOCUMENT, self)
+        self._btn_text = TransparentTooltipButton(BaseIcon.CONVERT_TO_TEXT, self)
         self._btn_text.setToolTip(self.tr("文本模式"))
-        self._btn_table = TransparentTooltipButton(FluentIcon.TILES, self)
+        self._btn_table = TransparentTooltipButton(BaseIcon.CONVERT_TO_TABLE, self)
         self._btn_table.setToolTip(self.tr("表格模式"))
 
     def __init_layout(self):
@@ -834,17 +854,17 @@ if __name__ == "__main__":
     layout.setSpacing(8)
 
     editor = KVDualPanel()
-    # editor.set_items(
-    #     # "dsadadad:sdadasda\ndsaaaaaaaaaa"
-    #     {
-    #         "Content-Type": "application/json",
-    #         "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ91111111111111111111111111111111111111111111111111111111111111111111111111111111",
-    #         "Accept": "text/html,application/xhtml+xml",
-    #         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    #         "Host": "api.example.com",
-    #         "Connection": "keep-alive",
-    #     }
-    # )
+    editor.set_items(
+        # "dsadadad:sdadasda\ndsaaaaaaaaaa"
+        {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ91111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "Accept": "text/html,application/xhtml+xml",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Host": "api.example.com",
+            "Connection": "keep-alive",
+        }
+    )
     layout.addWidget(editor, stretch=1)
 
     window.show()
