@@ -46,6 +46,7 @@ def main():
 
     # 4. 创建 QApplication
     app = QApplication(sys.argv)
+
     # 防止原生窗口同级冲突（qfluentwidgets 推荐配置）
     app.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
 

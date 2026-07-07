@@ -4,6 +4,7 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
     QObject,
+    QPersistentModelIndex,
     QSortFilterProxyModel,
     Qt,
     Slot,
@@ -34,13 +35,21 @@ class PacketTableModel(QAbstractTableModel):
             return self._headers[section]
         return None
 
-    def rowCount(self, parent: QModelIndex | None = None):
+    def rowCount(
+        self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()
+    ) -> int:
         return len(self._data)
 
-    def columnCount(self, parent: QModelIndex | None = None):
+    def columnCount(
+        self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()
+    ) -> int:
         return len(self._headers)
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ):
         if not index.isValid():
             return None
 
@@ -227,22 +236,26 @@ class PacketProxyModel(QSortFilterProxyModel):
                 values.extend([str(v) for v in req_headers.values()])
             if isinstance(res_headers, dict):
                 values.extend([str(v) for v in res_headers.values()])
-            req_body = data.get("Request Body", b"")
-            res_body = data.get("Response Body", b"")
-            if isinstance(req_body, bytes):
-                try:
-                    values.append(req_body.decode("utf-8", errors="replace"))
-                except Exception:
-                    pass
-            else:
+            req_body = data.get("Request Body Text")
+            res_body = data.get("Response Body Text")
+            if req_body is not None:
                 values.append(str(req_body))
-            if isinstance(res_body, bytes):
+            elif isinstance(data.get("Request Body"), bytes):
                 try:
-                    values.append(res_body.decode("utf-8", errors="replace"))
+                    values.append(
+                        data["Request Body"].decode("utf-8", errors="replace")
+                    )
                 except Exception:
                     pass
-            else:
+            if res_body is not None:
                 values.append(str(res_body))
+            elif isinstance(data.get("Response Body"), bytes):
+                try:
+                    values.append(
+                        data["Response Body"].decode("utf-8", errors="replace")
+                    )
+                except Exception:
+                    pass
             return " ".join(values).lower()
         elif field == "URL":
             return str(data.get("URL", "")).lower()
@@ -260,23 +273,25 @@ class PacketProxyModel(QSortFilterProxyModel):
                     parts.append(f"{k}: {v}")
             return " ".join(parts).lower()
         elif field == "Body":
-            req_body = data.get("Request Body", b"")
-            res_body = data.get("Response Body", b"")
+            req_body = data.get("Request Body Text")
+            res_body = data.get("Response Body Text")
             parts = []
-            if isinstance(req_body, bytes):
-                try:
-                    parts.append(req_body.decode("utf-8", errors="replace"))
-                except Exception:
-                    pass
-            else:
+            if req_body is not None:
                 parts.append(str(req_body))
-            if isinstance(res_body, bytes):
+            elif isinstance(data.get("Request Body"), bytes):
                 try:
-                    parts.append(res_body.decode("utf-8", errors="replace"))
+                    parts.append(data["Request Body"].decode("utf-8", errors="replace"))
                 except Exception:
                     pass
-            else:
+            if res_body is not None:
                 parts.append(str(res_body))
+            elif isinstance(data.get("Response Body"), bytes):
+                try:
+                    parts.append(
+                        data["Response Body"].decode("utf-8", errors="replace")
+                    )
+                except Exception:
+                    pass
             return " ".join(parts).lower()
         elif field == "Host":
             return str(data.get("Host", "")).lower()
@@ -310,9 +325,11 @@ class PacketProxyModel(QSortFilterProxyModel):
         return True
 
     # ── 核心过滤逻辑 ──
-    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
+    def filterAcceptsRow(
+        self, source_row: int, source_parent: QModelIndex | QPersistentModelIndex
+    ) -> bool:
         model = self.sourceModel()
-        if not hasattr(model, "_data"):
+        if not isinstance(model, PacketTableModel):
             return True
         data = model._data[source_row] if source_row < len(model._data) else {}
         if not data:

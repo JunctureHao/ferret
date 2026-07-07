@@ -33,5 +33,13 @@
         <file>icons/Convert_To_Text_black.svg</file>
         <file>icons/Convert_To_Text_white.svg</file>
 
+
+    </qresource>
+    <!-- 字体资源：虚拟路径前缀为 /fonts -->
+    <qresource prefix="/fonts">
+        <file alias="Regular.ttf">fonts/JetBrainsMono-Regular.ttf</file>
+        <file alias="Bold.ttf">fonts/JetBrainsMono-Bold.ttf</file>
+        <file alias="Italic.ttf">fonts/JetBrainsMono-Italic.ttf</file>
+        <file alias="BoldItalic.ttf">fonts/JetBrainsMono-BoldItalic.ttf</file>
     </qresource>
 </RCC>

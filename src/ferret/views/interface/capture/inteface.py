@@ -1,6 +1,4 @@
-import json
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, urlparse
 
 from PySide6.QtCore import (
     QEvent,
@@ -46,12 +44,22 @@ from ferret.config.settings import CONFIG
 from ferret.controllers.capture_controller import CaptureController
 from ferret.core.model import PacketProxyModel, PacketTableModel
 from ferret.utils.http_parser import (
-    decode_body,
     format_bytes,
     format_time,
-    parse_cookies_from_headers,
 )
 from ferret.views.common.edit import KVDualPanel, ToolPlainTextEdit
+
+
+def _infer_body_lang(content_type: str) -> str:
+    """根据 Content-Type 推断 body 高亮语言。"""
+    ct = (content_type or "").lower()
+    if "json" in ct:
+        return "json"
+    if "xml" in ct or "html" in ct:
+        return "xml"
+    return "http"
+
+
 from ferret.views.common.filter import MultiFilterManager
 from ferret.views.common.icon import BaseIcon
 from ferret.views.common.info_bar import show_success, show_warning
@@ -836,13 +844,16 @@ class RequestPanel(TabPanel):
 
     def __init_widget(self):
         """初始化界面组件"""
+        # 注意：所有通过 addTab 加入 stacked 的子组件，不要传 parent=self，
+        # 否则 addTab 内部 QStackedWidget.addWidget() 会触发二次 reparenting，
+        # 导致内部工具栏/行号区几何偏移（左上角错位）。
         self.overview = Overview(self)
 
-        self.raw_edit = ToolPlainTextEdit(self)
+        self.raw_edit = ToolPlainTextEdit()
         self.raw_edit.set_read_only(True)
-        self.params_widget = KVDualPanel(self)
+        self.params_widget = KVDualPanel()
         self.params_widget.set_read_only(True)
-        self.header_card = KVDualPanel(self)
+        self.header_card = KVDualPanel()
         self.header_card.set_read_only(True)
 
         self.body_card = ToolPlainTextEdit()
@@ -869,7 +880,7 @@ class RequestPanel(TabPanel):
         """填充请求数据
 
         Args:
-            data: 数据字典
+            data: 数据字典（已由 mitmproxy 阶段预解析结构化字段）
         """
         self.datas = data  # 保存数据，供 _fill_raw 使用
 
@@ -878,15 +889,15 @@ class RequestPanel(TabPanel):
 
         headers = data.get("Request Headers", {})
         self.header_card.set_items(headers)
-        body = data.get("Request Body", b"")
+
         flow_id = data.get("Connection ID", "")
         content_type = data.get("Request Content-Type", "")
+        body = data.get("Request Body", b"")
         self._fill_raw(body, content_type, flow_id)
-        self._fill_body(body, content_type)
+        self._fill_body(data)
 
-        # 解析 URL 参数，动态决定是否显示"参数"tab
-        url = data.get("URL", "")
-        params = self.__parse_url_params(url)
+        # 消费预解析的 URL 参数，动态决定是否显示"参数"tab
+        params = data.get("Request Params", {})
         self.params_widget.set_items(params)
         if params:
             if "参数" not in self.pivot.items:
@@ -900,9 +911,20 @@ class RequestPanel(TabPanel):
                 if idx >= 0:
                     self.stacked.removeWidget(self.params_widget)
 
-        # 解析 Cookie
-        cookies = parse_cookies_from_headers(headers, "Cookie")
+        # 消费预解析的 Cookie，无 Cookie 时自动隐藏 Cookies 面板
+        cookies = data.get("Request Cookies", {})
         self.cookie_widget.set_cookies(cookies)
+        if cookies:
+            if "Cookies" not in self.pivot.items:
+                self.addTab("Cookies", self.cookie_card, "Cookies")
+        else:
+            if "Cookies" in self.pivot.items:
+                if self.pivot.currentRouteKey() == "Cookies":
+                    self.pivot.setCurrentItem("原始")
+                self.pivot.removeWidget("Cookies")
+                idx = self.stacked.indexOf(self.cookie_card)
+                if idx >= 0:
+                    self.stacked.removeWidget(self.cookie_card)
 
     def _fill_raw(self, body: bytes, content_type: str = "", flow_id: str = ""):
         """生成完整的原始HTTP请求格式
@@ -958,56 +980,17 @@ class RequestPanel(TabPanel):
 
         self.raw_edit.set_text("\n".join(raw_lines))
 
-    def _fill_body(self, body: bytes, content_type: str = ""):
-        """填充请求/响应体
+    def _fill_body(self, data: dict):
+        """填充请求/响应体（消费 mitmproxy 阶段预解析字段，不再重复解码/格式化）
 
         Args:
-            body: 请求/响应体
-            content_type: 内容类型
+            data: 完整数据字典，含 Request Body Pretty / Request Body Text
         """
-        text = decode_body(body, content_type)
-        # 尝试格式化 JSON
-        text = self._try_format_json(text)
-        self.body_card.set_text(text)
-
-    def _try_format_json(self, text: str) -> str:
-        """尝试将文本格式化为 JSON
-
-        Args:
-            text: 文本内容
-
-        Returns:
-            str: 格式化后的 JSON 文本
-        """
-        if not text or not text.strip():
-            return text
-
-        try:
-            parsed = json.loads(text.strip())
-            return json.dumps(parsed, indent=4, ensure_ascii=False)
-        except (json.JSONDecodeError, ValueError):
-            # 不是 JSON 或解析失败，返回原文
-            return text
-
-    def __parse_url_params(self, url: str) -> dict[str, str]:
-        """解析 URL 中的 query 参数
-
-        Args:
-            url: URL 字符串
-
-        Returns:
-            参数字典 {key: value}
-        """
-        if not url:
-            return {}
-        try:
-            parsed = urlparse(url)
-            params = parse_qs(parsed.query, keep_blank_values=True)
-            return {
-                k: (v[0] if len(v) == 1 else ", ".join(v)) for k, v in params.items()
-            }
-        except Exception:
-            return {}
+        text = data.get("Request Body Pretty")
+        if text is None:
+            text = data.get("Request Body Text") or ""
+        lang = _infer_body_lang(data.get("Request Content-Type", ""))
+        self.body_card.set_text(text, lang=lang)
 
 
 class ResponsePanel(TabPanel):
@@ -1048,7 +1031,7 @@ class ResponsePanel(TabPanel):
         """填充响应数据
 
         Args:
-            data: 数据字典
+            data: 数据字典（已由 mitmproxy 阶段预解析结构化字段）
         """
         self.datas = data
 
@@ -1056,12 +1039,12 @@ class ResponsePanel(TabPanel):
         headers = data.get("Response Headers", {})
         self.header_card.set_items(headers)
 
-        # 响应体
-        body = data.get("Response Body", b"")
+        # 响应体（消费预解析字段）
         flow_id = data.get("Connection ID", "")
         content_type = data.get("Response Content-Type", "")
+        body = data.get("Response Body", b"")
         self._fill_raw(body, content_type, flow_id)
-        self._fill_body(body, content_type)
+        self._fill_body(data)
 
     def _fill_raw(self, body: bytes, content_type: str = "", flow_id: str = ""):
         """生成完整的原始HTTP响应格式
@@ -1119,36 +1102,17 @@ class ResponsePanel(TabPanel):
 
         self.raw_edit.set_text("\n".join(raw_lines))
 
-    def _fill_body(self, body: bytes, content_type: str = ""):
-        """填充响应体
+    def _fill_body(self, data: dict):
+        """填充响应体（消费 mitmproxy 阶段预解析字段，不再重复解码/格式化）
 
         Args:
-            body: 响应体
-            content_type: 内容类型
+            data: 完整数据字典，含 Response Body Pretty / Response Body Text
         """
-        text = decode_body(body, content_type)
-        # 尝试格式化 JSON
-        text = self._try_format_json(text)
-        self.body_card.set_text(text)
-
-    def _try_format_json(self, text: str) -> str:
-        """尝试将文本格式化为 JSON
-
-        Args:
-            text: 文本内容
-
-        Returns:
-            str: 格式化后的 JSON 文本
-        """
-        if not text or not text.strip():
-            return text
-
-        try:
-            parsed = json.loads(text.strip())
-            return json.dumps(parsed, indent=4, ensure_ascii=False)
-        except (json.JSONDecodeError, ValueError):
-            # 不是 JSON 或解析失败，返回原文
-            return text
+        text = data.get("Response Body Pretty")
+        if text is None:
+            text = data.get("Response Body Text") or ""
+        lang = _infer_body_lang(data.get("Response Content-Type", ""))
+        self.body_card.set_text(text, lang=lang)
 
 
 class Overview(SimpleCardWidget):

@@ -8,6 +8,11 @@ from mitmproxy.tools.dump import DumpMaster
 from PySide6.QtCore import QThread, Signal, SignalInstance
 
 from ferret.utils.exporter import FlowExporter
+from ferret.utils.http_parser import (
+    build_body,
+    parse_cookies_from_headers,
+    parse_params,
+)
 from ferret.utils.process_resolver import resolve_process
 
 
@@ -139,6 +144,12 @@ class UITrafficAddon:
                 }
             )
 
+            # 预解析 URL 参数与 Cookie（一次性，UI 直接消费）
+            data["Request Params"] = parse_params(flow.request.url)
+            data["Request Cookies"] = parse_cookies_from_headers(
+                dict(flow.request.headers), "Cookie"
+            )
+
         # 请求体阶段
         if state in ("request", "response_headers", "complete", "error"):
             body = flow.request.raw_content or b""
@@ -147,20 +158,30 @@ class UITrafficAddon:
                 req_duration = (
                     flow.request.timestamp_end - flow.request.timestamp_start
                 ) * 1000  # 毫秒
+            req_ct = flow.request.headers.get("Content-Type", "-")
+            req_body_info = build_body(body, req_ct)
             data.update(
                 {
                     "req_size": len(body),
                     "req_duration": req_duration,
                     "Request Body": body,
-                    "Request Content-Type": flow.request.headers.get(
-                        "Content-Type", "-"
-                    ),
+                    "Request Content-Type": req_ct,
+                    "Request Body Text": req_body_info["text"],
+                    "Request Body Pretty": req_body_info["pretty"],
+                    "Request Fold Regions": req_body_info["fold_regions"],
+                    "Request Is Binary": req_body_info["is_binary"],
+                    "Request Body MIME": req_body_info["mime"],
                 }
             )
 
         # 响应头阶段
         if state in ("response_headers", "complete", "error"):
             if flow.response:
+                # 预解析 Cookie（一次性，UI 直接消费）
+                data["Response Cookies"] = parse_cookies_from_headers(
+                    dict(flow.response.headers), "Set-Cookie"
+                )
+
                 server_addr = "N/A"
                 if flow.server_conn and flow.server_conn.peername:
                     server_addr = (
@@ -252,12 +273,17 @@ class UITrafficAddon:
                 )
                 res_total_size = data.get("res_headers_size", 0) + len(body)
                 total_size = req_total_size + res_total_size
+                res_ct = flow.response.headers.get("Content-Type", "-")
+                res_body_info = build_body(body, res_ct)
                 data.update(
                     {
                         "Response Body": body,
-                        "Response Content-Type": flow.response.headers.get(
-                            "Content-Type", "-"
-                        ),
+                        "Response Content-Type": res_ct,
+                        "Response Body Text": res_body_info["text"],
+                        "Response Body Pretty": res_body_info["pretty"],
+                        "Response Fold Regions": res_body_info["fold_regions"],
+                        "Response Is Binary": res_body_info["is_binary"],
+                        "Response Body MIME": res_body_info["mime"],
                         "res_size": len(body),
                         "res_time": flow.response.timestamp_end,
                         "res_duration": res_duration,
