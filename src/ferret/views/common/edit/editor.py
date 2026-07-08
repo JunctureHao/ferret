@@ -44,6 +44,7 @@ class CodeEditor(PlainTextEdit):
         self.ln_left_padding = 25
         self.ln_right_padding = 25
         self._fold_regions = []  # 折叠区域数据（待实现折叠 UI）
+        self._search_active = False  # 查找模式下挂起当前行高亮，避免覆盖查找高亮
 
         self.__init_widget()
         self.__connect_signal_to_slot()
@@ -184,6 +185,10 @@ class CodeEditor(PlainTextEdit):
         painter.drawLine(x, event.rect().top(), x, event.rect().bottom())
 
     def set_highlight_current_line(self):
+        # 查找模式下不打断查找高亮（由 set_search_selections 接管 ExtraSelection）
+        if self._search_active:
+            self.line_number_area.update()
+            return
         extra_selections = []
         selection = QTextEdit.ExtraSelection()
         line_color = self.get_highlight_line_color()
@@ -194,6 +199,12 @@ class CodeEditor(PlainTextEdit):
         extra_selections.append(selection)
         self.setExtraSelections(extra_selections)
         self.line_number_area.update()
+
+    def set_search_active(self, active: bool):
+        """切换查找模式。激活时挂起当前行高亮，避免覆盖查找高亮。"""
+        self._search_active = active
+        if not active:
+            self.set_highlight_current_line()
 
     def get_highlight_line_color(self) -> QColor:
         return QColor(255, 255, 255, 15) if isDarkTheme() else QColor(0, 0, 0, 10)

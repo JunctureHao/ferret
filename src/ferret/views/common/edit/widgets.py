@@ -2,21 +2,27 @@ import json
 from enum import Enum, auto
 
 from PySide6.QtCore import QSize, Qt, Slot
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QHeaderView,
     QStackedWidget,
     QTableWidgetItem,
+    QTextEdit,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
+    CaptionLabel,
     FluentIcon,
+    SearchLineEdit,
     SimpleCardWidget,
     TableItemDelegate,
     TableWidget,
+    TreeWidget,
+    isDarkTheme,
 )
 
 from ferret.views.common.button import TransparentTooltipButton
@@ -241,8 +247,10 @@ class ToolPlainTextEdit(SimpleCardWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._sort_state = SortState.ORIGINAL
-        self._original_text = ""
+        self._wrap_on = False  # 默认不换行
+        self._search_visible = False
+        self._search_results: list = []  # 匹配的 QTextCursor 列表
+        self._search_index = -1  # 当前命中项索引
 
         self.__init_widget()
         self.__init_layout()
@@ -252,64 +260,205 @@ class ToolPlainTextEdit(SimpleCardWidget):
         self.tool_widget = ToolWidget(self)
         self.code_widget = CodeEditor(self)
 
-        self._btn_search = TransparentTooltipButton(BaseIcon.DOCUMENT_SEARCH, self)
-        self._btn_search.setToolTip("查找")
-        self._btn_sort = TransparentTooltipButton(FluentIcon.SCROLL, self)
-        self._btn_sort.setToolTip("排序")
+        self._btn_copy = TransparentTooltipButton(FluentIcon.COPY, self)
+        self._btn_copy.setToolTip(self.tr("复制"))
         self._btn_wrap = TransparentTooltipButton(BaseIcon.LINE_BREAK, self)
-        self._btn_wrap.setToolTip("换行")
+        self._btn_wrap.setToolTip(self.tr("换行"))
+        self._btn_search = TransparentTooltipButton(BaseIcon.DOCUMENT_SEARCH, self)
+        self._btn_search.setToolTip(self.tr("查找"))
+
+        # 查找栏：默认隐藏，点击"查找"按钮时展开
+        self._search_bar = SearchLineEdit(self)
+        self._search_bar.setPlaceholderText(self.tr("查找..."))
+        self._search_bar.setFixedHeight(30)  # 与工具栏按钮同高
+        self._search_bar.setVisible(False)
+        self._search_prev = TransparentTooltipButton(FluentIcon.UP, self)
+        self._search_prev.setToolTip(self.tr("上一个"))
+        self._search_prev.setFixedSize(22, 22)
+        self._search_prev.setIconSize(QSize(12, 12))
+        self._search_prev.setVisible(False)
+        self._search_next = TransparentTooltipButton(FluentIcon.DOWN, self)
+        self._search_next.setToolTip(self.tr("下一个"))
+        self._search_next.setFixedSize(22, 22)
+        self._search_next.setIconSize(QSize(12, 12))
+        self._search_next.setVisible(False)
+        self._search_close = TransparentTooltipButton(FluentIcon.CLOSE, self)
+        self._search_close.setToolTip(self.tr("关闭"))
+        self._search_close.setFixedSize(22, 22)
+        self._search_close.setIconSize(QSize(12, 12))
+        self._search_close.setVisible(False)
+        self._search_status = CaptionLabel(self)
+        self._search_status.setMinimumWidth(
+            36
+        )  # 至少留出 3 个字符宽度，避免数字变化时抖动
+        self._search_status.setVisible(False)
 
     def __init_layout(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         main_layout.addWidget(self.tool_widget)
+
+        # 查找栏：独占一行，输入框+状态文字挨着，按钮靠右
+        search_layout = QHBoxLayout()
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(0)
+        self._search_bar.setFixedWidth(160)
+        search_layout.addStretch(1)  # 左侧弹簧 → 整组靠右
+        search_layout.addWidget(self._search_bar)
+        search_layout.addWidget(self._search_status)  # 状态文字紧贴输入框右侧
+        search_layout.addWidget(self._search_prev)
+        search_layout.addWidget(self._search_next)
+        search_layout.addWidget(self._search_close)
+        self._search_container = QWidget(self)
+        self._search_container.setLayout(search_layout)
+        self._search_container.setVisible(False)
+        main_layout.addWidget(self._search_container)
+
         main_layout.addWidget(self.code_widget, stretch=1)
 
         tool_right_layout = self.tool_widget.right_layout
-        tool_right_layout.addWidget(self._btn_search)
-        tool_right_layout.addWidget(self._btn_sort)
+        tool_right_layout.addWidget(self._btn_copy)
         tool_right_layout.addWidget(self._btn_wrap)
+        tool_right_layout.addWidget(self._btn_search)
 
     def __connect_signal_to_slot(self):
-        self._btn_search.clicked.connect(self.handle_btn_search_clicked)
-        self._btn_sort.clicked.connect(self.handle_btn_sort_clicked)
+        self._btn_copy.clicked.connect(self.handle_btn_copy_clicked)
         self._btn_wrap.clicked.connect(self.handle_btn_wrap_clicked)
+        self._btn_search.clicked.connect(self.handle_btn_search_clicked)
+        self._search_close.clicked.connect(self.close_search)
+        self._search_next.clicked.connect(self.search_next)
+        self._search_prev.clicked.connect(self.search_prev)
+        # 输入即触发实时搜索（去掉回车/搜索按钮触发）
+        self._search_bar.textChanged.connect(self.__on_search_text_changed)
 
     @Slot()
-    def handle_btn_search_clicked(self):
-        self.code_widget.toggle_search()
-
-    @Slot()
-    def handle_btn_sort_clicked(self):
-        # 1. 获取下一阶段信息
-        next_state, icon, tip = SORT_TRANSITION[self._sort_state]
-
-        # 2. 执行文本排序动作
-        if self._sort_state == SortState.ORIGINAL:  # 只有进入排序前才备份
-            self._original_text = self.code_widget.to_text()
-
-        lines = self.code_widget.to_text().splitlines()
-        if next_state == SortState.ASCENDING:
-            new_text = "\n".join(sorted(lines, key=str.lower))
-        elif next_state == SortState.DESCENDING:
-            new_text = "\n".join(sorted(lines, key=str.lower, reverse=True))
-        else:
-            new_text = self._original_text
-
-        # 3. 更新状态、UI 和编辑器
-        self._sort_state = next_state
-        self._btn_sort.setIcon(icon)
-        self._btn_sort.setToolTip(self.tr(tip))
-        cursor = self.code_widget.text_edit.textCursor()
-        cursor.beginEditBlock()
-        cursor.select(QTextCursor.SelectionType.Document)
-        cursor.insertText(new_text)
-        cursor.endEditBlock()
+    def handle_btn_copy_clicked(self):
+        """复制编辑器中的原始文本"""
+        text = self.code_widget.toPlainText()
+        if not text:
+            show_warning(self.tr("提示"), self.tr("没有可复制的内容"), self.window())
+            return
+        QApplication.clipboard().setText(text)
+        show_success(self.tr("成功"), self.tr("已复制到剪贴板"), self.window())
 
     @Slot()
     def handle_btn_wrap_clicked(self):
-        self.code_widget.text_edit.toggle_wrap()
+        """切换换行：默认不换行，点击换行，再次点击取消换行"""
+        self._wrap_on = not self._wrap_on
+        self.code_widget.set_word_wrap(self._wrap_on)
+
+    @Slot()
+    def handle_btn_search_clicked(self):
+        self.toggle_search()
+
+    def toggle_search(self):
+        """切换查找栏显隐"""
+        if self._search_visible:
+            self.close_search()
+        else:
+            self.open_search()
+
+    def open_search(self):
+        self._search_visible = True
+        self._search_container.setVisible(True)
+        self._search_bar.setVisible(True)
+        self._search_prev.setVisible(True)
+        self._search_next.setVisible(True)
+        self._search_close.setVisible(True)
+        self._search_status.setVisible(True)
+        self.code_widget.set_search_active(True)
+        # 预填当前选中文本，方便继续查找
+        cursor = self.code_widget.textCursor()
+        if cursor.hasSelection():
+            self._search_bar.setText(cursor.selectedText())
+        self._search_bar.setFocus()
+        self._search_bar.selectAll()
+        text = self._search_bar.text().strip()
+        if text:
+            self.do_search(text)
+
+    def close_search(self):
+        self._search_visible = False
+        self._search_container.setVisible(False)
+        self._search_bar.setText("")
+        self.clear_search()
+        self.code_widget.set_search_active(False)
+        self.code_widget.setFocus()
+
+    def clear_search(self):
+        """清除高亮与命中记录"""
+        self._search_results = []
+        self._search_index = -1
+        self._search_status.setText("")
+        self.code_widget.setExtraSelections([])
+        self.code_widget.set_highlight_current_line()  # 恢复当前行高亮
+
+    def __on_search_text_changed(self, text: str):
+        """输入即实时搜索"""
+        self.do_search(text.strip())
+
+    def do_search(self, text: str):
+        """从文档中查找所有命中项并高亮"""
+        self._search_results = []
+        self._search_index = -1
+        if not text:
+            self.clear_search()
+            return
+
+        doc = self.code_widget.document()
+        cursor = doc.find(text)
+        while not cursor.isNull():
+            self._search_results.append(QTextCursor(cursor))
+            cursor = doc.find(text, cursor)
+
+        if self._search_results:
+            self._search_index = 0
+            self._apply_search_highlight()
+            self._goto_current()
+        else:
+            self._search_status.setText(self.tr("无匹配"))
+            self.code_widget.setExtraSelections([])
+
+    def search_next(self):
+        if not self._search_results:
+            text = self._search_bar.text().strip()
+            if text:
+                self.do_search(text)
+            return
+        self._search_index = (self._search_index + 1) % len(self._search_results)
+        self._apply_search_highlight()
+        self._goto_current()
+
+    def search_prev(self):
+        if not self._search_results:
+            return
+        self._search_index = (self._search_index - 1) % len(self._search_results)
+        self._apply_search_highlight()
+        self._goto_current()
+
+    def _apply_search_highlight(self):
+        """用 ExtraSelection 高亮所有命中：当前项橙色，其余黄色"""
+        selections = []
+        is_dark = isDarkTheme()
+        base_bg = QColor(255, 235, 120, 120) if is_dark else QColor(255, 235, 0, 120)
+        cur_bg = QColor(255, 160, 40, 180) if is_dark else QColor(255, 150, 0, 180)
+        for i, c in enumerate(self._search_results):
+            sel = QTextEdit.ExtraSelection()
+            sel.format.setBackground(base_bg)
+            if i == self._search_index:
+                sel.format.setBackground(cur_bg)
+            sel.cursor = QTextCursor(c)
+            selections.append(sel)
+        self.code_widget.setExtraSelections(selections)
+        total = len(self._search_results)
+        self._search_status.setText(f"{self._search_index + 1}/{total}")
+
+    def _goto_current(self):
+        if 0 <= self._search_index < len(self._search_results):
+            cursor = QTextCursor(self._search_results[self._search_index])
+            self.code_widget.setTextCursor(cursor)
+            self.code_widget.centerCursor()
 
     @property
     def tool_layout(self) -> QHBoxLayout:
@@ -319,6 +468,10 @@ class ToolPlainTextEdit(SimpleCardWidget):
         """设置文本并指定高亮语言。lang: http/headers/json/xml"""
         self.code_widget.set_language(lang)
         self.code_widget.setPlainText(text)
+        # 文本变更时清空旧的查找结果
+        self._search_results = []
+        self._search_index = -1
+        self._search_status.setText("")
 
     def set_read_only(self, read_only: bool):
         self.code_widget.setReadOnly(read_only)
@@ -380,6 +533,174 @@ class KVDualPanel(QWidget):
     # self.table.set_read_only(read_only)
 
 
+class JsonTreeWidget(TreeWidget):
+    """JSON 体树形视图 — 递归展示 dict / list / 标量，两列：键/值"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setHeaderLabels([self.tr("键"), self.tr("值")])
+        self.setColumnWidth(0, 120)  # 键列初始宽度
+        self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.header().setFixedHeight(22)  # 横向表头行高（紧凑）
+        self.setAlternatingRowColors(False)
+        self.setIndentation(14)
+
+    def set_data(self, data):
+        """用解析后的 JSON 对象（dict/list/标量）重建树（无根节点）"""
+        self.clear()
+        if data is None:
+            return
+        self._fill(self, data)
+        self._apply_count_color()
+        # 默认全部折叠，不展开
+
+    def _fill(self, parent, value):
+        if isinstance(value, dict):
+            for k, v in value.items():
+                item = QTreeWidgetItem(parent)
+                item.setText(0, str(k))
+                if isinstance(v, (dict, list)):
+                    item.setText(1, self._count_label(v))
+                    item.setFont(1, self._count_font())
+                    self._fill(item, v)
+                else:
+                    item.setText(1, self._scalar_text(v))
+        elif isinstance(value, list):
+            for i, v in enumerate(value):
+                item = QTreeWidgetItem(parent)
+                item.setText(0, f"[{i}]")
+                if isinstance(v, (dict, list)):
+                    item.setText(1, self._count_label(v))
+                    item.setFont(1, self._count_font())
+                    self._fill(item, v)
+                else:
+                    item.setText(1, self._scalar_text(v))
+        else:
+            item = QTreeWidgetItem(parent)
+            item.setText(0, self._scalar_text(value))
+
+    @staticmethod
+    def _count_label(v) -> str:
+        """折叠节点显示子项数量：Object(x) / Array(x)"""
+        if isinstance(v, dict):
+            return f"Object({len(v)})"
+        if isinstance(v, list):
+            return f"Array({len(v)})"
+        return ""
+
+    @staticmethod
+    def _count_font():
+        """计数标签字体：斜体灰色，与基础字体区分"""
+        from PySide6.QtGui import QFont
+
+        f = QFont()
+        f.setItalic(True)
+        return f
+
+    def _apply_count_color(self):
+        """给带计数的单元格上灰色（遍历已建好的项）"""
+        from PySide6.QtGui import QColor
+
+        gray = QColor(128, 128, 128)
+        stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        while stack:
+            it = stack.pop()
+            if it.font(1).italic():
+                it.setForeground(1, gray)
+            for j in range(it.childCount()):
+                stack.append(it.child(j))
+
+    @staticmethod
+    def _scalar_text(v) -> str:
+        if v is None:
+            return "null"
+        if isinstance(v, str):
+            return v
+        return str(v)
+
+
+class JsonTreePanel(SimpleCardWidget):
+    """树模式页面 — 自带工具栏插槽（tool_layout），与 KVDualPanel 的各页面一致"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._tool_widget = ToolWidget(self)
+        self.tree = JsonTreeWidget(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._tool_widget)
+        layout.addWidget(self.tree, stretch=1)
+
+    @property
+    def tool_layout(self) -> QHBoxLayout:
+        return self._tool_widget.left_layout
+
+
+class JsonDualPanel(QWidget):
+    """JSON 体双重面板：文本模式 / 树模式 可切换（参考 KVDualPanel）"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.__init_widget()
+        self.__init_layout()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        self.text = ToolPlainTextEdit(self)
+        self.tree = JsonTreePanel(self)
+
+        self.stack = QStackedWidget(self)
+        self.stack.addWidget(self.text)
+        self.stack.addWidget(self.tree)
+
+        self._btn_text = TransparentTooltipButton(BaseIcon.CONVERT_TO_TEXT, self)
+        self._btn_text.setToolTip(self.tr("文本模式"))
+        self._btn_tree = TransparentTooltipButton(BaseIcon.CONVERT_TO_TABLE, self)
+        self._btn_tree.setToolTip(self.tr("树模式"))
+
+    def __init_layout(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.addWidget(self.stack)
+
+        # 与 KVDualPanel 一致：每个页面只显示自己的切换按钮，不额外占一行
+        self.text.tool_layout.addWidget(self._btn_tree)
+        self.tree.tool_layout.addWidget(self._btn_text)
+
+    def __connect_signal_to_slot(self):
+        self._btn_text.clicked.connect(lambda: self.stack.setCurrentWidget(self.text))
+        self._btn_tree.clicked.connect(lambda: self.stack.setCurrentWidget(self.tree))
+        self.stack.currentChanged.connect(self.updateGeometry)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 — Qt 命名约定
+        """把内部 QStackedWidget 当前页面的正确尺寸向上传递，解决嵌套错位。"""
+        current = self.stack.currentWidget()
+        if current:
+            return current.sizeHint()
+        return super().sizeHint()
+
+    def set_text(self, text: str, lang: str = "json"):
+        """设置文本并指定语言；lang=json 时自动建树。"""
+        self.text.set_text(text, lang=lang)
+        if lang == "json":
+            try:
+                import json
+
+                parsed = json.loads(text)
+                self.tree.tree.set_data(parsed)
+            except Exception:
+                self.tree.tree.clear()
+        else:
+            self.tree.tree.clear()
+
+    def set_read_only(self, read_only: bool):
+        self.text.set_read_only(read_only)
+
+
 __all__ = [
     "ToolWidget",
     "KVTableWidget",
@@ -388,4 +709,6 @@ __all__ = [
     "KVTableToolWidget",
     "ToolPlainTextEdit",
     "KVDualPanel",
+    "JsonTreeWidget",
+    "JsonDualPanel",
 ]

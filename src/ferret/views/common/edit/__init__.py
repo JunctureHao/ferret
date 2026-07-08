@@ -18,6 +18,9 @@ from .highlighter import (
 )
 from .widgets import (
     SORT_TRANSITION,
+    JsonDualPanel,
+    JsonTreePanel,
+    JsonTreeWidget,
     KVDualPanel,
     KVTableToolWidget,
     KVTableWidget,
@@ -43,12 +46,16 @@ __all__ = [
     "KVTableToolWidget",
     "ToolPlainTextEdit",
     "KVDualPanel",
+    "JsonTreeWidget",
+    "JsonTreePanel",
+    "JsonDualPanel",
 ]
 
 
 if __name__ == "__main__":
     import sys
 
+    from Pyside6.QtCode import Qt
     from PySide6.QtWidgets import QApplication, QVBoxLayout
     from qfluentwidgets import (
         FluentIcon,

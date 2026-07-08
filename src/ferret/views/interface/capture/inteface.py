@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QHeaderView,
-    QPlainTextEdit,
     QSizePolicy,
     QStackedWidget,
     QTreeWidgetItem,
@@ -32,7 +31,6 @@ from qfluentwidgets import (
     SimpleCardWidget,
     SpinBox,
     SubtitleLabel,
-    TableItemDelegate,
     TableView,
     ToolTipFilter,
     ToolTipPosition,
@@ -47,19 +45,7 @@ from ferret.utils.http_parser import (
     format_bytes,
     format_time,
 )
-from ferret.views.common.edit import KVDualPanel, ToolPlainTextEdit
-
-
-def _infer_body_lang(content_type: str) -> str:
-    """根据 Content-Type 推断 body 高亮语言。"""
-    ct = (content_type or "").lower()
-    if "json" in ct:
-        return "json"
-    if "xml" in ct or "html" in ct:
-        return "xml"
-    return "http"
-
-
+from ferret.views.common.edit import JsonDualPanel, KVDualPanel, ToolPlainTextEdit
 from ferret.views.common.filter import MultiFilterManager
 from ferret.views.common.icon import BaseIcon
 from ferret.views.common.info_bar import show_success, show_warning
@@ -71,6 +57,16 @@ from ferret.views.interface.capture.packet_menu import PacketContextMenu
 
 if TYPE_CHECKING:
     from ferret.views.window import MainWindow
+
+
+def _infer_body_lang(content_type: str) -> str:
+    """根据 Content-Type 推断 body 高亮语言。"""
+    ct = (content_type or "").lower()
+    if "json" in ct:
+        return "json"
+    if "xml" in ct or "html" in ct:
+        return "xml"
+    return "http"
 
 
 class CapturesInterface(SimpleCardWidget):
@@ -195,8 +191,10 @@ class CapturesContentArea(OrientationSplitter):
         self.addWidget(self.panel)
 
         self.setStretchFactor(0, 1)  # ← table 占 1 份
-        self.setStretchFactor(1, 1)  # ← panel 占 1 份 → 严格 50:50
-        self.setSizes([1, 0])
+        self.setStretchFactor(
+            1, 0
+        )  # ← panel 初始不占空间（折叠态），与 setSizes([1,0]) 一致，避免 stretch 与初始尺寸博弈
+        self.setSizes([1, 0])  # ← 默认仅显示表格，右侧面板收起
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
@@ -431,36 +429,6 @@ class ProxyPortDialog(MessageBoxBase):
         return self.port_spin.value()
 
 
-class ReadOnlyDelegate(TableItemDelegate):
-    """只读文本 delegate — 双击时弹出可复制但不可编辑的文本框"""
-
-    def createEditor(self, parent, option, index):
-        """创建只读文本编辑器"""
-        editor = QPlainTextEdit(parent)
-        editor.setReadOnly(True)
-        editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        # 设置等宽字体
-        font = QFont("Consolas", 10)
-        font.setFixedPitch(True)
-        editor.setFont(font)
-        return editor
-
-    def setEditorData(self, editor, index):
-        """设置编辑器数据"""
-        value = index.data(Qt.ItemDataRole.DisplayRole)
-        editor.setPlainText(str(value) if value else "")
-        # 全选文本方便复制
-        editor.selectAll()
-
-    def setModelData(self, editor, model, index):
-        """不修改模型数据（只读）"""
-        pass
-
-    def updateEditorGeometry(self, editor, option, index):
-        """设置编辑器位置和大小"""
-        editor.setGeometry(option.rect)
-
-
 class CapturesDataTable(TableView):
     """抓包数据表格 - 显示网络请求数据"""
 
@@ -512,10 +480,6 @@ class CapturesDataTable(TableView):
             self.setColumnWidth(i, w)
         h_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         # self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-
-        # 设置只读 delegate — 双击时弹出可复制但不可编辑的文本框
-        self._read_only_delegate = ReadOnlyDelegate(self)
-        self.setItemDelegate(self._read_only_delegate)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
@@ -646,7 +610,6 @@ class CapturesDataPanel(SimpleCardWidget):
         self.detail_page.addWidget(self.res_panel)
         self.detail_page.setStretchFactor(0, 1)
         self.detail_page.setStretchFactor(1, 1)
-        self._detail_shown = False
 
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.empty_page)  # index 0
@@ -714,24 +677,12 @@ class CapturesDataPanel(SimpleCardWidget):
         self.req_panel.set_data(data)  # 请求面板
         self.res_panel.set_data(data)  # 响应面板
         self.stack.setCurrentIndex(1)
-        # 首次显示时，安装事件过滤器在布局完成后设置比例
-        if not self._detail_shown:
-            self.detail_page.installEventFilter(self)
-            self._detail_shown = True
-        # 立即尝试 + 延迟设置
-        self.__apply_detail_equal_sizes()
-        QTimer.singleShot(50, self.__apply_detail_equal_sizes)
+        # detail_page 刚切为当前页时尚未完成 layout，width 可能未就绪，
+        # 故延迟到下一事件循环（布局算完）再设一次 50:50，避免抖动循环。
+        QTimer.singleShot(0, self.__apply_detail_equal_sizes)
 
     def eventFilter(self, obj, e):
-        """拦截 detail_page 的 Resize 事件，在布局完成后设置 50:50（仅首次）"""
-        if obj is self.detail_page and self._detail_shown:
-            if e.type() == QEvent.Type.Resize:
-                QTimer.singleShot(0, self.__apply_detail_equal_sizes)
-                # 首次设置成功后移除事件过滤器
-                w = self.detail_page.width()
-                if w > 100:  # 布局已完成（宽度足够大）
-                    self.detail_page.removeEventFilter(self)
-                    self._detail_shown = False
+        """保留空实现以兼容父类；detail 页比例已改由 singleShot(0) 单次设定。"""
         return super().eventFilter(obj, e)
 
     def __apply_detail_equal_sizes(self):
@@ -856,7 +807,7 @@ class RequestPanel(TabPanel):
         self.header_card = KVDualPanel()
         self.header_card.set_read_only(True)
 
-        self.body_card = ToolPlainTextEdit()
+        self.body_card = JsonDualPanel()
         self.body_card.set_read_only(True)
 
         self.cookie_widget = CookieWidget()
@@ -1014,7 +965,7 @@ class ResponsePanel(TabPanel):
         """初始化界面组件"""
         self.raw_edit = ToolPlainTextEdit()
 
-        self.body_card = ToolPlainTextEdit()
+        self.body_card = JsonDualPanel()
         self.body_card.set_read_only(True)
 
         self.header_card = KVDualPanel()
