@@ -16,31 +16,6 @@ from ferret.utils.http_parser import (
 from ferret.utils.process_resolver import resolve_process
 
 
-class SnifferAddon:
-    def __init__(self, signal: SignalInstance):
-        self.signal = signal
-
-    # ── 阶段 ①：请求头到达 ──
-    def requestheaders(self, flow: HTTPFlow):
-        self.signal.emit((flow, "request_headers"))
-
-    # ── 阶段 ②：请求体到达 ──
-    def request(self, flow: HTTPFlow):
-        self.signal.emit((flow, "request"))
-
-    # ── 阶段 ③：响应头到达 ← 关键改进 ──
-    def responseheaders(self, flow: HTTPFlow):
-        self.signal.emit((flow, "response_headers"))
-
-    # ── 阶段 ④：响应体到达 ──
-    def response(self, flow: HTTPFlow):
-        self.signal.emit((flow, "complete"))
-
-    # ── 阶段 ⑤：错误 ──
-    def error(self, flow: HTTPFlow):
-        self.signal.emit((flow, "error"))
-
-
 class UITrafficAddon:
     """在 mitmproxy 线程中预处理 flow 对象为字典"""
 

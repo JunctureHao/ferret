@@ -1,6 +1,6 @@
 """API 请求界面 — 发送 HTTP 请求并查看响应"""
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QSplitter,
@@ -11,6 +11,7 @@ from qfluentwidgets import (
     BodyLabel,
     ComboBox,
     FluentIcon,
+    IndeterminateProgressRing,
     LineEdit,
     PrimaryPushButton,
     SimpleCardWidget,
@@ -19,30 +20,39 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
+from ferret.controllers.request import RequestController
+
 
 class RequestToolBar(QWidget):
-    """请求工具栏 — URL 输入 + 方法选择 + 发送按钮"""
+    """请求工具栏 — URL 输入 + 方法选择 + 发送按钮。
 
-    requestSent = Signal(str, str)  # method, url
+    直接持有 controller，发送在本地闭环：采集输入 → 调 controller.send()。
+    线程细节完全由 controller 内部管理，UI 无感知。
+    """
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, controller: RequestController, parent: QWidget | None = None):
         super().__init__(parent)
+        self.controller = controller
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
 
     def __init_widget(self):
         self.method_combo = ComboBox(self)
-        self.method_combo.addItems(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
-        self.method_combo.setFixedWidth(100)
+        self.method_combo.addItems(self.controller.get_http_methods())
+        self.method_combo.setFixedWidth(110)
 
         self.url_input = LineEdit(self)
-        self.url_input.setPlaceholderText("输入请求 URL，例如 https://api.example.com/users")
+        self.url_input.setPlaceholderText("https://httpbin.org/get")
         self.url_input.setClearButtonEnabled(True)
 
-        self.send_btn = PrimaryPushButton("发送", self)
-        self.send_btn.setIcon(FluentIcon.SEND)
-        self.send_btn.setFixedWidth(100)
+        self.send_btn = PrimaryPushButton(FluentIcon.SEND, "发送", self)
+        self.send_btn.setFixedWidth(110)
+
+        # 叠加在发送按钮上的无限转圈环（发送期间显示）
+        self.loading_ring = IndeterminateProgressRing(self.send_btn, start=False)
+        self.loading_ring.setFixedSize(22, 22)
+        self.loading_ring.hide()
 
     def __init_layout(self):
         layout = QHBoxLayout(self)
@@ -52,19 +62,55 @@ class RequestToolBar(QWidget):
         layout.addWidget(self.url_input, stretch=1)
         layout.addWidget(self.send_btn)
 
+    def __center_loading_ring(self):
+        """把转圈环定位到发送按钮正中心。"""
+        btn = self.send_btn
+        ring = self.loading_ring
+        ring.move(
+            btn.width() // 2 - ring.width() // 2,
+            btn.height() // 2 - ring.height() // 2,
+        )
+        ring.raise_()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.send_btn is not None and self.loading_ring is not None:
+            self.__center_loading_ring()
+
     def __connect_signal_to_slot(self):
         self.send_btn.clicked.connect(self.__on_send_clicked)
         self.url_input.returnPressed.connect(self.__on_send_clicked)
+        # 内容返回（成功或失败）即结束转圈
+        self.controller.responseReady.connect(self.stop_loading)
+        self.controller.errorOccurred.connect(self.stop_loading)
+
+    def start_loading(self):
+        """进入发送中状态：禁用按钮 + 显示转圈。"""
+        self.send_btn.setDisabled(True)
+        self.send_btn.setText("")
+        self.__center_loading_ring()
+        self.loading_ring.show()
+        self.loading_ring.start()
+
+    def stop_loading(self):
+        """发送结束：恢复按钮 + 隐藏转圈。"""
+        self.loading_ring.stop()
+        self.loading_ring.hide()
+        self.send_btn.setText("发送")
+        self.send_btn.setDisabled(False)
 
     @Slot()
     def __on_send_clicked(self):
         method = self.method_combo.currentText()
         url = self.url_input.text().strip()
         if url:
-            self.requestSent.emit(method, url)
+            # 点按钮即转圈
+            self.start_loading()
+            # 直接调 controller，线程管理与结果广播都在 controller 内
+            self.controller.send(method, url)
 
 
-class RequestBodyPanel(SimpleCardWidget):
+class RequestBodyPanel(QWidget):
     """请求体面板"""
 
     def __init__(self, parent: QWidget | None = None):
@@ -86,7 +132,7 @@ class RequestBodyPanel(SimpleCardWidget):
         layout.addWidget(self.body_edit)
 
 
-class ResponsePanel(SimpleCardWidget):
+class ResponsePanel(QWidget):
     """响应面板"""
 
     def __init__(self, parent: QWidget | None = None):
@@ -117,25 +163,29 @@ class ResponsePanel(SimpleCardWidget):
         layout.addLayout(header_layout)
         layout.addWidget(self.response_edit)
 
-    def set_response(self, status_code: int, body: str):
+    def set_response(self, status_code: int, body: str, version: str = ""):
         """设置响应内容"""
         color = "green" if 200 <= status_code < 300 else "red"
-        self.status_label.setText(f"<span style='color: {color}'>Status: {status_code}</span>")
-        self.response_edit.setPlainText(body)
+        self.status_label.setText(
+            f"<span style='color: {color}'>Status: {status_code}</span>"
+        )
+        prefix = f"[{version}]\n\n" if version else ""
+        self.response_edit.setPlainText(prefix + body)
 
 
-class RequestInterface(QWidget):
-    """API 请求界面"""
+class RequestInterface(SimpleCardWidget):
+    """API 请求界面 — 仅负责布局，不掺和发送逻辑。"""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("RequestInterface")
+        self.controller = RequestController(self)
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
 
     def __init_widget(self):
-        self.toolbar = RequestToolBar(self)
+        self.toolbar = RequestToolBar(self.controller, self)
         self.body_panel = RequestBodyPanel(self)
         self.response_panel = ResponsePanel(self)
 
@@ -154,13 +204,23 @@ class RequestInterface(QWidget):
         main_layout.addWidget(splitter)
 
     def __connect_signal_to_slot(self):
-        self.toolbar.requestSent.connect(self.__on_request_sent)
+        # 响应结果由 controller 信号广播给各面板
+        self.controller.responseReady.connect(self.response_panel.set_response)
 
-    @Slot(str, str)
-    def __on_request_sent(self, method: str, url: str):
-        """处理请求发送（这里先做 mock，后续接入实际 HTTP 客户端）"""
-        # TODO: 接入实际的 HTTP 请求逻辑
-        self.response_panel.set_response(
-            200,
-            f"Mock Response\n\nMethod: {method}\nURL: {url}\n\n请接入实际的 HTTP 请求逻辑。"
-        )
+
+if __name__ == "__main__":
+
+    def main():
+        """独立运行以测试请求界面窗口"""
+        import sys
+
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication(sys.argv)
+        window = RequestInterface()
+        window.resize(800, 600)
+        window.setWindowTitle("API 请求界面 - 测试")
+        window.show()
+        sys.exit(app.exec())
+
+    main()

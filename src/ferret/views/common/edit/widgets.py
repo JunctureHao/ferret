@@ -604,13 +604,19 @@ class JsonTreeWidget(TreeWidget):
         from PySide6.QtGui import QColor
 
         gray = QColor(128, 128, 128)
-        stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        stack: list[QTreeWidgetItem] = [
+            item
+            for i in range(self.topLevelItemCount())
+            if (item := self.topLevelItem(i)) is not None
+        ]
         while stack:
             it = stack.pop()
             if it.font(1).italic():
                 it.setForeground(1, gray)
             for j in range(it.childCount()):
-                stack.append(it.child(j))
+                child = it.child(j)
+                if child is not None:
+                    stack.append(child)
 
     @staticmethod
     def _scalar_text(v) -> str:

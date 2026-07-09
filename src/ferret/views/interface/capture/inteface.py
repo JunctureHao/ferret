@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import (
     QEvent,
@@ -57,6 +57,7 @@ from ferret.views.interface.capture.packet_menu import PacketContextMenu
 
 if TYPE_CHECKING:
     from ferret.views.window import MainWindow
+FieldKey = str | Callable[["dict"], str]
 
 
 def _infer_body_lang(content_type: str) -> str:
@@ -1102,7 +1103,7 @@ class OverviewTree(TreeWidget):
     """总览树形控件 - 显示请求/响应的详细信息"""
 
     # 基本信息字段
-    FIELDS = [
+    FIELDS: list[tuple[str, FieldKey]] = [
         (
             "状态",
             lambda d: {
@@ -1180,7 +1181,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 证书详细信息
-    CERT_DETAIL_FIELDS = [
+    CERT_DETAIL_FIELDS: list[tuple[str, FieldKey]] = [
         ("开始时间", "Not Before"),
         ("截止时间", "Not After"),
         ("指纹", "Fingerprint SHA1"),
@@ -1188,7 +1189,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 时间信息
-    TIME_FIELDS = [
+    TIME_FIELDS: list[tuple[str, FieldKey]] = [
         ("请求开始", lambda d: format_time(d.get("req_time"))),
         ("请求结束", lambda d: format_time(d.get("req_timestamp_end"))),
         (
@@ -1213,7 +1214,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 大小信息
-    SIZE_FIELDS = [
+    SIZE_FIELDS: list[tuple[str, FieldKey]] = [
         (
             "请求",
             lambda d: format_bytes(d.get("req_size", 0) + d.get("req_headers_size", 0)),
@@ -1254,10 +1255,10 @@ class OverviewTree(TreeWidget):
 
         # ── 基本信息 ──
         for label, key_or_func in self.FIELDS:
-            if callable(key_or_func):
-                value = key_or_func(data)
-            else:
+            if isinstance(key_or_func, str):
                 value = data.get(key_or_func)
+            else:
+                value = key_or_func(data)
 
             # 跳过空值
             if value in (None, "", "N/A", "-"):
@@ -1469,10 +1470,10 @@ class OverviewTree(TreeWidget):
 
             # ── 证书详细信息（平级） ──
             for label, key_or_func in self.CERT_DETAIL_FIELDS:
-                if callable(key_or_func):
-                    value = key_or_func(data)
-                else:
+                if isinstance(key_or_func, str):
                     value = data.get(key_or_func, "")
+                else:
+                    value = key_or_func(data)
                 if value in (None, "", "N/A", "-"):
                     continue
                 item = QTreeWidgetItem(cert_parent)
@@ -1507,10 +1508,10 @@ class OverviewTree(TreeWidget):
             time_parent.setFont(0, bold_font)
 
             for label, key_or_func in self.TIME_FIELDS:
-                if callable(key_or_func):
-                    value = key_or_func(data)
-                else:
+                if isinstance(key_or_func, str):
                     value = data.get(key_or_func)
+                else:
+                    value = key_or_func(data)
 
                 if value in (None, "", "N/A", "-"):
                     continue
@@ -1545,10 +1546,10 @@ class OverviewTree(TreeWidget):
             size_parent.setFont(0, bold_font)
 
             for label, key_or_func in self.SIZE_FIELDS:
-                if callable(key_or_func):
-                    value = key_or_func(data)
-                else:
+                if isinstance(key_or_func, str):
                     value = data.get(key_or_func)
+                else:
+                    value = key_or_func(data)
 
                 if value in (None, "", "N/A", "-"):
                     continue
