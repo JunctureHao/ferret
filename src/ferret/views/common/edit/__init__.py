@@ -18,37 +18,34 @@ from .highlighter import (
 )
 from .widgets import (
     SORT_TRANSITION,
+    ItemTableToolWidget,
+    ItemTableWidget,
     JsonDualPanel,
     JsonTreePanel,
     JsonTreeWidget,
-    KVDualPanel,
-    KVTableToolWidget,
-    KVTableWidget,
+    ItemDualPanel,
     SortState,
     ToolPlainTextEdit,
     ToolWidget,
 )
 
 __all__ = [
-    # editor
-    "CodeEditor",
-    "LineNumberArea",
-    # highlighter
-    "UniversalHighlighter",
-    "HTTPHighlighter",
-    "HeadersHighlighter",
-    "JSONHighlighter",
-    # widgets
-    "ToolWidget",
-    "KVTableWidget",
-    "SortState",
-    "SORT_TRANSITION",
-    "KVTableToolWidget",
-    "ToolPlainTextEdit",
-    "KVDualPanel",
-    "JsonTreeWidget",
-    "JsonTreePanel",
-    "JsonDualPanel",
+    CodeEditor,
+    LineNumberArea,
+    UniversalHighlighter,
+    HTTPHighlighter,
+    HeadersHighlighter,
+    JSONHighlighter,
+    ToolWidget,
+    ItemTableWidget,
+    SortState,
+    SORT_TRANSITION,
+    ItemTableToolWidget,
+    ToolPlainTextEdit,
+    ItemDualPanel,
+    JsonTreeWidget,
+    JsonTreePanel,
+    JsonDualPanel,
 ]
 
 
@@ -90,7 +87,7 @@ if __name__ == "__main__":
     layout.setContentsMargins(12, title_height + 4, 12, 12)
     layout.setSpacing(8)
 
-    editor = KVDualPanel()
+    editor = ItemDualPanel()
     editor.set_items(
         {
             "Content-Type": "application/json",

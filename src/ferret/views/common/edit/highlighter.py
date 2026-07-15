@@ -368,8 +368,8 @@ class JSONHighlighter(HTTPHighlighter):
 
 
 __all__ = [
-    "UniversalHighlighter",
-    "HTTPHighlighter",
-    "HeadersHighlighter",
-    "JSONHighlighter",
+    UniversalHighlighter,
+    HTTPHighlighter,
+    HeadersHighlighter,
+    JSONHighlighter,
 ]

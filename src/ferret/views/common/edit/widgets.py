@@ -62,7 +62,7 @@ class ToolWidget(QWidget):
         return self._right_layout
 
 
-class KVTableWidget(TableWidget):
+class ItemTableWidget(TableWidget):
     """键值对表格"""
 
     def __init__(self, parent=None):
@@ -124,7 +124,7 @@ SORT_TRANSITION = {
 }
 
 
-class KVTableToolWidget(SimpleCardWidget):
+class ItemTableToolWidget(SimpleCardWidget):
     """键值对表格工具条"""
 
     def __init__(self, parent: QWidget | None = None):
@@ -137,7 +137,7 @@ class KVTableToolWidget(SimpleCardWidget):
 
     def __init_widget(self):
         self._tool_widget = ToolWidget(self)
-        self._table_widget = KVTableWidget(self)
+        self._table_widget = ItemTableWidget(self)
 
         self.copy_plain_button = TransparentTooltipButton(
             FluentIcon.COPY, self._tool_widget
@@ -477,7 +477,7 @@ class ToolPlainTextEdit(SimpleCardWidget):
         self.code_widget.setReadOnly(read_only)
 
 
-class KVDualPanel(QWidget):
+class ItemDualPanel(QWidget):
     """文本、表格双重面板 可切换"""
 
     def __init__(self, parent: QWidget | None = None):
@@ -488,7 +488,7 @@ class KVDualPanel(QWidget):
 
     def __init_widget(self):
         self.text = ToolPlainTextEdit(self)
-        self.table = KVTableToolWidget(self)
+        self.table = ItemTableToolWidget(self)
 
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.text)
@@ -682,7 +682,7 @@ class JsonDualPanel(QWidget):
         self._btn_tree.clicked.connect(lambda: self.stack.setCurrentWidget(self.tree))
         self.stack.currentChanged.connect(self.updateGeometry)
 
-    def sizeHint(self) -> QSize:  # noqa: N802 — Qt 命名约定
+    def sizeHint(self) -> QSize:
         """把内部 QStackedWidget 当前页面的正确尺寸向上传递，解决嵌套错位。"""
         current = self.stack.currentWidget()
         if current:
@@ -708,13 +708,13 @@ class JsonDualPanel(QWidget):
 
 
 __all__ = [
-    "ToolWidget",
-    "KVTableWidget",
-    "SortState",
-    "SORT_TRANSITION",
-    "KVTableToolWidget",
-    "ToolPlainTextEdit",
-    "KVDualPanel",
-    "JsonTreeWidget",
-    "JsonDualPanel",
+    ToolWidget,
+    ItemTableWidget,
+    SortState,
+    SORT_TRANSITION,
+    ItemTableToolWidget,
+    ToolPlainTextEdit,
+    ItemDualPanel,
+    JsonTreeWidget,
+    JsonDualPanel,
 ]

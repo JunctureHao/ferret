@@ -1,9 +1,8 @@
 """API 请求界面 — 发送 HTTP 请求并查看响应"""
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +19,7 @@ from qfluentwidgets import (
 )
 
 from ferret.controllers.request import RequestController
+from ferret.views.common.splitter import OrientationSplitter
 
 
 class RequestToolBar(QWidget):
@@ -98,8 +98,8 @@ class RequestBodyPanel(QWidget):
 
     def __init_layout(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         layout.addWidget(self.title_label)
         layout.addWidget(self.body_edit)
 
@@ -130,8 +130,8 @@ class ResponsePanel(QWidget):
         header_layout.addWidget(self.copy_btn)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         layout.addLayout(header_layout)
         layout.addWidget(self.response_edit)
 
@@ -162,18 +162,16 @@ class RequestInterface(SimpleCardWidget):
         self.response_panel = ResponsePanel(self)
 
     def __init_layout(self):
-        # 使用分割器让请求体和响应可调整大小
-        splitter = QSplitter(Qt.Orientation.Vertical, self)
+        # 使用分割器让请求体和响应可调整大小（方向跟随全局布局配置）
+        splitter = OrientationSplitter(inverted=True, parent=self)
         splitter.addWidget(self.body_panel)
         splitter.addWidget(self.response_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(8, 0, 8, 8)
         main_layout.setSpacing(0)
         main_layout.addWidget(self.toolbar)
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(splitter, 1)
 
     def __connect_signal_to_slot(self):
         # 响应结果由 controller 信号广播给各面板

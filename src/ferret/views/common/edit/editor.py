@@ -249,4 +249,4 @@ class CodeEditor(PlainTextEdit):
         self._fold_regions = regions or []
 
 
-__all__ = ["LineNumberArea", "CodeEditor"]
+__all__ = [LineNumberArea, CodeEditor]

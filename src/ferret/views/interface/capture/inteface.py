@@ -45,7 +45,7 @@ from ferret.utils.http_parser import (
     format_bytes,
     format_time,
 )
-from ferret.views.common.edit import JsonDualPanel, KVDualPanel, ToolPlainTextEdit
+from ferret.views.common.edit import JsonDualPanel, ItemDualPanel, ToolPlainTextEdit
 from ferret.views.common.filter import MultiFilterManager
 from ferret.views.common.icon import BaseIcon
 from ferret.views.common.info_bar import show_success, show_warning
@@ -803,9 +803,9 @@ class RequestPanel(TabPanel):
 
         self.raw_edit = ToolPlainTextEdit()
         self.raw_edit.set_read_only(True)
-        self.params_widget = KVDualPanel()
+        self.params_widget = ItemDualPanel()
         self.params_widget.set_read_only(True)
-        self.header_card = KVDualPanel()
+        self.header_card = ItemDualPanel()
         self.header_card.set_read_only(True)
 
         self.body_card = JsonDualPanel()
@@ -969,7 +969,7 @@ class ResponsePanel(TabPanel):
         self.body_card = JsonDualPanel()
         self.body_card.set_read_only(True)
 
-        self.header_card = KVDualPanel()
+        self.header_card = ItemDualPanel()
         self.header_card.set_read_only(True)
 
     def __init_layout(self):
