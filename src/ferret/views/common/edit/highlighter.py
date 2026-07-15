@@ -125,16 +125,12 @@ class HTTPHighlighter(QSyntaxHighlighter):
         # 1. 优先按 Content-Type 分流
         if content_type == "json":
             try:
-                from pygments.lexers import JsonLexer
-
-                return list(JsonLexer().get_tokens(stripped))
+                return list(get_lexer_by_name("json").get_tokens(stripped))
             except Exception:
                 return None
         if content_type == "xml":
             try:
-                from pygments.lexers import HtmlLexer
-
-                return list(HtmlLexer().get_tokens(stripped))
+                return list(get_lexer_by_name("html").get_tokens(stripped))
             except Exception:
                 return None
         if content_type == "binary":
@@ -144,18 +140,14 @@ class HTTPHighlighter(QSyntaxHighlighter):
         # 尝试 JSON
         if stripped[0] in ("{", "["):
             try:
-                from pygments.lexers import JsonLexer
-
-                return list(JsonLexer().get_tokens(stripped))
+                return list(get_lexer_by_name("json").get_tokens(stripped))
             except Exception:
                 pass
 
         # 尝试 XML / HTML
         if stripped[0] == "<":
             try:
-                from pygments.lexers import HtmlLexer
-
-                return list(HtmlLexer().get_tokens(stripped))
+                return list(get_lexer_by_name("html").get_tokens(stripped))
             except Exception:
                 pass
 
@@ -357,9 +349,7 @@ class JSONHighlighter(HTTPHighlighter):
         self.fold_regions = []  # 外部注入的折叠区域（供后续折叠 UI 使用）
 
     def _generate_tokens(self, text: str) -> Iterable[tuple[TokenType, str]]:
-        from pygments.lexers import JsonLexer
-
-        return JsonLexer().get_tokens(text)
+        return get_lexer_by_name("json").get_tokens(text)
 
     def set_fold_regions(self, regions: list):
         """外部设置折叠区域并触发重解析"""
