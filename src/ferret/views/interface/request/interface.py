@@ -11,7 +11,6 @@ from qfluentwidgets import (
     BodyLabel,
     ComboBox,
     FluentIcon,
-    IndeterminateProgressRing,
     LineEdit,
     PrimaryPushButton,
     SimpleCardWidget,
@@ -49,11 +48,6 @@ class RequestToolBar(QWidget):
         self.send_btn = PrimaryPushButton(FluentIcon.SEND, "发送", self)
         self.send_btn.setFixedWidth(110)
 
-        # 叠加在发送按钮上的无限转圈环（发送期间显示）
-        self.loading_ring = IndeterminateProgressRing(self.send_btn, start=False)
-        self.loading_ring.setFixedSize(22, 22)
-        self.loading_ring.hide()
-
     def __init_layout(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -61,21 +55,6 @@ class RequestToolBar(QWidget):
         layout.addWidget(self.method_combo)
         layout.addWidget(self.url_input, stretch=1)
         layout.addWidget(self.send_btn)
-
-    def __center_loading_ring(self):
-        """把转圈环定位到发送按钮正中心。"""
-        btn = self.send_btn
-        ring = self.loading_ring
-        ring.move(
-            btn.width() // 2 - ring.width() // 2,
-            btn.height() // 2 - ring.height() // 2,
-        )
-        ring.raise_()
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        if self.send_btn is not None and self.loading_ring is not None:
-            self.__center_loading_ring()
 
     def __connect_signal_to_slot(self):
         self.send_btn.clicked.connect(self.__on_send_clicked)
@@ -87,16 +66,9 @@ class RequestToolBar(QWidget):
     def start_loading(self):
         """进入发送中状态：禁用按钮 + 显示转圈。"""
         self.send_btn.setDisabled(True)
-        self.send_btn.setText("")
-        self.__center_loading_ring()
-        self.loading_ring.show()
-        self.loading_ring.start()
 
     def stop_loading(self):
         """发送结束：恢复按钮 + 隐藏转圈。"""
-        self.loading_ring.stop()
-        self.loading_ring.hide()
-        self.send_btn.setText("发送")
         self.send_btn.setDisabled(False)
 
     @Slot()
