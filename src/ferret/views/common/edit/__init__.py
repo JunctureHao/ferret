@@ -18,12 +18,12 @@ from .highlighter import (
 )
 from .widgets import (
     SORT_TRANSITION,
+    ItemDualPanel,
     ItemTableToolWidget,
     ItemTableWidget,
     JsonDualPanel,
     JsonTreePanel,
     JsonTreeWidget,
-    ItemDualPanel,
     SortState,
     ToolPlainTextEdit,
     ToolWidget,
@@ -52,7 +52,7 @@ __all__ = [
 if __name__ == "__main__":
     import sys
 
-    from Pyside6.QtCode import Qt
+    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication, QVBoxLayout
     from qfluentwidgets import (
         FluentIcon,

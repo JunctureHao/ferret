@@ -19,7 +19,6 @@ from qfluentwidgets import (
     FluentIcon,
     SearchLineEdit,
     SimpleCardWidget,
-    TableItemDelegate,
     TableWidget,
     TreeWidget,
     isDarkTheme,
@@ -70,12 +69,11 @@ class ItemTableWidget(TableWidget):
         self._init_table()
 
     def _init_table(self):
+        self.verticalHeader().setDefaultSectionSize(28)
         self.setColumnCount(2)
         self.setWordWrap(False)
         self.horizontalHeader().setVisible(False)
         self.verticalHeader().setVisible(False)
-
-        self.setItemDelegate(TableItemDelegate(self))
 
         # 设置列宽策略：第0列=key(自适应)，第1列=value(拉伸)
         header = self.horizontalHeader()
