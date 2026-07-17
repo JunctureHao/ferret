@@ -69,7 +69,11 @@ class ItemTableWidget(TableWidget):
     :param parent: 父控件
     """
 
-    def __init__(self, parent=None, editable: bool = False):
+    def __init__(
+        self,
+        editable: bool = False,
+        parent=None,
+    ):
         super().__init__(parent)
         self._editable = editable
         self._init_table()
@@ -135,10 +139,15 @@ SORT_TRANSITION = {
 
 
 class ItemTableToolWidget(SimpleCardWidget):
-    """键值对表格工具条"""
+    """带工具栏的键值对表格
 
-    def __init__(self, parent: QWidget | None = None):
+    :param bool editable: 是否可编辑
+    :param parent: 父控件
+    """
+
+    def __init__(self, editable: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
+        self._editable = editable
         self._sort_state = SortState.ORIGINAL
         self._items: dict[str, str] = {}
         self.__init_widget()
@@ -147,7 +156,7 @@ class ItemTableToolWidget(SimpleCardWidget):
 
     def __init_widget(self):
         self._tool_widget = ToolWidget(self)
-        self._table_widget = ItemTableWidget(self)
+        self._table_widget = ItemTableWidget(self._editable, self)
 
         self.copy_plain_button = TransparentTooltipButton(
             FluentIcon.COPY, self._tool_widget
@@ -488,17 +497,22 @@ class ToolPlainTextEdit(SimpleCardWidget):
 
 
 class ItemDualPanel(QWidget):
-    """文本、表格双重面板 可切换"""
+    """带工具栏的文本、表格双重面板 可切换
 
-    def __init__(self, parent: QWidget | None = None):
+    :param bool editable: 是否可编辑
+    :param parent: 父控件
+    """
+
+    def __init__(self, editable: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
+        self._editable = editable
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
 
     def __init_widget(self):
         self.text = ToolPlainTextEdit(self)
-        self.table = ItemTableToolWidget(self)
+        self.table = ItemTableToolWidget(self._editable, self)
 
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.text)

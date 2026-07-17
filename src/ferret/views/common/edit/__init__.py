@@ -87,7 +87,7 @@ if __name__ == "__main__":
     layout.setContentsMargins(12, title_height + 4, 12, 12)
     layout.setSpacing(8)
 
-    editor = ItemDualPanel()
+    editor = ItemDualPanel(True)
     editor.set_items(
         {
             "Content-Type": "application/json",
