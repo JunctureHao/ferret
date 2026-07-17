@@ -45,7 +45,7 @@ from ferret.utils.http_parser import (
     format_bytes,
     format_time,
 )
-from ferret.views.common.edit import JsonDualPanel, ItemDualPanel, ToolPlainTextEdit
+from ferret.views.common.edit import ItemDualPanel, JsonDualPanel, ToolPlainTextEdit
 from ferret.views.common.filter import MultiFilterManager
 from ferret.views.common.icon import BaseIcon
 from ferret.views.common.info_bar import show_success, show_warning

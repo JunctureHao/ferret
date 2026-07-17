@@ -1,4 +1,4 @@
-# src/ferret/controllers/capture_controller.py
+# ferret/ferret/controllers/capture_controller.py
 from PySide6.QtCore import QObject, Signal
 
 from ferret.core.capture import SnifferWorker, UITrafficAddon
