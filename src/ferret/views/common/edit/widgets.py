@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QStackedWidget,
+    QTableWidget,
     QTableWidgetItem,
     QTextEdit,
     QTreeWidgetItem,
@@ -62,10 +63,15 @@ class ToolWidget(QWidget):
 
 
 class ItemTableWidget(TableWidget):
-    """键值对表格"""
+    """键值对表格
 
-    def __init__(self, parent=None):
+    :param bool editable: 是否可编辑，默认为 False
+    :param parent: 父控件
+    """
+
+    def __init__(self, parent=None, editable: bool = False):
         super().__init__(parent)
+        self._editable = editable
         self._init_table()
 
     def _init_table(self):
@@ -77,11 +83,20 @@ class ItemTableWidget(TableWidget):
 
         # 设置列宽策略：第0列=key(自适应)，第1列=value(拉伸)
         header = self.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
+        # 全局固化编辑触发方式：可编辑则双击/选中进入编辑，否则完全禁止。
+        # 仅用 setEditTriggers 控制，无需逐格设置 ItemIsEditable 标志。
+        if self._editable:
+            self.setEditTriggers(
+                QTableWidget.EditTrigger.DoubleClicked
+                | QTableWidget.EditTrigger.SelectedClicked
+            )
+        else:
+            self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
     def set_items(self, items: dict):
-        """设置键值对数据 - 优化大数据量处理"""
         data_size = len(items)
         self.setRowCount(data_size)
         # 批量设置，减少界面更新次数
@@ -94,9 +109,6 @@ class ItemTableWidget(TableWidget):
                 #  会画到隐藏列上导致不可见）
                 key_item = QTableWidgetItem(str(k))
                 value_item = QTableWidgetItem(str(v))
-
-                key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                value_item.setFlags(value_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
                 if len(str(k)) > 30:
                     key_item.setToolTip(str(k))
