@@ -1,8 +1,10 @@
 import re
 from typing import Iterable
 
-from pygments.lexers import get_lexer_by_name
-from pygments.styles import get_style_by_name
+from pygments.lexers.data import JsonLexer
+from pygments.lexers.html import HtmlLexer
+from pygments.lexers.textfmts import HttpLexer
+from pygments.styles.material import MaterialStyle
 from pygments.token import Token
 from pygments.token import _TokenType as TokenType
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
@@ -12,21 +14,18 @@ class UniversalHighlighter(QSyntaxHighlighter):
     def __init__(self, document, lang="http"):
         super().__init__(document)
         self.format_cache = {}
-        self._lexer = get_lexer_by_name(lang)
-        self.pygments_style = None
+        self._lexer = HttpLexer()
+        self.pygments_style = MaterialStyle
         self.refresh_style()
 
     def refresh_style(self):
         self.format_cache.clear()
-        style_name = "material"
-        self.pygments_style = get_style_by_name(style_name)
+        self.pygments_style
         self.rehighlight()
 
     def _get_format(self, ttype):
         if ttype in self.format_cache:
             return self.format_cache[ttype]
-        if self.pygments_style is None:
-            return None
         style_dict = self.pygments_style.style_for_token(ttype)
         qtf = QTextCharFormat()
         if style_dict["color"]:
@@ -61,8 +60,8 @@ class HTTPHighlighter(QSyntaxHighlighter):
 
     def __init__(self, document, lang="http"):
         super().__init__(document)
-        self._lexer = get_lexer_by_name(lang)
-        self.pygments_style = get_style_by_name("material")
+        self._lexer = HttpLexer()
+        self.pygments_style = MaterialStyle
         self.format_cache = {}
         self.binary_format = None  # 二进制内容的灰暗斜体格式
         self.line_data = []  # 存储缓存: [[(length, QTextCharFormat), ...], ...]
@@ -125,12 +124,12 @@ class HTTPHighlighter(QSyntaxHighlighter):
         # 1. 优先按 Content-Type 分流
         if content_type == "json":
             try:
-                return list(get_lexer_by_name("json").get_tokens(stripped))
+                return list(JsonLexer().get_tokens(stripped))
             except Exception:
                 return None
         if content_type == "xml":
             try:
-                return list(get_lexer_by_name("html").get_tokens(stripped))
+                return list(HtmlLexer().get_tokens(stripped))
             except Exception:
                 return None
         if content_type == "binary":
@@ -140,14 +139,14 @@ class HTTPHighlighter(QSyntaxHighlighter):
         # 尝试 JSON
         if stripped[0] in ("{", "["):
             try:
-                return list(get_lexer_by_name("json").get_tokens(stripped))
+                return list(JsonLexer().get_tokens(stripped))
             except Exception:
                 pass
 
         # 尝试 XML / HTML
         if stripped[0] == "<":
             try:
-                return list(get_lexer_by_name("html").get_tokens(stripped))
+                return list(HtmlLexer().get_tokens(stripped))
             except Exception:
                 pass
 
@@ -300,7 +299,7 @@ class HTTPHighlighter(QSyntaxHighlighter):
         """主题切换时清空缓存并重新解析"""
         self.format_cache.clear()
         self.binary_format = None
-        self.pygments_style = get_style_by_name("material")
+        self.pygments_style = MaterialStyle
         self._full_relex()
         self.rehighlight()
 
@@ -349,7 +348,7 @@ class JSONHighlighter(HTTPHighlighter):
         self.fold_regions = []  # 外部注入的折叠区域（供后续折叠 UI 使用）
 
     def _generate_tokens(self, text: str) -> Iterable[tuple[TokenType, str]]:
-        return get_lexer_by_name("json").get_tokens(text)
+        return JsonLexer().get_tokens(text)
 
     def set_fold_regions(self, regions: list):
         """外部设置折叠区域并触发重解析"""
