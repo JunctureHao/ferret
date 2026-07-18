@@ -24,7 +24,7 @@ icon = .\.venv\Lib\site-packages\PySide6\scripts\deploy_lib\pyside_icon.ico
 python_path = D:\workspace\0_dev\ferret\.venv\Scripts\python.exe
 
 # python packages to install
-packages = Nuitka==2.7.11
+packages = Nuitka==4.1.3
 
 # buildozer = for deploying Android application
 android_packages = buildozer==1.5.0,cython==0.29.33
@@ -68,7 +68,40 @@ macos.permissions =
 mode = standalone
 
 # specify any extra nuitka arguments
-extra_args = --quiet --noinclude-qt-translations --jobs=9 --low-memory
+extra_args = 
+	--enable-plugin=anti-bloat
+	--noinclude-qt-translations
+	--report=report
+	--jobs=9
+	--msvc=latest
+	--nofollow-import-to=PySide6.QtWebEngineCore
+	--nofollow-import-to=PySide6.QtMultimedia
+	--nofollow-import-to=PySide6.QtOpenGL
+	--nofollow-import-to=PySide6.QtPdf
+	--nofollow-import-to=PySide6.QtSpatialAudio
+	--nofollow-import-to=PySide6.QtNetwork
+	--noinclude-dlls=qt6network*.dll
+	--noinclude-dlls=qt6quick*.dll
+	--noinclude-dlls=qt6pdf*.dll
+	--noinclude-dlls=qt6qml*.dll
+	--noinclude-dlls=qt6qmlmodels*.dll
+	--noinclude-dlls=qt6qmlmeta*.dll
+	--noinclude-dlls=qt6qmlworkerscript*.dll
+	--noinclude-dlls=qt6virtualkeyboard*.dll
+	--noinclude-dlls=qt6opengl.dll
+	
+	--include-module=pygments.lexers.data
+	--include-module=pygments.lexers.html
+	--include-module=pygments.lexers.textfmts
+	--include-module=pygments.lexers.css
+	--include-module=pygments.lexers.javascript
+	--include-module=pygments.lexers.jvm
+	--include-module=pygments.lexers.ruby
+	--include-module=pygments.styles.material
+	--include-module=pygments.token
+	
+	--nofollow-import-to=mitmproxy.tools.web
+	--nofollow-import-to=ldap3
 
 [buildozer]
 
