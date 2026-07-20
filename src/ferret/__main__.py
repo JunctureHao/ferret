@@ -1,3 +1,37 @@
+# nuitka-project: --mode=standalone
+# nuitka-project: --output-dir=dist
+# nuitka-project: --windows-console-mode=force
+# nuitka-project: --output-filename=Ferret
+# nuitka-project: --output-folder-name=ferret
+# nuitka-project: --msvc=latest
+# nuitka-project: --enable-plugins=pyside6
+# nuitka-project: --nofollow-import-to=PySide6.QtWebEngineCore
+# nuitka-project: --nofollow-import-to=PySide6.QtMultimedia
+# nuitka-project: --nofollow-import-to=PySide6.QtOpenGL
+# nuitka-project: --nofollow-import-to=PySide6.QtPdf
+# nuitka-project: --nofollow-import-to=PySide6.QtSpatialAudio
+# nuitka-project: --nofollow-import-to=PySide6.QtNetwork
+# nuitka-project: --noinclude-dlls=qt6network*
+# nuitka-project: --noinclude-dlls=qt6quick*
+# nuitka-project: --noinclude-dlls=qt6pdf*
+# nuitka-project: --noinclude-dlls=qt6qml*
+# nuitka-project: --noinclude-dlls=qt6qmlmodels*
+# nuitka-project: --noinclude-dlls=qt6qmlmeta*
+# nuitka-project: --noinclude-dlls=qt6qmlworkerscript*
+# nuitka-project: --noinclude-dlls=qt6virtualkeyboard*
+# nuitka-project: --noinclude-dlls=qt6opengl*
+# nuitka-project: --noinclude-qt-translations
+# nuitka-project: --report=dist/compilation-report.xml
+# nuitka-project: --include-module=pygments.lexers.data
+# nuitka-project: --include-module=pygments.lexers.html
+# nuitka-project: --include-module=pygments.lexers.textfmts
+# nuitka-project: --include-module=pygments.lexers.css
+# nuitka-project: --include-module=pygments.lexers.javascript
+# nuitka-project: --include-module=pygments.lexers.jvm
+# nuitka-project: --include-module=pygments.lexers.ruby
+# nuitka-project: --include-module=pygments.styles.material
+# nuitka-project: --include-module=pygments.token
+
 import os
 import sys
 from pathlib import Path
@@ -6,7 +40,6 @@ from PySide6.QtCore import QCoreApplication, QLocale, QStandardPaths, Qt, QTrans
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import FluentTranslator, qconfig
 
-# 确保资源文件被导入，这样 :/i18n/ 路径才有效
 from ferret.config import resources_rc  # noqa: F401
 from ferret.config.settings import APP_NAME, CONFIG, CONFIG_NAME, Language
 from ferret.views.window import MainWindow
