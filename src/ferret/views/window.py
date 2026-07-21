@@ -17,7 +17,6 @@ from qfluentwidgets import (
 from ferret.config.settings import APP_NAME, CONFIG
 from ferret.views.common.icon import BaseAction
 from ferret.views.interface.capture.inteface import CapturesInterface
-from ferret.views.interface.request.interface import RequestInterface
 from ferret.views.interface.settings import SettingsInterface
 
 
@@ -28,7 +27,6 @@ class MainWindow(FluentWindow):
         # 直接初始化设置界面
         self.settings_interface = SettingsInterface(self)
         self.captures_interface = CapturesInterface(self)
-        self.request_interface = RequestInterface(self)
 
         self.tray_icon = SystemTray(self)
         self.pin_button = PinButton(self)
@@ -52,10 +50,6 @@ class MainWindow(FluentWindow):
     def __init_navigation(self):
         self.addSubInterface(
             self.captures_interface, FluentIcon.GLOBE, self.tr("captures")
-        )
-
-        self.addSubInterface(
-            self.request_interface, FluentIcon.SEND, self.tr("request")
         )
 
         self.addSubInterface(

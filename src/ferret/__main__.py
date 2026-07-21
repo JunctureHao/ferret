@@ -23,7 +23,6 @@
 # nuitka-project: --noinclude-dlls=qt6virtualkeyboard*
 # nuitka-project: --noinclude-dlls=qt6opengl*
 # nuitka-project: --noinclude-qt-translations
-# nuitka-project: --noinclude-dll=msvcp140*.dl
 
 import os
 import sys
