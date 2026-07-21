@@ -4,7 +4,7 @@
 
 import sys
 import re
-from mitmproxy import flow
+from mitmproxy.flow import Flow
 from mitmproxy.addons.export import (
     curl_command,
     httpie_command,
@@ -18,7 +18,7 @@ class FlowExporter:
     """流量导出器 - 使用 mitmproxy 原生 API"""
 
     @staticmethod
-    def to_curl(flow_obj: flow.Flow) -> str:
+    def to_curl(flow_obj: Flow) -> str:
         """导出为 curl 命令，自动适配当前操作系统
         
         平台适配规则：
@@ -47,21 +47,21 @@ class FlowExporter:
         return re.sub(r"'([^']*)'", replace_quotes, cmd)
 
     @staticmethod
-    def to_httpie(flow_obj: flow.Flow) -> str:
+    def to_httpie(flow_obj: Flow) -> str:
         """导出为 httpie 命令"""
         return httpie_command(flow_obj)
 
     @staticmethod
-    def to_raw_request(flow_obj: flow.Flow) -> bytes:
+    def to_raw_request(flow_obj: Flow) -> bytes:
         """导出原始请求"""
         return raw_request(flow_obj)
 
     @staticmethod
-    def to_raw_response(flow_obj: flow.Flow) -> bytes:
+    def to_raw_response(flow_obj: Flow) -> bytes:
         """导出原始响应"""
         return raw_response(flow_obj)
 
     @staticmethod
-    def to_raw(flow_obj: flow.Flow) -> bytes:
+    def to_raw(flow_obj: Flow) -> bytes:
         """导出原始请求和响应"""
         return raw(flow_obj)

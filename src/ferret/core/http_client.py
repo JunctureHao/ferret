@@ -1,14 +1,7 @@
 from enum import Enum
+from typing import Any
 
-import httpx2
-from httpx2._types import (
-    CookieTypes,
-    HeaderTypes,
-    QueryParamTypes,
-    RequestContent,
-    RequestData,
-    RequestFiles,
-)
+from niquests.async_api import AsyncSession
 
 
 class HttpMethod(str, Enum):
@@ -34,40 +27,43 @@ class HttpClient:
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
         cookies: dict[str, str] | None = None,
-        http2: bool = True,
     ):
         self.base_url = base_url
         self.params = params
         self.headers = headers
         self.cookies = cookies
 
-        self.client = httpx2.AsyncClient(
-            base_url=base_url, http2=http2, headers=self.headers, cookies=self.cookies
-        )
+        client_kwargs: dict[str, Any] = {}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        if self.headers:
+            client_kwargs["headers"] = self.headers
+        if self.cookies:
+            client_kwargs["cookies"] = self.cookies
+
+        self.client = AsyncSession(**client_kwargs)
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *exc):
-        await self.client.aclose()
+        await self.client.close()
 
     async def send(
         self,
         method: str,
         url: str,
         *,
-        content: RequestContent | None = None,
-        data: RequestData | None = None,
-        files: RequestFiles | None = None,
+        data: Any | None = None,
+        files: Any | None = None,
         json: dict | None = None,
-        params: QueryParamTypes | None = None,
-        headers: HeaderTypes | None = None,
-        cookies: CookieTypes | None = None,
+        params: Any | None = None,
+        headers: Any | None = None,
+        cookies: Any | None = None,
     ):
         response = await self.client.request(
             method=method,
             url=url,
-            content=content,
             data=data,
             files=files,
             json=json,

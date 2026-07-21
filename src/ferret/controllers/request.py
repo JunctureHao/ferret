@@ -1,6 +1,6 @@
 from PySide6.QtCore import QObject, QThread, Signal
 
-from ferret.core.http import HttpClient, HttpMethod
+from ferret.core.http_client import HttpClient, HttpMethod
 
 
 class _SendWorker(QThread):

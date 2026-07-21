@@ -1,9 +1,11 @@
 # nuitka-project: --mode=standalone
 # nuitka-project: --output-dir=dist
 # nuitka-project: --windows-console-mode=force
-# nuitka-project: --output-filename=Ferret
+# nuitka-project: --output-filename=ferret
 # nuitka-project: --output-folder-name=ferret
+# nuitka-project: --report=dist/compilation-report.xml
 # nuitka-project: --msvc=latest
+# nuitka-project: --lto=yes
 # nuitka-project: --enable-plugins=pyside6
 # nuitka-project: --nofollow-import-to=PySide6.QtWebEngineCore
 # nuitka-project: --nofollow-import-to=PySide6.QtMultimedia
@@ -21,16 +23,7 @@
 # nuitka-project: --noinclude-dlls=qt6virtualkeyboard*
 # nuitka-project: --noinclude-dlls=qt6opengl*
 # nuitka-project: --noinclude-qt-translations
-# nuitka-project: --report=dist/compilation-report.xml
-# nuitka-project: --include-module=pygments.lexers.data
-# nuitka-project: --include-module=pygments.lexers.html
-# nuitka-project: --include-module=pygments.lexers.textfmts
-# nuitka-project: --include-module=pygments.lexers.css
-# nuitka-project: --include-module=pygments.lexers.javascript
-# nuitka-project: --include-module=pygments.lexers.jvm
-# nuitka-project: --include-module=pygments.lexers.ruby
-# nuitka-project: --include-module=pygments.styles.material
-# nuitka-project: --include-module=pygments.token
+# nuitka-project: --noinclude-dll=msvcp140*.dl
 
 import os
 import sys
@@ -47,7 +40,6 @@ from ferret.views.window import MainWindow
 
 def main():
     """应用主函数"""
-
     # 1. 基础信息设置（建议在创建 App 前完成）
     QCoreApplication.setApplicationName(APP_NAME)
     # QCoreApplication.setOrganizationName("FerretStudio")  # 建议加上组织名

@@ -1,20 +1,23 @@
 import re
 from typing import Iterable
 
-from pygments.lexers.data import JsonLexer
-from pygments.lexers.html import HtmlLexer
-from pygments.lexers.textfmts import HttpLexer
-from pygments.styles.material import MaterialStyle
-from pygments.token import Token
-from pygments.token import _TokenType as TokenType
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
+
+from .syntax import (
+    MaterialStyle,
+    Text,
+    Token,
+    TokenType,
+    tokenize_html,
+    tokenize_http,
+    tokenize_json,
+)
 
 
 class UniversalHighlighter(QSyntaxHighlighter):
     def __init__(self, document, lang="http"):
         super().__init__(document)
         self.format_cache = {}
-        self._lexer = HttpLexer()
         self.pygments_style = MaterialStyle
         self.refresh_style()
 
@@ -40,8 +43,28 @@ class UniversalHighlighter(QSyntaxHighlighter):
         self.format_cache[ttype] = qtf
         return qtf
 
+    _HEADER_RE = re.compile(r"^([^:]+):\s?(.*)$")
+
+    def _tokenize_line(self, text: str) -> list:
+        """按行启发式分派：JSON / HTML / 请求头 / 纯文本。"""
+        s = text.strip()
+        if not s:
+            return [(Text, text)]
+        if s[0] in "{[":
+            return tokenize_json(text)
+        if s[0] == "<":
+            return tokenize_html(text)
+        m = self._HEADER_RE.match(text)
+        if ":" in text and m:
+            return [
+                (Token.Name.Attribute, m.group(1)),
+                (Token.Operator, ": "),
+                (Token.Literal, m.group(2)),
+            ]
+        return [(Text, text)]
+
     def highlightBlock(self, text):
-        tokens = self._lexer.get_tokens(text)
+        tokens = self._tokenize_line(text)
         current_index = 0
         for ttype, value in tokens:
             token_len = len(value)
@@ -54,13 +77,12 @@ class UniversalHighlighter(QSyntaxHighlighter):
 class HTTPHighlighter(QSyntaxHighlighter):
     """
     全量解析高亮器：
-    完全遵循 Pygments 原始样式表，不进行人工颜色干预。
+    复用 MaterialStyle 原始样式表，不进行人工颜色干预。
     通过一次性解析全文，保留 HTTP 到 Body 的上下文感应。
     """
 
     def __init__(self, document, lang="http"):
         super().__init__(document)
-        self._lexer = HttpLexer()
         self.pygments_style = MaterialStyle
         self.format_cache = {}
         self.binary_format = None  # 二进制内容的灰暗斜体格式
@@ -124,12 +146,12 @@ class HTTPHighlighter(QSyntaxHighlighter):
         # 1. 优先按 Content-Type 分流
         if content_type == "json":
             try:
-                return list(JsonLexer().get_tokens(stripped))
+                return tokenize_json(stripped)
             except Exception:
                 return None
         if content_type == "xml":
             try:
-                return list(HtmlLexer().get_tokens(stripped))
+                return tokenize_html(stripped)
             except Exception:
                 return None
         if content_type == "binary":
@@ -139,14 +161,14 @@ class HTTPHighlighter(QSyntaxHighlighter):
         # 尝试 JSON
         if stripped[0] in ("{", "["):
             try:
-                return list(JsonLexer().get_tokens(stripped))
+                return tokenize_json(stripped)
             except Exception:
                 pass
 
         # 尝试 XML / HTML
         if stripped[0] == "<":
             try:
-                return list(HtmlLexer().get_tokens(stripped))
+                return tokenize_html(stripped)
             except Exception:
                 pass
 
@@ -164,7 +186,7 @@ class HTTPHighlighter(QSyntaxHighlighter):
             return
 
         # 1. 获取全量 Token，并对 body 做自动内容检测
-        raw_tokens = list(self._generate_tokens(text))
+        raw_tokens = tokenize_http(text)
         enhanced_tokens = []
         in_body = False
         content_type = None
@@ -172,11 +194,11 @@ class HTTPHighlighter(QSyntaxHighlighter):
         body_start_line = None  # body 起始行（0-based），用于折叠区域偏移
         line_cursor = 0  # 当前全局行号
         for ttype, value in raw_tokens:
-            if ttype is Token.Text and value == "\n" and not in_body:
+            if ttype is Text and value == "\n" and not in_body:
                 # 空行标记 header/body 分界
                 if (
                     enhanced_tokens
-                    and enhanced_tokens[-1][0] is Token.Text
+                    and enhanced_tokens[-1][0] is Text
                     and enhanced_tokens[-1][1] == "\n"
                 ):
                     in_body = True
@@ -185,12 +207,12 @@ class HTTPHighlighter(QSyntaxHighlighter):
                     content_type = self._parse_content_type("".join(header_text))
             if not in_body:
                 header_text.append(value)
-            if in_body and ttype is Token.Text and value.strip():
+            if in_body and ttype is Text and value.strip():
                 detected = self._auto_detect_body(value, content_type)
                 if detected:
                     enhanced_tokens.extend(detected)
                     if value.endswith("\n"):
-                        enhanced_tokens.append((Token.Text, "\n"))
+                        enhanced_tokens.append((Text, "\n"))
                     continue
             enhanced_tokens.append((ttype, value))
             # 统计全局行号（token 内的换行）
@@ -237,7 +259,7 @@ class HTTPHighlighter(QSyntaxHighlighter):
         self._relexing = False
 
     def _get_format(self, ttype):
-        """严格提取 Pygments 样式的原始属性"""
+        """严格提取 MaterialStyle 的样式属性"""
         if ttype in self.format_cache:
             return self.format_cache[ttype]
 
@@ -250,7 +272,7 @@ class HTTPHighlighter(QSyntaxHighlighter):
                 self.binary_format = qtf
             return self.binary_format
 
-        # 直接从 Pygments Style 字典中获取定义
+        # 直接从 MaterialStyle 字典中获取定义
         style_dict = self.pygments_style.style_for_token(ttype)
         qtf = QTextCharFormat()
 
@@ -293,7 +315,7 @@ class HTTPHighlighter(QSyntaxHighlighter):
 
     def _generate_tokens(self, text: str) -> Iterable[tuple[TokenType, str]]:
         """生成初始 token 流，子类可覆写以改变词法分析方式。"""
-        return self._lexer.get_tokens(text)
+        return tokenize_http(text)
 
     def refresh_style(self):
         """主题切换时清空缓存并重新解析"""
@@ -308,20 +330,18 @@ class HeadersHighlighter(HTTPHighlighter):
     """
     请求头 / 响应头专用高亮器。
 
-    问题背景：Pygments 的 http lexer 期望完整 HTTP 报文
+    问题背景：HTTP lexer 期望完整 HTTP 报文
     （起始行 + 头部 + 空行 + body）。若只喂 ``Key: Value`` 行，
     缺少起始请求行，lexer 会整体 fallback 成 Token.Error（material 红色），
     导致整面板“全红”。
 
     本类改用正则把每行拆为 key / 分隔符 / value 三段，分别映射到
-    Pygments 既有 token，复用 material 配色，行号与复制内容保持原样。
+    既有 token，复用 material 配色，行号与复制内容保持原样。
     """
 
     _HEADER_RE = re.compile(r"^([^:]+):\s?(.*)$")
 
     def _generate_tokens(self, text: str) -> Iterable[tuple[TokenType, str]]:
-        from pygments.token import Token
-
         result: list[tuple[TokenType, str]] = []
         for line in text.split("\n"):
             m = self._HEADER_RE.match(line)
@@ -339,7 +359,7 @@ class HeadersHighlighter(HTTPHighlighter):
 class JSONHighlighter(HTTPHighlighter):
     """
     纯 JSON 高亮器，继承 HTTPHighlighter 的全量解析机制，
-    仅切换词法器为 JsonLexer，并支持外部注入 fold_regions。
+    仅切换词法器为 tokenize_json，并支持外部注入 fold_regions。
     用于 body 面板的独立 JSON 展示。
     """
 
@@ -348,7 +368,7 @@ class JSONHighlighter(HTTPHighlighter):
         self.fold_regions = []  # 外部注入的折叠区域（供后续折叠 UI 使用）
 
     def _generate_tokens(self, text: str) -> Iterable[tuple[TokenType, str]]:
-        return JsonLexer().get_tokens(text)
+        return tokenize_json(text)
 
     def set_fold_regions(self, regions: list):
         """外部设置折叠区域并触发重解析"""
