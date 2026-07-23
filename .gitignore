@@ -1,25 +1,10 @@
-# Python
+# Python-generated files
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
 
 # Virtual environments
-.venv/
-venv/
-env/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Distribution
-dist/
-build/
-*.egg-info/
-
-# Environment variables
-.env
-.env.local
+.venv
