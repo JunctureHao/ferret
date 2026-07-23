@@ -9,7 +9,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QTextEdit, QWidget
 from qfluentwidgets import PlainTextEdit, isDarkTheme, qconfig, setCustomStyleSheet
 
-from ferret.views.common.font import FontManager
+from ferret.apps.common.font import FontManager
 
 from .highlighter import (
     HeadersHighlighter,

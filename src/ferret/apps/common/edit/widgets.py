@@ -25,9 +25,9 @@ from qfluentwidgets import (
     isDarkTheme,
 )
 
-from ferret.views.common.button import TransparentTooltipButton
-from ferret.views.common.icon import BaseIcon
-from ferret.views.common.info_bar import show_success, show_warning
+from ferret.apps.common.button import TransparentTooltipButton
+from ferret.apps.common.icon import BaseIcon
+from ferret.apps.common.info_bar import show_success, show_warning
 
 from .editor import CodeEditor
 

@@ -3,7 +3,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QSplitter, QSplitterHandle
 from qfluentwidgets import isDarkTheme
 
-from ferret.config.settings import CONFIG, Layout
+from ferret.core.settings import CONFIG, Layout
 
 
 class BaseHandle(QSplitterHandle):
@@ -129,5 +129,8 @@ class OrientationSplitter(BaseSplitter):
             else:
                 new_total = self.height()
             if new_total > 0:
-                new_sizes = [int(old_sizes[i] / old_total * new_total) for i in range(len(old_sizes))]
+                new_sizes = [
+                    int(old_sizes[i] / old_total * new_total)
+                    for i in range(len(old_sizes))
+                ]
                 self.setSizes(new_sizes)

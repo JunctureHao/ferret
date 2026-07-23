@@ -63,7 +63,7 @@ if __name__ == "__main__":
     )
     from qfluentwidgets.window.fluent_window import FluentWidget
 
-    from ferret.config import resources_rc  # noqa: F401
+    from ferret.code import resources_rc  # noqa: F401
 
     app = QApplication(sys.argv)
     setTheme(Theme.DARK)

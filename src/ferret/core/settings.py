@@ -3,12 +3,12 @@ from typing import Any
 
 from PySide6.QtCore import QLocale
 from qfluentwidgets import (
+    BoolValidator,
+    ConfigItem,
     ConfigSerializer,
     OptionsConfigItem,
     OptionsValidator,
     QConfig,
-    ConfigItem,
-    BoolValidator,
 )
 
 APP_NAME = "Ferret"

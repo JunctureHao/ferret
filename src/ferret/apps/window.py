@@ -14,10 +14,10 @@ from qfluentwidgets import (
     setTheme,
 )
 
-from ferret.config.settings import APP_NAME, CONFIG
-from ferret.views.common.icon import BaseAction
-from ferret.views.interface.capture.inteface import CapturesInterface
-from ferret.views.interface.settings import SettingsInterface
+from ferret.apps.capture.views import CapturesInterface
+from ferret.apps.common.icon import BaseAction
+from ferret.apps.settings.views import SettingsInterface
+from ferret.core.settings import APP_NAME, CONFIG
 
 
 class MainWindow(FluentWindow):

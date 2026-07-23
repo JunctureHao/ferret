@@ -19,10 +19,10 @@ from qfluentwidgets import (
     setThemeColor,
 )
 
-from ferret.config.settings import CONFIG
+from ferret.core.settings import CONFIG
 
 if TYPE_CHECKING:
-    from ferret.views.window import MainWindow
+    from ferret.apps.window import MainWindow
 
 
 class SettingsInterface(ScrollArea):

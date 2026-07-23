@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 RESOURCES_DIR = BASE_DIR / "resources"
-CONFIG_DIR = RESOURCES_DIR / "config"
+CONFIG_DIR = RESOURCES_DIR / "code"
 
 I18N_DIR = RESOURCES_DIR / "i18n"
 TS_DIR = I18N_DIR / "zh_CN.ts"

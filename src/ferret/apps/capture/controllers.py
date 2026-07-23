@@ -1,12 +1,20 @@
+"""抓包 app 的控制器层 — 在 QThread 中运行轻量 CaptureMaster 并广播流量。
+
+- 用 apps/capture/services.CaptureMaster（轻量版，去 CLI/Web 噪音）
+- 自带 UITrafficAddon（流量预处理 + Signal 广播）
+- CaptureWorker 负责线程与代理生命周期，CaptureController 负责对外生命周期管理
+- UI 只连信号，不直接碰 worker / master
+"""
+
 import asyncio
 from datetime import datetime
 from typing import Any, Dict
 
 from mitmproxy.http import HTTPFlow
 from mitmproxy.options import Options
-from mitmproxy.tools.dump import DumpMaster
-from PySide6.QtCore import QThread, Signal, SignalInstance
+from PySide6.QtCore import QObject, QThread, Signal, SignalInstance
 
+from ferret.apps.capture.services import CaptureMaster
 from ferret.utils.exporter import FlowExporter
 from ferret.utils.http_parser import (
     build_body,
@@ -14,6 +22,7 @@ from ferret.utils.http_parser import (
     parse_params,
 )
 from ferret.utils.process_resolver import resolve_process
+from ferret.utils.proxy_manager import SystemProxyManager
 
 
 class UITrafficAddon:
@@ -25,44 +34,31 @@ class UITrafficAddon:
         self._max_cache_size = 1000  # 最大缓存大小
 
     def requestheaders(self, flow: HTTPFlow):
-        """预处理请求头，生成显示字典和 cURL 命令"""
         data = self._preprocess_flow(flow, "request_headers")
         self.signal.emit(data)
 
     def request(self, flow: HTTPFlow):
-        """预处理请求体"""
         data = self._preprocess_flow(flow, "request")
         self.signal.emit(data)
 
     def responseheaders(self, flow: HTTPFlow):
-        """预处理响应头"""
         data = self._preprocess_flow(flow, "response_headers")
         self.signal.emit(data)
 
     def response(self, flow: HTTPFlow):
-        """预处理响应体，生成完整的显示数据"""
         data = self._preprocess_flow(flow, "complete")
         self.signal.emit(data)
 
     def error(self, flow: HTTPFlow):
-        """预处理错误状态"""
         data = self._preprocess_flow(flow, "error")
         self.signal.emit(data)
 
     def _preprocess_flow(self, flow: HTTPFlow, state: str) -> Dict[str, Any]:
-        """预处理 flow 对象为字典，包含所有显示字段和 cURL 命令"""
         flow_id = flow.id
-
-        # 缓存 flow 对象（用于可能的导出）
         self._cache_flow(flow_id, flow)
 
-        # 基础数据
-        data = {
-            "id": flow_id,
-            "state": state,
-        }
+        data: Dict[str, Any] = {"id": flow_id, "state": state}
 
-        # 请求阶段
         if state in (
             "request_headers",
             "request",
@@ -70,19 +66,16 @@ class UITrafficAddon:
             "complete",
             "error",
         ):
-            # Keep Alive
             keep_alive = flow.request.headers.get("keep-alive", None)
             if keep_alive is None and flow.request.http_version == "HTTP/1.1":
                 keep_alive = "true"
             elif keep_alive is None:
                 keep_alive = "false"
 
-            # 进程信息
             client_addr = flow.client_conn.peername if flow.client_conn else None
             proc_info = resolve_process(client_addr) if client_addr else None
             app = proc_info.to_dict() if proc_info else {}
 
-            # 连接信息
             client_pn = flow.client_conn.peername if flow.client_conn else None
             client_sn = (
                 getattr(flow.client_conn, "sockname", None)
@@ -119,20 +112,18 @@ class UITrafficAddon:
                 }
             )
 
-            # 预解析 URL 参数与 Cookie（一次性，UI 直接消费）
             data["Request Params"] = parse_params(flow.request.url)
             data["Request Cookies"] = parse_cookies_from_headers(
                 dict(flow.request.headers), "Cookie"
             )
 
-        # 请求体阶段
         if state in ("request", "response_headers", "complete", "error"):
             body = flow.request.raw_content or b""
             req_duration = None
             if flow.request.timestamp_end and flow.request.timestamp_start:
                 req_duration = (
                     flow.request.timestamp_end - flow.request.timestamp_start
-                ) * 1000  # 毫秒
+                ) * 1000
             req_ct = flow.request.headers.get("Content-Type", "-")
             req_body_info = build_body(body, req_ct)
             data.update(
@@ -149,10 +140,8 @@ class UITrafficAddon:
                 }
             )
 
-        # 响应头阶段
         if state in ("response_headers", "complete", "error"):
             if flow.response:
-                # 预解析 Cookie（一次性，UI 直接消费）
                 data["Response Cookies"] = parse_cookies_from_headers(
                     dict(flow.response.headers), "Set-Cookie"
                 )
@@ -200,7 +189,6 @@ class UITrafficAddon:
                     }
                 )
 
-                # TLS 信息
                 conn = flow.server_conn
                 if conn and getattr(conn, "tls_established", False):
                     tls_info = {
@@ -216,8 +204,6 @@ class UITrafficAddon:
                         "TLS Cipher": getattr(conn, "cipher", "N/A"),
                         "TLS Cipher List": list(getattr(conn, "cipher_list", []) or []),
                     }
-
-                    # 证书信息（简化版，完整版参考原代码）
                     if hasattr(conn, "certificate_list") and conn.certificate_list:
                         server_cert = conn.certificate_list[0]
                         if server_cert:
@@ -227,10 +213,8 @@ class UITrafficAddon:
                             tls_info["Not After"] = server_cert.notafter.strftime(
                                 "%Y-%m-%d %H:%M:%S.000"
                             )
-
                     data.update(tls_info)
 
-        # 响应体阶段
         if state in ("complete", "error"):
             if flow.response:
                 duration = (flow.response.timestamp_end or 0) - (
@@ -240,9 +224,8 @@ class UITrafficAddon:
                 if flow.response.timestamp_end and flow.response.timestamp_start:
                     res_duration = (
                         flow.response.timestamp_end - flow.response.timestamp_start
-                    ) * 1000  # 毫秒
+                    ) * 1000
                 body = flow.response.raw_content or b""
-                # 计算总大小
                 req_total_size = data.get("req_headers_size", 0) + data.get(
                     "req_size", 0
                 )
@@ -270,7 +253,6 @@ class UITrafficAddon:
                     }
                 )
 
-        # 错误状态
         if state == "error":
             data.update(
                 {
@@ -279,12 +261,9 @@ class UITrafficAddon:
                 }
             )
 
-        # 预生成 cURL 命令（仅在完整状态时生成）
         if state == "complete":
             try:
-                # 使用 FlowExporter 生成 cURL 命令
-                curl_cmd = FlowExporter.to_curl(flow)
-                data["curl_command"] = curl_cmd
+                data["curl_command"] = FlowExporter.to_curl(flow)
             except Exception as e:
                 print(f"生成 cURL 命令失败: {e}")
                 data["curl_command"] = f"Error generating curl command: {e}"
@@ -292,62 +271,49 @@ class UITrafficAddon:
         return data
 
     def _cache_flow(self, flow_id: str, flow: HTTPFlow):
-        """缓存 flow 对象，带大小限制"""
-        # 如果缓存已满，移除最旧的条目（简单实现）
         if len(self._flow_cache) >= self._max_cache_size:
-            # 移除第一个插入的条目（近似 LRU）
             oldest_key = next(iter(self._flow_cache))
             del self._flow_cache[oldest_key]
-
         self._flow_cache[flow_id] = flow
 
     def get_flow(self, flow_id: str) -> HTTPFlow | None:
-        """获取缓存的 flow 对象（用于导出）"""
         return self._flow_cache.get(flow_id)
 
 
-class SnifferWorker(QThread):
-    """mitmproxy 运行容器"""
+class CaptureWorker(QThread):
+    """mitmproxy 运行容器（轻量版）"""
 
     packet_captured = Signal(object)
 
-    def __init__(self, port=8080):
+    def __init__(self, port: int = 8080):
         super().__init__()
         self.port = port
         self.master = None
-        self._traffic_addon = None  # 保存 UITrafficAddon 实例
+        self._traffic_addon = None
 
     def run(self):
         """线程入口点"""
-        # 使用 asyncio.run 开启一个真正的异步运行环境
         try:
             asyncio.run(self._start_proxy())
         except Exception as e:
-            # 捕获可能的异常，防止线程崩溃导致主程序闪退
             print(f"Mitmproxy 内核运行异常: {e}")
 
     async def _start_proxy(self):
         """真正的异步启动逻辑"""
         opts = Options(listen_host="127.0.0.1", listen_port=self.port)
+        self.master = CaptureMaster(opts)
 
-        # 在异步环境下初始化 Master
-        self.master = DumpMaster(opts)
-
-        # 注入插件
-        # 注意：这里的 self.packet_captured 在运行时是 SignalInstance
         self._traffic_addon = UITrafficAddon(self.packet_captured)
         self.master.addons.add(self._traffic_addon)
 
         try:
-            # 开始异步运行
             await self.master.run()
         except asyncio.CancelledError:
             print("Mitmproxy 任务已取消")
         finally:
             print("Mitmproxy 异步循环已结束")
 
-    def get_traffic_addon(self):
-        """获取 UITrafficAddon 实例"""
+    def get_traffic_addon(self) -> UITrafficAddon | None:
         return self._traffic_addon
 
     def stop(self):
@@ -355,3 +321,142 @@ class SnifferWorker(QThread):
             self.master.shutdown()
         self.quit()
         self.wait()
+
+
+class CaptureController(QObject):
+    """抓包控制器，管理抓包生命周期，不持有 UI 引用。
+
+    由旧的 ferret.controllers.capture_controller.CaptureController 迁入，
+    并将其内部的 SnifferWorker / UITrafficAddon 替换为 apps/capture 内部的
+    CaptureWorker。
+    """
+
+    # 数据信号
+    packet_received = Signal(object)
+    capture_started = Signal(object)
+    # 状态信号
+    captureStateChanged = Signal(bool)  # 抓包状态变化
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._sniffer: CaptureWorker | None = None
+        self._current_port = 8080
+
+    @property
+    def is_capturing(self) -> bool:
+        """是否正在抓包"""
+        return self._sniffer is not None
+
+    @property
+    def current_port(self) -> int:
+        """当前端口"""
+        return self._current_port
+
+    def start_capture(self, port: int | None = None):
+        """
+        启动抓包
+
+        Args:
+            port: 监听端口，None则使用当前端口
+        """
+        if self._sniffer is not None:
+            return
+
+        if port is not None:
+            self._current_port = port
+
+        # 1. 启用系统代理
+        SystemProxyManager.set_proxy("127.0.0.1", self._current_port)
+
+        # 2. 启动抓包线程
+        self._sniffer = CaptureWorker(self._current_port)
+        if self._sniffer is not None:
+            self._sniffer.packet_captured.connect(self.packet_received)
+            self._sniffer.start()
+            # 发出抓包开始信号，传递 UITrafficAddon 实例
+            traffic_addon = self._sniffer.get_traffic_addon()
+            if traffic_addon:
+                self.capture_started.emit(traffic_addon)
+
+    def stop_capture(self):
+        """
+        停止抓包
+        """
+        if self._sniffer is None:
+            return
+
+        # 1. 禁用系统代理
+        SystemProxyManager.unset_proxy()
+
+        # 2. 停止抓包线程
+        self._sniffer.stop()
+        self._sniffer = None
+
+    def update_port(self, new_port: int):
+        """
+        更新端口
+
+        Args:
+            new_port: 新端口
+        """
+        if new_port == self._current_port:
+            return
+        self._current_port = new_port
+
+        # 如果正在抓包，需要重启
+        if self.is_capturing:
+            self.stop_capture()
+            self.start_capture()
+
+    def get_traffic_addon(self) -> UITrafficAddon | None:
+        """获取 UITrafficAddon 实例（用于 flow 对象缓存）"""
+        if self._sniffer:
+            return self._sniffer.get_traffic_addon()
+        return None
+
+    def get_raw_request(self, flow_id: str) -> bytes:
+        """获取原始HTTP请求"""
+        traffic_addon = self.get_traffic_addon()
+        if traffic_addon:
+            flow_obj = traffic_addon.get_flow(flow_id)
+            if flow_obj:
+                return FlowExporter.to_raw_request(flow_obj)
+        return b""
+
+    def get_raw_response(self, flow_id: str) -> bytes:
+        """获取原始HTTP响应"""
+        traffic_addon = self.get_traffic_addon()
+        if traffic_addon:
+            flow_obj = traffic_addon.get_flow(flow_id)
+            if flow_obj:
+                return FlowExporter.to_raw_response(flow_obj)
+        return b""
+
+    def get_raw_flow(self, flow_id: str) -> bytes:
+        """获取原始HTTP请求和响应"""
+        traffic_addon = self.get_traffic_addon()
+        if traffic_addon:
+            flow_obj = traffic_addon.get_flow(flow_id)
+            if flow_obj:
+                return FlowExporter.to_raw(flow_obj)
+        return b""
+
+    def toggle_capture(self) -> bool:
+        """切换抓包状态，发射状态变化信号
+
+        Returns:
+            切换后是否正在抓包
+        """
+        if self.is_capturing:
+            self.stop_capture()
+            self.captureStateChanged.emit(False)
+            return False
+        else:
+            self.start_capture()
+            self.captureStateChanged.emit(True)
+            return True
+
+    def cleanup(self):
+        """清理资源（应用退出时调用）"""
+        if self.is_capturing:
+            self.stop_capture()
