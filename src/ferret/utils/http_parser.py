@@ -1,8 +1,10 @@
 """HTTP 报文解析工具函数"""
 
+import contextlib
 import gzip
 import json
 import zlib
+from datetime import UTC
 from urllib.parse import parse_qs, urlparse
 
 
@@ -49,14 +51,13 @@ def parse_cookies_from_headers(headers: dict, header_key: str) -> dict:
             break
     if not raw:
         return result
-    try:
+    # 忽略非字符串等异常值，保留已解析的部分
+    with contextlib.suppress(AttributeError, TypeError):
         for part in raw.split(";"):
             part = part.strip()
             if "=" in part:
                 key, _, value = part.partition("=")
                 result[key.strip()] = value.strip()
-    except Exception:
-        pass
     return result
 
 
@@ -70,7 +71,8 @@ def parse_set_cookies(headers: dict) -> list[dict]:
     if not set_cookie_values:
         return result
     for raw in set_cookie_values:
-        try:
+        # 跳过格式异常的单个 cookie，继续处理其余
+        with contextlib.suppress(AttributeError, TypeError):
             parts = raw.split(";")
             if parts:
                 first = parts[0].strip()
@@ -83,18 +85,16 @@ def parse_set_cookies(headers: dict) -> list[dict]:
                             k2, _, v2 = p.partition("=")
                             item[k2.strip().lower()] = v2.strip()
                     result.append(item)
-        except Exception:
-            pass
     return result
 
 
 def format_time(ts) -> str:
-    """格式化时间戳"""
+    """格式化时间戳（本地时区显示）"""
     from datetime import datetime
 
     if not ts:
         return "-"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(ts, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def format_ms(ts) -> str:
@@ -136,14 +136,11 @@ def compute_folds(text: str) -> list[dict]:
         for ch in line:
             if ch in ("{", "["):
                 stack.append((line_no, ch))
-            elif ch in ("}", "]"):
-                if stack:
-                    start_line, brace = stack.pop()
-                    # 只记录跨行的配对
-                    if start_line != line_no:
-                        folds.append(
-                            {"start": start_line, "end": line_no, "brace": brace}
-                        )
+            elif ch in ("}", "]") and stack:
+                start_line, brace = stack.pop()
+                # 只记录跨行的配对
+                if start_line != line_no:
+                    folds.append({"start": start_line, "end": line_no, "brace": brace})
     return folds
 
 
@@ -253,5 +250,5 @@ def parse_params(url: str) -> dict:
         parsed = urlparse(url)
         qs = parse_qs(parsed.query, keep_blank_values=True)
         return {k: (v[0] if len(v) == 1 else ", ".join(v)) for k, v in qs.items()}
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return {}

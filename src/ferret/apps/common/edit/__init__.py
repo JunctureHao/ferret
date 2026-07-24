@@ -30,22 +30,22 @@ from .widgets import (
 )
 
 __all__ = [
-    CodeEditor,
-    LineNumberArea,
-    UniversalHighlighter,
-    HTTPHighlighter,
-    HeadersHighlighter,
-    JSONHighlighter,
-    ToolWidget,
-    ItemTableWidget,
-    SortState,
-    SORT_TRANSITION,
-    ItemTableToolWidget,
-    ToolPlainTextEdit,
-    ItemDualPanel,
-    JsonTreeWidget,
-    JsonTreePanel,
-    JsonDualPanel,
+    "SORT_TRANSITION",
+    "CodeEditor",
+    "HTTPHighlighter",
+    "HeadersHighlighter",
+    "ItemDualPanel",
+    "ItemTableToolWidget",
+    "ItemTableWidget",
+    "JSONHighlighter",
+    "JsonDualPanel",
+    "JsonTreePanel",
+    "JsonTreeWidget",
+    "LineNumberArea",
+    "SortState",
+    "ToolPlainTextEdit",
+    "ToolWidget",
+    "UniversalHighlighter",
 ]
 
 
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     )
     from qfluentwidgets.window.fluent_window import FluentWidget
 
-    from ferret.code import resources_rc  # noqa: F401
+    from ferret.core import resources_rc  # noqa: F401
 
     app = QApplication(sys.argv)
     setTheme(Theme.DARK)

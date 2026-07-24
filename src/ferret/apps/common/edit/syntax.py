@@ -15,7 +15,7 @@
 """
 
 import re
-from typing import List, Tuple
+from typing import ClassVar, Self
 
 # ---------------------------------------------------------------------------
 # Token 类型系统（与 Pygments 同构）
@@ -29,9 +29,9 @@ class _TokenType(str):
     且 ``Token.Name.Attribute.parent == Token.Name``。
     """
 
-    _cache = {}
+    _cache: ClassVar[dict] = {}
 
-    def __new__(cls, value: str) -> "_TokenType":
+    def __new__(cls, value: str) -> Self:
         obj = super().__new__(cls, value)
         return obj
 
@@ -116,7 +116,7 @@ class MaterialStyle:
     background_color = dark_teal
 
     # 规则表：token 类型 -> 样式字符串（颜色 / bold / italic / underline）
-    styles = {
+    styles: ClassVar[dict] = {
         Text: foreground,
         Escape: cyan,
         Error: red,
@@ -167,7 +167,7 @@ class MaterialStyle:
                     continue
                 else:
                     # 与 Pygments 对齐：返回不带 '#' 的 hex（highlighter 负责拼 '#'）
-                    color = word[1:] if word.startswith("#") else word
+                    color = word.removeprefix("#")
 
         return {
             "color": color or None,
@@ -224,13 +224,13 @@ _RE_TAG_INNER = re.compile(
 )
 
 
-def tokenize_http(text: str) -> List[Tuple[_TokenType, str]]:
+def tokenize_http(text: str) -> list[tuple[_TokenType, str]]:
     """分词 HTTP 报文（请求/状态行 + 头 + 空行后的 body 视为 Text）。
 
     body 的真实高亮由 ``highlighter.HTTPHighlighter`` 按 Content-Type 二次分派，
     这里先整体标记为 ``Token.Text``，行为与原 ``HttpLexer.get_tokens`` 一致。
     """
-    out: List[Tuple[_TokenType, str]] = []
+    out: list[tuple[_TokenType, str]] = []
     in_body = False
     for line in text.split("\n"):
         if not in_body:
@@ -281,9 +281,9 @@ def tokenize_http(text: str) -> List[Tuple[_TokenType, str]]:
     return out
 
 
-def tokenize_json(text: str) -> List[Tuple[_TokenType, str]]:
+def tokenize_json(text: str) -> list[tuple[_TokenType, str]]:
     """分词 JSON。字符串/数字/布尔/标点/空白分别映射，无法识别的字符标为 Error。"""
-    out: List[Tuple[_TokenType, str]] = []
+    out: list[tuple[_TokenType, str]] = []
     for m in _RE_JSON.finditer(text):
         kind = m.lastgroup
         value = m.group()
@@ -303,10 +303,10 @@ def tokenize_json(text: str) -> List[Tuple[_TokenType, str]]:
     return out
 
 
-def _tokenize_tag(tag: str) -> List[Tuple[_TokenType, str]]:
+def _tokenize_tag(tag: str) -> list[tuple[_TokenType, str]]:
     """把 ``<div class="x">`` 这样的整段标签细分为 token。"""
     inner = tag[1:-1] if tag.endswith(">") else tag[1:]
-    out: List[Tuple[_TokenType, str]] = [(Punctuation, "<")]
+    out: list[tuple[_TokenType, str]] = [(Punctuation, "<")]
     first_name = True
     for m in _RE_TAG_INNER.finditer(inner):
         kind = m.lastgroup
@@ -327,9 +327,9 @@ def _tokenize_tag(tag: str) -> List[Tuple[_TokenType, str]]:
     return out
 
 
-def tokenize_html(text: str) -> List[Tuple[_TokenType, str]]:
+def tokenize_html(text: str) -> list[tuple[_TokenType, str]]:
     """分词 HTML/XML 片段。"""
-    out: List[Tuple[_TokenType, str]] = []
+    out: list[tuple[_TokenType, str]] = []
     for m in _RE_HTML.finditer(text):
         kind = m.lastgroup
         value = m.group()
@@ -347,32 +347,32 @@ def tokenize_html(text: str) -> List[Tuple[_TokenType, str]]:
 
 
 __all__ = [
-    "TokenType",
-    "Token",
-    "Text",
-    "Error",
-    "Keyword",
-    "KeywordConstant",
-    "Name",
-    "NameAttribute",
-    "NameTag",
-    "NameEntity",
-    "Literal",
-    "String",
-    "StringDouble",
-    "Number",
-    "NumberInteger",
-    "NumberFloat",
-    "Operator",
-    "Punctuation",
     "Comment",
     "CommentMultiline",
     "CommentPreproc",
     "CommentSingle",
-    "Generic",
+    "Error",
     "Escape",
+    "Generic",
+    "Keyword",
+    "KeywordConstant",
+    "Literal",
     "MaterialStyle",
+    "Name",
+    "NameAttribute",
+    "NameEntity",
+    "NameTag",
+    "Number",
+    "NumberFloat",
+    "NumberInteger",
+    "Operator",
+    "Punctuation",
+    "String",
+    "StringDouble",
+    "Text",
+    "Token",
+    "TokenType",
+    "tokenize_html",
     "tokenize_http",
     "tokenize_json",
-    "tokenize_html",
 ]

@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import (
     QEvent,
@@ -368,14 +369,14 @@ class CapturesToolBar(QWidget):
 
     def eventFilter(self, obj, event):
         """应用级事件过滤：拦截 Ctrl+F 快捷键"""
-        if event.type() == QEvent.Type.KeyPress:
-            if (
-                event.modifiers() == Qt.KeyboardModifier.ControlModifier
-                and event.key() == Qt.Key.Key_F
-            ):
-                if self.window().isActiveWindow():
-                    self.__toggle_search_panel()
-                    return True
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.modifiers() == Qt.KeyboardModifier.ControlModifier
+            and event.key() == Qt.Key.Key_F
+            and self.window().isActiveWindow()
+        ):
+            self.__toggle_search_panel()
+            return True
         return super().eventFilter(obj, event)
 
     @Slot(int, int, int)
@@ -890,17 +891,14 @@ class RequestPanel(TabPanel):
         """
         # 尝试使用controller获取原始HTTP请求
         if self.controller and flow_id:
-            try:
-                raw_data = self.controller.get_raw_request(flow_id)
-                if raw_data:
-                    if isinstance(raw_data, bytes):
-                        text = raw_data.decode("utf-8", errors="replace")
-                    else:
-                        text = str(raw_data)
-                    self.raw_edit.set_text(text)
-                    return
-            except Exception as e:
-                print(f"获取原始HTTP数据失败: {e}")
+            raw_data = self.controller.get_raw_request(flow_id)
+            if raw_data:
+                if isinstance(raw_data, bytes):
+                    text = raw_data.decode("utf-8", errors="replace")
+                else:
+                    text = str(raw_data)
+                self.raw_edit.set_text(text)
+                return
 
         # 如果获取失败，使用手动构建的格式
         if not self.datas:
@@ -924,10 +922,7 @@ class RequestPanel(TabPanel):
         # body内容
         if body:
             if isinstance(body, bytes):
-                try:
-                    text = body.decode("utf-8", errors="replace")
-                except Exception:
-                    text = str(body)
+                text = body.decode("utf-8", errors="replace")
             else:
                 text = str(body)
             raw_lines.append(text)
@@ -1021,7 +1016,7 @@ class ResponsePanel(TabPanel):
                         text = str(raw_data)
                     self.raw_edit.set_text(text)
                     return
-            except Exception as e:
+            except (AttributeError, ValueError, TypeError, RuntimeError) as e:
                 print(f"获取原始HTTP数据失败: {e}")
 
         # 如果获取失败，使用手动构建的格式
@@ -1046,10 +1041,8 @@ class ResponsePanel(TabPanel):
         # body内容
         if body:
             if isinstance(body, bytes):
-                try:
-                    text = body.decode("utf-8", errors="replace")
-                except Exception:
-                    text = str(body)
+                # errors="replace" 保证 decode 不会抛异常
+                text = body.decode("utf-8", errors="replace")
             else:
                 text = str(body)
             raw_lines.append(text)
@@ -1105,7 +1098,7 @@ class OverviewTree(TreeWidget):
     """总览树形控件 - 显示请求/响应的详细信息"""
 
     # 基本信息字段
-    FIELDS: list[tuple[str, FieldKey]] = [
+    FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
         (
             "状态",
             lambda d: {
@@ -1127,7 +1120,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 应用程序信息（仅在有数据时显示）
-    APP_FIELDS = [
+    APP_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("名称", "App Name"),
         ("ID", "App ID"),
         ("路径", "App Path"),
@@ -1135,17 +1128,17 @@ class OverviewTree(TreeWidget):
     ]
 
     # 连接信息
-    CONN_FIELDS = [
+    CONN_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("ID", "Connection ID"),
         ("时间", "Connection Time"),
     ]
-    CONN_FRONT_FIELDS = [
+    CONN_FRONT_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("客户端 地址", "Front Client Address"),
         ("客户端 端口", "Front Client Port"),
         ("服务端 地址", "Front Server Address"),
         ("服务端 端口", "Front Server Port"),
     ]
-    CONN_BACK_FIELDS = [
+    CONN_BACK_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("客户端 地址", "Back Client Address"),
         ("客户端 端口", "Back Client Port"),
         ("服务端 地址", "Back Server Address"),
@@ -1153,7 +1146,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # TLS 信息
-    TLS_FIELDS = [
+    TLS_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("版本", "TLS Version"),
         ("SNI", "TLS SNI"),
         ("ALPN", "TLS ALPN Offers"),
@@ -1163,7 +1156,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 证书信息 - Subject
-    CERT_SUBJECT_FIELDS = [
+    CERT_SUBJECT_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("Common Name", "Subject Common Name"),
         ("国家", "Subject Country"),
         ("省（州）", "Subject State"),
@@ -1173,7 +1166,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 证书信息 - 签发者
-    CERT_ISSUER_FIELDS = [
+    CERT_ISSUER_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("Common Name", "Issuer Common Name"),
         ("国家", "Issuer Country"),
         ("省（州）", "Issuer State"),
@@ -1183,7 +1176,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 证书详细信息
-    CERT_DETAIL_FIELDS: list[tuple[str, FieldKey]] = [
+    CERT_DETAIL_FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
         ("开始时间", "Not Before"),
         ("截止时间", "Not After"),
         ("指纹", "Fingerprint SHA1"),
@@ -1191,7 +1184,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 时间信息
-    TIME_FIELDS: list[tuple[str, FieldKey]] = [
+    TIME_FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
         ("请求开始", lambda d: format_time(d.get("req_time"))),
         ("请求结束", lambda d: format_time(d.get("req_timestamp_end"))),
         (
@@ -1216,7 +1209,7 @@ class OverviewTree(TreeWidget):
     ]
 
     # 大小信息
-    SIZE_FIELDS: list[tuple[str, FieldKey]] = [
+    SIZE_FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
         (
             "请求",
             lambda d: format_bytes(d.get("req_size", 0) + d.get("req_headers_size", 0)),

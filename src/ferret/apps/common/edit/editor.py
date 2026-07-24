@@ -1,3 +1,5 @@
+import contextlib
+
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import (
     QColor,
@@ -231,12 +233,11 @@ class CodeEditor(PlainTextEdit):
         if cls is self._highlighter_class:
             return
         # 断开旧 highlighter 的内容变更监听，替换为新的
-        try:
+        # 信号未连接过时 disconnect 会抛 RuntimeError，忽略即可
+        with contextlib.suppress(RuntimeError):
             self.highlighter.document().contentsChanged.disconnect(
                 self.highlighter._on_contents_changed
             )
-        except Exception:
-            pass
         self.highlighter.deleteLater()
         self.highlighter = cls(self.document())
         self._highlighter_class = cls
@@ -249,4 +250,4 @@ class CodeEditor(PlainTextEdit):
         self._fold_regions = regions or []
 
 
-__all__ = [LineNumberArea, CodeEditor]
+__all__ = ["CodeEditor", "LineNumberArea"]

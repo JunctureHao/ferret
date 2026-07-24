@@ -74,17 +74,14 @@ if __name__ == "__main__":
             print("  content-type:", flow.response.headers.get("content-type", ""))
             if flow.response.content:
                 preview = flow.response.content[:500]
-                try:
-                    print("  body:", preview.decode("utf-8", errors="replace"))
-                except Exception:
-                    print(f"  body: <{len(flow.response.content)} bytes binary>")
+                print("  body:", preview.decode("utf-8", errors="replace"))
 
     async def _run():
         opts = Options(listen_host="127.0.0.1", listen_port=PORT)
         master = CaptureMaster(opts)
         master.addons.add(PrintAddon())
         print(f"CaptureMaster 已启动，监听 127.0.0.1:{PORT}")
-        print("把系统/浏览器代理设为 127.0.0.1:%d，Ctrl+C 停止\n" % PORT)
+        print(f"把系统/浏览器代理设为 127.0.0.1:{PORT}，Ctrl+C 停止\n")
         try:
             await master.run()
         except asyncio.CancelledError:

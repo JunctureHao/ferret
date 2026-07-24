@@ -21,13 +21,15 @@ def run_command(cmd, name):
     print(f"正在执行 {name}...")
     try:
         # 使用 shell=True 或者确保路径是字符串
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", check=False
+        )
         if result.returncode == 0:
             print(f"{name} 成功！")
             print(result.stdout)
         else:
             print(f"{name} 出错啦：\n{result.stderr}")
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:
         print(f"执行异常: {e}")
 
 

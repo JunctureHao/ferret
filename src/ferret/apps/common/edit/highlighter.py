@@ -1,5 +1,6 @@
+import contextlib
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 
@@ -23,7 +24,6 @@ class UniversalHighlighter(QSyntaxHighlighter):
 
     def refresh_style(self):
         self.format_cache.clear()
-        self.pygments_style
         self.rehighlight()
 
     def _get_format(self, ttype):
@@ -147,12 +147,12 @@ class HTTPHighlighter(QSyntaxHighlighter):
         if content_type == "json":
             try:
                 return tokenize_json(stripped)
-            except Exception:
+            except (TypeError, ValueError):
                 return None
         if content_type == "xml":
             try:
                 return tokenize_html(stripped)
-            except Exception:
+            except (TypeError, ValueError):
                 return None
         if content_type == "binary":
             return [("__BINARY__", text)]
@@ -160,17 +160,13 @@ class HTTPHighlighter(QSyntaxHighlighter):
         # 2. 无 Content-Type 时退回首字符启发式
         # 尝试 JSON
         if stripped[0] in ("{", "["):
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 return tokenize_json(stripped)
-            except Exception:
-                pass
 
         # 尝试 XML / HTML
         if stripped[0] == "<":
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 return tokenize_html(stripped)
-            except Exception:
-                pass
 
         return None
 
@@ -194,17 +190,19 @@ class HTTPHighlighter(QSyntaxHighlighter):
         body_start_line = None  # body 起始行（0-based），用于折叠区域偏移
         line_cursor = 0  # 当前全局行号
         for ttype, value in raw_tokens:
-            if ttype is Text and value == "\n" and not in_body:
-                # 空行标记 header/body 分界
-                if (
-                    enhanced_tokens
-                    and enhanced_tokens[-1][0] is Text
-                    and enhanced_tokens[-1][1] == "\n"
-                ):
-                    in_body = True
-                    body_start_line = line_cursor + 1  # 空行之后即 body
-                    # 进入 body 前，依据已收集 header 判定 body 类型
-                    content_type = self._parse_content_type("".join(header_text))
+            # 空行标记 header/body 分界
+            if (
+                ttype is Text
+                and value == "\n"
+                and not in_body
+                and enhanced_tokens
+                and enhanced_tokens[-1][0] is Text
+                and enhanced_tokens[-1][1] == "\n"
+            ):
+                in_body = True
+                body_start_line = line_cursor + 1  # 空行之后即 body
+                # 进入 body 前，依据已收集 header 判定 body 类型
+                content_type = self._parse_content_type("".join(header_text))
             if not in_body:
                 header_text.append(value)
             if in_body and ttype is Text and value.strip():
@@ -252,7 +250,7 @@ class HTTPHighlighter(QSyntaxHighlighter):
                     }
                     for r in compute_folds(raw_body_text)
                 ]
-            except Exception:
+            except (ImportError, TypeError, ValueError, KeyError):
                 self.fold_regions = []
 
         self.rehighlight()
@@ -377,8 +375,8 @@ class JSONHighlighter(HTTPHighlighter):
 
 
 __all__ = [
-    UniversalHighlighter,
-    HTTPHighlighter,
-    HeadersHighlighter,
-    JSONHighlighter,
+    "HTTPHighlighter",
+    "HeadersHighlighter",
+    "JSONHighlighter",
+    "UniversalHighlighter",
 ]

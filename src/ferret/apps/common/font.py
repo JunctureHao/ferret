@@ -1,4 +1,4 @@
-from PySide6.QtGui import QFontDatabase, QFont
+from PySide6.QtGui import QFont, QFontDatabase
 
 
 class FontManager:
@@ -18,7 +18,7 @@ class FontManager:
             },
         }
 
-        for _, variants in font_map.items():
+        for variants in font_map.values():
             for path in variants.values():
                 QFontDatabase.addApplicationFont(path)
 

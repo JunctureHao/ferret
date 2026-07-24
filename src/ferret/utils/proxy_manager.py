@@ -1,3 +1,5 @@
+import contextlib
+import ctypes
 import subprocess
 import sys
 
@@ -31,21 +33,18 @@ class SystemProxyManager:
             )
 
             if SystemProxyManager._run_ps(ps_cmd):
-                # 解除 UWP 回环限制
-                try:
+                # 解除 UWP 回环限制 (失败不影响代理开启，尽力而为)
+                with contextlib.suppress(OSError, AttributeError):
                     subprocess.run(
                         ["CheckNetIsolation.exe", "LoopbackExempt", "-a", "-alluser"],
                         capture_output=True,
+                        check=False,
                     )
 
                     # 强力刷新系统设置 (这几行代码 IDE 不会报语法错误，很安全)
-                    import ctypes
-
                     wininet = ctypes.windll.Wininet
                     wininet.InternetSetOptionW(0, 39, 0, 0)  # SETTINGS_CHANGED
                     wininet.InternetSetOptionW(0, 37, 0, 0)  # REFRESH
-                except Exception:
-                    pass
                 print(f"✅ Windows 代理已开启: {proxy_addr}")
                 return True
 
@@ -75,7 +74,7 @@ class SystemProxyManager:
                     check=True,
                 )
                 return True
-            except Exception:
+            except (subprocess.CalledProcessError, OSError):
                 return False
 
         elif platform.startswith("linux"):
@@ -99,7 +98,7 @@ class SystemProxyManager:
                     ["gsettings", "set", base, "ignore-hosts", "[]"], check=True
                 )
                 return True
-            except Exception:
+            except (subprocess.CalledProcessError, OSError):
                 return False
 
         return False
@@ -110,13 +109,10 @@ class SystemProxyManager:
         if platform == "win32":
             ps_cmd = "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings' -Name 'ProxyEnable' -Value 0"
             if SystemProxyManager._run_ps(ps_cmd):
-                try:
-                    import ctypes
-
+                # 刷新系统设置 (失败不影响代理关闭，尽力而为)
+                with contextlib.suppress(OSError, AttributeError):
                     ctypes.windll.Wininet.InternetSetOptionW(0, 39, 0, 0)
                     ctypes.windll.Wininet.InternetSetOptionW(0, 37, 0, 0)
-                except Exception:
-                    pass
                 print("✅ Windows 代理已关闭")
                 return True
 
@@ -132,7 +128,7 @@ class SystemProxyManager:
                     check=True,
                 )
                 return True
-            except Exception:
+            except (subprocess.CalledProcessError, OSError):
                 return False
 
         elif platform.startswith("linux"):
@@ -142,7 +138,7 @@ class SystemProxyManager:
                     check=True,
                 )
                 return True
-            except Exception:
+            except (subprocess.CalledProcessError, OSError):
                 return False
 
         return False

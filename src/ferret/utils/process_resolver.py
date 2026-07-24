@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import psutil
 
 
 class ProcessInfo:
     """进程信息容器"""
 
-    __slots__ = ("name", "exe", "pid")
+    __slots__ = ("exe", "name", "pid")
 
     def __init__(self, name: str = "", exe: str = "", pid: int = 0):
         self.name = name
@@ -29,7 +27,7 @@ class ProcessInfo:
         return self.pid > 0
 
 
-def resolve_process(client_addr: tuple[str, int]) -> Optional[ProcessInfo]:
+def resolve_process(client_addr: tuple[str, int]) -> ProcessInfo | None:
     """根据客户端地址 (ip, port) 反查发起请求的进程。
 
     原理：
@@ -40,7 +38,7 @@ def resolve_process(client_addr: tuple[str, int]) -> Optional[ProcessInfo]:
     if not client_addr:
         return None
 
-    client_ip, client_port = client_addr
+    _client_ip, client_port = client_addr
 
     try:
         connections = psutil.net_connections(kind="inet")
@@ -48,16 +46,15 @@ def resolve_process(client_addr: tuple[str, int]) -> Optional[ProcessInfo]:
         return None
 
     for conn in connections:
-        if conn.laddr and conn.laddr.port == client_port:
-            if conn.pid and conn.pid > 0:
-                try:
-                    proc = psutil.Process(conn.pid)
-                    return ProcessInfo(
-                        name=proc.name(),
-                        exe=proc.exe(),
-                        pid=conn.pid,
-                    )
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    return None
+        if conn.laddr and conn.laddr.port == client_port and conn.pid and conn.pid > 0:
+            try:
+                proc = psutil.Process(conn.pid)
+                return ProcessInfo(
+                    name=proc.name(),
+                    exe=proc.exe(),
+                    pid=conn.pid,
+                )
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                return None
 
     return None

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -12,13 +12,16 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 from qfluentwidgets import isDarkTheme
 
+# Qt 虚函数签名要求的默认 QModelIndex（无效索引），模块级单例避免 B008
+_INVALID_MODEL_INDEX = QModelIndex()
+
 
 class PacketTableModel(QAbstractTableModel):
     def __init__(self, parent: QObject, traffic_addon=None):
         super().__init__(parent)
 
         self._headers = ["ID", "Method", "URL", "Status Code", "Duration", ""]
-        self._data: List[Dict[str, Any]] = []  # 解析后的显示数据
+        self._data: list[dict[str, Any]] = []  # 解析后的显示数据
         self._id_map = {}
         self._traffic_addon = traffic_addon  # UITrafficAddon 实例引用
 
@@ -36,12 +39,12 @@ class PacketTableModel(QAbstractTableModel):
         return None
 
     def rowCount(
-        self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()
+        self, parent: QModelIndex | QPersistentModelIndex = _INVALID_MODEL_INDEX
     ) -> int:
         return len(self._data)
 
     def columnCount(
-        self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()
+        self, parent: QModelIndex | QPersistentModelIndex = _INVALID_MODEL_INDEX
     ) -> int:
         return len(self._headers)
 
@@ -241,21 +244,12 @@ class PacketProxyModel(QSortFilterProxyModel):
             if req_body is not None:
                 values.append(str(req_body))
             elif isinstance(data.get("Request Body"), bytes):
-                try:
-                    values.append(
-                        data["Request Body"].decode("utf-8", errors="replace")
-                    )
-                except Exception:
-                    pass
+                # errors="replace" 保证 decode 不会抛异常
+                values.append(data["Request Body"].decode("utf-8", errors="replace"))
             if res_body is not None:
                 values.append(str(res_body))
             elif isinstance(data.get("Response Body"), bytes):
-                try:
-                    values.append(
-                        data["Response Body"].decode("utf-8", errors="replace")
-                    )
-                except Exception:
-                    pass
+                values.append(data["Response Body"].decode("utf-8", errors="replace"))
             return " ".join(values).lower()
         elif field == "URL":
             return str(data.get("URL", "")).lower()
@@ -279,19 +273,11 @@ class PacketProxyModel(QSortFilterProxyModel):
             if req_body is not None:
                 parts.append(str(req_body))
             elif isinstance(data.get("Request Body"), bytes):
-                try:
-                    parts.append(data["Request Body"].decode("utf-8", errors="replace"))
-                except Exception:
-                    pass
+                parts.append(data["Request Body"].decode("utf-8", errors="replace"))
             if res_body is not None:
                 parts.append(str(res_body))
             elif isinstance(data.get("Response Body"), bytes):
-                try:
-                    parts.append(
-                        data["Response Body"].decode("utf-8", errors="replace")
-                    )
-                except Exception:
-                    pass
+                parts.append(data["Response Body"].decode("utf-8", errors="replace"))
             return " ".join(parts).lower()
         elif field == "Host":
             return str(data.get("Host", "")).lower()
@@ -341,16 +327,15 @@ class PacketProxyModel(QSortFilterProxyModel):
                 if not self._check_single_condition(data, cond):
                     return False
         # 兼容旧的单条件搜索
-        elif self._search_text:
-            if not self._check_single_condition(
-                data,
-                {
-                    "field": self._search_field,
-                    "logic": self._search_mode,
-                    "value": self._search_text,
-                },
-            ):
-                return False
+        elif self._search_text and not self._check_single_condition(
+            data,
+            {
+                "field": self._search_field,
+                "logic": self._search_mode,
+                "value": self._search_text,
+            },
+        ):
+            return False
 
         # 1. 协议过滤
         if self._protocol_filter:
@@ -358,22 +343,25 @@ class PacketProxyModel(QSortFilterProxyModel):
             scheme = data.get("Scheme", "").lower()
             matched = False
             for p in self._protocol_filter:
-                if p == "HTTP" and scheme == "http":
-                    matched = True
-                elif p == "HTTPS" and scheme == "https":
-                    matched = True
-                elif p == "WebSocket" and "websocket" in url.lower():
-                    matched = True
-                elif p == "HTTP1" and "1.1" in data.get("HTTP Version", ""):
-                    matched = True
-                elif p == "HTTP2" and "2" in data.get("HTTP Version", ""):
-                    matched = True
-                elif p == "SSE" and (
-                    "text/event-stream" in data.get("Response Content-Type", "")
-                    or "text/event-stream" in data.get("Request Content-Type", "")
+                if (
+                    p == "HTTP"
+                    and scheme == "http"
+                    or p == "HTTPS"
+                    and scheme == "https"
+                    or p == "WebSocket"
+                    and "websocket" in url.lower()
+                    or p == "HTTP1"
+                    and "1.1" in data.get("HTTP Version", "")
+                    or p == "HTTP2"
+                    and "2" in data.get("HTTP Version", "")
+                    or p == "SSE"
+                    and (
+                        "text/event-stream" in data.get("Response Content-Type", "")
+                        or "text/event-stream" in data.get("Request Content-Type", "")
+                    )
+                    or p == "iOS"
+                    and data.get("App Name", "")
                 ):
-                    matched = True
-                elif p == "iOS" and data.get("App Name", ""):
                     matched = True
             if not matched:
                 return False
@@ -384,22 +372,23 @@ class PacketProxyModel(QSortFilterProxyModel):
             ct = resp_ct.lower()
             matched = False
             for t in self._content_type_filter:
-                if t == "JSON" and "json" in ct:
-                    matched = True
-                elif t == "XML" and "xml" in ct:
-                    matched = True
-                elif t == "文本" and ("text/" in ct or "plain" in ct):
-                    matched = True
-                elif t == "HTML" and "html" in ct:
-                    matched = True
-                elif t == "JS" and ("javascript" in ct or "/js" in ct):
-                    matched = True
-                elif t == "图片" and ("image/" in ct):
-                    matched = True
-                elif t == "媒体" and ("video/" in ct or "audio/" in ct):
-                    matched = True
-                elif t == "二进制" and (
-                    "octet-stream" in ct or "pdf" in ct or "zip" in ct
+                if (
+                    t == "JSON"
+                    and "json" in ct
+                    or t == "XML"
+                    and "xml" in ct
+                    or t == "文本"
+                    and ("text/" in ct or "plain" in ct)
+                    or t == "HTML"
+                    and "html" in ct
+                    or t == "JS"
+                    and ("javascript" in ct or "/js" in ct)
+                    or t == "图片"
+                    and ("image/" in ct)
+                    or t == "媒体"
+                    and ("video/" in ct or "audio/" in ct)
+                    or t == "二进制"
+                    and ("octet-stream" in ct or "pdf" in ct or "zip" in ct)
                 ):
                     matched = True
             if not matched:
@@ -414,15 +403,18 @@ class PacketProxyModel(QSortFilterProxyModel):
                 return False
             matched = False
             for g in self._status_group:
-                if g == "1xx" and 100 <= code_int < 200:
-                    matched = True
-                elif g == "2xx" and 200 <= code_int < 300:
-                    matched = True
-                elif g == "3xx" and 300 <= code_int < 400:
-                    matched = True
-                elif g == "4xx" and 400 <= code_int < 500:
-                    matched = True
-                elif g == "5xx" and 500 <= code_int < 600:
+                if (
+                    g == "1xx"
+                    and 100 <= code_int < 200
+                    or g == "2xx"
+                    and 200 <= code_int < 300
+                    or g == "3xx"
+                    and 300 <= code_int < 400
+                    or g == "4xx"
+                    and 400 <= code_int < 500
+                    or g == "5xx"
+                    and 500 <= code_int < 600
+                ):
                     matched = True
             if not matched:
                 return False
@@ -437,8 +429,7 @@ class PacketProxyModel(QSortFilterProxyModel):
             elif self._search_mode == "不包含":
                 if search_value in text:
                     return False
-            elif self._search_mode == "等于":
-                if search_value != text:
-                    return False
+            elif self._search_mode == "等于" and search_value != text:
+                return False
 
         return True

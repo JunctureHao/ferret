@@ -537,7 +537,7 @@ class ItemDualPanel(QWidget):
         # 内层 stack 切换页面时通知外层布局重新计算尺寸
         self.stack.currentChanged.connect(self.updateGeometry)
 
-    def sizeHint(self) -> QSize:  # noqa: N802 — Qt 命名约定
+    def sizeHint(self) -> QSize:
         """把内部 QStackedWidget 当前页面的正确尺寸向上传递，
         解决嵌套 QStackedWidget 时外层拿不到正确 sizeHint 导致内容错位的问题。"""
         current = self.stack.currentWidget()
@@ -722,7 +722,7 @@ class JsonDualPanel(QWidget):
 
                 parsed = json.loads(text)
                 self.tree.tree.set_data(parsed)
-            except Exception:
+            except (ImportError, ValueError, RuntimeError):
                 self.tree.tree.clear()
         else:
             self.tree.tree.clear()
@@ -732,13 +732,13 @@ class JsonDualPanel(QWidget):
 
 
 __all__ = [
-    ToolWidget,
-    ItemTableWidget,
-    SortState,
-    SORT_TRANSITION,
-    ItemTableToolWidget,
-    ToolPlainTextEdit,
-    ItemDualPanel,
-    JsonTreeWidget,
-    JsonDualPanel,
+    "SORT_TRANSITION",
+    "ItemDualPanel",
+    "ItemTableToolWidget",
+    "ItemTableWidget",
+    "JsonDualPanel",
+    "JsonTreeWidget",
+    "SortState",
+    "ToolPlainTextEdit",
+    "ToolWidget",
 ]

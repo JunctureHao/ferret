@@ -7,8 +7,8 @@
 """
 
 import asyncio
-from datetime import datetime
-from typing import Any, Dict
+from datetime import UTC, datetime
+from typing import Any
 
 from mitmproxy.http import HTTPFlow
 from mitmproxy.options import Options
@@ -30,7 +30,7 @@ class UITrafficAddon:
 
     def __init__(self, signal: SignalInstance):
         self.signal = signal
-        self._flow_cache: Dict[str, Any] = {}  # 缓存 flow 对象用于导出
+        self._flow_cache: dict[str, Any] = {}  # 缓存 flow 对象用于导出
         self._max_cache_size = 1000  # 最大缓存大小
 
     def requestheaders(self, flow: HTTPFlow):
@@ -53,11 +53,11 @@ class UITrafficAddon:
         data = self._preprocess_flow(flow, "error")
         self.signal.emit(data)
 
-    def _preprocess_flow(self, flow: HTTPFlow, state: str) -> Dict[str, Any]:
+    def _preprocess_flow(self, flow: HTTPFlow, state: str) -> dict[str, Any]:
         flow_id = flow.id
         self._cache_flow(flow_id, flow)
 
-        data: Dict[str, Any] = {"id": flow_id, "state": state}
+        data: dict[str, Any] = {"id": flow_id, "state": state}
 
         if state in (
             "request_headers",
@@ -84,9 +84,11 @@ class UITrafficAddon:
             )
             conn_time = ""
             if flow.request.timestamp_start:
-                conn_time = datetime.fromtimestamp(
-                    flow.request.timestamp_start
-                ).strftime("%Y-%m-%d %H:%M:%S.%f")
+                conn_time = (
+                    datetime.fromtimestamp(flow.request.timestamp_start, tz=UTC)
+                    .astimezone()
+                    .strftime("%Y-%m-%d %H:%M:%S.%f")
+                )
 
             data.update(
                 {
@@ -140,118 +142,112 @@ class UITrafficAddon:
                 }
             )
 
-        if state in ("response_headers", "complete", "error"):
-            if flow.response:
-                data["Response Cookies"] = parse_cookies_from_headers(
-                    dict(flow.response.headers), "Set-Cookie"
+        if state in ("response_headers", "complete", "error") and flow.response:
+            data["Response Cookies"] = parse_cookies_from_headers(
+                dict(flow.response.headers), "Set-Cookie"
+            )
+
+            server_addr = "N/A"
+            if flow.server_conn and flow.server_conn.peername:
+                server_addr = (
+                    f"{flow.server_conn.peername[0]}:{flow.server_conn.peername[1]}"
                 )
 
-                server_addr = "N/A"
-                if flow.server_conn and flow.server_conn.peername:
-                    server_addr = (
-                        f"{flow.server_conn.peername[0]}:{flow.server_conn.peername[1]}"
-                    )
+            protocol = flow.request.http_version
+            if flow.server_conn and flow.server_conn.alpn:
+                protocol = flow.server_conn.alpn.decode()
 
-                protocol = flow.request.http_version
-                if flow.server_conn and flow.server_conn.alpn:
-                    protocol = flow.server_conn.alpn.decode()
+            proxy_protocol = "http"
+            if (
+                flow.server_conn
+                and hasattr(flow.server_conn, "tls_established")
+                and flow.server_conn.tls_established
+            ):
+                proxy_protocol = "https"
 
-                proxy_protocol = "http"
-                if (
-                    flow.server_conn
-                    and hasattr(flow.server_conn, "tls_established")
-                    and flow.server_conn.tls_established
-                ):
-                    proxy_protocol = "https"
+            server_pn = flow.server_conn.peername if flow.server_conn else None
+            server_sn = (
+                getattr(flow.server_conn, "source_address", None)
+                if flow.server_conn
+                else None
+            )
 
-                server_pn = flow.server_conn.peername if flow.server_conn else None
-                server_sn = (
-                    getattr(flow.server_conn, "source_address", None)
+            data.update(
+                {
+                    "Status Code": flow.response.status_code,
+                    "Reason": flow.response.reason,
+                    "Response Headers": dict(flow.response.headers),
+                    "Response HTTP Version": flow.response.http_version,
+                    "Server Address": server_addr,
+                    "Protocol": protocol,
+                    "res_headers_size": len(str(flow.response.headers)),
+                    "res_timestamp_start": flow.response.timestamp_start,
+                    "Proxy Protocol": proxy_protocol,
+                    "Back Client Address": server_sn[0] if server_sn else "N/A",
+                    "Back Client Port": server_sn[1] if server_sn else "N/A",
+                    "Back Server Address": server_pn[0] if server_pn else "N/A",
+                    "Back Server Port": server_pn[1] if server_pn else "N/A",
+                }
+            )
+
+            conn = flow.server_conn
+            if conn and getattr(conn, "tls_established", False):
+                tls_info = {
+                    "TLS Version": getattr(conn, "tls_version", "N/A"),
+                    "TLS SNI": getattr(conn, "sni", "N/A"),
+                    "TLS ALPN Offers": [
+                        a.decode() if isinstance(a, bytes) else str(a)
+                        for a in getattr(conn, "alpn_offers", []) or []
+                    ],
+                    "TLS ALPN Selected": (conn.alpn.decode() if conn.alpn else "N/A"),
+                    "TLS Cipher": getattr(conn, "cipher", "N/A"),
+                    "TLS Cipher List": list(getattr(conn, "cipher_list", []) or []),
+                }
+                if hasattr(conn, "certificate_list") and conn.certificate_list:
+                    server_cert = conn.certificate_list[0]
+                    if server_cert:
+                        tls_info["Not Before"] = server_cert.notbefore.strftime(
+                            "%Y-%m-%d %H:%M:%S.000"
+                        )
+                        tls_info["Not After"] = server_cert.notafter.strftime(
+                            "%Y-%m-%d %H:%M:%S.000"
+                        )
+                data.update(tls_info)
+
+        if state in ("complete", "error") and flow.response:
+            duration = (flow.response.timestamp_end or 0) - (
+                flow.request.timestamp_start or 0
+            )
+            res_duration = None
+            if flow.response.timestamp_end and flow.response.timestamp_start:
+                res_duration = (
+                    flow.response.timestamp_end - flow.response.timestamp_start
+                ) * 1000
+            body = flow.response.raw_content or b""
+            req_total_size = data.get("req_headers_size", 0) + data.get("req_size", 0)
+            res_total_size = data.get("res_headers_size", 0) + len(body)
+            total_size = req_total_size + res_total_size
+            res_ct = flow.response.headers.get("Content-Type", "-")
+            res_body_info = build_body(body, res_ct)
+            data.update(
+                {
+                    "Response Body": body,
+                    "Response Content-Type": res_ct,
+                    "Response Body Text": res_body_info["text"],
+                    "Response Body Pretty": res_body_info["pretty"],
+                    "Response Fold Regions": res_body_info["fold_regions"],
+                    "Response Is Binary": res_body_info["is_binary"],
+                    "Response Body MIME": res_body_info["mime"],
+                    "res_size": len(body),
+                    "res_time": flow.response.timestamp_end,
+                    "res_duration": res_duration,
+                    "Duration": f"{duration * 1000:.0f} ms",
+                    "total_size": total_size,
+                    "TLS Version": getattr(flow.server_conn, "tls_version", "N/A")
                     if flow.server_conn
-                    else None
-                )
-
-                data.update(
-                    {
-                        "Status Code": flow.response.status_code,
-                        "Reason": flow.response.reason,
-                        "Response Headers": dict(flow.response.headers),
-                        "Response HTTP Version": flow.response.http_version,
-                        "Server Address": server_addr,
-                        "Protocol": protocol,
-                        "res_headers_size": len(str(flow.response.headers)),
-                        "res_timestamp_start": flow.response.timestamp_start,
-                        "Proxy Protocol": proxy_protocol,
-                        "Back Client Address": server_sn[0] if server_sn else "N/A",
-                        "Back Client Port": server_sn[1] if server_sn else "N/A",
-                        "Back Server Address": server_pn[0] if server_pn else "N/A",
-                        "Back Server Port": server_pn[1] if server_pn else "N/A",
-                    }
-                )
-
-                conn = flow.server_conn
-                if conn and getattr(conn, "tls_established", False):
-                    tls_info = {
-                        "TLS Version": getattr(conn, "tls_version", "N/A"),
-                        "TLS SNI": getattr(conn, "sni", "N/A"),
-                        "TLS ALPN Offers": [
-                            a.decode() if isinstance(a, bytes) else str(a)
-                            for a in getattr(conn, "alpn_offers", []) or []
-                        ],
-                        "TLS ALPN Selected": (
-                            conn.alpn.decode() if conn.alpn else "N/A"
-                        ),
-                        "TLS Cipher": getattr(conn, "cipher", "N/A"),
-                        "TLS Cipher List": list(getattr(conn, "cipher_list", []) or []),
-                    }
-                    if hasattr(conn, "certificate_list") and conn.certificate_list:
-                        server_cert = conn.certificate_list[0]
-                        if server_cert:
-                            tls_info["Not Before"] = server_cert.notbefore.strftime(
-                                "%Y-%m-%d %H:%M:%S.000"
-                            )
-                            tls_info["Not After"] = server_cert.notafter.strftime(
-                                "%Y-%m-%d %H:%M:%S.000"
-                            )
-                    data.update(tls_info)
-
-        if state in ("complete", "error"):
-            if flow.response:
-                duration = (flow.response.timestamp_end or 0) - (
-                    flow.request.timestamp_start or 0
-                )
-                res_duration = None
-                if flow.response.timestamp_end and flow.response.timestamp_start:
-                    res_duration = (
-                        flow.response.timestamp_end - flow.response.timestamp_start
-                    ) * 1000
-                body = flow.response.raw_content or b""
-                req_total_size = data.get("req_headers_size", 0) + data.get(
-                    "req_size", 0
-                )
-                res_total_size = data.get("res_headers_size", 0) + len(body)
-                total_size = req_total_size + res_total_size
-                res_ct = flow.response.headers.get("Content-Type", "-")
-                res_body_info = build_body(body, res_ct)
-                data.update(
-                    {
-                        "Response Body": body,
-                        "Response Content-Type": res_ct,
-                        "Response Body Text": res_body_info["text"],
-                        "Response Body Pretty": res_body_info["pretty"],
-                        "Response Fold Regions": res_body_info["fold_regions"],
-                        "Response Is Binary": res_body_info["is_binary"],
-                        "Response Body MIME": res_body_info["mime"],
-                        "res_size": len(body),
-                        "res_time": flow.response.timestamp_end,
-                        "res_duration": res_duration,
-                        "Duration": f"{duration * 1000:.0f} ms",
-                        "total_size": total_size,
-                        "TLS Version": getattr(flow.server_conn, "tls_version", "N/A")
-                        if flow.server_conn
-                        else "N/A",
-                    }
-                )
+                    else "N/A",
+                }
+            )
 
         if state == "error":
             data.update(
@@ -264,7 +260,7 @@ class UITrafficAddon:
         if state == "complete":
             try:
                 data["curl_command"] = FlowExporter.to_curl(flow)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - mitmproxy 事件路径兜底，单个 flow 导出失败不应影响抓包
                 print(f"生成 cURL 命令失败: {e}")
                 data["curl_command"] = f"Error generating curl command: {e}"
 
@@ -295,7 +291,7 @@ class CaptureWorker(QThread):
         """线程入口点"""
         try:
             asyncio.run(self._start_proxy())
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - 线程入口兜底，代理内核任何异常仅记录不扩散
             print(f"Mitmproxy 内核运行异常: {e}")
 
     async def _start_proxy(self):
