@@ -1,5 +1,5 @@
 from PySide6.QtCore import QRect, Slot
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 from qfluentwidgets import (
     CheckableSystemTrayMenu,
@@ -35,6 +35,7 @@ class MainWindow(FluentWindow):
 
     def __init_window(self):
         self.setWindowTitle("Ferret")
+        self.setWindowIcon(QIcon(":/icon"))
         self.setObjectName("Main")
         self.resize(960, 780)
         self.setMinimumSize(960, 780)
@@ -102,7 +103,7 @@ class SystemTray(QSystemTrayIcon):
     def __init_tray(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
-        self.setIcon(FluentIcon.APPLICATION.icon())
+        self.setIcon(QIcon(":/icon"))
         self.setToolTip(APP_NAME)
 
     def __init_tray_menu(self):

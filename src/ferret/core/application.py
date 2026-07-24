@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QLocale, QStandardPaths, Qt, QTranslator
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import FluentTranslator, qconfig
 
@@ -81,6 +82,8 @@ class Application:
         app = QApplication(sys.argv)
         # 防止原生窗口同级冲突（qfluentwidgets 推荐配置）
         app.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
+        # 全局窗口图标（任务栏 / Alt-Tab / 标题栏），资源已在 resources_rc 注册
+        app.setWindowIcon(QIcon(":/icon"))
         self.app = app
         return app
 

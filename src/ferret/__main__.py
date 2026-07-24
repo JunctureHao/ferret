@@ -6,7 +6,6 @@
 # nuitka-project: --report=dist/report.xml
 # nuitka-project: --msvc=latest
 # nuitka-project: --enable-plugins=pyside6
-# nuitka-project: --include-qt-plugins=platforms
 # nuitka-project: --nofollow-import-to=PySide6.QtWebEngineCore
 # nuitka-project: --nofollow-import-to=PySide6.QtMultimedia
 # nuitka-project: --nofollow-import-to=PySide6.QtOpenGL
@@ -26,6 +25,10 @@
 # nuitka-project: --noinclude-qt-plugins=imageformats
 # nuitka-project: --noinclude-qt-plugins=styles
 # nuitka-project: --noinclude-qt-plugins=tls
+# nuitka-project: --include-qt-plugins=platforms
+# nuitka-project: --noinclude-dlls=qdirect2d*
+# nuitka-project: --noinclude-dlls=qminimal*
+# nuitka-project: --noinclude-dlls=qoffscreen*
 # nuitka-project: --noinclude-qt-translations
 
 from ferret.core.application import Application
