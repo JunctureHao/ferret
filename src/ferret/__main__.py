@@ -30,6 +30,24 @@
 # nuitka-project: --noinclude-dlls=qminimal*
 # nuitka-project: --noinclude-dlls=qoffscreen*
 # nuitka-project: --noinclude-qt-translations
+# ── 瘦身：排除永不加载的 mitmproxy addon 及其重型依赖（配合 services.py 的 sys.modules 桩）
+# 注意：pyasn1 不能排除（aioquic → service_identity 运行时硬链）
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.onboarding
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.onboardingapp
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.proxyauth
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.cut
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.export
+# nuitka-project: --nofollow-import-to=flask
+# nuitka-project: --nofollow-import-to=werkzeug
+# nuitka-project: --nofollow-import-to=jinja2
+# nuitka-project: --nofollow-import-to=asgiref
+# nuitka-project: --nofollow-import-to=click
+# nuitka-project: --nofollow-import-to=blinker
+# nuitka-project: --nofollow-import-to=itsdangerous
+# nuitka-project: --nofollow-import-to=markupsafe
+# nuitka-project: --nofollow-import-to=ldap3
+# nuitka-project: --nofollow-import-to=bcrypt
+# nuitka-project: --nofollow-import-to=pyperclip
 
 from ferret.core.application import Application
 

@@ -14,8 +14,7 @@ from mitmproxy.http import HTTPFlow
 from mitmproxy.options import Options
 from PySide6.QtCore import QObject, QThread, Signal, SignalInstance
 
-from ferret.apps.capture.services import CaptureMaster
-from ferret.utils.exporter import FlowExporter
+from ferret.apps.capture.services import CaptureMaster, FlowExporter
 from ferret.utils.http_parser import (
     build_body,
     parse_cookies_from_headers,
