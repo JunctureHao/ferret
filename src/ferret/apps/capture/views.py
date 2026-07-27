@@ -73,7 +73,7 @@ def _infer_body_lang(content_type: str) -> str:
     return "http"
 
 
-class CapturesInterface(SimpleCardWidget):
+class CapturesInterface(QWidget):
     """抓包主界面 - 包含工具栏、搜索面板和内容区域"""
 
     def __init__(self, parent: "MainWindow | None" = None):
@@ -249,8 +249,7 @@ class CapturesToolBar(QWidget):
     def __init__(self, parent: "CapturesInterface"):
         """初始化工具栏
 
-        Args:
-            parent: 父组件，通常是 CapturesInterface
+        :param parent: 父组件，通常是 CapturesInterface
         """
         super().__init__(parent)
 
