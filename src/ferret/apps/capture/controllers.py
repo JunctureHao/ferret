@@ -14,7 +14,7 @@ from mitmproxy.http import HTTPFlow
 from mitmproxy.options import Options
 from PySide6.QtCore import QObject, QThread, Signal, SignalInstance
 
-from ferret.apps.capture.services import CaptureMaster, FlowExporter
+from ferret.apps.capture.services import CaptureMaster, Cert, FlowExporter
 from ferret.utils.http_parser import (
     build_body,
     parse_cookies_from_headers,
@@ -455,3 +455,16 @@ class CaptureController(QObject):
         """清理资源（应用退出时调用）"""
         if self.is_capturing:
             self.stop_capture()
+
+
+class CertBadgeController(QObject):
+    status_changed = Signal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._cert = Cert()
+
+    def refresh(self):
+        installed = self._cert.check()
+        self.status_changed.emit(installed)
+        return installed

@@ -1,6 +1,8 @@
 import asyncio
+import os
 import re
 import shlex
+import subprocess
 import sys
 from types import ModuleType
 
@@ -227,6 +229,51 @@ class FlowExporter:
             return FlowExporter.to_raw_response(flow_obj)
         else:
             raise ValueError("Can't export flow with no request or response.")
+
+
+class Cert:
+    def check(self) -> bool:
+        """检测证书是否安装
+
+        :return bool: 已安装返回 True，否则 False
+        """
+        try:
+            out = subprocess.run(
+                ["certutil", "-store", "-user", "Root"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+        return "mitmproxy" in out.stdout.lower()
+
+    def install(self):
+        """安装证书
+
+        若 ~/.mitmproxy/mitmproxy-ca-cert.pem 不存在，则先用 mitmproxy
+        自带API（CertStore.from_store，与 mitmproxy 启动逻辑一致）生成证书，
+        再用 certutil 安装到用户受信任根 CA。
+        """
+        from mitmproxy.options import CONF_DIR
+
+        cert_dir = os.path.expanduser(CONF_DIR)
+        cert_path = os.path.join(cert_dir, "mitmproxy-ca-cert.pem")
+        if not os.path.exists(cert_path):
+            # 证书不存在 -> 用 mitmproxy 自带 API 生成
+            from mitmproxy import certs
+            from mitmproxy.options import CONF_BASENAME, KEY_SIZE
+
+            # from_store 在证书缺失时会自动创建并写入所有证书文件
+            certs.CertStore.from_store(cert_dir, CONF_BASENAME, KEY_SIZE)
+
+        # 安装到当前用户受信任根 CA（需管理员权限）
+        subprocess.run(
+            ["certutil", "-addstore", "-user", "Root", cert_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
 
 
 # ─────────────────────────────────────────────────────────────
