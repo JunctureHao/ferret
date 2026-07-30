@@ -8,24 +8,112 @@ from datetime import UTC
 from urllib.parse import parse_qs, urlparse
 
 
-def decode_body(body: bytes, content_type: str = "") -> str:
-    """解码响应体：尝试 gzip/deflate 解压 + 编码检测"""
+def _looks_like_text(data: bytes) -> bool:
+    """粗略判断字节流是否为可显示的文本（而非二进制）。
+
+    策略：
+    1. 常见文本 BOM（UTF-8/UTF-16/UTF-32）→ 视为文本；
+    2. 含 NUL 字节（\\x00）→ 大概率二进制；
+    3. 统计非 ASCII 控制字符（0x00-0x08, 0x0E-0x1F 且非 \\t\\n\\r）
+       占比，超过阈值视为二进制，避免把二进制按 UTF-8 解成乱码。
+    """
+    if not data:
+        return True
+    # BOM 识别
+    if data[:3] == b"\xef\xbb\xbf":  # UTF-8 BOM
+        return True
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):  # UTF-16 BOM
+        return True
+    if data[:4] in (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff"):  # UTF-32 BOM
+        return True
+
+    # 含 NUL 字节基本可判定为二进制
+    if b"\x00" in data:
+        return False
+
+    # 控制字符比例（排除常见的 \t \n \r \f \v）
+    control = 0
+    sample = data[:8192]  # 仅取样，性能考虑
+    for b in sample:
+        if b < 0x09 or (0x0E <= b <= 0x1F):
+            control += 1
+    if sample:
+        ratio = control / len(sample)
+        # 超过 1% 的控制字符即视为二进制
+        if ratio > 0.01:
+            return False
+
+    # UTF-8 可解码性：真实文本能干净地解码，替换符占比极低；
+    # 而“把明文误当 deflate 解压出来的乱码”是随机字节，UTF-8 解码会产生
+    # 大量 \ufffd（替换符），借此把这类误判挡在二进制一侧。
+    try:
+        decoded = data[:8192].decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    if decoded:
+        repl = decoded.count("\ufffd")
+        if repl / len(decoded) > 0.01:
+            return False
+    return True
+
+
+def decode_body(
+    body: bytes, content_type: str = "", decompress: bool = True
+) -> str | None:
+    """解码响应体：可选 gzip/deflate 解压 + 编码检测。
+
+    Args:
+        body: 响应体字节流。
+        content_type: Content-Type 头，用于提取 charset。
+        decompress: 是否尝试 gzip/deflate 解压。
+
+            当调用方传入的已经是“解压后的内容”（如 mitmproxy 的
+            ``message.content``）时必须为 ``False``。否则对明文 JSON 误跑
+            raw-deflate 解压会“成功”产出乱码（zlib 对巧合数据不报错），
+            导致嗅探判定为二进制 / 渲染成 ``\\ufffd``。
+
+            仅当传入的是“线上原始字节”（如 ``to_raw_response`` 拼出的含
+            ``Content-Encoding`` 的报文）时才用默认的 ``True``。
+
+    若解压后的内容经嗅探判定为二进制（如图片/压缩包/非 UTF-8 字节流），
+    返回 None，交由 build_body 走二进制展示路径，避免渲染乱码。
+    """
     if not body:
         return ""
 
-    # 1. 尝试解压 gzip
-    try:
-        body = gzip.decompress(body)
-    except (gzip.BadGzipFile, OSError):
-        pass
+    if decompress:
+        # 1. 尝试解压 gzip
+        decompressed = False
+        try:
+            body = gzip.decompress(body)
+            decompressed = True
+        except (gzip.BadGzipFile, OSError):
+            pass
 
-    # 2. 尝试解压 deflate
-    try:
-        body = zlib.decompress(body, -zlib.MAX_WBITS)
-    except zlib.error:
-        pass
+        # 2. 尝试解压 deflate（仅当 gzip 未命中时）
+        #    Content-Encoding: deflate 在现实中既可能是带 zlib 头的流，
+        #    也可能是裸 deflate 流，因此两者都试。
+        #    注意：deflate 对“非压缩的明文数据”可能不抛异常而产出乱码，
+        #    因此解压后必须做一次二进制嗅探（含 UTF-8 可解码性），
+        #    嗅探不过则回退到原始字节，绝不直接采用解压结果。
+        if not decompressed:
+            for attempt in (
+                lambda b: zlib.decompress(b),
+                lambda b: zlib.decompress(b, -zlib.MAX_WBITS),
+            ):
+                try:
+                    candidate = attempt(body)
+                except zlib.error:
+                    candidate = None
+                if candidate is not None and _looks_like_text(candidate):
+                    body = candidate
+                    break
 
-    # 3. 从 Content-Type 提取编码
+    # 3. 二进制嗅探：非文本直接返回 None（走二进制展示）
+    if not _looks_like_text(body):
+        return None
+
+    # 4. 从 Content-Type 提取编码
     encoding = "utf-8"
     if "charset=" in content_type:
         for part in content_type.split(";"):
@@ -33,7 +121,7 @@ def decode_body(body: bytes, content_type: str = "") -> str:
                 encoding = part.split("charset=")[-1].strip().strip('"')
                 break
 
-    # 4. 解码
+    # 5. 解码；若编码不支持或解码失败，回退 UTF-8（仍可能含少量替换符）
     try:
         return body.decode(encoding, errors="replace")
     except (UnicodeDecodeError, LookupError):
@@ -171,8 +259,10 @@ def build_body(
             "mime": mime,
         }
 
-    # 文本类：尝试解码（decode_body 内部已处理 gzip/deflate/charset）
-    text = decode_body(raw, content_type)
+    # 文本类：尝试解码。
+    # 注意：raw 来自 mitmproxy 的 message.content，已是解压后的内容，
+    # 因此 decompress=False，避免 decode_body 对明文再跑 deflate 误产乱码。
+    text = decode_body(raw, content_type, decompress=False)
     if text is None:
         # 解码失败也按二进制处理，避免渲染乱码
         return {

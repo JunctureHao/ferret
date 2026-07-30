@@ -33,7 +33,11 @@ class UniversalHighlighter(QSyntaxHighlighter):
         qtf = QTextCharFormat()
         if style_dict["color"]:
             color = QColor(f"#{style_dict['color']}")
-            if str(ttype).startswith("Token.Literal.String"):
+            # 字符串默认统一为 VSCode 风格的绿色；但 JSON 键名(String.Key)
+            # 已在 MaterialStyle 中单独配为蓝色，不能被此处覆盖。
+            if str(ttype).startswith("Token.Literal.String") and not str(
+                ttype
+            ).startswith("Token.Literal.String.Key"):
                 color = QColor("#107C10")
             qtf.setForeground(color)
         if style_dict["bold"]:
@@ -206,11 +210,15 @@ class HTTPHighlighter(QSyntaxHighlighter):
             if not in_body:
                 header_text.append(value)
             if in_body and ttype is Text and value.strip():
-                detected = self._auto_detect_body(value, content_type)
+                # 保留行首缩进（_auto_detect_body 内部会 strip 掉，导致 JSON
+                # 错位、且 line_data 片段长度与真实行不一致，进而着色错位）。
+                stripped = value.strip()
+                lead = value[: len(value) - len(stripped)]
+                detected = self._auto_detect_body(stripped, content_type)
                 if detected:
+                    if lead:
+                        enhanced_tokens.append((Text, lead))
                     enhanced_tokens.extend(detected)
-                    if value.endswith("\n"):
-                        enhanced_tokens.append((Text, "\n"))
                     continue
             enhanced_tokens.append((ttype, value))
             # 统计全局行号（token 内的换行）
@@ -367,6 +375,46 @@ class JSONHighlighter(HTTPHighlighter):
 
     def _generate_tokens(self, text: str) -> Iterable[tuple[TokenType, str]]:
         return tokenize_json(text)
+
+    def _full_relex(self):
+        """纯 JSON 全文解析：不走 HTTP 的 header/body 分离逻辑，
+        否则非标准报文格式会让 JSON 落到 HTTP fallback（全 Text/Error）。"""
+        if self._relexing:
+            return
+        self._relexing = True
+        text = self.document().toPlainText()
+        if not text:
+            self.line_data = []
+            self._relexing = False
+            return
+
+        raw_tokens = tokenize_json(text)
+        new_line_data = [[]]
+        line_idx = 0
+        for ttype, value in raw_tokens:
+            parts = value.split("\n")
+            for i, part in enumerate(parts):
+                if part:
+                    fmt = self._get_format(ttype)
+                    new_line_data[line_idx].append((len(part), fmt))
+                if i < len(parts) - 1:
+                    new_line_data.append([])
+                    line_idx += 1
+        self.line_data = new_line_data
+
+        self.fold_regions = []
+        try:
+            from ferret.utils.http_parser import compute_folds
+
+            self.fold_regions = [
+                {"start": r["start"], "end": r["end"], "brace": r["brace"]}
+                for r in compute_folds(text)
+            ]
+        except (ImportError, TypeError, ValueError, KeyError):
+            self.fold_regions = []
+
+        self.rehighlight()
+        self._relexing = False
 
     def set_fold_regions(self, regions: list):
         """外部设置折叠区域并触发重解析"""

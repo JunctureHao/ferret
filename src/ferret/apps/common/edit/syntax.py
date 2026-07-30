@@ -69,9 +69,14 @@ Name = Token.Name
 NameAttribute = Token.Name.Attribute
 NameTag = Token.Name.Tag
 NameEntity = Token.Name.Entity
+Url = Token.Name.Tag  # 复用 Name.Tag(红色) 作为 URL 上色，避免与默认前景混同
 Literal = Token.Literal
 String = Token.Literal.String
 StringDouble = Token.Literal.String.Double
+# JSON 对象键名专用 token：键与值字符串同属 Literal.String，但键需单独上色
+# 以示区分（键=蓝，值=绿）。作为 Literal.String.Key 子类型，未单独配置时
+# 会继承 Literal.String(绿)，因此在 MaterialStyle 中显式给键配色。
+StringKey = Token.Literal.String.Key
 Number = Token.Literal.Number
 NumberInteger = Token.Literal.Number.Integer
 NumberFloat = Token.Literal.Number.Float
@@ -130,6 +135,7 @@ class MaterialStyle:
         Literal: green,
         String: green,
         String.Double: green,
+        String.Key: blue,  # JSON 对象键名：与值(green)区分
         String.Affix: violet,
         Number: orange,
         Operator: cyan,
@@ -244,7 +250,7 @@ def tokenize_http(text: str) -> list[tuple[_TokenType, str]]:
                     [
                         (Keyword, m.group(1)),
                         (Text, " "),
-                        (Name, m.group(2)),
+                        (Url, m.group(2)),
                         (Text, " "),
                         (KeywordConstant, m.group(3)),
                         (Text, "\n"),
@@ -282,15 +288,29 @@ def tokenize_http(text: str) -> list[tuple[_TokenType, str]]:
 
 
 def tokenize_json(text: str) -> list[tuple[_TokenType, str]]:
-    """分词 JSON。字符串/数字/布尔/标点/空白分别映射，无法识别的字符标为 Error。"""
+    """分词 JSON。字符串/数字/布尔/标点/空白分别映射，无法识别的字符标为 Error。
+
+    字符串进一步区分“键名”（后面紧跟 `:`）与“值”：键名用 StringKey（蓝），
+    值用 StringDouble（绿），从而在 JSON 高亮中让 key / value 一眼可辨。
+    """
     out: list[tuple[_TokenType, str]] = []
-    for m in _RE_JSON.finditer(text):
+    matches = list(_RE_JSON.finditer(text))
+    for i, m in enumerate(matches):
         kind = m.lastgroup
         value = m.group()
         if kind == "ws":
             ttype = Text
         elif kind == "string":
-            ttype = StringDouble
+            # 向后跳过空白，看下一个有意义的 token 是否为标点 ':'
+            is_key = False
+            for nxt in matches[i + 1 :]:
+                nk = nxt.lastgroup
+                if nk == "ws":
+                    continue
+                if nk == "punct" and nxt.group() == ":":
+                    is_key = True
+                break
+            ttype = StringKey if is_key else StringDouble
         elif kind == "number":
             ttype = Number
         elif kind == "boolean":
@@ -369,9 +389,11 @@ __all__ = [
     "Punctuation",
     "String",
     "StringDouble",
+    "StringKey",
     "Text",
     "Token",
     "TokenType",
+    "Url",
     "tokenize_html",
     "tokenize_http",
     "tokenize_json",
