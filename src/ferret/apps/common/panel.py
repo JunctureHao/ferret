@@ -30,15 +30,15 @@ class TabPanel(QWidget):
             self.stacked.insertWidget(index, widget)
 
         self.pivot.insertItem(
-            index, routeKey=route_key, text=text,
+            index,
+            routeKey=route_key,
+            text=text,
             onClick=lambda _, w=widget: self.stacked.setCurrentWidget(w),
         )
 
         item = self.pivot.items.get(route_key)
         if item and self._tab_font_size != 18:
-            font = item.font()
-            font.setPixelSize(self._tab_font_size)
-            item.setFont(font)
+            self.pivot.setItemFontSize(self._tab_font_size)  # 用框架 API，避免 -1
             item.adjustSize()
 
         if self.stacked.count() == 1:

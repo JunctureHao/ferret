@@ -10,8 +10,17 @@
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import QCoreApplication, QLocale, QStandardPaths, Qt, QTranslator
+from PySide6.QtCore import (
+    QCoreApplication,
+    QLocale,
+    QStandardPaths,
+    Qt,
+    QtMsgType,
+    QTranslator,
+    qInstallMessageHandler,
+)
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import FluentTranslator, qconfig
@@ -82,6 +91,24 @@ class Application:
         app = QApplication(sys.argv)
         # 防止原生窗口同级冲突（qfluentwidgets 推荐配置）
         app.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
+
+        # ── 过滤 Qt 框架级噪声日志 ──
+        # qfluentwidgets 按钮在 hover 时内部混用 setPixelSize/setPointSize，
+        # 导致每次鼠标进出都喷 "QFont::setPointSize: Point size <= 0 (-1)"。
+        # 这是框架 bug，在此静默过滤，不吞其他警告。
+        _default_handler: Any = qInstallMessageHandler(None)
+
+        def _qt_message_filter(msg_type: QtMsgType, context, message: str):
+            if (
+                msg_type == QtMsgType.QtWarningMsg
+                and "QFont::setPointSize" in message
+                and "Point size <= 0" in message
+            ):
+                return
+            if _default_handler is not None:
+                _default_handler(msg_type, context, message)
+
+        qInstallMessageHandler(_qt_message_filter)
         # 全局窗口图标（任务栏 / Alt-Tab / 标题栏），资源已在 resources_rc 注册
         app.setWindowIcon(QIcon(":/icon"))
         self.app = app
