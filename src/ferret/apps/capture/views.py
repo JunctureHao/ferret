@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    BodyLabel,
     FluentIcon,
     IconInfoBadge,
     IconWidget,
@@ -45,7 +46,6 @@ from qfluentwidgets import (
     TransparentToolButton,
     TreeWidget,
 )
-from qfluentwidgets.components.widgets.label import BodyLabel
 
 from ferret.apps.capture.controllers import CaptureController, CertBadgeController
 from ferret.apps.capture.models import PacketProxyModel, PacketTableModel
@@ -61,6 +61,7 @@ from ferret.apps.common.splitter import (
 )
 from ferret.core.settings import CONFIG
 from ferret.utils.http_parser import (
+    decode_body,
     format_bytes,
     format_time,
 )
@@ -124,10 +125,11 @@ class CapturesInterface(QWidget):
 
         # Controller 状态信号 → UI 更新
         self.controller.captureStateChanged.connect(self.__on_capture_state_changed)
-        self.controller.packet_received.connect(
-            self.content.table.source_model.set_data
-        )
-        self.controller.capture_started.connect(self.content.table.set_traffic_addon)
+        self.controller.master_ready.connect(self.content.table.set_view)
+        self.controller.flow_added.connect(self.content.table.on_flow_added)
+        self.controller.flow_updated.connect(self.content.table.on_flow_updated)
+        self.controller.flow_removed.connect(self.content.table.on_flow_removed)
+        self.controller.view_refreshed.connect(self.content.table.on_view_refreshed)
 
         # 搜索面板（通过 toolbar 暴露的信号）
         self.toolbar.conditionsChanged.connect(self.__on_search_changed)
@@ -189,9 +191,8 @@ class CapturesContentArea(OrientationSplitter):
     ):
         """初始化内容区域
 
-        Args:
-            parent: 父组件，通常是 CapturesInterface
-            controller: 抓包控制器实例
+        :param parent: 父组件，通常是 CapturesInterface
+        :param controller: 抓包控制器实例
         """
         super().__init__(parent=parent)
         self.controller = controller  # 保存 controller 引用
@@ -222,8 +223,7 @@ class CapturesContentArea(OrientationSplitter):
     def __on_show_panel(self, data):
         """双击：打开面板，严格 50/50
 
-        Args:
-            data: 行数据字典
+        :param data: 行数据字典
         """
         self.panel.set_data(data)
         # 延迟设置尺寸，确保布局已完成
@@ -244,8 +244,7 @@ class CapturesContentArea(OrientationSplitter):
     def __on_select_row(self, data):
         """单击：面板已打开时，切换数据
 
-        Args:
-            data: 行数据字典
+        :param data: 行数据字典
         """
         if self.sizes()[1] > 0:  # 面板可见（宽度 > 0）
             self.panel.set_data(data)
@@ -264,7 +263,7 @@ class CapturesToolBar(QWidget):
         :param parent: 父组件，通常是 CapturesInterface
         """
         super().__init__(parent)
-        self.cert_badge_controller = CertBadgeController(self)
+        self.cert_controller = CertBadgeController(self)
 
         self.__init_widget()
         self.__init_layout()
@@ -306,7 +305,6 @@ class CapturesToolBar(QWidget):
         self.cert_bage.raise_()
 
         # 证书状态控制器（仅发信号，UI 更新在本类 _on_cert_status 处理）
-        self.cert_controller = CertBadgeController(self)
 
         self.proxy_setting_btn = TransparentToolButton(FluentIcon.GLOBE, self)
         self.proxy_setting_btn.setToolTip(self.tr("端口设置"))
@@ -550,11 +548,10 @@ class ProxyPortDialog(MessageBoxBase):
         self.__init_widget(current_port)
         self.__init_layout()
 
-    def __init_widget(self, current_port):
+    def __init_widget(self, current_port: int):
         """初始化界面组件
 
-        Args:
-            current_port: 当前端口号
+        :param int current_port: 当前端口号
         """
         self.title_label = SubtitleLabel(self)
         self.title_label.setText(self.tr("设置代理端口"))
@@ -572,8 +569,7 @@ class ProxyPortDialog(MessageBoxBase):
     def get_port(self) -> int:
         """获取用户设置的端口号
 
-        Returns:
-            int: 用户设置的端口号
+        :return: 用户设置的端口号，例如 8080
         """
         return self.port_spin.value()
 
@@ -588,8 +584,7 @@ class CapturesDataTable(TableView):
     def __init__(self, parent: "CapturesContentArea | None" = None):
         """初始化数据表格
 
-        Args:
-            parent: 父组件，通常是 CapturesContentArea
+        :param parent: 父组件，通常是 CapturesContentArea
         """
         super().__init__(parent)
 
@@ -638,6 +633,8 @@ class CapturesDataTable(TableView):
         self.proxy_model.modelReset.connect(self.__on_sync_visual)
         # 同时监听 source_model，确保过滤条件排除所有行时 total 仍能正确更新
         self.source_model.rowsInserted.connect(self.__on_sync_visual)
+        self.source_model.rowsRemoved.connect(self.__on_sync_visual)
+        self.source_model.modelReset.connect(self.__on_sync_visual)
 
         self.customContextMenuRequested.connect(self.__on_show_context_menu)
         self.context_menu.delete_requested.connect(self.source_model.remove_row)
@@ -650,8 +647,7 @@ class CapturesDataTable(TableView):
     def __on_selection_changed(self, selected):
         """选择变更时触发
 
-        Args:
-            selected: 选中的项
+        :param selected: 选中的项
         """
         indexes = selected.indexes()
         if indexes:
@@ -699,13 +695,29 @@ class CapturesDataTable(TableView):
         """清除所有数据"""
         self.source_model.clear_data()
 
-    def set_traffic_addon(self, traffic_addon):
-        """设置 UITrafficAddon 实例
+    def set_view(self, view):
+        """设置 mitmproxy View 实例
 
         Args:
-            traffic_addon: 流量插件实例
+            view: mitmproxy.addons.view.View 实例
         """
-        self.source_model._traffic_addon = traffic_addon
+        self.source_model.set_view(view)
+
+    def on_flow_added(self, flow):
+        """处理 View 新增 flow"""
+        self.source_model.handle_add(flow)
+
+    def on_flow_updated(self, flow):
+        """处理 View 更新 flow"""
+        self.source_model.handle_update(flow)
+
+    def on_flow_removed(self, flow, index):
+        """处理 View 移除 flow"""
+        self.source_model.handle_remove(flow, index)
+
+    def on_view_refreshed(self):
+        """处理 View 整体刷新"""
+        self.source_model.handle_refresh()
 
     @Slot()
     def on_locate_selection(self):
@@ -1156,7 +1168,8 @@ class ResponsePanel(TabPanel):
                 if raw_data:
                     # 如果成功获取到原始数据，直接使用
                     if isinstance(raw_data, bytes):
-                        text = raw_data.decode("utf-8", errors="replace")
+                        # 经 decode_body 嗅探，二进制内容会得到 None
+                        text = decode_body(raw_data, content_type) or ""
                     else:
                         text = str(raw_data)
                     self.raw_edit.set_text(text)
@@ -1187,7 +1200,7 @@ class ResponsePanel(TabPanel):
         if body:
             if isinstance(body, bytes):
                 # errors="replace" 保证 decode 不会抛异常
-                text = body.decode("utf-8", errors="replace")
+                text = decode_body(body, content_type) or ""
             else:
                 text = str(body)
             raw_lines.append(text)

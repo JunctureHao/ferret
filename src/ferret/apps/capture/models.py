@@ -1,3 +1,4 @@
+import zlib
 from typing import Any
 
 from PySide6.QtCore import (
@@ -7,23 +8,22 @@ from PySide6.QtCore import (
     QPersistentModelIndex,
     QSortFilterProxyModel,
     Qt,
-    Slot,
 )
-from PySide6.QtGui import QColor
-from qfluentwidgets import isDarkTheme
 
-# Qt 虚函数签名要求的默认 QModelIndex（无效索引），模块级单例避免 B008
-_INVALID_MODEL_INDEX = QModelIndex()
+from ferret.apps.capture.services import FlowView, HTTPFlow
 
 
 class PacketTableModel(QAbstractTableModel):
-    def __init__(self, parent: QObject, traffic_addon=None):
+    def __init__(self, parent: QObject, view=None):
         super().__init__(parent)
-
         self._headers = ["ID", "Method", "URL", "Status Code", "Duration", ""]
-        self._data: list[dict[str, Any]] = []  # 解析后的显示数据
-        self._id_map = {}
-        self._traffic_addon = traffic_addon  # UITrafficAddon 实例引用
+        self.view = view
+
+    def set_view(self, view):
+        """设置 mitmproxy View 实例并重置模型"""
+        self.beginResetModel()
+        self.view = view
+        self.endResetModel()
 
     def headerData(
         self,
@@ -39,12 +39,12 @@ class PacketTableModel(QAbstractTableModel):
         return None
 
     def rowCount(
-        self, parent: QModelIndex | QPersistentModelIndex = _INVALID_MODEL_INDEX
+        self, parent: QModelIndex | QPersistentModelIndex | None = None
     ) -> int:
-        return len(self._data)
+        return len(self.view) if self.view else 0
 
     def columnCount(
-        self, parent: QModelIndex | QPersistentModelIndex = _INVALID_MODEL_INDEX
+        self, parent: QModelIndex | QPersistentModelIndex | None = None
     ) -> int:
         return len(self._headers)
 
@@ -53,136 +53,117 @@ class PacketTableModel(QAbstractTableModel):
         index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
     ):
-        if not index.isValid():
+        if not self.view or not index.isValid():
             return None
 
         row = index.row()
         col = index.column()
-        column_name = self._headers[col]
-
-        value = self._data[row].get(column_name, "")
-        if role == Qt.ItemDataRole.DisplayRole:
-            if column_name == "ID":
-                try:
-                    return int(value)
-                except (ValueError, TypeError):
-                    return 0
-
-            if column_name == "Status Code":
-                try:
-                    return int(value)
-                except (ValueError, TypeError):
-                    return value  # 返回 "..."
-            return str(value)
-
-        # 进阶：处理对齐（可选，建议数字右对齐或居中）
-        if role == Qt.ItemDataRole.TextAlignmentRole:
-            return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-
-        # 语义着色
-        if role == Qt.ItemDataRole.ForegroundRole:
-            # 错误行：整行红色
-            if self._data[row].get("state") == "error":
-                return QColor("#ff4444")
-
-            dark = isDarkTheme()
-
-            # Method 列着色
-            if column_name == "Method":
-                method_colors = {
-                    "GET": ("#0550AE", "#7EE787"),
-                    "POST": ("#8250DF", "#D2A8FF"),
-                    "PUT": ("#9A6700", "#E3B341"),
-                    "PATCH": ("#9A6700", "#E3B341"),
-                    "DELETE": ("#CF222E", "#FFA198"),
-                    "HEAD": ("#0E7490", "#56D4DD"),
-                    "OPTIONS": ("#6E7781", "#8B949E"),
-                }
-                v = str(value).upper()
-                if v in method_colors:
-                    light_c, dark_c = method_colors[v]
-                    return QColor(dark_c if dark else light_c)
-
-            # Status Code 列着色
-            if column_name == "Status Code":
-                try:
-                    code = int(value)
-                except (ValueError, TypeError):
-                    return None
-                if 200 <= code < 300:
-                    return QColor("#57AB5A" if dark else "#1A7F37")
-                if 300 <= code < 400:
-                    return QColor("#C69026" if dark else "#9A6700")
-                if 400 <= code < 500:
-                    return QColor("#E5534B" if dark else "#CF222E")
-                if code >= 500:
-                    return QColor("#FF7B72" if dark else "#A40E26")
-
+        if not (0 <= row < len(self.view)):
             return None
 
-    @Slot(dict)
-    def set_data(self, data):
-        """接收预处理后的字典数据"""
-        flow_id = data.get("id")
-        state = data.get("state")
+        flow = self.view[row]
+        column_name = self._headers[col]
 
-        if not flow_id or not state:
+        if role == Qt.ItemDataRole.DisplayRole:
+            if column_name == "ID":
+                return row + 1
+            if column_name == "Method":
+                return flow.request.method
+            if column_name == "URL":
+                return flow.request.pretty_url
+            if column_name == "Status Code":
+                if flow.error:
+                    return "Error"
+                if flow.response is None:
+                    return "等待中..."
+                return flow.response.status_code
+            if column_name == "Duration":
+                if flow.response is None or flow.request.timestamp_start is None:
+                    return ""
+                duration = (
+                    flow.response.timestamp_end or 0
+                ) - flow.request.timestamp_start
+                return f"{duration * 1000:.0f} ms"
+            return ""
+
+        return None
+
+    # ------------------------------------------------------------------
+    # 数据变化处理（由 View 桥接信号驱动）
+    # ------------------------------------------------------------------
+    def _row_of(self, flow: HTTPFlow) -> int:
+        """在 View 中查找 flow 的索引"""
+        if not self.view:
+            return -1
+        try:
+            return self.view.index(flow)
+        except (ValueError, KeyError):
+            return -1
+
+    def handle_add(self, flow: HTTPFlow) -> None:
+        """处理 View 新增 flow"""
+        if not self.view:
             return
 
-        # 插入类状态：第一次出现
-        if state == "request_headers":
-            last_row = len(self._data)
-            self.beginInsertRows(QModelIndex(), last_row, last_row)
-            self._id_map[flow_id] = last_row
-            data["ID"] = int(last_row + 1)
-            self._data.append(data)
-            self.endInsertRows()
-        # 更新类状态：合并到已有行
-        else:
-            if flow_id in self._id_map:
-                row = self._id_map[flow_id]
-                item = self._data[row]
-                if isinstance(item, dict):
-                    item.update(data)
-                start_idx = self.index(row, 0)
-                end_idx = self.index(row, self.columnCount() - 1)
-                self.dataChanged.emit(start_idx, end_idx)
+        row = self._row_of(flow)
+        if row < 0:
+            return
+        self.beginInsertRows(QModelIndex(), row, row)
+        self.endInsertRows()
 
-    def clear_data(self):
-        """清空表格内容"""
+    def handle_update(self, flow: HTTPFlow) -> None:
+        """处理 View 更新 flow"""
+        if not self.view:
+            return
+        row = self._row_of(flow)
+        if row < 0:
+            return
+        start_idx = self.index(row, 0)
+        end_idx = self.index(row, self.columnCount() - 1)
+        self.dataChanged.emit(start_idx, end_idx)
+
+    def handle_remove(self, flow: HTTPFlow, index: int) -> None:
+        """处理 View 移除 flow"""
+        if not self.view:
+            return
+        # index 是 View 发来的源索引，直接用它
+        if not (0 <= index < len(self.view) + 1):
+            return
+        self.beginRemoveRows(QModelIndex(), index, index)
+        self.endRemoveRows()
+
+    def handle_refresh(self) -> None:
+        """处理 View 整体刷新"""
         self.beginResetModel()
-        self._data.clear()
-        self._id_map.clear()
         self.endResetModel()
 
-    def get_row_data(self, row: int) -> dict:
-        """根据行号获取该行的原始字典数据"""
-        if 0 <= row < len(self._data):
-            return self._data[row]
+    # ------------------------------------------------------------------
+    # 数据访问
+    # ------------------------------------------------------------------
+    def clear_data(self):
+        """清空表格内容"""
+        if self.view:
+            self.view.clear()
+
+    def get_row_data(self, row: int) -> dict[str, Any]:
+        """根据行号获取该行的完整展示字典（供详情面板使用）"""
+        if self.view and 0 <= row < len(self.view):
+            flow = self.view[row]
+            return FlowView(flow).to_dict()
         return {}
 
-    def get_flow(self, row: int):
-        """根据行号获取原始 flow 对象（从 UITrafficAddon 缓存中获取）"""
-        if 0 <= row < len(self._data):
-            flow_id = self._data[row].get("id")
-            if flow_id and self._traffic_addon:
-                return self._traffic_addon.get_flow(str(flow_id))
+    def get_flow(self, row: int) -> HTTPFlow | None:
+        """根据行号获取原始 HTTPFlow"""
+        if self.view and 0 <= row < len(self.view):
+            return self.view[row]
         return None
 
     def remove_row(self, row: int):
-        if 0 <= row < len(self._data):
-            self.beginRemoveRows(QModelIndex(), row, row)
-            self._data.pop(row)
-            self.__rebuild_id_map()
-            self.endRemoveRows()
-
-    def __rebuild_id_map(self):
-        """辅助方法：重新建立 flow_id 到行号的映射"""
-        self._id_map.clear()
-        for i, item in enumerate(self._data):
-            flow_id = item.get("id")
-            if flow_id:
-                self._id_map[flow_id] = i
+        """删除指定行"""
+        if not self.view:
+            return
+        flow = self.view[row]
+        self.view.remove([flow])
 
 
 class PacketProxyModel(QSortFilterProxyModel):
@@ -317,7 +298,14 @@ class PacketProxyModel(QSortFilterProxyModel):
         model = self.sourceModel()
         if not isinstance(model, PacketTableModel):
             return True
-        data = model._data[source_row] if source_row < len(model._data) else {}
+        if not model.view or source_row >= len(model.view):
+            return False  # 超出范围的行不显示
+
+        flow = model.view[source_row]
+        try:
+            data = FlowView(flow).to_dict()
+        except (ValueError, zlib.error, KeyError, AttributeError):
+            return True
         if not data:
             return True
 

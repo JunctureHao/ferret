@@ -4,7 +4,10 @@ import re
 import shlex
 import subprocess
 import sys
+import zlib
+from datetime import UTC, datetime
 from types import ModuleType
+from typing import Any
 
 _STUBBED_ADDONS = {
     # onboarding.py 顶层 import asgiapp(依赖 asgiref)，整枝屏蔽
@@ -26,16 +29,49 @@ for _name, _attrs in _STUBBED_ADDONS.items():
     sys.modules.setdefault(_name, _stub)
 
 
+# ─────────────────────────────────────────────────────────────
+# 单一 mitmproxy 导入出口
+# 所有 mitmproxy 相关的 import 都集中在这里，确保桩注入（上方）在任何
+# mitmproxy.addons.* 子模块导入之前完成，避免打包后 mitmproxy.addons.__init__
+# 触发被排除模块（cut/export/...）而崩溃。其它模块一律从本文件引入这些符号，
+# 不要直接 import mitmproxy。
+# ─────────────────────────────────────────────────────────────
+from mitmproxy import certs
 from mitmproxy.addons.core import Core
 from mitmproxy.addons.dns_resolver import DnsResolver
 from mitmproxy.addons.next_layer import NextLayer
 from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.tlsconfig import TlsConfig
+from mitmproxy.addons.view import View
 from mitmproxy.flow import Flow
 from mitmproxy.http import HTTPFlow
 from mitmproxy.master import Master
 from mitmproxy.net.http.http1.assemble import assemble_request, assemble_response
-from mitmproxy.options import Options
+from mitmproxy.options import CONF_BASENAME, CONF_DIR, KEY_SIZE, Options
+
+from ferret.utils.http_parser import (
+    build_body,
+    parse_cookies_from_headers,
+    parse_params,
+)
+from ferret.utils.process_resolver import resolve_process
+
+
+class _HTTPOnlyFilter:
+    """满足 flowfilter.TFilter 协议（需要 pattern 属性）的 HTTP 流量过滤器。"""
+
+    pattern = "~http"
+
+    def __call__(self, f: Flow) -> bool:
+        return isinstance(f, HTTPFlow)
+
+
+def _safe_content(message) -> bytes:
+    """安全获取解压后的 content，解码失败时回退到 raw_content。"""
+    try:
+        return message.content or b""
+    except (ValueError, zlib.error):
+        return message.raw_content or b""
 
 
 class CaptureMaster(Master):
@@ -53,20 +89,31 @@ class CaptureMaster(Master):
         self,
         opts: Options | None = None,
         event_loop: asyncio.AbstractEventLoop | None = None,
+        view: View | None = None,
     ) -> None:
         # with_termlog=False → 不要终端日志
         super().__init__(opts, event_loop=event_loop, with_termlog=False)
 
-        # 只挂载代理服务必需的最小 addon（5 个底座）：
+        # 只挂载代理服务必需的最小 addon（5 个底座）+
+        # view（flow 存储/过滤/排序）：
         # core（事件派发）/ proxyserver（起端口转发）/ tlsconfig（HTTPS 解密）/
-        # next_layer（协议分层）/ dns_resolver（DNS 解析）。
+        # next_layer（协议分层）/ dns_resolver（DNS 解析）/ view（flow 视图）。
         # 其余能力型 addon（改包/映射/拦截/保存/回放等）按需再单独添加。
+        # 如果外部传入了 view，则复用它（用于跨 toggle 保留数据）
+        self.view = view if view is not None else View()
+        # View 默认会接收 TCP/UDP/DNS/HTTP 等所有 flow，
+        # 本项目只展示 HTTP/HTTPS 流量，所以过滤只保留 HTTPFlow。
+        # 只有在创建新 View 时才设置过滤器
+        if view is None:
+            self.view.set_filter(_HTTPOnlyFilter())
+
         self.addons.add(
             Core(),
             Proxyserver(),
             TlsConfig(),
             NextLayer(),
             DnsResolver(),
+            self.view,
         )
 
 
@@ -235,7 +282,7 @@ class Cert:
     def check(self) -> bool:
         """检测证书是否安装
 
-        :return bool: 已安装返回 True，否则 False
+        :return: 已安装返回 True，否则 False
         """
         try:
             out = subprocess.run(
@@ -255,15 +302,11 @@ class Cert:
         自带API（CertStore.from_store，与 mitmproxy 启动逻辑一致）生成证书，
         再用 certutil 安装到用户受信任根 CA。
         """
-        from mitmproxy.options import CONF_DIR
 
         cert_dir = os.path.expanduser(CONF_DIR)
         cert_path = os.path.join(cert_dir, "mitmproxy-ca-cert.pem")
         if not os.path.exists(cert_path):
             # 证书不存在 -> 用 mitmproxy 自带 API 生成
-            from mitmproxy import certs
-            from mitmproxy.options import CONF_BASENAME, KEY_SIZE
-
             # from_store 在证书缺失时会自动创建并写入所有证书文件
             certs.CertStore.from_store(cert_dir, CONF_BASENAME, KEY_SIZE)
 
@@ -277,14 +320,309 @@ class Cert:
 
 
 # ─────────────────────────────────────────────────────────────
+# FlowView：mitmproxy HTTPFlow 的展示视图
+# ─────────────────────────────────────────────────────────────
+
+
+def infer_flow_state(flow: HTTPFlow) -> str:
+    """根据 HTTPFlow 当前状态推断展示状态。"""
+    if flow.error:
+        return "error"
+    if flow.response:
+        return "complete"
+    return "request"
+
+
+class FlowView:
+    """把 mitmproxy HTTPFlow 转换为 UI 可用的字典视图。
+
+    内部持有原始 HTTPFlow，提供表格展示所需字段，并可通过 to_dict()
+    生成与原先 _preprocess_flow 兼容的完整字典（供详情面板使用）。
+    """
+
+    def __init__(self, flow: HTTPFlow, state: str | None = None):
+        if not isinstance(flow, HTTPFlow):
+            raise TypeError(
+                f"FlowView only supports HTTPFlow, got {type(flow).__name__}"
+            )
+        self.flow = flow
+        self.state = state or infer_flow_state(flow)
+        self._dict: dict[str, Any] | None = None
+
+    # ------------------------------------------------------------------
+    # 基础字段（表格展示用）
+    # ------------------------------------------------------------------
+    @property
+    def id(self) -> str:
+        return self.flow.id
+
+    @property
+    def method(self) -> str:
+        return self.flow.request.method
+
+    @property
+    def url(self) -> str:
+        return self.flow.request.pretty_url
+
+    @property
+    def host(self) -> str:
+        return self.flow.request.host
+
+    @property
+    def scheme(self) -> str:
+        return self.flow.request.scheme
+
+    @property
+    def path(self) -> str:
+        return self.flow.request.path
+
+    @property
+    def status_code(self) -> str:
+        if self.state == "error":
+            return "Error"
+        if self.flow.response is None:
+            return "等待中..."
+        return str(self.flow.response.status_code)
+
+    @property
+    def duration(self) -> str:
+        if self.flow.response is None or self.flow.request.timestamp_start is None:
+            return ""
+        duration = (
+            self.flow.response.timestamp_end or 0
+        ) - self.flow.request.timestamp_start
+        return f"{duration * 1000:.0f} ms"
+
+    # ------------------------------------------------------------------
+    # 字典视图（详情面板用）
+    # ------------------------------------------------------------------
+    def to_dict(self) -> dict[str, Any]:
+        """生成与原先 _preprocess_flow 兼容的字典。"""
+        if self._dict is None:
+            self._dict = self._build_dict()
+        return self._dict
+
+    def _build_dict(self) -> dict[str, Any]:
+        flow = self.flow
+        state = self.state
+
+        data: dict[str, Any] = {"id": flow.id, "state": state}
+
+        if state in (
+            "request_headers",
+            "request",
+            "response_headers",
+            "complete",
+            "error",
+        ):
+            keep_alive = flow.request.headers.get("keep-alive", None)
+            if keep_alive is None and flow.request.http_version == "HTTP/1.1":
+                keep_alive = "true"
+            elif keep_alive is None:
+                keep_alive = "false"
+
+            client_addr = flow.client_conn.peername if flow.client_conn else None
+            proc_info = resolve_process(client_addr) if client_addr else None
+            app = proc_info.to_dict() if proc_info else {}
+
+            client_pn = flow.client_conn.peername if flow.client_conn else None
+            client_sn = (
+                getattr(flow.client_conn, "sockname", None)
+                if flow.client_conn
+                else None
+            )
+            conn_time = ""
+            if flow.request.timestamp_start:
+                conn_time = (
+                    datetime.fromtimestamp(flow.request.timestamp_start, tz=UTC)
+                    .astimezone()
+                    .strftime("%Y-%m-%d %H:%M:%S.%f")
+                )
+
+            data.update(
+                {
+                    "Method": flow.request.method,
+                    "URL": flow.request.pretty_url,
+                    "Host": flow.request.host,
+                    "Path": flow.request.path,
+                    "Scheme": flow.request.scheme,
+                    "HTTP Version": flow.request.http_version,
+                    "Request Headers": dict(flow.request.headers),
+                    "req_time": flow.request.timestamp_start,
+                    "req_timestamp_end": flow.request.timestamp_end,
+                    "req_headers_size": len(str(flow.request.headers)),
+                    "Status Code": "等待中...",
+                    "Keep Alive": keep_alive,
+                    **app,
+                    "Connection ID": flow.id,
+                    "Connection Time": conn_time,
+                    "Front Client Address": client_pn[0] if client_pn else "N/A",
+                    "Front Client Port": client_pn[1] if client_pn else "N/A",
+                    "Front Server Address": client_sn[0] if client_sn else "N/A",
+                    "Front Server Port": client_sn[1] if client_sn else "N/A",
+                }
+            )
+
+            data["Request Params"] = parse_params(flow.request.url)
+            data["Request Cookies"] = parse_cookies_from_headers(
+                dict(flow.request.headers), "Cookie"
+            )
+
+        if state in ("request", "response_headers", "complete", "error"):
+            body = _safe_content(flow.request)
+            req_duration = None
+            if flow.request.timestamp_end and flow.request.timestamp_start:
+                req_duration = (
+                    flow.request.timestamp_end - flow.request.timestamp_start
+                ) * 1000
+            req_ct = flow.request.headers.get("Content-Type", "-")
+            req_body_info = build_body(body, req_ct)
+            data.update(
+                {
+                    "req_size": len(body),
+                    "req_duration": req_duration,
+                    "Request Body": body,
+                    "Request Content-Type": req_ct,
+                    "Request Body Text": req_body_info["text"],
+                    "Request Body Pretty": req_body_info["pretty"],
+                    "Request Fold Regions": req_body_info["fold_regions"],
+                    "Request Is Binary": req_body_info["is_binary"],
+                    "Request Body MIME": req_body_info["mime"],
+                }
+            )
+
+        if state in ("response_headers", "complete", "error") and flow.response:
+            data["Response Cookies"] = parse_cookies_from_headers(
+                dict(flow.response.headers), "Set-Cookie"
+            )
+
+            server_addr = "N/A"
+            if flow.server_conn and flow.server_conn.peername:
+                server_addr = (
+                    f"{flow.server_conn.peername[0]}:{flow.server_conn.peername[1]}"
+                )
+
+            protocol = flow.request.http_version
+            if flow.server_conn and flow.server_conn.alpn:
+                protocol = flow.server_conn.alpn.decode()
+
+            proxy_protocol = "http"
+            if (
+                flow.server_conn
+                and hasattr(flow.server_conn, "tls_established")
+                and flow.server_conn.tls_established
+            ):
+                proxy_protocol = "https"
+
+            server_pn = flow.server_conn.peername if flow.server_conn else None
+            server_sn = (
+                getattr(flow.server_conn, "source_address", None)
+                if flow.server_conn
+                else None
+            )
+
+            data.update(
+                {
+                    "Status Code": flow.response.status_code,
+                    "Reason": flow.response.reason,
+                    "Response Headers": dict(flow.response.headers),
+                    "Response HTTP Version": flow.response.http_version,
+                    "Server Address": server_addr,
+                    "Protocol": protocol,
+                    "res_headers_size": len(str(flow.response.headers)),
+                    "res_timestamp_start": flow.response.timestamp_start,
+                    "Proxy Protocol": proxy_protocol,
+                    "Back Client Address": server_sn[0] if server_sn else "N/A",
+                    "Back Client Port": server_sn[1] if server_sn else "N/A",
+                    "Back Server Address": server_pn[0] if server_pn else "N/A",
+                    "Back Server Port": server_pn[1] if server_pn else "N/A",
+                }
+            )
+
+            conn = flow.server_conn
+            if conn and getattr(conn, "tls_established", False):
+                tls_info = {
+                    "TLS Version": getattr(conn, "tls_version", "N/A"),
+                    "TLS SNI": getattr(conn, "sni", "N/A"),
+                    "TLS ALPN Offers": [
+                        a.decode() if isinstance(a, bytes) else str(a)
+                        for a in getattr(conn, "alpn_offers", []) or []
+                    ],
+                    "TLS ALPN Selected": (conn.alpn.decode() if conn.alpn else "N/A"),
+                    "TLS Cipher": getattr(conn, "cipher", "N/A"),
+                    "TLS Cipher List": list(getattr(conn, "cipher_list", []) or []),
+                }
+                if hasattr(conn, "certificate_list") and conn.certificate_list:
+                    server_cert = conn.certificate_list[0]
+                    if server_cert:
+                        tls_info["Not Before"] = server_cert.notbefore.strftime(
+                            "%Y-%m-%d %H:%M:%S.000"
+                        )
+                        tls_info["Not After"] = server_cert.notafter.strftime(
+                            "%Y-%m-%d %H:%M:%S.000"
+                        )
+                data.update(tls_info)
+
+        if state in ("complete", "error") and flow.response:
+            duration = (flow.response.timestamp_end or 0) - (
+                flow.request.timestamp_start or 0
+            )
+            res_duration = None
+            if flow.response.timestamp_end and flow.response.timestamp_start:
+                res_duration = (
+                    flow.response.timestamp_end - flow.response.timestamp_start
+                ) * 1000
+            body = _safe_content(flow.response)
+            req_total_size = data.get("req_headers_size", 0) + data.get("req_size", 0)
+            res_total_size = data.get("res_headers_size", 0) + len(body)
+            total_size = req_total_size + res_total_size
+            res_ct = flow.response.headers.get("Content-Type", "-")
+            res_body_info = build_body(body, res_ct)
+            data.update(
+                {
+                    "Response Body": body,
+                    "Response Content-Type": res_ct,
+                    "Response Body Text": res_body_info["text"],
+                    "Response Body Pretty": res_body_info["pretty"],
+                    "Response Fold Regions": res_body_info["fold_regions"],
+                    "Response Is Binary": res_body_info["is_binary"],
+                    "Response Body MIME": res_body_info["mime"],
+                    "res_size": len(body),
+                    "res_time": flow.response.timestamp_end,
+                    "res_duration": res_duration,
+                    "Duration": f"{duration * 1000:.0f} ms",
+                    "total_size": total_size,
+                    "TLS Version": getattr(flow.server_conn, "tls_version", "N/A")
+                    if flow.server_conn
+                    else "N/A",
+                }
+            )
+
+        if state == "error":
+            data.update(
+                {
+                    "Status Code": "Error",
+                    "Error Message": flow.error.msg if flow.error else "Unknown",
+                }
+            )
+
+        if state == "complete":
+            try:
+                data["curl_command"] = FlowExporter.to_curl(flow)
+            except Exception as e:  # noqa: BLE001
+                print(f"生成 cURL 命令失败: {e}")
+                data["curl_command"] = f"Error generating curl command: {e}"
+
+        return data
+
+
+# ─────────────────────────────────────────────────────────────
 # 自测：直接 `python services.py` 启动一个轻量代理并把流量全打印
 # 用法：python services.py [port]   然后浏览器/系统代理指向 127.0.0.1:port
 # 停止：Ctrl+C
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import sys
-
-    from mitmproxy.http import HTTPFlow
 
     PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
 
