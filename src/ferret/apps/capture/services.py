@@ -45,7 +45,7 @@ from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.view import View
 from mitmproxy.flow import Flow
-from mitmproxy.http import HTTPFlow
+from mitmproxy.http import HTTPFlow, Request, Response
 from mitmproxy.master import Master
 from mitmproxy.net.http.http1.assemble import assemble_request, assemble_response
 from mitmproxy.options import CONF_BASENAME, CONF_DIR, KEY_SIZE, Options
@@ -176,63 +176,32 @@ class UiBridgeAddon:
 # ─────────────────────────────────────────────────────────────
 
 
-def _cleanup_request(f: Flow):
-    """复制并解码请求，无请求时抛错。"""
-    if not isinstance(f, HTTPFlow) or not f.request:
-        raise ValueError("Can't export flow with no request.")
-    request = f.request.copy()
-    request.decode(strict=False)
-    return request
-
-
-def _cleanup_response(f: Flow):
-    """复制并解码响应，无响应时抛错。"""
-    if not isinstance(f, HTTPFlow) or not f.response:
-        raise ValueError("Can't export flow with no response.")
-    response = f.response.copy()
-    response.decode(strict=False)
-    return response
-
-
-def _pop_headers(request) -> None:
-    """剔除 curl/httpie 导出时冗余的 header。"""
-    request.headers.pop("content-length", None)
-    if request.headers.get("host", "") == request.host:
-        request.headers.pop("host")
-    if request.headers.get(":authority", "") == request.host:
-        request.headers.pop(":authority")
-
-
-def _request_content_for_console(request) -> str:
-    """把请求体转成 shell 安全字符串（控制字符走 printf 转义）。"""
-    try:
-        text = request.get_text(strict=True)
-    except ValueError:
-        raise ValueError("Request content must be valid unicode") from None
-    if not text:
-        raise ValueError("Request content must be valid unicode")
-    escape_control_chars = {chr(i): f"\\x{i:02x}" for i in range(32)}
-    escaped_text = "".join(escape_control_chars.get(x, x) for x in text)
-    if any(char in escape_control_chars for char in text):
-        # 转义序列需要 shell 的 printf 还原，curl/httpie 才能正确发送
-        return f'"$(printf {shlex.quote(escaped_text)})"'
-    return shlex.quote(escaped_text)
-
-
 class FlowExporter:
-    """流量导出器 - 本地化实现（原 utils/exporter.py 迁入）"""
+    """流量导出器。
 
+    方法签名与返回值对齐 mitmproxy.addons.export 的模块级函数
+    (``curl_command`` / ``httpie_command`` / ``raw_request`` / ``raw_response``
+    / ``raw``)，但去掉了对 mitmproxy 运行上下文(``ctx``)与 ``pyperclip`` 的依赖：
+
+    * 不读取 ``ctx.options.export_preserve_original_ip``，因此不生成
+      ``--resolve``（等价于该选项为 False，绝大多数场景无差异）；
+    * 复制到剪贴板由调用方用 PySide 完成，不引入 ``pyperclip``。
+
+    保留自实现的 Windows 单引号→双引号处理，使 cmd.exe 下更友好。
+    """
+
+    # ------------------------------------------------------------------
+    # 公开导出方法（命名对齐 mitmproxy.addons.export）
+    # ------------------------------------------------------------------
     @staticmethod
-    def to_curl(flow_obj: Flow) -> str:
-        """导出为 curl 命令，自动适配当前操作系统
+    def curl_command(flow: HTTPFlow) -> str:
+        """导出为 curl 命令，自动适配当前操作系统。
 
-        平台适配规则：
-        - Windows (win32): 将单引号转换为双引号，兼容 cmd.exe
-        - macOS (darwin): 使用原生格式（单引号），兼容 bash/zsh
-        - Linux (linux): 使用原生格式（单引号），兼容 bash/zsh
+        - Windows (win32): 单引号转为双引号，兼容 cmd.exe
+        - macOS / Linux: 原生单引号格式，兼容 bash/zsh
         """
-        request = _cleanup_request(flow_obj)
-        _pop_headers(request)
+        request = FlowExporter._cleanup_request(flow)
+        FlowExporter._pop_headers(request)
 
         args = ["curl"]
         for k, v in request.headers.items(multi=True):
@@ -251,7 +220,7 @@ class FlowExporter:
         args.append(request.pretty_url)
         cmd = " ".join(shlex.quote(arg) for arg in args)
         if request.content:
-            cmd += f" -d {_request_content_for_console(request)}"
+            cmd += f" -d {FlowExporter._request_content_for_console(request)}"
 
         if sys.platform == "win32":
             # Windows: cmd.exe 不支持单引号，转换为双引号
@@ -259,8 +228,113 @@ class FlowExporter:
         return cmd
 
     @staticmethod
+    def httpie_command(flow: HTTPFlow) -> str:
+        """导出为 httpie 命令。"""
+        request = FlowExporter._cleanup_request(flow)
+        FlowExporter._pop_headers(request)
+
+        args = ["http", request.method, request.pretty_url]
+        for k, v in request.headers.items(multi=True):
+            args.append(f"{k}: {v}")
+        cmd = " ".join(shlex.quote(arg) for arg in args)
+        if request.content:
+            cmd += " <<< " + FlowExporter._request_content_for_console(request)
+        return cmd
+
+    @staticmethod
+    def raw_request(flow: HTTPFlow) -> bytes:
+        """导出原始请求字节。"""
+        request = FlowExporter._cleanup_request(flow)
+        if request.raw_content is None:
+            raise ValueError("Request content missing.")
+        return assemble_request(request)
+
+    @staticmethod
+    def raw_response(flow: HTTPFlow) -> bytes:
+        """导出原始响应字节。"""
+        response = FlowExporter._cleanup_response(flow)
+        if response.raw_content is None:
+            raise ValueError("Response content missing.")
+        return assemble_response(response)
+
+    @staticmethod
+    def raw(flow: HTTPFlow, separator: bytes = b"\r\n\r\n") -> bytes:
+        """导出原始请求和响应（仅一方存在时返回存在的一方）。"""
+        request_present = (
+            isinstance(flow, HTTPFlow)
+            and flow.request
+            and flow.request.raw_content is not None
+        )
+        response_present = (
+            isinstance(flow, HTTPFlow)
+            and flow.response
+            and flow.response.raw_content is not None
+        )
+
+        if request_present and response_present:
+            parts = [
+                FlowExporter.raw_request(flow),
+                FlowExporter.raw_response(flow),
+            ]
+            if flow.websocket:
+                parts.append(flow.websocket._get_formatted_messages())
+            return separator.join(parts)
+        elif request_present:
+            return FlowExporter.raw_request(flow)
+        elif response_present:
+            return FlowExporter.raw_response(flow)
+        else:
+            raise ValueError("Can't export flow with no request or response.")
+
+    # ------------------------------------------------------------------
+    # 私有辅助（命名对齐 mitmproxy.addons.export 的内部函数）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _cleanup_request(flow: HTTPFlow) -> Request:
+        """复制并解码请求，无请求时抛错。"""
+        if not flow.request:
+            raise ValueError("Can't export flow with no request.")
+        request = flow.request.copy()
+        request.decode(strict=False)
+        return request
+
+    @staticmethod
+    def _cleanup_response(flow: HTTPFlow) -> Response:
+        """复制并解码响应，无响应时抛错。"""
+        if not flow.response:
+            raise ValueError("Can't export flow with no response.")
+        response = flow.response.copy()
+        response.decode(strict=False)
+        return response
+
+    @staticmethod
+    def _pop_headers(request: Request) -> None:
+        """剔除 curl/httpie 导出时冗余的 header。"""
+        request.headers.pop("content-length", None)
+        if request.headers.get("host", "") == request.host:
+            request.headers.pop("host")
+        if request.headers.get(":authority", "") == request.host:
+            request.headers.pop(":authority")
+
+    @staticmethod
+    def _request_content_for_console(request: Request) -> str:
+        """把请求体转成 shell 安全字符串（控制字符走 printf 转义）。"""
+        try:
+            text = request.get_text(strict=True)
+        except ValueError:
+            raise ValueError("Request content must be valid unicode") from None
+        if not text:
+            raise ValueError("Request content must be valid unicode")
+        escape_control_chars = {chr(i): f"\\x{i:02x}" for i in range(32)}
+        escaped_text = "".join(escape_control_chars.get(x, x) for x in text)
+        if any(char in escape_control_chars for char in text):
+            # 转义序列需要 shell 的 printf 还原，curl/httpie 才能正确发送
+            return f'"$(printf {shlex.quote(escaped_text)})"'
+        return shlex.quote(escaped_text)
+
+    @staticmethod
     def _to_windows_curl(cmd: str) -> str:
-        """将 Unix curl 命令转为 Windows cmd 兼容格式（单引号→双引号）"""
+        """将 Unix curl 命令转为 Windows cmd 兼容格式（单引号→双引号）。"""
 
         # 提取单引号内容，转义内部双引号，再用双引号包裹
         def replace_quotes(match):
@@ -269,65 +343,6 @@ class FlowExporter:
             return f'"{escaped}"'
 
         return re.sub(r"'([^']*)'", replace_quotes, cmd)
-
-    @staticmethod
-    def to_httpie(flow_obj: Flow) -> str:
-        """导出为 httpie 命令"""
-        request = _cleanup_request(flow_obj)
-        _pop_headers(request)
-
-        args = ["http", request.method, request.pretty_url]
-        for k, v in request.headers.items(multi=True):
-            args.append(f"{k}: {v}")
-        cmd = " ".join(shlex.quote(arg) for arg in args)
-        if request.content:
-            cmd += " <<< " + _request_content_for_console(request)
-        return cmd
-
-    @staticmethod
-    def to_raw_request(flow_obj: Flow) -> bytes:
-        """导出原始请求"""
-        request = _cleanup_request(flow_obj)
-        if request.raw_content is None:
-            raise ValueError("Request content missing.")
-        return assemble_request(request)
-
-    @staticmethod
-    def to_raw_response(flow_obj: Flow) -> bytes:
-        """导出原始响应"""
-        response = _cleanup_response(flow_obj)
-        if response.raw_content is None:
-            raise ValueError("Response content missing.")
-        return assemble_response(response)
-
-    @staticmethod
-    def to_raw(flow_obj: Flow, separator: bytes = b"\r\n\r\n") -> bytes:
-        """导出原始请求和响应（仅一方存在时返回存在的一方）"""
-        request_present = (
-            isinstance(flow_obj, HTTPFlow)
-            and flow_obj.request
-            and flow_obj.request.raw_content is not None
-        )
-        response_present = (
-            isinstance(flow_obj, HTTPFlow)
-            and flow_obj.response
-            and flow_obj.response.raw_content is not None
-        )
-
-        if request_present and response_present:
-            parts = [
-                FlowExporter.to_raw_request(flow_obj),
-                FlowExporter.to_raw_response(flow_obj),
-            ]
-            if flow_obj.websocket:
-                parts.append(flow_obj.websocket._get_formatted_messages())
-            return separator.join(parts)
-        elif request_present:
-            return FlowExporter.to_raw_request(flow_obj)
-        elif response_present:
-            return FlowExporter.to_raw_response(flow_obj)
-        else:
-            raise ValueError("Can't export flow with no request or response.")
 
 
 class Cert:
@@ -673,7 +688,7 @@ class FlowView:
 
         if state == "complete":
             try:
-                data["curl_command"] = FlowExporter.to_curl(flow)
+                data["curl_command"] = FlowExporter.curl_command(flow)
             except Exception as e:  # noqa: BLE001
                 print(f"生成 cURL 命令失败: {e}")
                 data["curl_command"] = f"Error generating curl command: {e}"

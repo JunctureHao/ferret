@@ -5,8 +5,8 @@ from PySide6.QtCore import QObject, QThread, QTimer, Signal
 from ferret.apps.capture.services import (
     CaptureMaster,
     Cert,
-    Flow,
     FlowExporter,
+    HTTPFlow,
     Options,
     UiBridgeAddon,
     View,
@@ -159,32 +159,41 @@ class CaptureController(QObject):
             self.stop_capture()
             self.start_capture()
 
-    def get_flow(self, flow_id: str) -> Flow | None:
+    def get_flow(self, flow_id: str) -> HTTPFlow | None:
         """按 id 从 View 中获取原始 flow"""
         view = self.view
         if view:
-            return view.get_by_id(flow_id)
+            flow = view.get_by_id(flow_id)
+            if isinstance(flow, HTTPFlow):
+                return flow
         return None
+
+    def get_httpie_command(self, flow_id: str) -> str:
+        """获取 HTTPie 命令（字符串）"""
+        flow_obj = self.get_flow(flow_id)
+        if flow_obj:
+            return FlowExporter.httpie_command(flow_obj)
+        return ""
 
     def get_raw_request(self, flow_id: str) -> bytes:
         """获取原始HTTP请求"""
         flow_obj = self.get_flow(flow_id)
         if flow_obj:
-            return FlowExporter.to_raw_request(flow_obj)
+            return FlowExporter.raw_request(flow_obj)
         return b""
 
     def get_raw_response(self, flow_id: str) -> bytes:
         """获取原始HTTP响应"""
         flow_obj = self.get_flow(flow_id)
         if flow_obj:
-            return FlowExporter.to_raw_response(flow_obj)
+            return FlowExporter.raw_response(flow_obj)
         return b""
 
     def get_raw_flow(self, flow_id: str) -> bytes:
         """获取原始HTTP请求和响应"""
         flow_obj = self.get_flow(flow_id)
         if flow_obj:
-            return FlowExporter.to_raw(flow_obj)
+            return FlowExporter.raw(flow_obj)
         return b""
 
     def toggle_capture(self) -> bool:

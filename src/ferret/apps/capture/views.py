@@ -202,7 +202,7 @@ class CapturesContentArea(OrientationSplitter):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.table = CapturesDataTable(self)
+        self.table = CapturesDataTable(self, self.controller)
         self.panel = CapturesDataPanel(self, self.controller)
         self.addWidget(self.table)
         self.addWidget(self.panel)
@@ -581,12 +581,18 @@ class CapturesDataTable(TableView):
     row_selected = Signal(dict)  # 选中行信号
     stats_updated = Signal(int, int, int)  # 统计更新信号：总条数、显示条数、选中条数
 
-    def __init__(self, parent: "CapturesContentArea | None" = None):
+    def __init__(
+        self,
+        parent: "CapturesContentArea | None" = None,
+        controller=None,
+    ):
         """初始化数据表格
 
         :param parent: 父组件，通常是 CapturesContentArea
+        :param controller: 抓包控制器实例（供右键菜单导出使用）
         """
         super().__init__(parent)
+        self.controller = controller  # 保存 controller 引用
 
         self.__init_widget()
         self.__init_view()
@@ -597,7 +603,7 @@ class CapturesDataTable(TableView):
         self.source_model = PacketTableModel(self)
         self.proxy_model = PacketProxyModel(self)
 
-        self.context_menu = PacketContextMenu(self)
+        self.context_menu = PacketContextMenu(self, self.controller)
         self.setSelectRightClickedRow(True)
         self.proxy_model.setSourceModel(self.source_model)
         self.setModel(self.proxy_model)
@@ -1167,9 +1173,11 @@ class ResponsePanel(TabPanel):
 
                 if raw_data:
                     # 如果成功获取到原始数据，直接使用
+                    # raw_response 返回的是「状态行+响应头+空行+body」完整报文，
+                    # 直接按文本解码即可，切勿再过 decode_body（它是 body 解码器，
+                    # 会把 head+gzip body 误判为二进制而返回 None，导致压缩响应空白）。
                     if isinstance(raw_data, bytes):
-                        # 经 decode_body 嗅探，二进制内容会得到 None
-                        text = decode_body(raw_data, content_type) or ""
+                        text = raw_data.decode("utf-8", errors="replace")
                     else:
                         text = str(raw_data)
                     self.raw_edit.set_text(text)
@@ -1723,8 +1731,9 @@ class PacketContextMenu(RoundMenu):
 
     delete_requested = Signal(int)  # 删除请求信号
 
-    def __init__(self, parent: "CapturesDataTable"):
+    def __init__(self, parent: "CapturesDataTable", controller=None):
         super().__init__(parent=parent)
+        self.controller = controller  # 供导出子菜单调用控制层
         self.row_index = -1  # 初始化一个无效行号
         self.row_data = {}
         self.main_window = parent.window()
@@ -1745,29 +1754,23 @@ class PacketContextMenu(RoundMenu):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.curl_action = BaseAction(
-            parent=self,
-            icon=FluentIcon.COPY,
-            text=self.tr("复制 cURL"),
-            shortcut=QKeySequence("Ctrl+Shift+C"),
-        )
         self.delete_action = BaseAction(
             parent=self,
             icon=FluentIcon.DELETE,
             text=self.tr("删除"),
             shortcut=QKeySequence.StandardKey.Delete,
         )
+        self.export_menu = PacketExportMenu(self, self.controller)
         self.view_menu = PacketSubViewMenu(self)
 
     def __init_action(self):
         """初始化菜单动作"""
-        self.addAction(self.curl_action)
         self.addAction(self.delete_action)
+        self.addMenu(self.export_menu)
         self.addMenu(self.view_menu)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
-        self.curl_action.triggered.connect(self.__export_curl)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
 
@@ -1778,21 +1781,6 @@ class PacketContextMenu(RoundMenu):
             self.delete_requested.emit(self.row_index)
 
     @Slot()
-    def __export_curl(self):
-        """使用预生成的 cURL 命令"""
-        curl_cmd = self.row_data.get("curl_command")
-        if not curl_cmd:
-            show_warning(
-                self.tr("警告"),
-                self.tr("cURL 命令尚未生成，请等待请求完成"),
-                self.main_window,
-            )
-            return
-
-        QApplication.clipboard().setText(curl_cmd)
-        show_success(self.tr("成功"), self.tr("cURL 已复制到剪贴板"), self.main_window)
-
-    @Slot()
     def __show_url_window(self):
         """显示 URL 窗口"""
         url = self.row_data.get("URL", "No URL")
@@ -1801,6 +1789,153 @@ class PacketContextMenu(RoundMenu):
             show_success(
                 self.tr("成功"), self.tr("URL 已复制到剪贴板"), self.main_window
             )
+
+
+class PacketExportMenu(RoundMenu):
+    """数据包导出子菜单 - 汇总统一定义的导出能力（cURL / HTTPie / 原始报文）"""
+
+    def __init__(self, parent: PacketContextMenu, controller=None):
+        super().__init__(parent=parent)
+        self.context_menu = parent  # 强类型引用，避免 self.parent() 的 QObject | None
+        self.controller = controller
+        self.main_window = parent.main_window
+
+        self.__init_widget()
+        self.__init_action()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.setIcon(FluentIcon.SAVE)
+        self.setTitle(self.tr("导出"))
+
+        self.curl_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.COPY,
+            text=self.tr("复制 cURL"),
+            shortcut=QKeySequence("Ctrl+Shift+C"),
+        )
+        self.httpie_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.CODE,
+            text=self.tr("复制 HTTPie"),
+        )
+        self.raw_request_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.DOCUMENT,
+            text=self.tr("复制原始请求"),
+        )
+        self.raw_response_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.DOCUMENT,
+            text=self.tr("复制原始响应"),
+        )
+        self.raw_flow_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.DOCUMENT,
+            text=self.tr("复制原始流量"),
+        )
+
+    def __init_action(self):
+        """初始化菜单动作"""
+        self.addAction(self.curl_action)
+        self.addAction(self.httpie_action)
+        self.addSeparator()
+        self.addAction(self.raw_request_action)
+        self.addAction(self.raw_response_action)
+        self.addAction(self.raw_flow_action)
+
+    def __connect_signal_to_slot(self):
+        """连接信号与槽函数"""
+        self.curl_action.triggered.connect(lambda: self.__export_text("curl"))
+        self.httpie_action.triggered.connect(lambda: self.__export_text("httpie"))
+        self.raw_request_action.triggered.connect(
+            lambda: self.__export_bytes("raw_request")
+        )
+        self.raw_response_action.triggered.connect(
+            lambda: self.__export_bytes("raw_response")
+        )
+        self.raw_flow_action.triggered.connect(lambda: self.__export_bytes("raw_flow"))
+
+    def __flow_id(self) -> str:
+        """从上下文行数据取出 flow id"""
+        return self.context_menu.row_data.get("id", "")
+
+    def __export_text(self, kind: str):
+        """导出文本类命令（cURL / HTTPie）到剪贴板"""
+        flow_id = self.__flow_id()
+        if not flow_id or not self.controller:
+            show_warning(
+                self.tr("警告"),
+                self.tr("导出失败：请求尚未完成或控制器不可用"),
+                self.main_window,
+            )
+            return
+
+        if kind == "curl":
+            # curl 由 FlowView 预生成在 row_data 中
+            text = self.context_menu.row_data.get("curl_command") or ""
+            label = "cURL"
+        else:
+            text = self.controller.get_httpie_command(flow_id)
+            label = "HTTPie"
+
+        if not text:
+            show_warning(
+                self.tr("警告"),
+                self.tr("%s 命令尚未生成，请等待请求完成") % label,
+                self.main_window,
+            )
+            return
+
+        QApplication.clipboard().setText(text)
+        show_success(
+            self.tr("成功"),
+            self.tr("%s 已复制到剪贴板") % label,
+            self.main_window,
+        )
+
+    def __export_bytes(self, kind: str):
+        """导出原始字节报文（请求 / 响应 / 完整流量）到剪贴板"""
+        flow_id = self.__flow_id()
+        if not flow_id or not self.controller:
+            show_warning(
+                self.tr("警告"),
+                self.tr("导出失败：请求尚未完成或控制器不可用"),
+                self.main_window,
+            )
+            return
+
+        if kind == "raw_request":
+            data = self.controller.get_raw_request(flow_id)
+            label = self.tr("原始请求")
+        elif kind == "raw_response":
+            data = self.controller.get_raw_response(flow_id)
+            label = self.tr("原始响应")
+        else:
+            data = self.controller.get_raw_flow(flow_id)
+            label = self.tr("原始流量")
+
+        if not data:
+            show_warning(
+                self.tr("警告"),
+                self.tr("%s 尚未生成，请等待请求完成") % label,
+                self.main_window,
+            )
+            return
+
+        # 优先尝试按 UTF-8 文本复制，失败则回退为十六进制描述
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = data.decode("latin-1")
+
+        QApplication.clipboard().setText(text)
+        show_success(
+            self.tr("成功"),
+            self.tr("%s 已复制到剪贴板") % label,
+            self.main_window,
+        )
 
 
 class PacketSubViewMenu(RoundMenu):
