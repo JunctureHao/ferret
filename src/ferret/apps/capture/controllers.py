@@ -1,11 +1,3 @@
-"""抓包 app 的控制器层 — 在 QThread 中运行轻量 CaptureMaster 并广播流量。
-
-- 用 apps/capture/services.CaptureMaster（轻量版，去 CLI/Web 噪音）
-- 复用 mitmproxy.addons.view.View 做 flow 的存储、过滤与排序
-- CaptureWorker 负责线程与代理生命周期，CaptureController 负责对外生命周期管理
-- UI 只连信号，不直接碰 worker / master
-"""
-
 import asyncio
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
@@ -16,6 +8,7 @@ from ferret.apps.capture.services import (
     Flow,
     FlowExporter,
     Options,
+    UiBridgeAddon,
     View,
     _HTTPOnlyFilter,
 )
@@ -25,14 +18,20 @@ from ferret.utils.proxy_manager import SystemProxyManager
 class CaptureWorker(QThread):
     """mitmproxy 运行容器（轻量版）
 
-    只负责启动/停止 CaptureMaster，不再桥接 View 信号。
-    View 信号由 CaptureController 直接连接（持久化，避免重复连接）。
+    负责启动/停止 CaptureMaster，并把 UI 桥接 addon（UiBridgeAddon）注册进
+    mitmproxy 事件循环——这样流量事件由真正的 addon 钩子捕获并跨线程发给 Qt。
     """
 
-    def __init__(self, port: int = 8080, persistent_view: View | None = None):
+    def __init__(
+        self,
+        port: int = 8080,
+        persistent_view: View | None = None,
+        controller: "CaptureController | None" = None,
+    ):
         super().__init__()
         self.port = port
         self.persistent_view = persistent_view
+        self.controller = controller
         self.master: CaptureMaster | None = None
 
     def run(self):
@@ -45,14 +44,20 @@ class CaptureWorker(QThread):
     async def _start_proxy(self):
         """真正的异步启动逻辑"""
         opts = Options(listen_host="127.0.0.1", listen_port=self.port)
-        self.master = CaptureMaster(opts, view=self.persistent_view)
-
-        try:
-            await self.master.run()
-        except asyncio.CancelledError:
-            print("Mitmproxy 任务已取消")
-        finally:
-            print("Mitmproxy 异步循环已结束")
+        # persistent_view 在 controller 中始终被创建，此处收窄为非空以通过类型检查
+        if self.persistent_view is not None:
+            view: View = self.persistent_view
+            self.master = CaptureMaster(opts, view=view)
+            # 注册 UI 桥接 addon：事件钩子里把原生 HTTPFlow 跨线程发给 Qt。
+            # 放在 View 之后注册，保证 request 事件先落入 View 再触发桥接。
+            if self.controller is not None:
+                self.master.addons.add(UiBridgeAddon(view, self.controller))
+                try:
+                    await self.master.run()
+                except asyncio.CancelledError:
+                    print("Mitmproxy 任务已取消")
+                finally:
+                    print("Mitmproxy 异步循环已结束")
 
     def stop(self):
         if self.master:
@@ -78,34 +83,16 @@ class CaptureController(QObject):
         super().__init__(parent)
         self._sniffer: CaptureWorker | None = None
         self._current_port = 8080
-        # 持久化 View：跨 toggle 保留数据
+        # 持久化 View：跨 toggle 保留数据（同时作为表格模型的存储/排序/过滤后端）
         self._persistent_view = View()
         self._persistent_view.set_filter(_HTTPOnlyFilter())
 
-        # 直接连接 View 的 mitmproxy 信号 → Qt 信号（只连接一次，永不会重复）
-        # 信号在 worker 线程同步触发，Qt 信号通过 QueuedConnection 跨线程到主线程
-        self._persistent_view.sig_view_add.connect(self._on_view_add)
-        self._persistent_view.sig_view_update.connect(self._on_view_update)
-        self._persistent_view.sig_view_remove.connect(self._on_view_remove)
-        self._persistent_view.sig_view_refresh.connect(self._on_view_refresh)
+        # 流量事件改由 UiBridgeAddon（真正的 mitmproxy addon）在钩子里
+        # 直接 emit 本 controller 的 4 个信号，不再直接连 View 的 SyncSignal。
+        # addon 在 CaptureWorker._start_proxy 中注册，桥接对象即本 controller。
 
         # 延迟发射 master_ready，确保 UI 信号连接已建立
         QTimer.singleShot(0, lambda: self.master_ready.emit(self._persistent_view))
-
-    # ------------------------------------------------------------------
-    # View 信号桥接（mitmproxy SyncSignal → Qt Signal）
-    # ------------------------------------------------------------------
-    def _on_view_add(self, flow) -> None:
-        self.flow_added.emit(flow)
-
-    def _on_view_update(self, flow) -> None:
-        self.flow_updated.emit(flow)
-
-    def _on_view_remove(self, flow, index: int) -> None:
-        self.flow_removed.emit(flow, index)
-
-    def _on_view_refresh(self) -> None:
-        self.view_refreshed.emit()
 
     @property
     def is_capturing(self) -> bool:
@@ -140,8 +127,9 @@ class CaptureController(QObject):
         # 1. 启用系统代理
         SystemProxyManager.set_proxy("127.0.0.1", self._current_port)
 
-        # 2. 启动抓包线程（View 信号已由 controller 直接连接，worker 只管跑代理）
-        self._sniffer = CaptureWorker(self._current_port, self._persistent_view)
+        # 2. 启动抓包线程（UiBridgeAddon 在 worker 内注册，事件经 addon 钩子
+        #    转发为本 controller 的 Qt 信号；worker 只管跑代理）
+        self._sniffer = CaptureWorker(self._current_port, self._persistent_view, self)
         self._sniffer.start()
 
     def stop_capture(self):

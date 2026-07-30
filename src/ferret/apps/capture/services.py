@@ -4,6 +4,7 @@ import re
 import shlex
 import subprocess
 import sys
+import weakref
 import zlib
 from datetime import UTC, datetime
 from types import ModuleType
@@ -115,6 +116,57 @@ class CaptureMaster(Master):
             DnsResolver(),
             self.view,
         )
+
+
+class UiBridgeAddon:
+    """把 mitmproxy 事件钩子桥接给 Qt 信号（UI 作为真正的 addon）。
+
+    设计：
+    * 本类是一个标准的 mitmproxy addon——只要实现了 ``request`` / ``response``
+      / ``error`` 这类事件钩子方法，被 ``master.addons.add(...)`` 注册后，
+      mitmproxy 事件循环会在对应时机自动回调，无需依赖内置 ``View`` 的
+      ``SyncSignal``。这让我们能直接拿到原生 ``HTTPFlow`` 对象，并接入
+      mitmproxy 的 addon 生态（``mitmproxy.ctx``、options 等）。
+    * 钩子里**只发射 flow 引用（不转 dict、不做重解析）**，重活在 UI 真正
+      需要时才发生，避免阻塞代理事件循环、拖慢吞吐。
+    * 移除/刷新没有对应的普通 addon 钩子，继续由 ``View`` 的 ``SyncSignal``
+      转发，保持与表格模型的存储/排序/过滤一致。
+
+    ``bridge`` 需提供 4 个 Qt ``Signal``：``flow_added`` / ``flow_updated`` /
+    ``flow_removed``(object, int) / ``view_refreshed``，通常由
+    ``CaptureController`` 充当。
+    """
+
+    def __init__(self, view: View, bridge: Any) -> None:
+        self.view = view
+        self.bridge = bridge
+        # 移除/刷新：mitmproxy 无对应 addon 钩子，转发 View 的信号
+        view.sig_view_remove.connect(self._on_view_remove)
+        view.sig_view_refresh.connect(self._on_view_refresh)
+
+    # ------------------------------------------------------------------
+    # mitmproxy 事件钩子（鸭子类型，方法名即事件名）
+    # ------------------------------------------------------------------
+    def request(self, flow: HTTPFlow) -> None:
+        """请求已发出（尚无响应），先让表格出现一行。"""
+        self.bridge.flow_added.emit(flow)
+
+    def response(self, flow: HTTPFlow) -> None:
+        """响应体已完整接收，更新该行（对应 complete 状态）。"""
+        self.bridge.flow_updated.emit(flow)
+
+    def error(self, flow: HTTPFlow) -> None:
+        """发生错误（如连接失败），更新该行。"""
+        self.bridge.flow_updated.emit(flow)
+
+    # ------------------------------------------------------------------
+    # View 信号转发（移除/刷新）
+    # ------------------------------------------------------------------
+    def _on_view_remove(self, flow: Flow, index: int) -> None:
+        self.bridge.flow_removed.emit(flow, index)
+
+    def _on_view_refresh(self) -> None:
+        self.bridge.view_refreshed.emit()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -338,7 +390,15 @@ class FlowView:
 
     内部持有原始 HTTPFlow，提供表格展示所需字段，并可通过 to_dict()
     生成与原先 _preprocess_flow 兼容的完整字典（供详情面板使用）。
+
+    解析结果按 (flow, state) 维度缓存，且以弱引用持有 flow：flow 被 View
+    移除并 GC 后缓存自动释放，不会泄漏；同一 flow 在 request / complete 等
+    不同阶段会得到各自独立的解析，避免展示过期数据。这样 build_body 等重活
+    只在真正需要且状态变化时执行一次，而非每次打开详情/筛选都重跑。
     """
+
+    # flow -> {state: 解析后的 dict}，弱引用 key，flow 回收即整体释放
+    _PARSE_CACHE: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
 
     def __init__(self, flow: HTTPFlow, state: str | None = None):
         if not isinstance(flow, HTTPFlow):
@@ -347,7 +407,6 @@ class FlowView:
             )
         self.flow = flow
         self.state = state or infer_flow_state(flow)
-        self._dict: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # 基础字段（表格展示用）
@@ -397,10 +456,16 @@ class FlowView:
     # 字典视图（详情面板用）
     # ------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
-        """生成与原先 _preprocess_flow 兼容的字典。"""
-        if self._dict is None:
-            self._dict = self._build_dict()
-        return self._dict
+        """生成与原先 _preprocess_flow 兼容的字典（带一次性解析缓存）。"""
+        bucket = self._PARSE_CACHE.get(self.flow)
+        if bucket is None:
+            bucket = {}
+            self._PARSE_CACHE[self.flow] = bucket
+        cached = bucket.get(self.state)
+        if cached is None:
+            cached = self._build_dict()
+            bucket[self.state] = cached
+        return cached
 
     def _build_dict(self) -> dict[str, Any]:
         flow = self.flow
