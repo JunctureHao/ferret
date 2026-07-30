@@ -27,7 +27,7 @@ class FontManager:
     @staticmethod
     def code_font(size=10):
         font = QFont()
-        font.setFamily("JetBrains Mono")
+        font.setFamilies(["JetBrains Mono", "Microsoft YaHei"])
         font.setPointSize(size)
         font.setFixedPitch(True)
         return font
