@@ -1754,6 +1754,9 @@ class PacketContextMenu(RoundMenu):
 
     def __init_widget(self):
         """初始化界面组件"""
+        self.client_replay_action = BaseAction(
+            parent=self, icon=FluentIcon.SYNC, text=self.tr("重发")
+        )
         self.delete_action = BaseAction(
             parent=self,
             icon=FluentIcon.DELETE,
@@ -1765,12 +1768,14 @@ class PacketContextMenu(RoundMenu):
 
     def __init_action(self):
         """初始化菜单动作"""
-        self.addAction(self.delete_action)
-        self.addMenu(self.export_menu)
         self.addMenu(self.view_menu)
+        self.addAction(self.client_replay_action)
+        self.addMenu(self.export_menu)
+        self.addAction(self.delete_action)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
+        self.client_replay_action.triggered.connect(self.__on_client_replay_triggered)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
 
@@ -1789,6 +1794,13 @@ class PacketContextMenu(RoundMenu):
             show_success(
                 self.tr("成功"), self.tr("URL 已复制到剪贴板"), self.main_window
             )
+
+    @Slot()
+    def __on_client_replay_triggered(self):
+        """重放当前选中的请求"""
+        flow_id = self.row_data.get("id", "")
+        if flow_id and self.controller:
+            self.controller.replay_flow(flow_id)
 
 
 class PacketExportMenu(RoundMenu):

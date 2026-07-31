@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
@@ -8,6 +9,7 @@ from ferret.apps.capture.services import (
     FlowExporter,
     HTTPFlow,
     Options,
+    ReplayHandler,
     UiBridgeAddon,
     View,
     _HTTPOnlyFilter,
@@ -195,6 +197,47 @@ class CaptureController(QObject):
         if flow_obj:
             return FlowExporter.raw(flow_obj)
         return b""
+
+    def replay_flow(self, flow_id: str) -> None:
+        """客户端重发给真实服务器
+
+        1. 原始flow数据copy出新的flow数据且原始数据保留
+        2. 设置新flow数据 reuqst、response对象以及相关属性
+        3. 获取当前时间设置 ceate、start、end 三个属性，来确保排序问题
+        4. 获取master内核让 replayhandler发送给内核 进行重发
+
+        :param flow_id: 重发流量的id
+        """
+        old_flow = self.get_flow(flow_id)
+        if old_flow is None:
+            return
+        if not self.is_capturing or self._sniffer is None:
+            return
+        master = self._sniffer.master
+        if master is None:
+            return
+        new_flow: HTTPFlow = old_flow.copy()
+        new_flow.response = None
+        new_flow.error = None
+        new_flow.is_replay = "request"
+
+        # 让新 flow 排到末尾：把时间戳设为当前时间（一定比旧 flow 晚）
+        now = time.time()
+        new_flow.timestamp_created = now
+        new_flow.request.timestamp_start = now
+        new_flow.request.timestamp_end = now
+
+        view = self.view
+        if view is None:
+            return
+        view.add([new_flow])
+        loop = master.event_loop
+        handler = ReplayHandler(new_flow, master.options)
+
+        def _schedule():
+            asyncio.ensure_future(handler.replay())
+
+        loop.call_soon_threadsafe(_schedule)
 
     def toggle_capture(self) -> bool:
         """切换抓包状态，发射状态变化信号

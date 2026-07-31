@@ -38,6 +38,7 @@ for _name, _attrs in _STUBBED_ADDONS.items():
 # 不要直接 import mitmproxy。
 # ─────────────────────────────────────────────────────────────
 from mitmproxy import certs
+from mitmproxy.addons.clientplayback import ClientPlayback, ReplayHandler  # noqa: F401
 from mitmproxy.addons.core import Core
 from mitmproxy.addons.dns_resolver import DnsResolver
 from mitmproxy.addons.next_layer import NextLayer
@@ -115,6 +116,7 @@ class CaptureMaster(Master):
             NextLayer(),
             DnsResolver(),
             self.view,
+            ClientPlayback(),
         )
 
 
