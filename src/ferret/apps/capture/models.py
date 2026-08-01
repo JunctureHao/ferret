@@ -18,11 +18,16 @@ class PacketTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._headers = ["ID", "Method", "URL", "Status Code", "Duration", ""]
         self.view = view
+        # 稳定行号列表：model 自己的"行号→flow"映射，不依赖 View 的 SortedList
+        # 排序位置（并发重排会导致插入声明位置与取数位置失配 → 空行/错数据）。
+        # View 仅作为 flow 存储/过滤后端，行号由此列表自治。
+        self._rows: list[HTTPFlow] = []
 
     def set_view(self, view):
         """设置 mitmproxy View 实例并重置模型"""
         self.beginResetModel()
         self.view = view
+        self._rows = list(view) if view else []
         self.endResetModel()
 
     def headerData(
@@ -41,7 +46,7 @@ class PacketTableModel(QAbstractTableModel):
     def rowCount(
         self, parent: QModelIndex | QPersistentModelIndex | None = None
     ) -> int:
-        return len(self.view) if self.view else 0
+        return len(self._rows)
 
     def columnCount(
         self, parent: QModelIndex | QPersistentModelIndex | None = None
@@ -53,15 +58,15 @@ class PacketTableModel(QAbstractTableModel):
         index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
     ):
-        if not self.view or not index.isValid():
+        if not self._rows or not index.isValid():
             return None
 
         row = index.row()
         col = index.column()
-        if not (0 <= row < len(self.view)):
+        if not (0 <= row < len(self._rows)):
             return None
 
-        flow = self.view[row]
+        flow = self._rows[row]
         column_name = self._headers[col]
 
         if role == Qt.ItemDataRole.DisplayRole:
@@ -92,29 +97,25 @@ class PacketTableModel(QAbstractTableModel):
     # 数据变化处理（由 View 桥接信号驱动）
     # ------------------------------------------------------------------
     def _row_of(self, flow: HTTPFlow) -> int:
-        """在 View 中查找 flow 的索引"""
-        if not self.view:
-            return -1
+        """在稳定行号列表中查找 flow 的索引（不依赖 View 排序位置）"""
         try:
-            return self.view.index(flow)
-        except (ValueError, KeyError):
+            return self._rows.index(flow)
+        except ValueError:
             return -1
 
     def handle_add(self, flow: HTTPFlow) -> None:
-        """处理 View 新增 flow"""
+        """处理 View 新增 flow：追加到末尾，行号由 _rows 自治"""
         if not self.view:
             return
-
-        row = self._row_of(flow)
-        if row < 0:
-            return
+        if flow in self._rows:
+            return  # 防重复
+        row = len(self._rows)
         self.beginInsertRows(QModelIndex(), row, row)
+        self._rows.append(flow)
         self.endInsertRows()
 
     def handle_update(self, flow: HTTPFlow) -> None:
         """处理 View 更新 flow"""
-        if not self.view:
-            return
         row = self._row_of(flow)
         if row < 0:
             return
@@ -123,18 +124,18 @@ class PacketTableModel(QAbstractTableModel):
         self.dataChanged.emit(start_idx, end_idx)
 
     def handle_remove(self, flow: HTTPFlow, index: int) -> None:
-        """处理 View 移除 flow"""
-        if not self.view:
+        """处理 View 移除 flow：按 flow 反查 _rows 下标，避免 View 源索引错位"""
+        row = self._row_of(flow)
+        if row < 0:
             return
-        # index 是 View 发来的源索引，直接用它
-        if not (0 <= index < len(self.view) + 1):
-            return
-        self.beginRemoveRows(QModelIndex(), index, index)
+        self.beginRemoveRows(QModelIndex(), row, row)
+        self._rows.pop(row)
         self.endRemoveRows()
 
     def handle_refresh(self) -> None:
-        """处理 View 整体刷新"""
+        """处理 View 整体刷新：同步重建 _rows"""
         self.beginResetModel()
+        self._rows = list(self.view) if self.view else []
         self.endResetModel()
 
     # ------------------------------------------------------------------
@@ -142,27 +143,28 @@ class PacketTableModel(QAbstractTableModel):
     # ------------------------------------------------------------------
     def clear_data(self):
         """清空表格内容"""
+        self._rows.clear()
         if self.view:
             self.view.clear()
 
     def get_row_data(self, row: int) -> dict[str, Any]:
         """根据行号获取该行的完整展示字典（供详情面板使用）"""
-        if self.view and 0 <= row < len(self.view):
-            flow = self.view[row]
+        if 0 <= row < len(self._rows):
+            flow = self._rows[row]
             return FlowView(flow).to_dict()
         return {}
 
     def get_flow(self, row: int) -> HTTPFlow | None:
         """根据行号获取原始 HTTPFlow"""
-        if self.view and 0 <= row < len(self.view):
-            return self.view[row]
+        if 0 <= row < len(self._rows):
+            return self._rows[row]
         return None
 
     def remove_row(self, row: int):
         """删除指定行"""
-        if not self.view:
+        if not self.view or not (0 <= row < len(self._rows)):
             return
-        flow = self.view[row]
+        flow = self._rows[row]
         self.view.remove([flow])
 
 
@@ -298,10 +300,10 @@ class PacketProxyModel(QSortFilterProxyModel):
         model = self.sourceModel()
         if not isinstance(model, PacketTableModel):
             return True
-        if not model.view or source_row >= len(model.view):
+        if source_row >= len(model._rows):
             return False  # 超出范围的行不显示
 
-        flow = model.view[source_row]
+        flow = model._rows[source_row]
         try:
             data = FlowView(flow).to_dict()
         except (ValueError, zlib.error, KeyError, AttributeError):
