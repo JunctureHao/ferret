@@ -117,6 +117,9 @@ class CodeEditor(PlainTextEdit):
         self.line_number_area.setGeometry(
             QRect(cr.left(), cr.top(), width, cr.height())
         )
+        hsb = self.scrollDelegate.hScrollBar
+        hsb.move(cr.left() + width, hsb.y())
+        hsb.resize(cr.width() - width - 2, hsb.height())
 
     def set_line_number_area(self, rect, dy):
         if dy:
