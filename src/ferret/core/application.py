@@ -9,13 +9,11 @@
 
 import os
 import sys
-from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import (
     QCoreApplication,
     QLocale,
-    QStandardPaths,
     Qt,
     QtMsgType,
     QTranslator,
@@ -27,7 +25,12 @@ from qfluentwidgets import FluentTranslator, qconfig
 
 from ferret.apps.window import MainWindow
 from ferret.core import resources_rc  # noqa: F401  注册资源（图标/i18n/qm）
-from ferret.core.settings import APP_NAME, CONFIG, CONFIG_NAME, Language
+from ferret.core.settings import (
+    APP_NAME,
+    CONFIG,
+    Language,
+    get_config_file,
+)
 
 
 class Application:
@@ -51,17 +54,8 @@ class Application:
         QCoreApplication.setApplicationName(APP_NAME)
 
     def _init_config(self):
-        """确保配置目录存在并加载配置。
-
-        :raises OSError: 当配置目录无法创建时
-        """
-        config_dir = Path(
-            QStandardPaths.writableLocation(
-                QStandardPaths.StandardLocation.AppConfigLocation
-            )
-        )
-        config_dir.mkdir(parents=True, exist_ok=True)
-        config_file = config_dir / CONFIG_NAME
+        """确保配置目录存在并加载配置"""
+        config_file = get_config_file()
         qconfig.load(str(config_file), CONFIG)
 
     def _init_dpi(self):

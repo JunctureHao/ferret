@@ -1,7 +1,8 @@
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QLocale
+from PySide6.QtCore import QLocale, QStandardPaths
 from qfluentwidgets import (
     BoolValidator,
     ConfigItem,
@@ -76,6 +77,24 @@ class Config(QConfig):
         validator=OptionsValidator(Layout),
         serializer=LayoutSerializer(),
     )
+
+
+def get_config_dir() -> Path:
+    d = Path(
+        QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppConfigLocation
+        )
+    )
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def get_config_file() -> Path:
+    return get_config_dir() / CONFIG_NAME
+
+
+def get_certs_dir() -> Path:
+    return get_config_dir() / "certs"
 
 
 CONFIG = Config()

@@ -1,5 +1,4 @@
 import asyncio
-import os
 import re
 import shlex
 import subprocess
@@ -9,6 +8,14 @@ import zlib
 from datetime import UTC, datetime
 from types import ModuleType
 from typing import Any
+
+from ferret.core.settings import APP_NAME
+from ferret.utils.http_parser import (
+    build_body,
+    parse_cookies_from_headers,
+    parse_params,
+)
+from ferret.utils.process_resolver import resolve_process
 
 _STUBBED_ADDONS = {
     # onboarding.py 顶层 import asgiapp(依赖 asgiref)，整枝屏蔽
@@ -49,14 +56,7 @@ from mitmproxy.flow import Flow
 from mitmproxy.http import HTTPFlow, Request, Response
 from mitmproxy.master import Master
 from mitmproxy.net.http.http1.assemble import assemble_request, assemble_response
-from mitmproxy.options import CONF_BASENAME, CONF_DIR, KEY_SIZE, Options
-
-from ferret.utils.http_parser import (
-    build_body,
-    parse_cookies_from_headers,
-    parse_params,
-)
-from ferret.utils.process_resolver import resolve_process
+from mitmproxy.options import KEY_SIZE, Options
 
 
 class _HTTPOnlyFilter:
@@ -74,6 +74,20 @@ def _safe_content(message) -> bytes:
         return message.content or b""
     except (ValueError, zlib.error):
         return message.raw_content or b""
+
+
+class FerretTlsConfig(TlsConfig):
+    """重写证书 basename，使证书文件以 ferret- 为前缀。"""
+
+    def configure(self, updated):
+        import mitmproxy.addons.tlsconfig as mod
+
+        original = mod.CONF_BASENAME
+        mod.CONF_BASENAME = APP_NAME  # type: ignore
+        try:
+            super().configure(updated)
+        finally:
+            mod.CONF_BASENAME = original
 
 
 class CaptureMaster(Master):
@@ -112,7 +126,7 @@ class CaptureMaster(Master):
         self.addons.add(
             Core(),
             Proxyserver(),
-            TlsConfig(),
+            FerretTlsConfig(),
             NextLayer(),
             DnsResolver(),
             self.view,
@@ -362,26 +376,25 @@ class Cert:
             )
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
-        return "mitmproxy" in out.stdout.lower()
+
+        print(out.stdout)
+        return APP_NAME in out.stdout
 
     def install(self):
         """安装证书
 
-        若 ~/.mitmproxy/mitmproxy-ca-cert.pem 不存在，则先用 mitmproxy
-        自带API（CertStore.from_store，与 mitmproxy 启动逻辑一致）生成证书，
-        再用 certutil 安装到用户受信任根 CA。
+        若证书不存在，则先用 mitmproxy 自带 API（CertStore.from_store）
+        生成证书到 Ferret 配置目录，再用 certutil 安装到用户受信任根 CA。
         """
+        from ferret.core.settings import get_certs_dir
 
-        cert_dir = os.path.expanduser(CONF_DIR)
-        cert_path = os.path.join(cert_dir, "mitmproxy-ca-cert.pem")
-        if not os.path.exists(cert_path):
-            # 证书不存在 -> 用 mitmproxy 自带 API 生成
-            # from_store 在证书缺失时会自动创建并写入所有证书文件
-            certs.CertStore.from_store(cert_dir, CONF_BASENAME, KEY_SIZE)
+        cert_dir = get_certs_dir()
+        cert_path = cert_dir / f"{APP_NAME}-ca-cert.pem"
+        if not cert_path.exists():
+            certs.CertStore.from_store(str(cert_dir), APP_NAME, KEY_SIZE)
 
-        # 安装到当前用户受信任根 CA（需管理员权限）
         subprocess.run(
-            ["certutil", "-addstore", "-user", "Root", cert_path],
+            ["certutil", "-addstore", "-user", "Root", str(cert_path)],
             capture_output=True,
             text=True,
             check=True,

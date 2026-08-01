@@ -45,7 +45,13 @@ class CaptureWorker(QThread):
 
     async def _start_proxy(self):
         """真正的异步启动逻辑"""
-        opts = Options(listen_host="127.0.0.1", listen_port=self.port)
+        from ferret.core.settings import get_certs_dir
+
+        opts = Options(
+            listen_host="127.0.0.1",
+            listen_port=self.port,
+            confdir=str(get_certs_dir()),
+        )
         # persistent_view 在 controller 中始终被创建，此处收窄为非空以通过类型检查
         if self.persistent_view is not None:
             view: View = self.persistent_view

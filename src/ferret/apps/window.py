@@ -34,7 +34,7 @@ class MainWindow(FluentWindow):
         self.__init_window()
 
     def __init_window(self):
-        self.setWindowTitle("Ferret")
+        self.setWindowTitle(APP_NAME)
         self.setWindowIcon(QIcon(":/icon"))
         self.setObjectName("Main")
         self.resize(960, 780)
