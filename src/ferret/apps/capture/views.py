@@ -1891,9 +1891,9 @@ class PacketExportMenu(RoundMenu):
             return
 
         if kind == "curl":
-            # curl 由 FlowView 预生成在 row_data 中
             text = self.context_menu.row_data.get("curl_command") or ""
             label = "cURL"
+            
         else:
             text = self.controller.get_httpie_command(flow_id)
             label = "HTTPie"

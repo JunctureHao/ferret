@@ -295,11 +295,6 @@ class CaptureController(QObject):
             self.captureStateChanged.emit(True)
             return True
 
-    def cleanup(self):
-        """清理资源（应用退出时调用）"""
-        if self.is_capturing:
-            self.stop_capture()
-
 
 class CertBadgeController(QObject):
     status_changed = Signal(bool)
