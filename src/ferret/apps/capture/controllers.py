@@ -12,7 +12,8 @@ from ferret.apps.capture.services import (
     ReplayHandler,
     UiBridgeAddon,
     View,
-    _HTTPOnlyFilter,
+    compile_filter,
+    parse_filter,
 )
 from ferret.utils.proxy_manager import SystemProxyManager
 
@@ -93,7 +94,11 @@ class CaptureController(QObject):
         self._current_port = 8080
         # 持久化 View：跨 toggle 保留数据（同时作为表格模型的存储/排序/过滤后端）
         self._persistent_view = View()
-        self._persistent_view.set_filter(_HTTPOnlyFilter())
+        # 基底过滤：只展示 HTTP 流量（排除 TCP/UDP/DNS）。表格模型只渲染 HTTPFlow
+        # 属性，非 HTTP 流无 .request 会触发 AttributeError（见 models.PacketTableModel）。
+        # 即使 _HTTPOnlyFilter 类已移除，这里仍用等价的 flowfilter "~http" 字符串保持
+        # 同一语义；GUI 搜索表达式也以 ~http 为基底（见 build_filter_expression）。
+        self._persistent_view.set_filter(parse_filter("~http"))
 
         # 流量事件改由 UiBridgeAddon（真正的 mitmproxy addon）在钩子里
         # 直接 emit 本 controller 的 4 个信号，不再直接连 View 的 SyncSignal。
@@ -175,6 +180,36 @@ class CaptureController(QObject):
             if isinstance(flow, HTTPFlow):
                 return flow
         return None
+
+    def total_count(self) -> int:
+        """已抓取的全部 HTTP 流量数（不受 GUI 搜索过滤影响）。
+
+        用 ``View._store``（全量，含 TCP/UDP/DNS）里 **HTTPFlow 的数量** 作为
+        「总数」分母。``_store`` 不受 ``View.set_filter``（GUI 搜索）影响，所以
+        打开搜索时分母保持不变；而分子（表格可见行 = ``view._view`` 长度）会随
+        搜索缩小，从而正确显示「匹配数 / 总HTTP数」（如 3/16）。
+
+        非 HTTP 流量不计入分母——ferret 表格只展示 HTTP，它们不是用户关心的「总数」。
+        """
+        view = self.view
+        if view is None:
+            return 0
+        return sum(1 for f in view._store.values() if isinstance(f, HTTPFlow))
+
+    def apply_filter(self, conditions: list[dict] | None = None) -> None:
+        """把 GUI 搜索条件编译为 flowfilter 表达式并应用到 View。
+
+        过滤只影响显示（View._view 可见列表），不清除 _store 中的任何流量——
+        清空搜索 / 切换条件后，被隐藏的 flow 仍完整保留，符合「抓全部、显示过滤」语义。
+
+        :param conditions: MultiFilterManager.get_conditions() 返回的条件列表，
+                           为空 / None 时仅保留基底 ~http（显示全部 HTTP 流量）。
+        """
+        view = self.view
+        if view is None:
+            return
+
+        view.set_filter(compile_filter(conditions))
 
     def get_httpie_command(self, flow_id: str) -> str:
         """获取 HTTPie 命令（字符串）"""

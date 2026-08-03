@@ -53,19 +53,99 @@ from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.view import View
 from mitmproxy.flow import Flow
+from mitmproxy.flowfilter import parse as parse_filter
 from mitmproxy.http import HTTPFlow, Request, Response
 from mitmproxy.master import Master
 from mitmproxy.net.http.http1.assemble import assemble_request, assemble_response
 from mitmproxy.options import KEY_SIZE, Options
 
+# ─────────────────────────────────────────────────────────────
+# GUI 搜索条件 → mitmproxy flowfilter 表达式
+# 把多行 FilterRow 的 {field, logic, value} 翻译成 flowfilter DSL，
+# 并与基底 ~http 用 & 组合，整条交给 View.set_filter 做「显示过滤」
+# （View._store 保留全部流量，set_filter 只控制 _view 可见列表，无清除效果）。
+# ─────────────────────────────────────────────────────────────
 
-class _HTTPOnlyFilter:
-    """满足 flowfilter.TFilter 协议（需要 pattern 属性）的 HTTP 流量过滤器。"""
+# GUI 字段 → flowfilter 运算符
+_FIELD_TO_OP: dict[str, str] = {
+    "全部": "u",  # 裸 ~u 等价于对 URL 正则；多行 AND 时也能覆盖大部分场景
+    "URL": "u",
+    "Method": "m",
+    "Header": "h",
+    "Body": "b",
+}
 
-    pattern = "~http"
 
-    def __call__(self, f: Flow) -> bool:
-        return isinstance(f, HTTPFlow)
+def _escape_regex(text: str) -> str:
+    """转义正则特殊字符，使普通包含/等于匹配按字面量处理。
+
+    仅用于「包含 / 等于 / 不包含」模式；「正则表达式」模式不做转义。
+    """
+    import re
+
+    return re.escape(text)
+
+
+def _quote_value(value: str) -> str:
+    """按 flowfilter 语法给值加引号（含空格/引号时必需）。"""
+    if not value or (" " in value) or ('"' in value) or ("'" in value):
+        escaped = value.replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
+def _condition_to_expr(cond: dict) -> str | None:
+    """把单个 GUI 条件翻译成 flowfilter 原子表达式，无有效值返回 None。"""
+    field = cond.get("field", "全部")
+    logic = cond.get("logic", "包含")
+    value = (cond.get("value") or "").strip()
+    if not value:
+        return None
+
+    op = _FIELD_TO_OP.get(field, "u")
+
+    if logic == "正则表达式":
+        rex = value
+    elif logic == "等于":
+        # 整串精确匹配：用 ^...$ 锚定
+        rex = f"^{_escape_regex(value)}$"
+    else:  # 包含 / 不包含
+        rex = _escape_regex(value)
+
+    atom = f"~{op} {_quote_value(rex)}"
+    if logic == "不包含":
+        return f"!{atom}"
+    return atom
+
+
+def build_filter_expression(conditions: list[dict] | None) -> str:
+    """把 GUI 多条件合并为 flowfilter 表达式。
+
+    - conditions 为空 / None → 仅返回基底 ``~http``（显示全部 HTTP 流量）。
+    - 多条件之间以 ``&`` 连接（AND 语义，与原 GUI 多行行为一致）。
+    - 每个条件与基底 ``~http`` 同样以 ``&`` 组合，保证只显示 HTTP 流。
+
+    返回的字符串可直接交给 ``mitmproxy.flowfilter.parse``。
+    """
+    atoms: list[str] = ["~http"]
+    if conditions:
+        for cond in conditions:
+            expr = _condition_to_expr(cond)
+            if expr:
+                atoms.append(expr)
+    return " & ".join(atoms)
+
+
+def compile_filter(conditions: list[dict] | None):
+    """把 GUI 条件编译为 mitmproxy flowfilter 对象（TFilter）。
+
+    集中在此处调用 ``parse_filter``，保持「单一 mitmproxy 导入出口」约定，
+    并让 ``parse_filter`` / ``match_filter`` 的导入在模块内被真实使用。
+    表达式非法（如正则语法错误）时抛出 ``ValueError``，由调用方决定回退策略。
+
+    :returns: 可直接 ``__call__(flow)`` 的过滤器；空条件返回 ``~http`` 过滤器。
+    """
+    return parse_filter(build_filter_expression(conditions))
 
 
 def _safe_content(message) -> bytes:
@@ -120,8 +200,6 @@ class CaptureMaster(Master):
         # View 默认会接收 TCP/UDP/DNS/HTTP 等所有 flow，
         # 本项目只展示 HTTP/HTTPS 流量，所以过滤只保留 HTTPFlow。
         # 只有在创建新 View 时才设置过滤器
-        if view is None:
-            self.view.set_filter(_HTTPOnlyFilter())
 
         self.addons.add(
             Core(),
@@ -135,18 +213,20 @@ class CaptureMaster(Master):
 
 
 class UiBridgeAddon:
-    """把 mitmproxy 事件钩子桥接给 Qt 信号（UI 作为真正的 addon）。
+    """把 mitmproxy View 的「视图信号」桥接给 Qt 信号（UI 作为真正的 addon）。
 
     设计：
-    * 本类是一个标准的 mitmproxy addon——只要实现了 ``request`` / ``response``
-      / ``error`` 这类事件钩子方法，被 ``master.addons.add(...)`` 注册后，
-      mitmproxy 事件循环会在对应时机自动回调，无需依赖内置 ``View`` 的
-      ``SyncSignal``。这让我们能直接拿到原生 ``HTTPFlow`` 对象，并接入
-      mitmproxy 的 addon 生态（``mitmproxy.ctx``、options 等）。
-    * 钩子里**只发射 flow 引用（不转 dict、不做重解析）**，重活在 UI 真正
-      需要时才发生，避免阻塞代理事件循环、拖慢吞吐。
-    * 移除/刷新没有对应的普通 addon 钩子，继续由 ``View`` 的 ``SyncSignal``
-      转发，保持与表格模型的存储/排序/过滤一致。
+    * 本类注册为 mitmproxy addon（被 ``master.addons.add(...)`` 持有强引用），
+      但**不再用 ``request`` / ``response`` / ``error`` 这类裸事件钩子**驱动表格，
+      而是转发 ``View`` 的 ``sig_view_*`` 信号。
+    * ``View`` 的视图信号是「过滤感知」的：只有命中当前 ``set_filter`` 的 flow
+      才会进 ``_view`` 并触发 ``sig_view_add`` / ``sig_view_update``；移除/刷新
+      分别走 ``sig_view_remove`` / ``sig_view_refresh``。这样表格只收到**可见**
+      flow，搜索/过滤完全由 ``View.set_filter(flowfilter 表达式)`` 承担。
+    * ``View._store`` 始终保留**全部**流量，set_filter 只改 ``_view`` 可见列表，
+      因此切换/清空搜索条件都不会清除已抓取数据（「抓全部、显示过滤」语义）。
+    * 桥接里**只发射 flow 引用（不转 dict、不做重解析）**，重活（详情解析）在 UI
+      真正打开某行时才发生，避免阻塞代理事件循环、拖慢吞吐。
 
     ``bridge`` 需提供 4 个 Qt ``Signal``：``flow_added`` / ``flow_updated`` /
     ``flow_removed``(object, int) / ``view_refreshed``，通常由
@@ -156,28 +236,26 @@ class UiBridgeAddon:
     def __init__(self, view: View, bridge: Any) -> None:
         self.view = view
         self.bridge = bridge
-        # 移除/刷新：mitmproxy 无对应 addon 钩子，转发 View 的信号
+        # 关键：转发 View 的「视图信号」而非裸 addon 钩子。
+        # View 的 sig_view_* 是「过滤感知」的——只有命中当前 filter（set_filter）
+        # 的 flow 才会进 _view 并触发这些信号。这样表格只收到可见 flow，
+        # 搜索过滤完全由 View.set_filter 承担，_store 始终保留全部流量（无清除效果）。
+        # 信号定义见 mitmproxy/addons/view.py：
+        #   sig_view_add    / sig_view_update / sig_view_remove / sig_view_refresh
+        view.sig_view_add.connect(self._on_view_add)
+        view.sig_view_update.connect(self._on_view_update)
         view.sig_view_remove.connect(self._on_view_remove)
         view.sig_view_refresh.connect(self._on_view_refresh)
 
     # ------------------------------------------------------------------
-    # mitmproxy 事件钩子（鸭子类型，方法名即事件名）
+    # View 视图信号转发（过滤感知，表格只收到可见 flow）
     # ------------------------------------------------------------------
-    def request(self, flow: HTTPFlow) -> None:
-        """请求已发出（尚无响应），先让表格出现一行。"""
+    def _on_view_add(self, flow: Flow) -> None:
         self.bridge.flow_added.emit(flow)
 
-    def response(self, flow: HTTPFlow) -> None:
-        """响应体已完整接收，更新该行（对应 complete 状态）。"""
+    def _on_view_update(self, flow: Flow) -> None:
         self.bridge.flow_updated.emit(flow)
 
-    def error(self, flow: HTTPFlow) -> None:
-        """发生错误（如连接失败），更新该行。"""
-        self.bridge.flow_updated.emit(flow)
-
-    # ------------------------------------------------------------------
-    # View 信号转发（移除/刷新）
-    # ------------------------------------------------------------------
     def _on_view_remove(self, flow: Flow, index: int) -> None:
         self.bridge.flow_removed.emit(flow, index)
 
@@ -376,8 +454,6 @@ class Cert:
             )
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
-
-        print(out.stdout)
         return APP_NAME in out.stdout
 
     def install(self):

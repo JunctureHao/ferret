@@ -158,9 +158,13 @@ class CapturesInterface(QWidget):
 
     @Slot()
     def __on_search_changed(self):
-        """搜索条件变更时更新过滤"""
+        """搜索条件变更时更新过滤。
+
+        把 GUI 条件交给 Controller，由 View.set_filter(flowfilter 表达式) 统一做
+        「显示过滤」——_store 保留全部流量，仅 _view 可见列表变化，无清除效果。
+        """
         conditions = self.toolbar.search_panel.get_conditions()
-        self.content.table.proxy_model.set_multi_search(conditions)
+        self.controller.apply_filter(conditions)
 
     @Slot()
     def __show_proxy_port_dialog(self):
@@ -691,7 +695,9 @@ class CapturesDataTable(TableView):
 
     def __emit_stats_updated(self):
         """发出统计更新信号"""
-        total = self.source_model.rowCount()
+        # total = 全部抓取流量（不受搜索过滤影响，来自 View._store）
+        # shown = 当前可见行（已按 View.set_filter 过滤）
+        total = self.controller.total_count() if self.controller else 0
         shown = self.proxy_model.rowCount()
         selected = len(self.selectionModel().selectedRows())
         self.stats_updated.emit(total, shown, selected)

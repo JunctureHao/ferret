@@ -1,4 +1,3 @@
-import zlib
 from typing import Any
 
 from PySide6.QtCore import (
@@ -72,6 +71,14 @@ class PacketTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             if column_name == "ID":
                 return row + 1
+            # 非 HTTP 流（TCPFlow/UDPFlow/DNSFlow）没有 .request，统一降级展示，
+            # 避免 AttributeError 在 Qt 重绘时反复抛出（见 services._HTTPOnlyFilter）。
+            if not isinstance(flow, HTTPFlow):
+                if column_name == "Method":
+                    return type(flow).__name__.replace("Flow", "").upper()
+                if column_name in ("URL", "Status Code", "Duration"):
+                    return "—"
+                return ""
             if column_name == "Method":
                 return flow.request.method
             if column_name == "URL":
@@ -169,257 +176,20 @@ class PacketTableModel(QAbstractTableModel):
 
 
 class PacketProxyModel(QSortFilterProxyModel):
+    """排序代理（透明过滤）。
+
+    搜索/协议/状态码/内容类型等过滤已统一下沉到 mitmproxy 的 ``View.set_filter``
+    （见 ``CaptureController.apply_filter``），由 flowfilter 表达式表达。因此本代理
+    **不再做任何行级过滤**，只负责表格排序。这样：
+    * 过滤不触发 FlowView.to_dict() 的详情解析（性能）；
+    * 过滤只影响 View 可见列表（_view），_store 保留全部流量（无清除效果）。
+    """
+
     def __init__(self, parent: QObject):
         super().__init__(parent)
-        # 过滤器状态
-        self._protocol_filter: set[str] = set()  # 空 = 全部
-        self._status_group: set[str] = set()  # 空 = 全部
-        self._content_type_filter: set[str] = set()  # 空 = 全部
-        self._search_text: str = ""
-        self._search_field: str = "全部"  # 全部/URL/Method/Host
-        self._search_mode: str = "包含"  # 包含/等于/不包含
-        # 多条件搜索
-        self._multi_conditions: list[dict] = []
 
-    # ── 设置过滤器 ──
-    def set_protocol_filter(self, protocols: set[str]):
-        self._protocol_filter = protocols
-        self.invalidateFilter()
-
-    def set_status_group(self, groups: set[str]):
-        self._status_group = groups
-        self.invalidateFilter()
-
-    def set_content_type_filter(self, types_: set[str]):
-        self._content_type_filter = types_
-        self.invalidateFilter()
-
-    def set_search(self, text: str, field: str = "全部", mode: str = "包含"):
-        self._search_text = text
-        self._search_field = field
-        self._search_mode = mode
-        self.invalidateFilter()
-
-    def set_multi_search(self, conditions: list[dict]):
-        """设置多条件搜索，conditions 格式: [{"field": "URL", "logic": "包含", "value": "api"}, ...]"""
-        self._multi_conditions = conditions
-        self.invalidateFilter()
-
-    def _get_field_text(self, data: dict, field: str) -> str:
-        """根据字段名获取搜索文本"""
-        if field == "全部":
-            values = [
-                str(data.get("URL", "")),
-                str(data.get("Method", "")),
-                str(data.get("Host", "")),
-                str(data.get("Status Code", "")),
-                str(data.get("Response Content-Type", "")),
-            ]
-            # 也搜索 Header 和 Body
-            req_headers = data.get("Request Headers", {})
-            res_headers = data.get("Response Headers", {})
-            if isinstance(req_headers, dict):
-                values.extend([str(v) for v in req_headers.values()])
-            if isinstance(res_headers, dict):
-                values.extend([str(v) for v in res_headers.values()])
-            req_body = data.get("Request Body Text")
-            res_body = data.get("Response Body Text")
-            if req_body is not None:
-                values.append(str(req_body))
-            elif isinstance(data.get("Request Body"), bytes):
-                # errors="replace" 保证 decode 不会抛异常
-                values.append(data["Request Body"].decode("utf-8", errors="replace"))
-            if res_body is not None:
-                values.append(str(res_body))
-            elif isinstance(data.get("Response Body"), bytes):
-                values.append(data["Response Body"].decode("utf-8", errors="replace"))
-            return " ".join(values).lower()
-        elif field == "URL":
-            return str(data.get("URL", "")).lower()
-        elif field == "Method":
-            return str(data.get("Method", "")).lower()
-        elif field == "Header":
-            req_headers = data.get("Request Headers", {})
-            res_headers = data.get("Response Headers", {})
-            parts = []
-            if isinstance(req_headers, dict):
-                for k, v in req_headers.items():
-                    parts.append(f"{k}: {v}")
-            if isinstance(res_headers, dict):
-                for k, v in res_headers.items():
-                    parts.append(f"{k}: {v}")
-            return " ".join(parts).lower()
-        elif field == "Body":
-            req_body = data.get("Request Body Text")
-            res_body = data.get("Response Body Text")
-            parts = []
-            if req_body is not None:
-                parts.append(str(req_body))
-            elif isinstance(data.get("Request Body"), bytes):
-                parts.append(data["Request Body"].decode("utf-8", errors="replace"))
-            if res_body is not None:
-                parts.append(str(res_body))
-            elif isinstance(data.get("Response Body"), bytes):
-                parts.append(data["Response Body"].decode("utf-8", errors="replace"))
-            return " ".join(parts).lower()
-        elif field == "Host":
-            return str(data.get("Host", "")).lower()
-        elif field == "Status Code":
-            return str(data.get("Status Code", "")).lower()
-        return ""
-
-    def _check_single_condition(self, data: dict, condition: dict) -> bool:
-        """检查单个过滤条件是否匹配"""
-        field = condition.get("field", "全部")
-        logic = condition.get("logic", "包含")
-        value = condition.get("value", "").lower()
-        if not value:
-            return True
-
-        text = self._get_field_text(data, field)
-
-        if logic == "包含":
-            return value in text
-        elif logic == "不包含":
-            return value not in text
-        elif logic == "等于":
-            return value == text
-        elif logic == "正则表达式":
-            import re
-
-            try:
-                return bool(re.search(value, text))
-            except re.error:
-                return False
-        return True
-
-    # ── 核心过滤逻辑 ──
     def filterAcceptsRow(
         self, source_row: int, source_parent: QModelIndex | QPersistentModelIndex
     ) -> bool:
-        model = self.sourceModel()
-        if not isinstance(model, PacketTableModel):
-            return True
-        if source_row >= len(model._rows):
-            return False  # 超出范围的行不显示
-
-        flow = model._rows[source_row]
-        try:
-            data = FlowView(flow).to_dict()
-        except (ValueError, zlib.error, KeyError, AttributeError):
-            return True
-        if not data:
-            return True
-
-        # 5. 多条件搜索（AND 逻辑）- 放在最前面快速排除
-        if self._multi_conditions:
-            for cond in self._multi_conditions:
-                if not self._check_single_condition(data, cond):
-                    return False
-        # 兼容旧的单条件搜索
-        elif self._search_text and not self._check_single_condition(
-            data,
-            {
-                "field": self._search_field,
-                "logic": self._search_mode,
-                "value": self._search_text,
-            },
-        ):
-            return False
-
-        # 1. 协议过滤
-        if self._protocol_filter:
-            url = data.get("URL", "")
-            scheme = data.get("Scheme", "").lower()
-            matched = False
-            for p in self._protocol_filter:
-                if (
-                    p == "HTTP"
-                    and scheme == "http"
-                    or p == "HTTPS"
-                    and scheme == "https"
-                    or p == "WebSocket"
-                    and "websocket" in url.lower()
-                    or p == "HTTP1"
-                    and "1.1" in data.get("HTTP Version", "")
-                    or p == "HTTP2"
-                    and "2" in data.get("HTTP Version", "")
-                    or p == "SSE"
-                    and (
-                        "text/event-stream" in data.get("Response Content-Type", "")
-                        or "text/event-stream" in data.get("Request Content-Type", "")
-                    )
-                    or p == "iOS"
-                    and data.get("App Name", "")
-                ):
-                    matched = True
-            if not matched:
-                return False
-
-        # 2. 内容类型过滤
-        if self._content_type_filter:
-            resp_ct = data.get("Response Content-Type", "") or ""
-            ct = resp_ct.lower()
-            matched = False
-            for t in self._content_type_filter:
-                if (
-                    t == "JSON"
-                    and "json" in ct
-                    or t == "XML"
-                    and "xml" in ct
-                    or t == "文本"
-                    and ("text/" in ct or "plain" in ct)
-                    or t == "HTML"
-                    and "html" in ct
-                    or t == "JS"
-                    and ("javascript" in ct or "/js" in ct)
-                    or t == "图片"
-                    and ("image/" in ct)
-                    or t == "媒体"
-                    and ("video/" in ct or "audio/" in ct)
-                    or t == "二进制"
-                    and ("octet-stream" in ct or "pdf" in ct or "zip" in ct)
-                ):
-                    matched = True
-            if not matched:
-                return False
-
-        # 3. 状态码分组过滤
-        if self._status_group:
-            code = data.get("Status Code", "")
-            try:
-                code_int = int(code)
-            except (ValueError, TypeError):
-                return False
-            matched = False
-            for g in self._status_group:
-                if (
-                    g == "1xx"
-                    and 100 <= code_int < 200
-                    or g == "2xx"
-                    and 200 <= code_int < 300
-                    or g == "3xx"
-                    and 300 <= code_int < 400
-                    or g == "4xx"
-                    and 400 <= code_int < 500
-                    or g == "5xx"
-                    and 500 <= code_int < 600
-                ):
-                    matched = True
-            if not matched:
-                return False
-
-        # 4. 搜索文本过滤（单条件，向后兼容）
-        if self._search_text:
-            search_value = self._search_text.lower()
-            text = self._get_field_text(data, self._search_field)
-            if self._search_mode == "包含":
-                if search_value not in text:
-                    return False
-            elif self._search_mode == "不包含":
-                if search_value in text:
-                    return False
-            elif self._search_mode == "等于" and search_value != text:
-                return False
-
+        # 透明：保留源模型所有行（过滤已由 View.set_filter 完成）
         return True
