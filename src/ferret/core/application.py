@@ -7,8 +7,10 @@
 参考常见桌面应用的 Application / Bootstrap 模式。
 """
 
+import io
 import os
 import sys
+from contextlib import redirect_stdout
 from typing import Any
 
 from PySide6.QtCore import (
@@ -21,10 +23,16 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import FluentTranslator, qconfig
+
+# ── 屏蔽 qfluentwidgets 首次导入时的 Pro 广告 ──
+# 1.11.x 在 common/config.py 模块级无条件 print "QFluentWidgets Pro" 广告且无官方开关。
+# 首次 import qfluentwidgets 期间用 redirect_stdout 吞掉该输出，导入完成即恢复正常输出。
+with redirect_stdout(io.StringIO()):
+    from qfluentwidgets import FluentTranslator, qconfig
 
 from ferret.apps.window import MainWindow
 from ferret.core import resources_rc  # noqa: F401  注册资源（图标/i18n/qm）
+from ferret.core.log import init_logging
 from ferret.core.settings import (
     APP_NAME,
     CONFIG,
@@ -49,6 +57,11 @@ class Application:
     # ------------------------------------------------------------------ #
     # 启动前准备（不依赖 QApplication 实例）
     # ------------------------------------------------------------------ #
+    def _init_logging(self):
+        """初始化全局日志设施（须在 QApplication 创建前、任何日志产生前调用）。"""
+
+        init_logging()
+
     def _init_app_info(self):
         """设置应用级元信息。"""
         QCoreApplication.setApplicationName(APP_NAME)
@@ -108,9 +121,6 @@ class Application:
         self.app = app
         return app
 
-    # ------------------------------------------------------------------ #
-    # 国际化
-    # ------------------------------------------------------------------ #
     def _init_i18n(self):
         """加载 qfluentwidgets 翻译与自定义业务翻译。翻译器作为实例属性持有强引用，确保与同生命周期
         避免被 GC 回收导致翻译失效。"""
@@ -133,23 +143,18 @@ class Application:
             self.app.installTranslator(setting_translator)
             self.translators.append(setting_translator)
 
-    # ------------------------------------------------------------------ #
-    # 主窗口
-    # ------------------------------------------------------------------ #
     def _create_window(self):
         """创建并显示主窗口。"""
         self.window = MainWindow()
         self.window.show()
 
-    # ------------------------------------------------------------------ #
-    # 入口
-    # ------------------------------------------------------------------ #
     def run(self):
         """按序执行所有初始化步骤并进入事件循环。
 
         :returns: 无；调用 sys.exit 退出进程
         """
         self._init_app_info()
+        self._init_logging()
         self._init_config()
         self._init_dpi()
         app = self._create_qapp()

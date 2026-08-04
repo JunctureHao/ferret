@@ -15,7 +15,7 @@ _STUBBED_ADDONS = {
     # onboarding.py 里有 `from mitmproxy.addons.onboardingapp import app`，桩需提供 app 属性
     "mitmproxy.addons.onboardingapp": ("app",),
     "mitmproxy.addons.proxyauth": (),
-    # maplocal.py 顶层 `from werkzeug.security import safe_join`，werkzeug 被排除需整枝屏蔽
+    # maplocal.py 顶层 `from werkzeug.security import safe_jMitmproxy 异步循环已结束oin`，werkzeug 被排除需整枝屏蔽
     "mitmproxy.addons.maplocal": (),
     "mitmproxy.addons.cut": (),
     # export.py 顶层 import pyperclip；FlowExporter 已本地化（见本文件下方），不再依赖它
@@ -36,7 +36,7 @@ for _name, _attrs in _STUBBED_ADDONS.items():
 # 触发被排除模块（cut/export/...）而崩溃。其它模块一律从本文件引入这些符号，
 # 不要直接 import mitmproxy。
 # ─────────────────────────────────────────────────────────────
-from mitmproxy import certs
+from mitmproxy import certs, connection
 from mitmproxy.addons.clientplayback import ClientPlayback, ReplayHandler  # noqa: F401
 from mitmproxy.addons.core import Core
 from mitmproxy.addons.dns_resolver import DnsResolver
@@ -48,8 +48,11 @@ from mitmproxy.flow import Flow
 from mitmproxy.flowfilter import parse as parse_filter
 from mitmproxy.http import HTTPFlow, Request, Response
 from mitmproxy.master import Master
+from mitmproxy.net.http import status_codes
 from mitmproxy.net.http.http1.assemble import assemble_request, assemble_response
 from mitmproxy.options import KEY_SIZE, Options
+from mitmproxy.proxy import server_hooks
+from mitmproxy.utils import human
 
 # ─────────────────────────────────────────────────────────────
 # GUI 搜索条件 → mitmproxy flowfilter 表达式
@@ -200,47 +203,19 @@ class CaptureMaster(Master):
             DnsResolver(),
             self.view,
             ClientPlayback(),
+            LogAddon(),
         )
 
 
 class UiBridgeAddon:
-    """把 mitmproxy View 的「视图信号」桥接给 Qt 信号（UI 作为真正的 addon）。
-
-    设计：
-    * 本类注册为 mitmproxy addon（被 ``master.addons.add(...)`` 持有强引用），
-      但**不再用 ``request`` / ``response`` / ``error`` 这类裸事件钩子**驱动表格，
-      而是转发 ``View`` 的 ``sig_view_*`` 信号。
-    * ``View`` 的视图信号是「过滤感知」的：只有命中当前 ``set_filter`` 的 flow
-      才会进 ``_view`` 并触发 ``sig_view_add`` / ``sig_view_update``；移除/刷新
-      分别走 ``sig_view_remove`` / ``sig_view_refresh``。这样表格只收到**可见**
-      flow，搜索/过滤完全由 ``View.set_filter(flowfilter 表达式)`` 承担。
-    * ``View._store`` 始终保留**全部**流量，set_filter 只改 ``_view`` 可见列表，
-      因此切换/清空搜索条件都不会清除已抓取数据（「抓全部、显示过滤」语义）。
-    * 桥接里**只发射 flow 引用（不转 dict、不做重解析）**，重活（详情解析）在 UI
-      真正打开某行时才发生，避免阻塞代理事件循环、拖慢吞吐。
-
-    ``bridge`` 需提供 4 个 Qt ``Signal``：``flow_added`` / ``flow_updated`` /
-    ``flow_removed``(object, int) / ``view_refreshed``，通常由
-    ``CaptureController`` 充当。
-    """
-
     def __init__(self, view: View, bridge: Any) -> None:
         self.view = view
         self.bridge = bridge
-        # 关键：转发 View 的「视图信号」而非裸 addon 钩子。
-        # View 的 sig_view_* 是「过滤感知」的——只有命中当前 filter（set_filter）
-        # 的 flow 才会进 _view 并触发这些信号。这样表格只收到可见 flow，
-        # 搜索过滤完全由 View.set_filter 承担，_store 始终保留全部流量（无清除效果）。
-        # 信号定义见 mitmproxy/addons/view.py：
-        #   sig_view_add    / sig_view_update / sig_view_remove / sig_view_refresh
         view.sig_view_add.connect(self._on_view_add)
         view.sig_view_update.connect(self._on_view_update)
         view.sig_view_remove.connect(self._on_view_remove)
         view.sig_view_refresh.connect(self._on_view_refresh)
 
-    # ------------------------------------------------------------------
-    # View 视图信号转发（过滤感知，表格只收到可见 flow）
-    # ------------------------------------------------------------------
     def _on_view_add(self, flow: Flow) -> None:
         self.bridge.flow_added.emit(flow)
 
@@ -254,11 +229,94 @@ class UiBridgeAddon:
         self.bridge.view_refreshed.emit()
 
 
-# ─────────────────────────────────────────────────────────────
-# 流量导出（本地化实现，替代原 mitmproxy.addons.export 依赖）
-# 逻辑忠实移植自 mitmproxy/addons/export.py，去掉了 ctx.options 依赖
-# （export_preserve_original_ip 选项需 Export addon 注册，ferret 未挂载）
-# ─────────────────────────────────────────────────────────────
+class LogAddon:
+    """完整链路日志处理器（模拟原生日志）"""
+
+    def __init__(self) -> None:
+        from ferret.core.log import get_logger
+
+        self._log = get_logger("mitmproxy")
+
+    def client_connected(self, client: connection.Client) -> None:
+        address = f"{client.peername[0]}:{client.peername[1]}"
+        self._log.info(f"[{address}] client connect")
+
+    def server_connected(self, data: server_hooks.ServerConnectionHookData):
+        client = data.client
+        server = data.server
+        client_address = f"{client.peername[0]}:{client.peername[1]}"
+        server_address = (
+            f"{server.address[0]}:{server.address[1]}" if server.address else "unknown"
+        )
+        ip_port = (
+            f"{server.peername[0]}:{server.peername[1]}"
+            if server.peername
+            else "unknown"
+        )
+        self._log.info(
+            f"[{client_address}] server connect {server_address} ({ip_port})"
+        )
+
+    def request(self, flow: HTTPFlow) -> None:
+        request = flow.request
+        if request is None:
+            return
+
+        conn = flow.client_conn
+        client_address = f"{conn.peername[0]}:{conn.peername[1]}"
+        method = request.method
+        pretty_url = request.pretty_url
+        http_version = request.http_version
+        self._log.info(
+            f"{client_address} {method} {pretty_url} {http_version}",
+            extra={"raw": True},
+        )
+
+    def response(self, flow: HTTPFlow) -> None:
+        response = flow.response
+        if response is None:
+            return
+
+        status = response.status_code
+        version = response.http_version
+        resonse = response.reason or status_codes.RESPONSES.get(status, "")
+        friendly_size = human.pretty_size(
+            len(response.content) if response.content else 0
+        )
+        self._log.info(
+            f"      << {version} {status} {resonse} {friendly_size}",
+            extra={"raw": True},
+        )
+
+    def error(self, flow: HTTPFlow) -> None:
+        """请求有始无终（连接中断/超时等）时的兜底输出"""
+        if flow.error is None:
+            return
+        self._log.info(
+            f"      << {flow.error.msg}",
+            extra={"raw": True},
+        )
+
+    def http_connect_error(self, flow: HTTPFlow) -> None:
+        """CONNECT 建连失败（上游不可达/被拒绝等）"""
+        request = flow.request
+        if request is None:
+            return
+
+        conn = flow.client_conn
+        client_address = f"{conn.peername[0]}:{conn.peername[1]}"
+        method = request.method
+        pretty_url = request.pretty_url
+        http_version = request.http_version
+        self._log.info(
+            f"{client_address} {method} {pretty_url} {http_version}",
+            extra={"raw": True},
+        )
+        msg = flow.error.msg if flow.error else "connection failed"
+        self._log.info(
+            f"      << {msg}",
+            extra={"raw": True},
+        )
 
 
 class FlowExporter:
@@ -466,45 +524,3 @@ class Cert:
             text=True,
             check=True,
         )
-
-
-# ─────────────────────────────────────────────────────────────
-# 自测：直接 `python services.py` 启动一个轻量代理并把流量全打印
-# 用法：python services.py [port]   然后浏览器/系统代理指向 127.0.0.1:port
-# 停止：Ctrl+C
-# ─────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    import sys
-
-    PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
-
-    class PrintAddon:
-        """只打印响应阶段，用于验证 CaptureMaster。"""
-
-        def response(self, flow: HTTPFlow):
-            if flow.response is None:
-                print(f"[response] (无响应) {flow.request.pretty_url}")
-                return
-            print(f"[response] {flow.response.status_code} {flow.request.pretty_url}")
-            print("  content-type:", flow.response.headers.get("content-type", ""))
-            if flow.response.content:
-                preview = flow.response.content[:500]
-                print("  body:", preview.decode("utf-8", errors="replace"))
-
-    async def _run():
-        opts = Options(listen_host="127.0.0.1", listen_port=PORT)
-        master = CaptureMaster(opts)
-        master.addons.add(PrintAddon())
-        print(f"CaptureMaster 已启动，监听 127.0.0.1:{PORT}")
-        print(f"把系统/浏览器代理设为 127.0.0.1:{PORT}，Ctrl+C 停止\n")
-        try:
-            await master.run()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            print("CaptureMaster 已停止")
-
-    try:
-        asyncio.run(_run())
-    except KeyboardInterrupt:
-        print("\n收到 Ctrl+C，退出")

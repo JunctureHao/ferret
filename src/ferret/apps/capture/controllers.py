@@ -15,7 +15,10 @@ from ferret.apps.capture.services import (
     compile_filter,
     parse_filter,
 )
+from ferret.core.log import get_logger
 from ferret.utils.proxy_manager import SystemProxyManager
+
+log = get_logger("mitmproxy")
 
 
 class CaptureWorker(QThread):
@@ -41,8 +44,8 @@ class CaptureWorker(QThread):
         """线程入口点"""
         try:
             asyncio.run(self._start_proxy())
-        except Exception as e:  # noqa: BLE001 - 线程入口兜底，代理内核任何异常仅记录不扩散
-            print(f"Mitmproxy 内核运行异常: {e}")
+        except Exception as e:  # noqa: BLE001
+            log.error("Mitmproxy 内核运行异常: %s", e)
 
     async def _start_proxy(self):
         """真正的异步启动逻辑"""
@@ -61,12 +64,13 @@ class CaptureWorker(QThread):
             # 放在 View 之后注册，保证 request 事件先落入 View 再触发桥接。
             if self.controller is not None:
                 self.master.addons.add(UiBridgeAddon(view, self.controller))
+                log.info("mitmproxy 线程已开启 (端口 %d)", self.port)
                 try:
                     await self.master.run()
                 except asyncio.CancelledError:
-                    print("Mitmproxy 任务已取消")
+                    log.info("Mitmproxy 任务已取消")
                 finally:
-                    print("Mitmproxy 异步循环已结束")
+                    log.info("Mitmproxy 线程已关闭")
 
     def stop(self):
         if self.master:

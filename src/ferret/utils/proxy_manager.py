@@ -45,7 +45,6 @@ class SystemProxyManager:
                     wininet = ctypes.windll.Wininet
                     wininet.InternetSetOptionW(0, 39, 0, 0)  # SETTINGS_CHANGED
                     wininet.InternetSetOptionW(0, 37, 0, 0)  # REFRESH
-                print(f"✅ Windows 代理已开启: {proxy_addr}")
                 return True
 
         elif platform == "darwin":
@@ -113,7 +112,6 @@ class SystemProxyManager:
                 with contextlib.suppress(OSError, AttributeError):
                     ctypes.windll.Wininet.InternetSetOptionW(0, 39, 0, 0)
                     ctypes.windll.Wininet.InternetSetOptionW(0, 37, 0, 0)
-                print("✅ Windows 代理已关闭")
                 return True
 
         elif platform == "darwin":
