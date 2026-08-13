@@ -4,6 +4,7 @@ import shlex
 import subprocess
 import sys
 import zlib
+from collections.abc import Iterable
 from types import ModuleType
 from typing import Any
 
@@ -36,12 +37,14 @@ for _name, _attrs in _STUBBED_ADDONS.items():
 # 触发被排除模块（cut/export/...）而崩溃。其它模块一律从本文件引入这些符号，
 # 不要直接 import mitmproxy。
 # ─────────────────────────────────────────────────────────────
-from mitmproxy import certs, connection
+from mitmproxy import certs, connection, io
 from mitmproxy.addons.clientplayback import ClientPlayback, ReplayHandler  # noqa: F401
 from mitmproxy.addons.core import Core
 from mitmproxy.addons.dns_resolver import DnsResolver
 from mitmproxy.addons.next_layer import NextLayer
 from mitmproxy.addons.proxyserver import Proxyserver
+
+# from mitmproxy.addons.save import Save
 from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.view import View
 from mitmproxy.flow import Flow
@@ -203,6 +206,7 @@ class CaptureMaster(Master):
             DnsResolver(),
             self.view,
             ClientPlayback(),
+            # Save(),
             LogAddon(),
         )
 
@@ -524,3 +528,18 @@ class Cert:
             text=True,
             check=True,
         )
+
+
+class SessionStore:
+    @staticmethod
+    def save_flows(flows: Iterable[Flow], path: str):
+        with open(path, "wb") as f:
+            writer = io.FlowWriter(f)
+            for flow in flows:
+                writer.add(flow)
+
+    @staticmethod
+    def load_flows(path: str) -> list[Flow]:
+        with open(path, "rb") as f:
+            reader = io.FlowReader(f)
+            return list(reader.stream())

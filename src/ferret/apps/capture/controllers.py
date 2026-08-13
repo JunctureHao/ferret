@@ -10,6 +10,7 @@ from ferret.apps.capture.services import (
     HTTPFlow,
     Options,
     ReplayHandler,
+    SessionStore,
     UiBridgeAddon,
     View,
     compile_filter,
@@ -215,6 +216,10 @@ class CaptureController(QObject):
 
         view.set_filter(compile_filter(conditions))
 
+    def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
+        """保存选中的流量到文件"""
+        return SessionStore.save_flows(flows, path)
+
     def get_httpie_command(self, flow_id: str) -> str:
         """获取 HTTPie 命令（字符串）"""
         flow_obj = self.get_flow(flow_id)
@@ -298,6 +303,14 @@ class CaptureController(QObject):
             self.start_capture()
             self.captureStateChanged.emit(True)
             return True
+
+    def import_flows(self, path: str):
+        view = self.view
+        if view is None:
+            return
+        flows = SessionStore.load_flows(path)
+        http_flows = [f for f in flows if isinstance(f, HTTPFlow)]
+        view.add(http_flows)
 
 
 class CertBadgeController(QObject):

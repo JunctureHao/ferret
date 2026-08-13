@@ -1,3 +1,5 @@
+import re
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
 
@@ -18,6 +20,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QSizePolicy,
@@ -49,7 +52,7 @@ from qfluentwidgets import (
 
 from ferret.apps.capture.controllers import CaptureController, CertBadgeController
 from ferret.apps.capture.models import PacketProxyModel, PacketTableModel
-from ferret.apps.capture.services import Cert
+from ferret.apps.capture.services import Cert, HTTPFlow
 from ferret.apps.common.dialog import TextCopyDialog
 from ferret.apps.common.edit import ItemDualPanel, JsonDualPanel, ToolPlainTextEdit
 from ferret.apps.common.filter import MultiFilterManager
@@ -100,7 +103,7 @@ class CapturesInterface(QWidget):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.toolbar = CapturesToolBar(self)
+        self.toolbar = CapturesToolBar(self, self.controller)
         self.content = CapturesContentArea(self, self.controller)
 
     def __init_layout(self):
@@ -190,8 +193,8 @@ class CapturesContentArea(OrientationSplitter):
 
     def __init__(
         self,
-        parent: "CapturesInterface|None" = None,
-        controller=None,
+        parent: CapturesInterface,
+        controller: CaptureController,
     ):
         """初始化内容区域
 
@@ -261,12 +264,10 @@ class CapturesToolBar(QWidget):
     captureToggled = Signal(bool)
     conditionsChanged = Signal()  # 搜索面板条件变更（透传）
 
-    def __init__(self, parent: "CapturesInterface"):
-        """初始化工具栏
+    def __init__(self, parent: "CapturesInterface", controller: CaptureController):
 
-        :param parent: 父组件，通常是 CapturesInterface
-        """
         super().__init__(parent)
+        self.capture_controller = controller
         self.cert_controller = CertBadgeController(self)
 
         self.__init_widget()
@@ -293,6 +294,14 @@ class CapturesToolBar(QWidget):
         self.stats_badge.raise_()
 
         # 右侧：操作按钮
+        self.import_btn = TransparentToolButton(FluentIcon.IMAGE_EXPORT, self)
+        self.import_btn.setToolTip(self.tr("导入流量"))
+        self.import_btn.installEventFilter(
+            ToolTipFilter(self.import_btn, 1000, ToolTipPosition.TOP)
+        )
+        self.import_btn.setFixedSize(32, 32)
+        self.import_btn.setIconSize(QSize(20, 20))
+
         self.cert_btn = TransparentToolButton(FluentIcon.CERTIFICATE, self)
         self.cert_btn.setToolTip(self.tr("证书设置"))
         self.cert_btn.installEventFilter(
@@ -366,6 +375,7 @@ class CapturesToolBar(QWidget):
         btn_layout.setSpacing(4)
         btn_layout.addWidget(self.search_btn)
         btn_layout.addStretch(1)
+        btn_layout.addWidget(self.import_btn)
         btn_layout.addWidget(self.cert_btn)
         btn_layout.addWidget(self.proxy_setting_btn)
         btn_layout.addWidget(self.locate_selection_btn)
@@ -383,6 +393,16 @@ class CapturesToolBar(QWidget):
         self.search_panel.panelCloseRequested.connect(self.__on_search_panel_close)
         self.cert_btn.clicked.connect(self._on_cert_btn_click)
         self.cert_controller.status_changed.connect(self._on_cert_status)
+        self.import_btn.clicked.connect(self._on_import_btn_click)
+
+    @Slot()
+    def _on_import_btn_click(self):
+        """导入流量文件"""
+        controller = self.capture_controller
+        path, _ = QFileDialog.getOpenFileName(
+            self, self.tr("导入流量"), "", self.tr("Flow 文件 (*.flow)")
+        )
+        controller.import_flows(path)
 
     @Slot()
     def _on_cert_btn_click(self):
@@ -586,9 +606,7 @@ class CapturesDataTable(TableView):
     stats_updated = Signal(int, int, int)  # 统计更新信号：总条数、显示条数、选中条数
 
     def __init__(
-        self,
-        parent: "CapturesContentArea | None" = None,
-        controller=None,
+        self, parent: "CapturesContentArea | None", controller: CaptureController
     ):
         """初始化数据表格
 
@@ -653,6 +671,16 @@ class CapturesDataTable(TableView):
 
         self.doubleClicked.connect(self.__on_row_double_clicked)
 
+    def get_selected_flows(self) -> list[HTTPFlow]:
+        """获取当前选中的 flow 对象列表(单选/多选通用)"""
+        flows = []
+        for index in self.selectionModel().selectedRows():
+            source_index = self.proxy_model.mapToSource(index)
+            flow = self.source_model.get_flow(source_index.row())
+            if flow:
+                flows.append(flow)
+        return flows
+
     @Slot()
     def __on_selection_changed(self, selected):
         """选择变更时触发
@@ -684,7 +712,8 @@ class CapturesDataTable(TableView):
         source_index = self.proxy_model.mapToSource(index)
         row = source_index.row()
         row_data = self.source_model.get_row_data(row)  # ← 就来自这里
-        self.context_menu.update_context(row, row_data)
+        selected_flows = self.get_selected_flows()
+        self.context_menu.update_context(row, row_data, selected_flows)
         self.context_menu.exec(self.viewport().mapToGlobal(pos))
 
     @Slot()
@@ -1737,18 +1766,24 @@ class PacketContextMenu(RoundMenu):
 
     delete_requested = Signal(int)  # 删除请求信号
 
-    def __init__(self, parent: "CapturesDataTable", controller=None):
+    def __init__(self, parent: CapturesDataTable, controller: CaptureController):
         super().__init__(parent=parent)
         self.controller = controller  # 供导出子菜单调用控制层
         self.row_index = -1  # 初始化一个无效行号
         self.row_data = {}
         self.main_window = parent.window()
+        self.flows: list[HTTPFlow] = []
 
         self.__init_widget()
         self.__init_action()
         self.__connect_signal_to_slot()
 
-    def update_context(self, row_index: int, row_data: dict):
+    def update_context(
+        self,
+        row_index: int,
+        row_data: dict,
+        selected_flows: list[HTTPFlow],
+    ):
         """统一的数据更新入口
 
         Args:
@@ -1757,11 +1792,15 @@ class PacketContextMenu(RoundMenu):
         """
         self.row_index = row_index
         self.row_data = row_data
+        self.flows = selected_flows or []
 
     def __init_widget(self):
         """初始化界面组件"""
         self.client_replay_action = BaseAction(
             parent=self, icon=FluentIcon.SYNC, text=self.tr("重发")
+        )
+        self.save_flows_action = BaseAction(
+            parent=self, icon=FluentIcon.SAVE, text=self.tr("保存")
         )
         self.delete_action = BaseAction(
             parent=self,
@@ -1777,11 +1816,13 @@ class PacketContextMenu(RoundMenu):
         self.addMenu(self.view_menu)
         self.addAction(self.client_replay_action)
         self.addMenu(self.export_menu)
+        self.addAction(self.save_flows_action)
         self.addAction(self.delete_action)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
         self.client_replay_action.triggered.connect(self.__on_client_replay_triggered)
+        self.save_flows_action.triggered.connect(self.__on_save_flows_triggered)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
 
@@ -1790,6 +1831,27 @@ class PacketContextMenu(RoundMenu):
         """删除动作触发时"""
         if self.row_index != -1:
             self.delete_requested.emit(self.row_index)
+
+    @Slot()
+    def __on_save_flows_triggered(self):
+        """保存流动作触发时"""
+        if len(self.flows) == 1:
+            flow = self.flows[0]
+            host = flow.request.pretty_host or flow.request.host or "unknown"
+            method = flow.request.method or ""
+            name = f"{method}_{host}"
+        else:
+            ts_str = time.strftime(
+                "%Y%m%d_%H%M%S", time.localtime(self.flows[0].timestamp_created)
+            )
+            name = f"flows_{ts_str}_{len(self.flows)}flows"
+
+        name = re.sub(r'[\\/:*?"<>|]', "_", name)
+
+        path, _ = QFileDialog.getSaveFileName(
+            self.main_window, self.tr("保存流量"), name, self.tr("Flow 文件 (*.flow)")
+        )
+        self.controller.save_flows(self.flows, path)
 
     @Slot()
     def __show_url_window(self):
@@ -1893,7 +1955,7 @@ class PacketExportMenu(RoundMenu):
         if kind == "curl":
             text = self.context_menu.row_data.get("curl_command") or ""
             label = "cURL"
-            
+
         else:
             text = self.controller.get_httpie_command(flow_id)
             label = "HTTPie"
