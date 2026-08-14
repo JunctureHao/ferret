@@ -78,6 +78,13 @@ class Config(QConfig):
         serializer=LayoutSerializer(),
     )
 
+    auto_save_sessions = ConfigItem(
+        group="Session",
+        name="AutoSaveSessions",
+        default=True,
+        validator=BoolValidator(),
+    )
+
 
 def get_config_dir() -> Path:
     d = Path(

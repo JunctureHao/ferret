@@ -27,8 +27,11 @@ class BaseIcon(FluentIconBase, Enum):
 class BaseAction(Action):
     """继承action 监听了主题当变化时候重绘制action的icon"""
 
-    def __init__(self, icon, text, parent=None, **kwargs):
-        super().__init__(icon=icon, text=text, parent=parent, **kwargs)
+    def __init__(self, icon=None, text="", parent=None, **kwargs):
+        if icon is None:
+            super().__init__(text=text, parent=parent, **kwargs)
+        else:
+            super().__init__(icon=icon, text=text, parent=parent, **kwargs)
         self.fluentIcon = icon  # 记录原始的枚举对象
         # 监听主题变化
         qconfig.themeChanged.connect(self._updateIcon)

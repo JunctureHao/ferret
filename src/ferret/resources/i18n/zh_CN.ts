@@ -102,6 +102,32 @@
             <source>Configuration takes effect after restart</source>
             <translation type="unfinished">配置将在重启后生效</translation>
         </message>
+        <message>
+            <source>会话</source>
+            <translation>会话</translation>
+        </message>
+        <message>
+            <location filename="../../apps/settings/views.py" line="108"/>
+            <source>自动保存流量</source>
+            <translation>自动保存流量</translation>
+        </message>
+        <message>
+            <location filename="../../apps/settings/views.py" line="109"/>
+            <source>抓包时持续保存 HTTP 流量，停止抓包后生成会话</source>
+            <translation>抓包时持续保存 HTTP 流量，停止抓包后生成会话</translation>
+        </message>
+    </context>
+
+    <context>
+        <name>SessionController</name>
+        <message>
+            <source>自动保存会话已创建</source>
+            <translation>自动保存会话已创建</translation>
+        </message>
+        <message>
+            <source>自动保存</source>
+            <translation>自动保存</translation>
+        </message>
     </context>
     <context>
         <name>SystemTray</name>

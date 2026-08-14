@@ -14,8 +14,11 @@ from qfluentwidgets import (
     setTheme,
 )
 
+from ferret.apps.capture.recording import CaptureAutoSaveCoordinator
 from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.common.icon import BaseAction
+from ferret.apps.session.controllers import SessionController
+from ferret.apps.session.views import SessionsInterface
 from ferret.apps.settings.views import SettingsInterface
 from ferret.core.settings import APP_NAME, CONFIG
 
@@ -23,10 +26,20 @@ from ferret.core.settings import APP_NAME, CONFIG
 class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
+        self._shutdown_complete = False
 
-        # 直接初始化设置界面
+        self.session_controller = SessionController(self)
+        self.session_controller.recover_recordings()
         self.settings_interface = SettingsInterface(self)
         self.captures_interface = CapturesInterface(self)
+        self.sessions_interface = SessionsInterface(
+            controller=self.session_controller, parent=self
+        )
+        self.auto_save_coordinator = CaptureAutoSaveCoordinator(
+            self.captures_interface.controller,
+            self.session_controller,
+            self,
+        )
 
         self.tray_icon = SystemTray(self)
         self.pin_button = PinButton(self)
@@ -51,6 +64,10 @@ class MainWindow(FluentWindow):
     def __init_navigation(self):
         self.addSubInterface(
             self.captures_interface, FluentIcon.GLOBE, self.tr("captures")
+        )
+
+        self.addSubInterface(
+            self.sessions_interface, FluentIcon.HISTORY, self.tr("sessions")
         )
 
         self.addSubInterface(
@@ -80,12 +97,21 @@ class MainWindow(FluentWindow):
             self.raise_()
             self.activateWindow()
 
+    def shutdown(self) -> None:
+        """统一退出流程：关闭 Save、停止代理、提交录制。"""
+        if self._shutdown_complete:
+            return
+        self._shutdown_complete = True
+        self.auto_save_coordinator.shutdown()
+        self.captures_interface.stop_capture()
+        self.session_controller.shutdown_recording(timeout_ms=5000)
+
     def closeEvent(self, event):
         if CONFIG.get(CONFIG.minimize_to_tray):
             event.ignore()
             self.hide()
         else:
-            self.captures_interface.stop_capture()  # ← 加这一行，放在最前面
+            self.shutdown()
             event.accept()  # 允许退出
 
 
@@ -111,10 +137,17 @@ class SystemTray(QSystemTrayIcon):
             icon=FluentIcon.POWER_BUTTON,
             text=self.tr("退出"),
             parent=self,
-            triggered=QApplication.quit,
+            triggered=self._on_quit,
         )
         self.menu.addAction(self.quit_action)
         self.setContextMenu(self.menu)
+
+    @Slot()
+    def _on_quit(self) -> None:
+        window = self.parent()
+        if isinstance(window, MainWindow):
+            window.shutdown()
+        QApplication.quit()
 
 
 class PinButton(FluentTitleBarButton):

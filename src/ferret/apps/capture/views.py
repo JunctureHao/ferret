@@ -55,6 +55,7 @@ from ferret.apps.capture.models import PacketProxyModel, PacketTableModel
 from ferret.apps.common.dialog import TextCopyDialog
 from ferret.apps.common.edit import ItemDualPanel, JsonDualPanel, ToolPlainTextEdit
 from ferret.apps.common.filter import MultiFilterManager
+from ferret.apps.common.flow.protocols import FlowViewCapabilities
 from ferret.apps.common.icon import BaseAction, BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
@@ -88,11 +89,6 @@ class CapturesInterface(QWidget):
     """抓包主界面 - 包含工具栏、搜索面板和内容区域"""
 
     def __init__(self, parent: "MainWindow | None" = None):
-        """初始化抓包界面
-
-        Args:
-            parent: 父窗口，通常是 MainWindow
-        """
         super().__init__(parent)
         self.setObjectName("CapturesInterface")
         self.controller = CaptureController(self)
@@ -264,8 +260,11 @@ class CapturesToolBar(QWidget):
     captureToggled = Signal(bool)
     conditionsChanged = Signal()  # 搜索面板条件变更（透传）
 
-    def __init__(self, parent: "CapturesInterface", controller: CaptureController):
-
+    def __init__(
+        self,
+        parent: "CapturesInterface",
+        controller: CaptureController,
+    ):
         super().__init__(parent)
         self.capture_controller = controller
         self.cert_controller = CertBadgeController(self)
@@ -294,14 +293,6 @@ class CapturesToolBar(QWidget):
         self.stats_badge.raise_()
 
         # 右侧：操作按钮
-        self.import_btn = TransparentToolButton(FluentIcon.IMAGE_EXPORT, self)
-        self.import_btn.setToolTip(self.tr("导入流量"))
-        self.import_btn.installEventFilter(
-            ToolTipFilter(self.import_btn, 1000, ToolTipPosition.TOP)
-        )
-        self.import_btn.setFixedSize(32, 32)
-        self.import_btn.setIconSize(QSize(20, 20))
-
         self.cert_btn = TransparentToolButton(FluentIcon.CERTIFICATE, self)
         self.cert_btn.setToolTip(self.tr("证书设置"))
         self.cert_btn.installEventFilter(
@@ -375,7 +366,7 @@ class CapturesToolBar(QWidget):
         btn_layout.setSpacing(4)
         btn_layout.addWidget(self.search_btn)
         btn_layout.addStretch(1)
-        btn_layout.addWidget(self.import_btn)
+
         btn_layout.addWidget(self.cert_btn)
         btn_layout.addWidget(self.proxy_setting_btn)
         btn_layout.addWidget(self.locate_selection_btn)
@@ -393,16 +384,6 @@ class CapturesToolBar(QWidget):
         self.search_panel.panelCloseRequested.connect(self.__on_search_panel_close)
         self.cert_btn.clicked.connect(self._on_cert_btn_click)
         self.cert_controller.status_changed.connect(self._on_cert_status)
-        self.import_btn.clicked.connect(self._on_import_btn_click)
-
-    @Slot()
-    def _on_import_btn_click(self):
-        """导入流量文件"""
-        controller = self.capture_controller
-        path, _ = QFileDialog.getOpenFileName(
-            self, self.tr("导入流量"), "", self.tr("Flow 文件 (*.flow)")
-        )
-        controller.import_flows(path)
 
     @Slot()
     def _on_cert_btn_click(self):
@@ -606,15 +587,22 @@ class CapturesDataTable(TableView):
     stats_updated = Signal(int, int, int)  # 统计更新信号：总条数、显示条数、选中条数
 
     def __init__(
-        self, parent: "CapturesContentArea | None", controller: CaptureController
+        self,
+        parent: QWidget | None,
+        controller,
+        capabilities: FlowViewCapabilities | None = None,
     ):
         """初始化数据表格
 
         :param parent: 父组件，通常是 CapturesContentArea
-        :param controller: 抓包控制器实例（供右键菜单导出使用）
+        :param controller: 控制器实例（满足 FlowViewController 协议）
+        :param capabilities: 视图能力配置，控制右键菜单可用操作
         """
         super().__init__(parent)
         self.controller = controller  # 保存 controller 引用
+        from ferret.apps.common.flow.protocols import CAPTURE_CAPABILITIES
+
+        self.capabilities = capabilities or CAPTURE_CAPABILITIES
 
         self.__init_widget()
         self.__init_view()
@@ -625,7 +613,7 @@ class CapturesDataTable(TableView):
         self.source_model = PacketTableModel(self)
         self.proxy_model = PacketProxyModel(self)
 
-        self.context_menu = PacketContextMenu(self, self.controller)
+        self.context_menu = PacketContextMenu(self, self.controller, self.capabilities)
         self.setSelectRightClickedRow(True)
         self.proxy_model.setSourceModel(self.source_model)
         self.setModel(self.proxy_model)
@@ -670,6 +658,12 @@ class CapturesDataTable(TableView):
         self.selectionModel().selectionChanged.connect(self.__on_selection_changed)
 
         self.doubleClicked.connect(self.__on_row_double_clicked)
+
+    def set_controller(self, controller) -> None:
+        """更新 Flow 查看控制器并同步到关联菜单。"""
+        self.controller = controller
+        self.context_menu.controller = controller
+        self.context_menu.export_menu.controller = controller
 
     def get_selected_flows(self) -> list[HTTPFlow]:
         """获取当前选中的 flow 对象列表(单选/多选通用)"""
@@ -787,7 +781,7 @@ class CapturesDataPanel(SimpleCardWidget):
 
     collapseRequested = Signal()  # 请求折叠面板
 
-    def __init__(self, parent: "CapturesContentArea", controller=None):
+    def __init__(self, parent: QWidget, controller=None):
         super().__init__(parent=parent)
         self.controller = controller  # 保存 controller 引用
         self.__init_widget()
@@ -869,6 +863,12 @@ class CapturesDataPanel(SimpleCardWidget):
     def __collapse_panel(self):
         """折叠面板"""
         self.collapseRequested.emit()
+
+    def set_controller(self, controller) -> None:
+        """更新 Flow 查看控制器并同步到请求、响应面板。"""
+        self.controller = controller
+        self.req_panel.controller = controller
+        self.res_panel.controller = controller
 
     def set_data(self, data: dict):
         """有数据时调用，切换到详情页并填充
@@ -1766,9 +1766,17 @@ class PacketContextMenu(RoundMenu):
 
     delete_requested = Signal(int)  # 删除请求信号
 
-    def __init__(self, parent: CapturesDataTable, controller: CaptureController):
+    def __init__(
+        self,
+        parent,
+        controller,
+        capabilities: FlowViewCapabilities | None = None,
+    ):
+        from ferret.apps.common.flow.protocols import CAPTURE_CAPABILITIES
+
         super().__init__(parent=parent)
         self.controller = controller  # 供导出子菜单调用控制层
+        self.capabilities = capabilities or CAPTURE_CAPABILITIES
         self.row_index = -1  # 初始化一个无效行号
         self.row_data = {}
         self.main_window = parent.window()
@@ -1814,10 +1822,13 @@ class PacketContextMenu(RoundMenu):
     def __init_action(self):
         """初始化菜单动作"""
         self.addMenu(self.view_menu)
-        self.addAction(self.client_replay_action)
+        if self.capabilities.can_replay:
+            self.addAction(self.client_replay_action)
         self.addMenu(self.export_menu)
-        self.addAction(self.save_flows_action)
-        self.addAction(self.delete_action)
+        if self.capabilities.can_save_selection:
+            self.addAction(self.save_flows_action)
+        if self.capabilities.can_delete:
+            self.addAction(self.delete_action)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""

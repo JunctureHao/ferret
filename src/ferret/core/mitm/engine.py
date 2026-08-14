@@ -11,6 +11,7 @@ from ferret.core.mitm.bindings import (
     NextLayer,
     Options,
     Proxyserver,
+    Save,
     View,
 )
 
@@ -26,6 +27,7 @@ class CaptureMaster(Master):
     ) -> None:
         super().__init__(opts, event_loop=event_loop, with_termlog=False)
         self.view = view if view is not None else View()
+        self.save = Save()
         self.addons.add(
             Core(),
             Proxyserver(),
@@ -34,5 +36,6 @@ class CaptureMaster(Master):
             DnsResolver(),
             self.view,
             ClientPlayback(),
+            self.save,
             LogAddon(),
         )

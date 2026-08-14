@@ -98,6 +98,19 @@ class SettingsInterface(ScrollArea):
             parent=self.main_panel_group,
         )
 
+        # 会话
+        self.session_group = SettingCardGroup(
+            self.tr("会话"),
+            self.scroll_widget,
+        )
+        self.auto_save_sessions_card = SwitchSettingCard(
+            FluentIcon.SAVE,
+            self.tr("自动保存流量"),
+            self.tr("抓包时持续保存 HTTP 流量，停止抓包后生成会话"),
+            configItem=CONFIG.auto_save_sessions,
+            parent=self.session_group,
+        )
+
         self.__init_widget()
 
     def __init_widget(self):
@@ -130,10 +143,13 @@ class SettingsInterface(ScrollArea):
         self.main_panel_group.addSettingCard(self.minimize_to_tray_card)
         self.main_panel_group.addSettingCard(self.layout_card)
 
+        self.session_group.addSettingCard(self.auto_save_sessions_card)
+
         self.expand_layout.setSpacing(28)
         self.expand_layout.setContentsMargins(36, 10, 36, 0)
         self.expand_layout.addWidget(self.personalization_group)
         self.expand_layout.addWidget(self.main_panel_group)
+        self.expand_layout.addWidget(self.session_group)
 
     def __connect_signal_to_slot(self):
         CONFIG.appRestartSig.connect(self.__show_restart_tooltip)

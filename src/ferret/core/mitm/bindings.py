@@ -29,6 +29,7 @@ from mitmproxy.addons.core import Core
 from mitmproxy.addons.dns_resolver import DnsResolver
 from mitmproxy.addons.next_layer import NextLayer
 from mitmproxy.addons.proxyserver import Proxyserver
+from mitmproxy.addons.save import Save
 from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.view import View
 from mitmproxy.flow import Flow
@@ -60,6 +61,7 @@ __all__ = [
     "ReplayHandler",
     "Request",
     "Response",
+    "Save",
     "TlsConfig",
     "View",
     "assemble_request",

@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
@@ -65,6 +66,8 @@ class CaptureWorker(QThread):
             if self.controller is not None:
                 self.master.addons.add(UiBridgeAddon(view, self.controller))
                 log.info("mitmproxy 线程已开启 (端口 %d)", self.port)
+                if self.controller is not None:
+                    self.controller.proxy_started.emit()
                 try:
                     await self.master.run()
                 except asyncio.CancelledError:
@@ -91,6 +94,7 @@ class CaptureController(QObject):
 
     # 状态信号
     captureStateChanged = Signal(bool)  # 抓包状态变化
+    proxy_started = Signal()  # 代理真正启动成功
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -154,12 +158,17 @@ class CaptureController(QObject):
         if self._sniffer is None:
             return
 
+        # Save.done() must run on mitmproxy's event loop before the worker exits.
+        if not self.stop_save_recording():
+            log.error("关闭 mitmproxy Save 失败或超时，仍继续关闭代理")
+
         # 1. 禁用系统代理
         SystemProxyManager.unset_proxy()
 
         # 2. 停止抓包线程
         self._sniffer.stop()
         self._sniffer = None
+        self.captureStateChanged.emit(False)
 
     def update_port(self, new_port: int):
         """更新端口
@@ -199,6 +208,13 @@ class CaptureController(QObject):
         if view is None:
             return 0
         return sum(1 for f in view._store.values() if isinstance(f, HTTPFlow))
+
+    def all_http_flows(self) -> list[HTTPFlow]:
+        """获取当前全部 HTTP Flow 的快照列表（供会话保存使用）。"""
+        view = self.view
+        if view is None:
+            return []
+        return [flow for flow in view._store.values() if isinstance(flow, HTTPFlow)]
 
     def apply_filter(self, conditions: list[dict] | None = None) -> None:
         """把 GUI 搜索条件编译为 flowfilter 表达式并应用到 View。
@@ -296,20 +312,60 @@ class CaptureController(QObject):
         """
         if self.is_capturing:
             self.stop_capture()
-            self.captureStateChanged.emit(False)
             return False
         else:
             self.start_capture()
             self.captureStateChanged.emit(True)
             return True
 
-    def import_flows(self, path: str):
-        view = self.view
-        if view is None:
-            return
-        flows = FlowFile.read(path)
-        http_flows = [f for f in flows if isinstance(f, HTTPFlow)]
-        view.add(http_flows)
+    def start_save_recording(self, path: str) -> bool:
+        return self._update_save_options(path=path)
+
+    def stop_save_recording(self) -> bool:
+        return self._update_save_options(path=None)
+
+    def _update_save_options(
+        self,
+        *,
+        path: str | None,
+        timeout: float = 5.0,
+    ) -> bool:
+        """同步等待 mitmproxy event loop 执行 save_stream_file 配置更新。
+
+        只能从 Qt 主线程/非 mitmproxy event loop 线程调用，否则等待自身
+        event loop 会死锁。path=None 且 proxy 已停止视为成功，停止操作幂等。
+        """
+        sniffer = self._sniffer
+        if sniffer is None or sniffer.master is None:
+            return path is None
+
+        master = sniffer.master
+        loop = master.event_loop
+        finished = threading.Event()
+        errors: list[Exception] = []
+
+        def update() -> None:
+            try:
+                if path is None:
+                    master.options.update(save_stream_file=None)
+                else:
+                    master.options.update(
+                        save_stream_file=path,
+                        save_stream_filter="~http",
+                    )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        loop.call_soon_threadsafe(update)
+        if not finished.wait(timeout=timeout):
+            log.error("更新 mitmproxy Save 配置超时")
+            return False
+        if errors:
+            log.error("更新 mitmproxy Save 配置失败: %s", errors[0])
+            return False
+        return True
 
 
 class CertBadgeController(QObject):
