@@ -97,4 +97,10 @@ def get_certs_dir() -> Path:
     return get_config_dir() / "certs"
 
 
+def get_sessions_dir() -> Path:
+    directory = get_config_dir() / "sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
 CONFIG = Config()

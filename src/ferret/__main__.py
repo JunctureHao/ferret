@@ -31,7 +31,7 @@
 # nuitka-project: --noinclude-dlls=qminimal*
 # nuitka-project: --noinclude-dlls=qoffscreen*
 # nuitka-project: --noinclude-qt-translations
-# ── 瘦身：排除永不加载的 mitmproxy addon 及其重型依赖（配合 services.py 的 sys.modules 桩）
+# ── 瘦身：排除永不加载的 mitmproxy addon 及其重型依赖（配合 core/mitm/bindings.py 的桩）
 # 注意：pyasn1 不能排除（aioquic → service_identity 运行时硬链）
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.onboarding
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.onboardingapp

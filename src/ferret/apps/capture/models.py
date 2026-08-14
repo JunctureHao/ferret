@@ -10,7 +10,7 @@ from PySide6.QtCore import (
     Qt,
 )
 
-from ferret.apps.capture.services import FlowExporter, HTTPFlow, _safe_content
+from ferret.core.mitm import FlowExporter, HTTPFlow, safe_content
 from ferret.utils.http_parser import (
     build_body,
     parse_cookies_from_headers,
@@ -237,7 +237,7 @@ class PacketTableModel(QAbstractTableModel):
             )
 
         if state in ("request", "response_headers", "complete", "error"):
-            body = _safe_content(flow.request)
+            body = safe_content(flow.request)
             req_duration = None
             if flow.request.timestamp_end and flow.request.timestamp_start:
                 req_duration = (
@@ -340,7 +340,7 @@ class PacketTableModel(QAbstractTableModel):
                 res_duration = (
                     flow.response.timestamp_end - flow.response.timestamp_start
                 ) * 1000
-            body = _safe_content(flow.response)
+            body = safe_content(flow.response)
             req_total_size = data.get("req_headers_size", 0) + data.get("req_size", 0)
             res_total_size = data.get("res_headers_size", 0) + len(body)
             total_size = req_total_size + res_total_size

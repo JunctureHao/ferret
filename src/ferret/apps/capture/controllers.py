@@ -3,20 +3,19 @@ import time
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
-from ferret.apps.capture.services import (
+from ferret.apps.capture.services import UiBridgeAddon, compile_filter
+from ferret.core.log import get_logger
+from ferret.core.mitm import (
     CaptureMaster,
     Cert,
     FlowExporter,
+    FlowFile,
     HTTPFlow,
     Options,
     ReplayHandler,
-    SessionStore,
-    UiBridgeAddon,
     View,
-    compile_filter,
     parse_filter,
 )
-from ferret.core.log import get_logger
 from ferret.utils.proxy_manager import SystemProxyManager
 
 log = get_logger("mitmproxy")
@@ -218,7 +217,7 @@ class CaptureController(QObject):
 
     def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
         """保存选中的流量到文件"""
-        return SessionStore.save_flows(flows, path)
+        return FlowFile.write(path, flows)
 
     def get_httpie_command(self, flow_id: str) -> str:
         """获取 HTTPie 命令（字符串）"""
@@ -308,7 +307,7 @@ class CaptureController(QObject):
         view = self.view
         if view is None:
             return
-        flows = SessionStore.load_flows(path)
+        flows = FlowFile.read(path)
         http_flows = [f for f in flows if isinstance(f, HTTPFlow)]
         view.add(http_flows)
 

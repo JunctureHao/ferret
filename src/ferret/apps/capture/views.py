@@ -52,7 +52,6 @@ from qfluentwidgets import (
 
 from ferret.apps.capture.controllers import CaptureController, CertBadgeController
 from ferret.apps.capture.models import PacketProxyModel, PacketTableModel
-from ferret.apps.capture.services import Cert, HTTPFlow
 from ferret.apps.common.dialog import TextCopyDialog
 from ferret.apps.common.edit import ItemDualPanel, JsonDualPanel, ToolPlainTextEdit
 from ferret.apps.common.filter import MultiFilterManager
@@ -62,6 +61,7 @@ from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import (
     OrientationSplitter,
 )
+from ferret.core.mitm import Cert, HTTPFlow
 from ferret.core.settings import CONFIG
 from ferret.utils.http_parser import (
     decode_body,
