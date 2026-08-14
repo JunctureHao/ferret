@@ -25,16 +25,15 @@ from qfluentwidgets import (
     IndeterminateProgressBar,
     LineEdit,
     PushButton,
+    RoundMenu,
     TableView,
     TransparentToolButton,
 )
-from qfluentwidgets.components.widgets.menu import RoundMenu
 
-from ferret.apps.capture.views import CapturesDataPanel, CapturesDataTable
 from ferret.apps.common.flow.protocols import READONLY_CAPABILITIES
+from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success
-from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.session.controllers import SessionController, SessionViewController
 from ferret.apps.session.dialogs import SessionDeleteDialog, SessionNameDialog
 from ferret.apps.session.models import (
@@ -393,17 +392,13 @@ class SessionViewerPage(QWidget):
         self.export_btn.setIconSize(QSize(18, 18))
         self.export_btn.setToolTip(self.tr("导出会话"))
 
-        self.splitter = OrientationSplitter(parent=self)
-        self.table = CapturesDataTable(self, None, READONLY_CAPABILITIES)
-        self.panel = CapturesDataPanel(self, None)
-        self.splitter.addWidget(self.table)
-        self.splitter.addWidget(self.panel)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 0)
-        self.splitter.setSizes([1, 0])
-
-        self.table.row_selected.connect(self._on_row_selected)
-        self.table.row_double_clicked.connect(self._on_row_double_clicked)
+        self.splitter = FlowViewerPane(
+            parent=self,
+            controller=None,
+            capabilities=READONLY_CAPABILITIES,
+        )
+        self.table = self.splitter.table
+        self.panel = self.splitter.panel
         self.back_btn.clicked.connect(self._go_back)
         self.export_btn.clicked.connect(self._on_export)
 
@@ -431,8 +426,7 @@ class SessionViewerPage(QWidget):
         self._meta = meta
         self.name_label.setText(f"{meta.name}  ·  {meta.flow_count} 条  ·  ")
 
-        self.table.set_controller(vc)
-        self.panel.set_controller(vc)
+        self.splitter.set_controller(vc)
         self.table.set_view(vc.view)
 
     def _go_back(self):
@@ -441,19 +435,6 @@ class SessionViewerPage(QWidget):
             iface = iface.parent()
         if isinstance(iface, SessionsInterface):
             iface.show_list()
-
-    @Slot(dict)
-    def _on_row_selected(self, data: dict):
-        self.panel.set_data(data)
-        if self.splitter.sizes()[1] == 0:
-            self.splitter.setSizes([1, 1])
-
-    @Slot(dict)
-    def _on_row_double_clicked(self, data: dict):
-        self.panel.set_data(data)
-        w = self.splitter.width()
-        if w > 0:
-            self.splitter.setSizes([w // 2, w // 2])
 
     @Slot()
     def _on_export(self):

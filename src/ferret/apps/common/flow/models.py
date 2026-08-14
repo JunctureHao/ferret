@@ -19,7 +19,7 @@ from ferret.utils.http_parser import (
 from ferret.utils.process_resolver import resolve_process
 
 
-class PacketTableModel(QAbstractTableModel):
+class FlowTableModel(QAbstractTableModel):
     def __init__(self, parent: QObject, view=None):
         super().__init__(parent)
         self._headers = ["ID", "Method", "URL", "Status Code", "Duration", ""]
@@ -405,11 +405,11 @@ class PacketTableModel(QAbstractTableModel):
         self.view.remove([flow])
 
 
-class PacketProxyModel(QSortFilterProxyModel):
+class FlowProxyModel(QSortFilterProxyModel):
     """排序代理（透明过滤）。
 
-    搜索/协议/状态码/内容类型等过滤已统一下沉到 mitmproxy 的 ``View.set_filter``
-    （见 ``CaptureController.apply_filter``），由 flowfilter 表达式表达。因此本代理
+    搜索/协议/状态码/内容类型等过滤已统一下沉到 mitmproxy 的 ``View.set_filter``，
+    由 flowfilter 表达式表达。因此本代理
     **不再做任何行级过滤**，只负责表格排序。这样：
     * 过滤不触发 _build_row_data() 的详情解析（性能）；
     * 过滤只影响 View 可见列表（_view），_store 保留全部流量（无清除效果）。

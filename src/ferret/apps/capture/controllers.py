@@ -103,7 +103,7 @@ class CaptureController(QObject):
         # 持久化 View：跨 toggle 保留数据（同时作为表格模型的存储/排序/过滤后端）
         self._persistent_view = View()
         # 基底过滤：只展示 HTTP 流量（排除 TCP/UDP/DNS）。表格模型只渲染 HTTPFlow
-        # 属性，非 HTTP 流无 .request 会触发 AttributeError（见 models.PacketTableModel）。
+        # 属性，非 HTTP 流无 .request 会触发 AttributeError（见 FlowTableModel）。
         # 即使 _HTTPOnlyFilter 类已移除，这里仍用等价的 flowfilter "~http" 字符串保持
         # 同一语义；GUI 搜索表达式也以 ~http 为基底（见 build_filter_expression）。
         self._persistent_view.set_filter(parse_filter("~http"))
