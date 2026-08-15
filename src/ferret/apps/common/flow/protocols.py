@@ -5,6 +5,15 @@ from ferret.core.mitm import HTTPFlow, View
 
 
 class FlowViewController(Protocol):
+    """Read-only Flow view controller protocol.
+
+    Replay-capable controllers (CaptureController) additionally implement
+    ``replay_flow``/``replay_flows``/``load_replay_file``, but those are NOT
+    part of this protocol — they are
+    gated at the UI layer by ``FlowViewCapabilities.can_replay`` so that
+    read-only controllers (SessionViewController) don't need stubs.
+    """
+
     @property
     def view(self) -> View | None: ...
 

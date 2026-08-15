@@ -78,6 +78,31 @@ class BaseSplitter(QSplitter):
     def createHandle(self):
         return BaseHandle(self.orientation(), self)
 
+    def collapse(self, index: int) -> None:
+        if not 0 <= index < self.count():
+            return
+        sizes = self.sizes()
+        if len(sizes) != self.count():
+            return
+        released = sizes[index]
+        sizes[index] = 0
+        recipients = [i for i in range(self.count()) if i != index]
+        if recipients:
+            sizes[recipients[0]] += released
+        self.setSizes(sizes)
+
+    def set_equal_sizes(self) -> None:
+        extent = (
+            self.width()
+            if self.orientation() == Qt.Orientation.Horizontal
+            else self.height()
+        )
+        available = extent - self.handleWidth() * max(0, self.count() - 1)
+        if available <= 0 or self.count() == 0:
+            return
+        base, extra = divmod(available, self.count())
+        self.setSizes([base + (1 if i < extra else 0) for i in range(self.count())])
+
 
 class OrientationSplitter(BaseSplitter):
     def __init__(self, inverted: bool = False, parent=None):

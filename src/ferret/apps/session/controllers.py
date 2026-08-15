@@ -1,28 +1,18 @@
 """Session controllers: read-only view controller and page-level controller."""
 
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import (
-    QEventLoop,
     QObject,
     QRunnable,
-    QThread,
     QThreadPool,
-    QTimer,
     Signal,
-    Slot,
 )
 
-from ferret.apps.session.models import (
-    RecordingHandle,
-    RecordingState,
-    SessionMeta,
-    SessionSource,
-)
-from ferret.apps.session.services import SessionRecorder, SessionRepository
+from ferret.apps.session.models import SessionMeta, SessionSource
+from ferret.apps.session.repository import SessionRepository
 from ferret.core.log import get_logger
 from ferret.core.mitm import (
     FlowExporter,
@@ -116,128 +106,22 @@ class FunctionTask(QRunnable):
             self.signals.finished.emit()
 
 
-class SessionRecordingWorker(QObject):
-    """Prepare and commit recording metadata on a dedicated thread.
-
-    Flow bytes are written by mitmproxy's native Save addon on the proxy
-    event-loop thread; this worker owns only the session transaction.
-    """
-
-    state_changed = Signal(object)  # RecordingState
-    recording_started = Signal(object)  # RecordingHandle
-    count_changed = Signal(int)
-    recording_finished = Signal(object)  # SessionMeta | None
-    recordings_recovered = Signal(list)  # list[SessionMeta]
-    failed = Signal(str)
-
-    def __init__(
-        self,
-        recorder: SessionRecorder,
-        parent: QObject | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._recorder = recorder
-        self._handle: RecordingHandle | None = None
-        self._state = RecordingState.IDLE
-
-    @property
-    def state(self) -> RecordingState:
-        return self._state
-
-    def _set_state(self, state: RecordingState) -> None:
-        self._state = state
-        self.state_changed.emit(state)
-
-    @Slot(str)
-    def start_recording(self, name: str) -> None:
-        if self._state in (
-            RecordingState.STARTING,
-            RecordingState.RECORDING,
-            RecordingState.STOPPING,
-        ):
-            return
-        self._set_state(RecordingState.STARTING)
-        try:
-            started = datetime.now().astimezone()
-            self._handle = self._recorder.begin(name, started)
-        except Exception as e:
-            log.exception("自动保存启动失败")
-            self._handle = None
-            self._set_state(RecordingState.FAILED)
-            self.failed.emit(str(e))
-            self._set_state(RecordingState.IDLE)
-            return
-        self._set_state(RecordingState.RECORDING)
-        self.count_changed.emit(0)
-        if self._handle is not None:
-            self.recording_started.emit(self._handle)
-
-    @Slot()
-    def stop_recording(self) -> None:
-        if self._state not in (RecordingState.RECORDING, RecordingState.STARTING):
-            return
-        handle = self._handle
-        self._handle = None
-        if handle is None:
-            self._set_state(RecordingState.IDLE)
-            self.recording_finished.emit(None)
-            return
-        self._set_state(RecordingState.STOPPING)
-        meta: SessionMeta | None = None
-        try:
-            meta = self._recorder.finish(handle)
-        except Exception as e:
-            log.exception("提交录制失败")
-            self._set_state(RecordingState.FAILED)
-            self.failed.emit(str(e))
-            try:
-                self._recorder.fail(handle)
-            except Exception:
-                log.warning("fail 清理录制文件失败", exc_info=True)
-            self._set_state(RecordingState.IDLE)
-            self.recording_finished.emit(None)
-            return
-        self.count_changed.emit(handle.flow_count)
-        self._set_state(RecordingState.IDLE)
-        self.recording_finished.emit(meta)
-
-    @Slot()
-    def recover_recordings(self) -> None:
-        try:
-            metas = self._recorder.recover_all()
-        except Exception as e:
-            log.exception("恢复录制文件失败")
-            self.failed.emit(str(e))
-            return
-        self.recordings_recovered.emit(metas)
-
-
 class SessionController(QObject):
     """会话页面控制器：管理异步任务和页面业务信号。"""
 
     sessions_loaded = Signal(list)
     session_created = Signal(object)
-    session_updated = Signal(object)
+    session_updated = Signal(str, object)
     session_deleted = Signal(str)
     session_opened = Signal(object, object)  # SessionMeta, SessionViewController
     busy_changed = Signal(bool)
     operation_failed = Signal(str, str)  # title, detail
     operation_succeeded = Signal(str)
 
-    recording_state_changed = Signal(object)  # RecordingState
-    recording_started = Signal(object)  # RecordingHandle
-    recording_count_changed = Signal(int)
-
-    # internal cross-thread requests to the recording worker
-    _start_recording_requested = Signal(str)
-    _stop_recording_requested = Signal()
-    _recover_recordings_requested = Signal()
-
     def __init__(
         self,
         parent: QObject | None = None,
         repository: SessionRepository | None = None,
-        recorder: SessionRecorder | None = None,
     ) -> None:
         super().__init__(parent)
         self._repo = repository or SessionRepository()
@@ -247,24 +131,6 @@ class SessionController(QObject):
         self._open_generation = 0
         self._tasks: set[FunctionTask] = set()
 
-        self._recorder = recorder or SessionRecorder()
-        self._recording_state = RecordingState.IDLE
-        self._recording_finished = False
-        self._worker = SessionRecordingWorker(self._recorder)
-        self._worker_thread = QThread(self)
-        self._worker.moveToThread(self._worker_thread)
-        self._worker_thread.start()
-
-        self._start_recording_requested.connect(self._worker.start_recording)
-        self._stop_recording_requested.connect(self._worker.stop_recording)
-        self._recover_recordings_requested.connect(self._worker.recover_recordings)
-
-        self._worker.state_changed.connect(self._on_recording_state_changed)
-        self._worker.recording_started.connect(self.recording_started)
-        self._worker.count_changed.connect(self.recording_count_changed)
-        self._worker.recording_finished.connect(self._on_recording_finished)
-        self._worker.recordings_recovered.connect(self._on_recordings_recovered)
-        self._worker.failed.connect(self._on_recording_failed)
 
     def _set_task_active(self, active: bool) -> None:
         was_busy = self._active_tasks > 0
@@ -354,7 +220,7 @@ class SessionController(QObject):
 
     def rename_session(self, session_id: str, name: str) -> None:
         def _on_renamed(meta: SessionMeta):
-            self.session_updated.emit(meta)
+            self.session_updated.emit(session_id, meta)
             self.operation_succeeded.emit("会话已重命名")
 
         self._run(
@@ -386,83 +252,3 @@ class SessionController(QObject):
             on_success=lambda _: self.operation_succeeded.emit("会话已导出"),
             write=True,
         )
-
-    # ---- recording ----
-
-    @property
-    def recording_state(self) -> RecordingState:
-        return self._recording_state
-
-    @staticmethod
-    def _default_recording_name() -> str:
-        return "自动保存 " + datetime.now().astimezone().strftime("%Y-%m-%d %H-%M-%S")
-
-    def start_recording(self) -> None:
-        self._start_recording_requested.emit(self._default_recording_name())
-
-    def stop_recording(self) -> None:
-        self._recording_finished = False
-        self._stop_recording_requested.emit()
-
-    def recover_recordings(self) -> None:
-        self._recover_recordings_requested.emit()
-
-    def shutdown_recording(
-        self,
-        timeout_ms: int = 5000,
-    ) -> bool:
-        """Stop the current recording and wait for it to finish.
-
-        Returns True if the recording committed within the timeout. On
-        timeout the recording files are left on disk for the next launch to
-        recover; the worker thread is then quit.
-        """
-        completed = self._recording_state == RecordingState.IDLE
-
-        if self._recording_state in (
-            RecordingState.RECORDING,
-            RecordingState.STARTING,
-        ):
-            self._recording_finished = False
-            self._stop_recording_requested.emit()
-            loop = QEventLoop(self)
-            timer = QTimer(self)
-            timer.setSingleShot(True)
-            timer.timeout.connect(loop.quit)
-            timer.start(timeout_ms)
-            while not self._recording_finished and timer.isActive():
-                loop.exec()
-                if self._recording_finished:
-                    break
-            timer.stop()
-            completed = self._recording_finished
-
-        self._worker_thread.quit()
-        thread_stopped = self._worker_thread.wait(timeout_ms)
-        if not thread_stopped:
-            log.error("录制线程未在 %d ms 内退出", timeout_ms)
-        return completed and thread_stopped
-
-    @Slot(object)
-    def _on_recording_state_changed(self, state: RecordingState) -> None:
-        self._recording_state = state
-        self.recording_state_changed.emit(state)
-
-    @Slot(object)
-    def _on_recording_finished(self, meta: object) -> None:
-        self._recording_finished = True
-        if isinstance(meta, SessionMeta):
-            self.session_created.emit(meta)
-            self.operation_succeeded.emit("自动保存会话已创建")
-
-    @Slot(list)
-    def _on_recordings_recovered(self, metas: list) -> None:
-        for meta in metas:
-            if isinstance(meta, SessionMeta):
-                self.session_created.emit(meta)
-        if metas:
-            self.refresh()
-
-    @Slot(str)
-    def _on_recording_failed(self, message: str) -> None:
-        self.operation_failed.emit("自动保存", message)

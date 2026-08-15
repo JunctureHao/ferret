@@ -14,37 +14,40 @@ from qfluentwidgets import (
     setTheme,
 )
 
-from ferret.apps.capture.recording import CaptureAutoSaveCoordinator
 from ferret.apps.capture.views import CapturesInterface
+from ferret.apps.capture.controllers import CaptureState
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.session.controllers import SessionController
 from ferret.apps.session.views import SessionsInterface
 from ferret.apps.settings.views import SettingsInterface
+from ferret.application import ApplicationRuntime
 from ferret.core.settings import APP_NAME, CONFIG
 
 
 class MainWindow(FluentWindow):
-    def __init__(self):
+    def __init__(self, runtime: ApplicationRuntime | None = None):
         super().__init__()
         self._shutdown_complete = False
+        self.runtime = runtime or ApplicationRuntime(self)
+        self._owns_runtime = runtime is None
 
         self.session_controller = SessionController(self)
-        self.session_controller.recover_recordings()
         self.settings_interface = SettingsInterface(self)
-        self.captures_interface = CapturesInterface(self)
+        self.captures_interface = CapturesInterface(
+            self,
+            mitm=self.runtime.mitm,
+            system_proxy=self.runtime.system_proxy,
+        )
         self.sessions_interface = SessionsInterface(
             controller=self.session_controller, parent=self
-        )
-        self.auto_save_coordinator = CaptureAutoSaveCoordinator(
-            self.captures_interface.controller,
-            self.session_controller,
-            self,
         )
 
         self.tray_icon = SystemTray(self)
         self.pin_button = PinButton(self)
 
         self.__init_window()
+        if self._owns_runtime:
+            self.runtime.start()
 
     def __init_window(self):
         self.setWindowTitle(APP_NAME)
@@ -81,6 +84,14 @@ class MainWindow(FluentWindow):
         qconfig.themeChanged.connect(lambda theme: setTheme(theme))
         self.pin_button.clicked.connect(self.toggleStayOnTop)
         self.tray_icon.activated.connect(self.__on_activated)
+        self.captures_interface.controller.capture_state_changed.connect(
+            self.__on_capture_state_changed
+        )
+
+    @Slot(object)
+    def __on_capture_state_changed(self, state: object) -> None:
+        if CaptureState(state) == CaptureState.STOPPED:
+            self.session_controller.refresh()
 
     def __center_window(self):
         """窗口居中逻辑"""
@@ -97,22 +108,24 @@ class MainWindow(FluentWindow):
             self.raise_()
             self.activateWindow()
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """统一退出流程：关闭 Save、停止代理、提交录制。"""
         if self._shutdown_complete:
-            return
-        self._shutdown_complete = True
-        self.auto_save_coordinator.shutdown()
+            return True
         self.captures_interface.stop_capture()
-        self.session_controller.shutdown_recording(timeout_ms=5000)
+        complete = self.runtime.shutdown()
+        self._shutdown_complete = complete
+        return complete
 
     def closeEvent(self, event):
         if CONFIG.get(CONFIG.minimize_to_tray):
             event.ignore()
             self.hide()
         else:
-            self.shutdown()
-            event.accept()  # 允许退出
+            if self.shutdown():
+                event.accept()
+            else:
+                event.ignore()
 
 
 class SystemTray(QSystemTrayIcon):
@@ -145,9 +158,8 @@ class SystemTray(QSystemTrayIcon):
     @Slot()
     def _on_quit(self) -> None:
         window = self.parent()
-        if isinstance(window, MainWindow):
-            window.shutdown()
-        QApplication.quit()
+        if isinstance(window, MainWindow) and window.shutdown():
+            QApplication.quit()
 
 
 class PinButton(FluentTitleBarButton):

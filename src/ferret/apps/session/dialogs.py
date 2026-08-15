@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
@@ -46,6 +47,8 @@ class SessionNameDialog(MessageBoxBase):
         self.yesButton.setText(self.tr("保存"))
         self.yesButton.setEnabled(False)
         self._validate_name()
+
+        QTimer.singleShot(0, self.name_edit.setFocus)
 
     def __init_layout(self):
         layout = QVBoxLayout()

@@ -6,9 +6,8 @@ application.
 """
 
 import re
-from typing import Any
 
-from ferret.core.mitm import Flow, View, parse_filter
+from ferret.core.mitm import parse_filter
 
 _FIELD_TO_OP: dict[str, str] = {
     "全部": "u",
@@ -64,27 +63,3 @@ def build_filter_expression(conditions: list[dict] | None) -> str:
 def compile_filter(conditions: list[dict] | None):
     """Compile capture UI conditions into a mitmproxy filter."""
     return parse_filter(build_filter_expression(conditions))
-
-
-class UiBridgeAddon:
-    """Forward View events to the capture controller's Qt signals."""
-
-    def __init__(self, view: View, bridge: Any) -> None:
-        self.view = view
-        self.bridge = bridge
-        view.sig_view_add.connect(self._on_view_add)
-        view.sig_view_update.connect(self._on_view_update)
-        view.sig_view_remove.connect(self._on_view_remove)
-        view.sig_view_refresh.connect(self._on_view_refresh)
-
-    def _on_view_add(self, flow: Flow) -> None:
-        self.bridge.flow_added.emit(flow)
-
-    def _on_view_update(self, flow: Flow) -> None:
-        self.bridge.flow_updated.emit(flow)
-
-    def _on_view_remove(self, flow: Flow, index: int) -> None:
-        self.bridge.flow_removed.emit(flow, index)
-
-    def _on_view_refresh(self) -> None:
-        self.bridge.view_refreshed.emit()

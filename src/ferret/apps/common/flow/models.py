@@ -9,20 +9,43 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
 )
+from PySide6.QtGui import QColor
+from qfluentwidgets import isDarkTheme
 
 from ferret.core.mitm import FlowExporter, HTTPFlow, safe_content
 from ferret.utils.http_parser import (
     build_body,
+    format_bytes,
     parse_cookies_from_headers,
     parse_params,
 )
 from ferret.utils.process_resolver import resolve_process
 
+METHOD_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+STATUS_KIND_ROLE = int(Qt.ItemDataRole.UserRole) + 2
+FULL_URL_ROLE = int(Qt.ItemDataRole.UserRole) + 3
+MIME_ROLE = int(Qt.ItemDataRole.UserRole) + 4
+DURATION_MS_ROLE = int(Qt.ItemDataRole.UserRole) + 5
+SIZE_BYTES_ROLE = int(Qt.ItemDataRole.UserRole) + 6
+SORT_ROLE = int(Qt.ItemDataRole.UserRole) + 7
+
+
+def format_duration(duration_ms: float | None) -> str:
+    if duration_ms is None:
+        return ""
+    if duration_ms < 1:
+        return "< 1 ms"
+    if duration_ms < 1000:
+        return f"{duration_ms:.0f} ms"
+    return f"{duration_ms / 1000:.2f} s"
+
 
 class FlowTableModel(QAbstractTableModel):
+    HEADERS = ["#", "Method", "URL", "Status", "Type", "Size", "Time"]
+
     def __init__(self, parent: QObject, view=None):
         super().__init__(parent)
-        self._headers = ["ID", "Method", "URL", "Status Code", "Duration", ""]
+        self._headers = list(self.HEADERS)
         self.view = view
         # 稳定行号列表：model 自己的"行号→flow"映射，不依赖 View 的 SortedList
         # 排序位置（并发重排会导致插入声明位置与取数位置失配 → 空行/错数据）。
@@ -42,11 +65,12 @@ class FlowTableModel(QAbstractTableModel):
         orientation: Qt.Orientation,
         role: int = Qt.ItemDataRole.DisplayRole,
     ):
-        if (
-            role == Qt.ItemDataRole.DisplayRole
-            and orientation == Qt.Orientation.Horizontal
-        ):
-            return self._headers[section]
+        if orientation == Qt.Orientation.Horizontal:
+            if role == Qt.ItemDataRole.DisplayRole:
+                return self._headers[section]
+            if role == Qt.ItemDataRole.TextAlignmentRole:
+                # 横向表头统一左对齐（垂直居中），不按列名区分。
+                return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         return None
 
     def rowCount(
@@ -75,37 +99,214 @@ class FlowTableModel(QAbstractTableModel):
         flow = self._rows[row]
         column_name = self._headers[col]
 
-        if role == Qt.ItemDataRole.DisplayRole:
-            if column_name == "ID":
-                return row + 1
-            # 非 HTTP 流（TCPFlow/UDPFlow/DNSFlow）没有 .request，统一降级展示，
-            # 避免 AttributeError 在 Qt 重绘时反复抛出（见 services._HTTPOnlyFilter）。
-            if not isinstance(flow, HTTPFlow):
+        if not isinstance(flow, HTTPFlow):
+            if role == Qt.ItemDataRole.DisplayRole:
+                if column_name == "#":
+                    return row + 1
                 if column_name == "Method":
                     return type(flow).__name__.replace("Flow", "").upper()
-                if column_name in ("URL", "Status Code", "Duration"):
-                    return "—"
-                return ""
+                return "—"
+            return None
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if column_name == "#":
+                return row + 1
             if column_name == "Method":
                 return flow.request.method
             if column_name == "URL":
                 return flow.request.pretty_url
-            if column_name == "Status Code":
+            if column_name == "Status":
                 if flow.error:
                     return "Error"
                 if flow.response is None:
-                    return "等待中..."
+                    return "等待中"
                 return flow.response.status_code
-            if column_name == "Duration":
-                if flow.response is None or flow.request.timestamp_start is None:
-                    return ""
-                duration = (
-                    flow.response.timestamp_end or 0
-                ) - flow.request.timestamp_start
-                return f"{duration * 1000:.0f} ms"
+            if column_name == "Type":
+                return self._mime_label(self._mime(flow))
+            if column_name == "Size":
+                return format_bytes(self._size_bytes(flow))
+            if column_name == "Time":
+                return format_duration(self._duration_ms(flow))
             return ""
 
+        if role == SORT_ROLE:
+            if column_name == "#":
+                return row + 1
+            if column_name == "Method":
+                return flow.request.method.upper()
+            if column_name == "URL":
+                return flow.request.pretty_url.lower()
+            if column_name == "Status":
+                if flow.error:
+                    return 600
+                return flow.response.status_code if flow.response else -1
+            if column_name == "Type":
+                return self._mime(flow).lower()
+            if column_name == "Size":
+                return self._size_bytes(flow)
+            if column_name == "Time":
+                duration = self._duration_ms(flow)
+                return duration if duration is not None else -1.0
+
+        if role == METHOD_ROLE:
+            return flow.request.method.upper()
+        if role == STATUS_KIND_ROLE:
+            return self._status_kind(flow)
+        if role == FULL_URL_ROLE:
+            return flow.request.pretty_url
+        if role == MIME_ROLE:
+            return self._mime(flow)
+        if role == DURATION_MS_ROLE:
+            return self._duration_ms(flow)
+        if role == SIZE_BYTES_ROLE:
+            return self._size_bytes(flow)
+
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if column_name == "URL":
+                return flow.request.pretty_url
+            if column_name == "Status":
+                if flow.error:
+                    return flow.error.msg if flow.error else "Flow error"
+                if flow.response:
+                    return f"{flow.response.status_code} {flow.response.reason}"
+            if column_name == "Type":
+                return self._mime(flow) or "未知内容类型"
+            if column_name == "Time":
+                return self._time_tooltip(flow)
+
+        if role == Qt.ItemDataRole.ForegroundRole:
+            if column_name == "Method":
+                return self._semantic_color(self._method_kind(flow.request.method))
+            if column_name == "Status":
+                return self._semantic_color(self._status_kind(flow))
+
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            if column_name in ("#", "Status", "Size", "Time"):
+                return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if column_name == "Method":
+                return int(Qt.AlignmentFlag.AlignCenter)
+
         return None
+
+    @staticmethod
+    def _host(flow: HTTPFlow) -> str:
+        return getattr(flow.request, "pretty_host", None) or flow.request.host
+
+    @classmethod
+    def _host_with_port(cls, flow: HTTPFlow) -> str:
+        host = cls._host(flow)
+        port = getattr(flow.request, "port", None)
+        return f"{host}:{port}" if port else host
+
+    @staticmethod
+    def _mime(flow: HTTPFlow) -> str:
+        value = ""
+        if flow.response is not None:
+            value = flow.response.headers.get("Content-Type", "")
+        if not value:
+            value = flow.request.headers.get("Content-Type", "")
+        return value.split(";", 1)[0].strip()
+
+    @staticmethod
+    def _mime_label(mime: str) -> str:
+        value = mime.lower()
+        if not value:
+            return "—"
+        if "json" in value:
+            return "JSON"
+        if "html" in value:
+            return "HTML"
+        if "xml" in value:
+            return "XML"
+        if "javascript" in value:
+            return "JS"
+        if "css" in value:
+            return "CSS"
+        if value.startswith("image/"):
+            return value.split("/", 1)[1].upper()
+        if value.startswith("text/"):
+            return "Text"
+        if "form" in value:
+            return "Form"
+        return value.split("/", 1)[-1].upper()
+
+    @staticmethod
+    def _size_bytes(flow: HTTPFlow) -> int:
+        request_body = flow.request.raw_content or b""
+        response_body = flow.response.raw_content if flow.response else b""
+        return len(request_body) + len(response_body or b"")
+
+    @staticmethod
+    def _duration_ms(flow: HTTPFlow) -> float | None:
+        if flow.response is None or flow.request.timestamp_start is None:
+            return None
+        end = flow.response.timestamp_end
+        if end is None:
+            return None
+        return max(0.0, (end - flow.request.timestamp_start) * 1000)
+
+    @staticmethod
+    def _method_kind(method: str) -> str:
+        value = method.upper()
+        if value == "GET":
+            return "success"
+        if value == "POST":
+            return "info"
+        if value in ("PUT", "PATCH"):
+            return "warning"
+        if value == "DELETE":
+            return "error"
+        return "neutral"
+
+    @staticmethod
+    def _status_kind(flow: HTTPFlow) -> str:
+        if flow.error:
+            return "error"
+        if flow.response is None:
+            return "pending"
+        code = flow.response.status_code
+        if 200 <= code < 300:
+            return "success"
+        if 300 <= code < 400:
+            return "info"
+        if 400 <= code < 500:
+            return "warning"
+        if code >= 500:
+            return "error"
+        return "neutral"
+
+    @staticmethod
+    def _semantic_color(kind: str) -> QColor:
+        dark = isDarkTheme()
+        colors = {
+            "success": "#62c174" if dark else "#22863a",
+            "info": "#6ea8fe" if dark else "#1769aa",
+            "warning": "#e5b64b" if dark else "#a15c00",
+            "error": "#ff7b72" if dark else "#c62828",
+            "pending": "#9a9a9a" if dark else "#6b6b6b",
+            "neutral": "#b0b0b0" if dark else "#555555",
+        }
+        return QColor(colors.get(kind, colors["neutral"]))
+
+    @classmethod
+    def _time_tooltip(cls, flow: HTTPFlow) -> str:
+        start = flow.request.timestamp_start
+        end = flow.response.timestamp_end if flow.response else None
+        start_text = (
+            datetime.fromtimestamp(start, tz=UTC)
+            .astimezone()
+            .isoformat(timespec="milliseconds")
+            if start
+            else "—"
+        )
+        end_text = (
+            datetime.fromtimestamp(end, tz=UTC)
+            .astimezone()
+            .isoformat(timespec="milliseconds")
+            if end
+            else "—"
+        )
+        return f"开始：{start_text}\n结束：{end_text}\n耗时：{format_duration(cls._duration_ms(flow)) or '—'}"
 
     # ------------------------------------------------------------------
     # 数据变化处理（由 View 桥接信号驱动）
@@ -157,7 +358,9 @@ class FlowTableModel(QAbstractTableModel):
     # ------------------------------------------------------------------
     def clear_data(self):
         """清空表格内容"""
+        self.beginResetModel()
         self._rows.clear()
+        self.endResetModel()
         if self.view:
             self.view.clear()
 
@@ -417,6 +620,8 @@ class FlowProxyModel(QSortFilterProxyModel):
 
     def __init__(self, parent: QObject):
         super().__init__(parent)
+        self.setSortRole(SORT_ROLE)
+        self.setDynamicSortFilter(True)
 
     def filterAcceptsRow(
         self, source_row: int, source_parent: QModelIndex | QPersistentModelIndex

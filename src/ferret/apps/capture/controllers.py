@@ -1,371 +1,262 @@
-import asyncio
-import threading
-import time
+"""Traffic page controller over the application-scoped mitmproxy runtime."""
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from __future__ import annotations
 
-from ferret.apps.capture.services import UiBridgeAddon, compile_filter
+from enum import StrEnum
+from pathlib import Path
+
+from PySide6.QtCore import QObject, QTimer, Signal
+
+from ferret.apps.capture.services import compile_filter
 from ferret.core.log import get_logger
 from ferret.core.mitm import (
-    CaptureMaster,
     Cert,
-    FlowExporter,
-    FlowFile,
     HTTPFlow,
-    Options,
-    ReplayHandler,
+    MitmFacade,
+    MitmRuntime,
+    MitmRuntimeState,
     View,
-    parse_filter,
 )
-from ferret.utils.proxy_manager import SystemProxyManager
+from ferret.core.system_proxy import SystemProxyService
 
 log = get_logger("mitmproxy")
 
 
-class CaptureWorker(QThread):
-    """mitmproxy 运行容器（轻量版）
+class CaptureState(StrEnum):
+    """System traffic attachment state exposed to the traffic page."""
 
-    负责启动/停止 CaptureMaster，并把 UI 桥接 addon（UiBridgeAddon）注册进
-    mitmproxy 事件循环——这样流量事件由真正的 addon 钩子捕获并跨线程发给 Qt。
-    """
-
-    def __init__(
-        self,
-        port: int = 8080,
-        persistent_view: View | None = None,
-        controller: "CaptureController | None" = None,
-    ):
-        super().__init__()
-        self.port = port
-        self.persistent_view = persistent_view
-        self.controller = controller
-        self.master: CaptureMaster | None = None
-
-    def run(self):
-        """线程入口点"""
-        try:
-            asyncio.run(self._start_proxy())
-        except Exception as e:  # noqa: BLE001
-            log.error("Mitmproxy 内核运行异常: %s", e)
-
-    async def _start_proxy(self):
-        """真正的异步启动逻辑"""
-        from ferret.core.settings import get_certs_dir
-
-        opts = Options(
-            listen_host="127.0.0.1",
-            listen_port=self.port,
-            confdir=str(get_certs_dir()),
-        )
-        # persistent_view 在 controller 中始终被创建，此处收窄为非空以通过类型检查
-        if self.persistent_view is not None:
-            view: View = self.persistent_view
-            self.master = CaptureMaster(opts, view=view)
-            # 注册 UI 桥接 addon：事件钩子里把原生 HTTPFlow 跨线程发给 Qt。
-            # 放在 View 之后注册，保证 request 事件先落入 View 再触发桥接。
-            if self.controller is not None:
-                self.master.addons.add(UiBridgeAddon(view, self.controller))
-                log.info("mitmproxy 线程已开启 (端口 %d)", self.port)
-                if self.controller is not None:
-                    self.controller.proxy_started.emit()
-                try:
-                    await self.master.run()
-                except asyncio.CancelledError:
-                    log.info("Mitmproxy 任务已取消")
-                finally:
-                    log.info("Mitmproxy 线程已关闭")
-
-    def stop(self):
-        if self.master:
-            self.master.shutdown()
-        self.quit()
-        self.wait()
+    STOPPED = "stopped"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    FAILED = "failed"
 
 
 class CaptureController(QObject):
-    """抓包控制器，管理抓包生命周期，不持有 UI 引用。"""
+    """Coordinate system proxy attachment; the mitmproxy runtime stays alive."""
 
-    # 数据信号：直接转发自 mitmproxy View
     flow_added = Signal(object)
     flow_updated = Signal(object)
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
-    master_ready = Signal(object)  # mitmproxy View 就绪
+    master_ready = Signal(object)
 
-    # 状态信号
-    captureStateChanged = Signal(bool)  # 抓包状态变化
-    proxy_started = Signal()  # 代理真正启动成功
+    captureStateChanged = Signal(bool)
+    proxy_started = Signal()
+    proxy_failed = Signal(str)
+    capture_state_changed = Signal(object)
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        *,
+        mitm: MitmFacade | None = None,
+        system_proxy: SystemProxyService | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._sniffer: CaptureWorker | None = None
-        self._current_port = 8080
-        # 持久化 View：跨 toggle 保留数据（同时作为表格模型的存储/排序/过滤后端）
-        self._persistent_view = View()
-        # 基底过滤：只展示 HTTP 流量（排除 TCP/UDP/DNS）。表格模型只渲染 HTTPFlow
-        # 属性，非 HTTP 流无 .request 会触发 AttributeError（见 FlowTableModel）。
-        # 即使 _HTTPOnlyFilter 类已移除，这里仍用等价的 flowfilter "~http" 字符串保持
-        # 同一语义；GUI 搜索表达式也以 ~http 为基底（见 build_filter_expression）。
-        self._persistent_view.set_filter(parse_filter("~http"))
+        if mitm is None:
+            runtime = MitmRuntime(self)
+            mitm = MitmFacade(runtime)
+            self._owned_runtime: MitmRuntime | None = runtime
+        else:
+            runtime = mitm.runtime
+            self._owned_runtime = None
 
-        # 流量事件改由 UiBridgeAddon（真正的 mitmproxy addon）在钩子里
-        # 直接 emit 本 controller 的 4 个信号，不再直接连 View 的 SyncSignal。
-        # addon 在 CaptureWorker._start_proxy 中注册，桥接对象即本 controller。
+        self._mitm = mitm
+        self._runtime = runtime
+        self._system_proxy = system_proxy or SystemProxyService()
+        self._capture_state = CaptureState.STOPPED
+        self._last_error = ""
+        self._pending_attach = False
 
-        # 延迟发射 master_ready，确保 UI 信号连接已建立
-        QTimer.singleShot(0, lambda: self.master_ready.emit(self._persistent_view))
+        runtime.flow_added.connect(self.flow_added)
+        runtime.flow_updated.connect(self.flow_updated)
+        runtime.flow_removed.connect(self.flow_removed)
+        runtime.view_refreshed.connect(self.view_refreshed)
+        runtime.ready.connect(self._on_runtime_ready)
+        runtime.failed.connect(self._on_runtime_failed)
+        runtime.stopped.connect(self._on_runtime_stopped)
+
+        QTimer.singleShot(0, lambda: self.master_ready.emit(self._mitm.view))
 
     @property
     def is_capturing(self) -> bool:
-        """是否正在抓包"""
-        return self._sniffer is not None
+        return self._capture_state in (
+            CaptureState.STARTING,
+            CaptureState.RUNNING,
+            CaptureState.STOPPING,
+        )
+
+    @property
+    def capture_state(self) -> CaptureState:
+        return self._capture_state
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
 
     @property
     def current_port(self) -> int:
-        """当前端口"""
-        return self._current_port
+        return self._mitm.listen_port
 
     @property
-    def view(self) -> View | None:
-        """当前 mitmproxy View 实例（持久化，跨 toggle 保留）"""
-        return self._persistent_view
+    def view(self) -> View:
+        return self._mitm.view
 
-    def start_capture(self, port: int | None = None):
-        """启动抓包
-        1. 判断抓包worker是否存在 有则用旧
-        2. 判断是否传入端口 有则用新
-        3. 设置系统代理
-        4. 设置抓包线程worker（CaptureWorker）
-
-        :param int port:监听端口，None则使用当前端口
-        """
-        if self._sniffer is not None:
+    def start_capture(self, port: int | None = None) -> None:
+        if self._capture_state in (CaptureState.STARTING, CaptureState.RUNNING):
             return
+        if port is not None and port != self.current_port:
+            if self._runtime.is_running:
+                self._runtime.restart(listen_port=port)
+            else:
+                self._runtime.listen_port = port
 
-        if port is not None:
-            self._current_port = port
+        self._last_error = ""
+        self._pending_attach = True
+        self._set_capture_state(CaptureState.STARTING)
 
-        # 1. 启用系统代理
-        SystemProxyManager.set_proxy("127.0.0.1", self._current_port)
-
-        # 2. 启动抓包线程（UiBridgeAddon 在 worker 内注册，事件经 addon 钩子
-        #    转发为本 controller 的 Qt 信号；worker 只管跑代理）
-        self._sniffer = CaptureWorker(self._current_port, self._persistent_view, self)
-        self._sniffer.start()
-
-    def stop_capture(self):
-        """停止抓包"""
-        if self._sniffer is None:
+        if self._runtime.is_running:
+            self._attach_system_proxy()
             return
+        if self._runtime.state in (MitmRuntimeState.STOPPED, MitmRuntimeState.FAILED):
+            self._runtime.start()
 
-        # Save.done() must run on mitmproxy's event loop before the worker exits.
-        if not self.stop_save_recording():
-            log.error("关闭 mitmproxy Save 失败或超时，仍继续关闭代理")
-
-        # 1. 禁用系统代理
-        SystemProxyManager.unset_proxy()
-
-        # 2. 停止抓包线程
-        self._sniffer.stop()
-        self._sniffer = None
+    def stop_capture(self) -> None:
+        self._pending_attach = False
+        if self._capture_state == CaptureState.STOPPED:
+            return
+        self._set_capture_state(CaptureState.STOPPING)
+        detach_ok = self._system_proxy.detach()
+        if not detach_ok:
+            self._last_error = "恢复原系统代理失败"
+            self._set_capture_state(CaptureState.FAILED)
+            self.captureStateChanged.emit(False)
+            return
+        try:
+            self._mitm.stop_capture_recording()
+        except Exception:  # noqa: BLE001
+            log.exception("failed to stop capture recording")
+        self._set_capture_state(CaptureState.STOPPED)
         self.captureStateChanged.emit(False)
 
-    def update_port(self, new_port: int):
-        """更新端口
+    def shutdown(self) -> None:
+        self.stop_capture()
+        if self._owned_runtime is not None:
+            self._owned_runtime.stop()
 
-        Args:
-            new_port: 新端口
-        """
-        if new_port == self._current_port:
+    def update_port(self, new_port: int) -> None:
+        if new_port == self.current_port:
             return
-        self._current_port = new_port
-
-        # 如果正在抓包，需要重启
-        if self.is_capturing:
+        was_capturing = self._capture_state == CaptureState.RUNNING
+        if was_capturing:
             self.stop_capture()
-            self.start_capture()
+        self._runtime.restart(listen_port=new_port)
+        if was_capturing:
+            self._pending_attach = True
+            self._set_capture_state(CaptureState.STARTING)
 
     def get_flow(self, flow_id: str) -> HTTPFlow | None:
-        """按 id 从 View 中获取原始 flow"""
-        view = self.view
-        if view:
-            flow = view.get_by_id(flow_id)
-            if isinstance(flow, HTTPFlow):
-                return flow
-        return None
+        return self._mitm.get_flow(flow_id)
 
     def total_count(self) -> int:
-        """已抓取的全部 HTTP 流量数（不受 GUI 搜索过滤影响）。
-
-        用 ``View._store``（全量，含 TCP/UDP/DNS）里 **HTTPFlow 的数量** 作为
-        「总数」分母。``_store`` 不受 ``View.set_filter``（GUI 搜索）影响，所以
-        打开搜索时分母保持不变；而分子（表格可见行 = ``view._view`` 长度）会随
-        搜索缩小，从而正确显示「匹配数 / 总HTTP数」（如 3/16）。
-
-        非 HTTP 流量不计入分母——ferret 表格只展示 HTTP，它们不是用户关心的「总数」。
-        """
-        view = self.view
-        if view is None:
-            return 0
-        return sum(1 for f in view._store.values() if isinstance(f, HTTPFlow))
+        return self._mitm.total_count()
 
     def all_http_flows(self) -> list[HTTPFlow]:
-        """获取当前全部 HTTP Flow 的快照列表（供会话保存使用）。"""
-        view = self.view
-        if view is None:
-            return []
-        return [flow for flow in view._store.values() if isinstance(flow, HTTPFlow)]
+        return self._mitm.all_http_flows()
 
     def apply_filter(self, conditions: list[dict] | None = None) -> None:
-        """把 GUI 搜索条件编译为 flowfilter 表达式并应用到 View。
-
-        过滤只影响显示（View._view 可见列表），不清除 _store 中的任何流量——
-        清空搜索 / 切换条件后，被隐藏的 flow 仍完整保留，符合「抓全部、显示过滤」语义。
-
-        :param conditions: MultiFilterManager.get_conditions() 返回的条件列表，
-                           为空 / None 时仅保留基底 ~http（显示全部 HTTP 流量）。
-        """
-        view = self.view
-        if view is None:
-            return
-
-        view.set_filter(compile_filter(conditions))
+        self._mitm.set_filter(compile_filter(conditions))
 
     def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
-        """保存选中的流量到文件"""
-        return FlowFile.write(path, flows)
+        return self._mitm.save_flows(flows, path)
 
     def get_httpie_command(self, flow_id: str) -> str:
-        """获取 HTTPie 命令（字符串）"""
-        flow_obj = self.get_flow(flow_id)
-        if flow_obj:
-            return FlowExporter.httpie_command(flow_obj)
-        return ""
+        return self._mitm.get_httpie_command(flow_id)
 
     def get_raw_request(self, flow_id: str) -> bytes:
-        """获取原始HTTP请求"""
-        flow_obj = self.get_flow(flow_id)
-        if flow_obj:
-            return FlowExporter.raw_request(flow_obj)
-        return b""
+        return self._mitm.get_raw_request(flow_id)
 
     def get_raw_response(self, flow_id: str) -> bytes:
-        """获取原始HTTP响应"""
-        flow_obj = self.get_flow(flow_id)
-        if flow_obj:
-            return FlowExporter.raw_response(flow_obj)
-        return b""
+        return self._mitm.get_raw_response(flow_id)
 
     def get_raw_flow(self, flow_id: str) -> bytes:
-        """获取原始HTTP请求和响应"""
-        flow_obj = self.get_flow(flow_id)
-        if flow_obj:
-            return FlowExporter.raw(flow_obj)
-        return b""
+        return self._mitm.get_raw_flow(flow_id)
 
     def replay_flow(self, flow_id: str) -> None:
-        """客户端重发给真实服务器
+        self._mitm.replay_flow(flow_id)
 
-        1. 原始flow数据copy出新的flow数据且原始数据保留
-        2. 设置新flow数据 reuqst、response对象以及相关属性
-        3. 获取当前时间设置 ceate、start、end 三个属性，来确保排序问题
-        4. 获取master内核让 replayhandler发送给内核 进行重发
+    def replay_flows(self, flows: list[HTTPFlow]) -> None:
+        self._mitm.replay_flows(flows)
 
-        :param flow_id: 重发流量的id
-        """
-        old_flow = self.get_flow(flow_id)
-        if old_flow is None:
-            return
-        if not self.is_capturing or self._sniffer is None:
-            return
-        master = self._sniffer.master
-        if master is None:
-            return
-        new_flow: HTTPFlow = old_flow.copy()
-        new_flow.response = None
-        new_flow.error = None
-        new_flow.is_replay = "request"
+    def load_replay_file(self, path: Path | str) -> None:
+        self._mitm.replay_file(path)
 
-        # 让新 flow 排到末尾：把时间戳设为当前时间（一定比旧 flow 晚）
-        now = time.time()
-        new_flow.timestamp_created = now
-        new_flow.request.timestamp_start = now
-        new_flow.request.timestamp_end = now
+    def load_flow_file(self, path: Path | str) -> int:
+        return self._mitm.load_flow_file(path)
 
-        view = self.view
-        if view is None:
-            return
-        view.add([new_flow])
-        loop = master.event_loop
-        handler = ReplayHandler(new_flow, master.options)
+    def clear_flows(self) -> None:
+        self._mitm.clear_flows()
 
-        def _schedule():
-            asyncio.ensure_future(handler.replay())
-
-        loop.call_soon_threadsafe(_schedule)
+    def remove_flows(self, flows: list[HTTPFlow]) -> None:
+        self._mitm.remove_flows(flows)
 
     def toggle_capture(self) -> bool:
-        """切换抓包状态，发射状态变化信号
-
-        Returns:
-            切换后是否正在抓包
-        """
-        if self.is_capturing:
+        if self._capture_state == CaptureState.RUNNING:
             self.stop_capture()
             return False
-        else:
+        if self._capture_state in (CaptureState.STOPPED, CaptureState.FAILED):
             self.start_capture()
-            self.captureStateChanged.emit(True)
-            return True
+        return self.is_capturing
 
-    def start_save_recording(self, path: str) -> bool:
-        return self._update_save_options(path=path)
+    def _attach_system_proxy(self) -> None:
+        if not self._pending_attach or not self._runtime.is_running:
+            return
+        try:
+            self._mitm.start_capture_recording()
+            self._system_proxy.attach(self._mitm.listen_host, self._mitm.listen_port)
+        except Exception as exc:  # noqa: BLE001
+            with_recording = self._mitm.runtime.is_running
+            if with_recording:
+                try:
+                    self._mitm.stop_capture_recording()
+                except Exception:  # noqa: BLE001
+                    log.exception("failed to roll back capture recording")
+            self._pending_attach = False
+            self._last_error = str(exc)
+            self._set_capture_state(CaptureState.FAILED)
+            self.proxy_failed.emit(str(exc))
+            self.captureStateChanged.emit(False)
+            return
 
-    def stop_save_recording(self) -> bool:
-        return self._update_save_options(path=None)
+        self._pending_attach = False
+        self._set_capture_state(CaptureState.RUNNING)
+        self.proxy_started.emit()
+        self.captureStateChanged.emit(True)
 
-    def _update_save_options(
-        self,
-        *,
-        path: str | None,
-        timeout: float = 5.0,
-    ) -> bool:
-        """同步等待 mitmproxy event loop 执行 save_stream_file 配置更新。
+    def _set_capture_state(self, state: CaptureState) -> None:
+        if state == self._capture_state:
+            return
+        self._capture_state = state
+        self.capture_state_changed.emit(state)
 
-        只能从 Qt 主线程/非 mitmproxy event loop 线程调用，否则等待自身
-        event loop 会死锁。path=None 且 proxy 已停止视为成功，停止操作幂等。
-        """
-        sniffer = self._sniffer
-        if sniffer is None or sniffer.master is None:
-            return path is None
+    def _on_runtime_ready(self, _view: View) -> None:
+        self._attach_system_proxy()
 
-        master = sniffer.master
-        loop = master.event_loop
-        finished = threading.Event()
-        errors: list[Exception] = []
+    def _on_runtime_failed(self, message: str) -> None:
+        self._pending_attach = False
+        self._system_proxy.detach()
+        self._last_error = message
+        self._set_capture_state(CaptureState.FAILED)
+        self.proxy_failed.emit(message)
+        self.captureStateChanged.emit(False)
 
-        def update() -> None:
-            try:
-                if path is None:
-                    master.options.update(save_stream_file=None)
-                else:
-                    master.options.update(
-                        save_stream_file=path,
-                        save_stream_filter="~http",
-                    )
-            except Exception as exc:  # noqa: BLE001
-                errors.append(exc)
-            finally:
-                finished.set()
-
-        loop.call_soon_threadsafe(update)
-        if not finished.wait(timeout=timeout):
-            log.error("更新 mitmproxy Save 配置超时")
-            return False
-        if errors:
-            log.error("更新 mitmproxy Save 配置失败: %s", errors[0])
-            return False
-        return True
+    def _on_runtime_stopped(self) -> None:
+        if (
+            self._runtime.state == MitmRuntimeState.STOPPED
+            and self._capture_state in (CaptureState.STARTING, CaptureState.RUNNING)
+        ):
+            self._on_runtime_failed("mitmproxy 内核已停止")
 
 
 class CertBadgeController(QObject):

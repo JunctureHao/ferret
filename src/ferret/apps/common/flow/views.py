@@ -3,7 +3,7 @@ import time
 from collections.abc import Callable
 from typing import ClassVar
 
-from PySide6.QtCore import QModelIndex, QPoint, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -11,13 +11,17 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QSizePolicy,
     QStackedWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
     FluentIcon,
+    IconWidget,
     RoundMenu,
     SimpleCardWidget,
     SubtitleLabel,
@@ -54,6 +58,25 @@ def _infer_body_lang(content_type: str) -> str:
     if "xml" in ct or "html" in ct:
         return "xml"
     return "http"
+
+
+def _body_type_label(content_type: str) -> str:
+    value = (content_type or "").lower()
+    if "json" in value:
+        return "JSON"
+    if "html" in value:
+        return "HTML"
+    if "xml" in value:
+        return "XML"
+    if "javascript" in value:
+        return "JS"
+    if "css" in value:
+        return "CSS"
+    if value.startswith("text/"):
+        return "Text"
+    if value.startswith("image/"):
+        return "Binary"
+    return ""
 
 
 class FlowDataTable(TableView):
@@ -105,15 +128,19 @@ class FlowDataTable(TableView):
         self.scrollDelagate.verticalSmoothScroll.setDynamicEngineEnabled(False)
 
         self.verticalHeader().hide()
-        widths = [80, 100, 500, 100, 100, 0]
+        widths = [54, 74, 420, 78, 96, 82, 86]
         h_header = self.horizontalHeader()
         h_header.setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         h_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        h_header.setMinimumSectionSize(44)
         for i, w in enumerate(widths):
             self.setColumnWidth(i, w)
-        h_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        h_header.setFixedHeight(36)
+        self.verticalHeader().setDefaultSectionSize(34)
+        self.setMinimumWidth(360)
+        self.sortByColumn(0, Qt.SortOrder.DescendingOrder)
         # self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
     def __connect_signal_to_slot(self):
@@ -128,7 +155,7 @@ class FlowDataTable(TableView):
         self.source_model.modelReset.connect(self.__on_sync_visual)
 
         self.customContextMenuRequested.connect(self.__on_show_context_menu)
-        self.context_menu.delete_requested.connect(self.source_model.remove_row)
+        self.context_menu.delete_requested.connect(self._remove_row)
 
         self.selectionModel().selectionChanged.connect(self.__on_selection_changed)
 
@@ -200,10 +227,28 @@ class FlowDataTable(TableView):
         selected = len(self.selectionModel().selectedRows())
         self.stats_updated.emit(total, shown, selected)
 
+    def emit_stats(self) -> None:
+        self.__emit_stats_updated()
+
     @Slot()
     def clear_all(self):
         """清除所有数据"""
-        self.source_model.clear_data()
+        if self.controller and hasattr(self.controller, "clear_flows"):
+            self.controller.clear_flows()
+        else:
+            self.source_model.clear_data()
+        self.clearSelection()
+        QTimer.singleShot(0, self.__emit_stats_updated)
+
+    @Slot(int)
+    def _remove_row(self, row: int) -> None:
+        flow = self.source_model.get_flow(row)
+        if flow is None:
+            return
+        if self.controller and hasattr(self.controller, "remove_flows"):
+            self.controller.remove_flows([flow])
+        else:
+            self.source_model.remove_row(row)
 
     def set_view(self, view):
         """设置 mitmproxy View 实例
@@ -238,6 +283,16 @@ class FlowDataTable(TableView):
         self.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
         self.horizontalScrollBar().setValue(0)
 
+    def selected_row_data(self) -> dict:
+        index = self.selectionModel().currentIndex()
+        if not index.isValid():
+            indexes = self.selectionModel().selectedRows()
+            if not indexes:
+                return {}
+            index = indexes[0]
+        source_index = self.proxy_model.mapToSource(index)
+        return self.source_model.get_row_data(source_index.row())
+
     @Slot(QModelIndex)
     def __on_row_double_clicked(self, index: QModelIndex):
         """双击行时触发
@@ -249,6 +304,15 @@ class FlowDataTable(TableView):
         row = source_index.row()
         data = self.source_model.get_row_data(row)
         self.row_double_clicked.emit(data)
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._apply_responsive_columns(e.size().width())
+
+    def _apply_responsive_columns(self, width: int) -> None:
+        narrow = width < 900
+        self.setColumnHidden(4, narrow)
+        self.setColumnHidden(5, narrow)
 
 
 class FlowDataPanel(SimpleCardWidget):
@@ -262,6 +326,10 @@ class FlowDataPanel(SimpleCardWidget):
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
+
+    def minimumSizeHint(self) -> QSize:
+        """Keep the outer 50/50 split usable despite long inner tab labels."""
+        return QSize(220, 220)
 
     def __init_widget(self):
         """初始化界面组件"""
@@ -279,6 +347,8 @@ class FlowDataPanel(SimpleCardWidget):
         self.res_panel = ResponsePanel(self.detail_page, self.controller)
         self.detail_page.addWidget(self.req_panel)
         self.detail_page.addWidget(self.res_panel)
+        self.req_panel.setMinimumSize(220, 220)
+        self.res_panel.setMinimumSize(220, 220)
         self.detail_page.setStretchFactor(0, 1)
         self.detail_page.setStretchFactor(1, 1)
 
@@ -288,13 +358,53 @@ class FlowDataPanel(SimpleCardWidget):
 
         self.setBorderRadius(0)  # ← 去掉圆角，与表格对齐
 
+        self.context_bar = QWidget(self)
+        self.context_bar.setFixedHeight(40)
+        self.context_method = BodyLabel(self.context_bar)
+        self.context_url = BodyLabel(self.context_bar)
+        self.context_url.setMinimumWidth(0)
+        self.context_url.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        self.context_url.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.context_status = CaptionLabel(self.context_bar)
+        self.context_status.setMinimumWidth(38)
+        self.context_status.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.context_duration = CaptionLabel(self.context_bar)
+        self.context_duration.setMinimumWidth(54)
+        self.context_duration.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.context_close_button = TransparentToolButton(
+            FluentIcon.CLOSE, self.context_bar
+        )
+        self.context_close_button.setFixedSize(32, 32)
+        self.context_close_button.setIconSize(QSize(16, 16))
+        self.context_close_button.setToolTip(self.tr("关闭详情"))
+        self.context_close_button.setAccessibleName(self.tr("关闭详情"))
+
         self.__update_close_buttons()
 
     def __init_layout(self):
         """初始化布局结构"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.context_bar)
         layout.addWidget(self.stack)
+
+        context_layout = QHBoxLayout(self.context_bar)
+        context_layout.setContentsMargins(10, 4, 8, 4)
+        context_layout.setSpacing(8)
+        context_layout.addWidget(self.context_method)
+        context_layout.addWidget(self.context_url, 1)
+        context_layout.addWidget(self.context_status)
+        context_layout.addWidget(self.context_duration)
+        context_layout.addWidget(self.context_close_button)
 
         # 空页面布局：顶部右侧 X + 中间文字
         empty_layout = QVBoxLayout(self.empty_page)
@@ -317,16 +427,13 @@ class FlowDataPanel(SimpleCardWidget):
         self.req_panel.close_button.clicked.connect(self.__collapse_panel)
         self.res_panel.close_button.clicked.connect(self.__collapse_panel)
         self.empty_close_button.clicked.connect(self.__collapse_panel)
+        self.context_close_button.clicked.connect(self.__collapse_panel)
 
     @Slot()
     def __update_close_buttons(self):
-        """更新关闭按钮显示状态"""
-        if self.detail_page.orientation() == Qt.Orientation.Vertical:
-            self.req_panel.close_button.show()
-            self.res_panel.close_button.hide()
-        else:
-            self.req_panel.close_button.hide()
-            self.res_panel.close_button.show()
+        """The outer context bar owns the single detail close affordance."""
+        self.req_panel.close_button.hide()
+        self.res_panel.close_button.hide()
 
     @Slot()
     def __on_layout_changed(self):
@@ -353,6 +460,7 @@ class FlowDataPanel(SimpleCardWidget):
         """
         self.req_panel.set_data(data)  # 请求面板
         self.res_panel.set_data(data)  # 响应面板
+        self._update_context_bar(data)
         self.stack.setCurrentIndex(1)
         # detail_page 刚切为当前页时尚未完成 layout，width 可能未就绪，
         # 故延迟到下一事件循环（布局算完）再设一次 50:50，避免抖动循环。
@@ -364,14 +472,41 @@ class FlowDataPanel(SimpleCardWidget):
 
     def __apply_detail_equal_sizes(self):
         """确保请求面板和响应面板严格 50:50"""
-        w = self.detail_page.width()
-        h = self.detail_page.height()
-        if self.detail_page.orientation() == Qt.Orientation.Horizontal:
-            if w > 0:
-                self.detail_page.setSizes([w // 2, w // 2])
-        else:
-            if h > 0:
-                self.detail_page.setSizes([h // 2, h // 2])
+        self.detail_page.set_equal_sizes()
+
+    def _update_context_bar(self, data: dict) -> None:
+        method = str(data.get("Method", "—"))
+        url = str(data.get("URL", "—"))
+        status = str(data.get("Status Code", "等待中"))
+        duration = str(data.get("Duration", ""))
+        self.context_method.setText(method)
+        self.context_url.setText(url)
+        self.context_url.setToolTip(url)
+        self.context_status.setText(status)
+        self.context_duration.setText(duration)
+        status_kind = "neutral"
+        if status == "Error":
+            status_kind = "error"
+        elif status.isdigit():
+            code = int(status)
+            if 200 <= code < 300:
+                status_kind = "success"
+            elif 300 <= code < 400:
+                status_kind = "info"
+            elif 400 <= code < 500:
+                status_kind = "warning"
+            elif code >= 500:
+                status_kind = "error"
+        colors = {
+            "success": "#2e9b4d",
+            "info": "#2878c8",
+            "warning": "#b77900",
+            "error": "#d13438",
+            "neutral": "#7a7a7a",
+        }
+        self.context_status.setStyleSheet(
+            f"color: {colors[status_kind]}; font-weight: 600;"
+        )
 
 
 class FlowViewerPane(OrientationSplitter):
@@ -385,9 +520,26 @@ class FlowViewerPane(OrientationSplitter):
     ) -> None:
         super().__init__(parent=parent)
         self.controller = controller
-        self.table = FlowDataTable(self, controller, capabilities)
+        self._capture_mode = capabilities is None or capabilities.can_delete
+        self._capture_context = {
+            "capture_state": "stopped",
+            "endpoint": "",
+            "total_count": 0,
+            "shown_count": 0,
+            "active_filter_count": 0,
+        }
+        self.table_container = QWidget(self)
+        self.table_stack = QStackedWidget(self.table_container)
+        self.table = FlowDataTable(self.table_container, controller, capabilities)
+        self.empty_state = FlowEmptyState(self.table_container)
+        self.table_stack.addWidget(self.table)
+        self.table_stack.addWidget(self.empty_state)
+        container_layout = QVBoxLayout(self.table_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(self.table_stack)
         self.panel = FlowDataPanel(self, controller)
-        self.addWidget(self.table)
+        self.addWidget(self.table_container)
         self.addWidget(self.panel)
         self.setStretchFactor(0, 1)
         self.setStretchFactor(1, 0)
@@ -396,11 +548,14 @@ class FlowViewerPane(OrientationSplitter):
         self.table.row_selected.connect(self._on_row_selected)
         self.table.row_double_clicked.connect(self._on_row_double_clicked)
         self.panel.collapseRequested.connect(self.collapse_panel)
+        self.table.stats_updated.connect(self._on_stats_updated)
+        self._refresh_empty_state()
 
     def set_controller(self, controller) -> None:
         self.controller = controller
         self.table.set_controller(controller)
         self.panel.set_controller(controller)
+        self._refresh_empty_state()
 
     def is_panel_expanded(self) -> bool:
         sizes = self.sizes()
@@ -420,19 +575,97 @@ class FlowViewerPane(OrientationSplitter):
 
     @Slot()
     def collapse_panel(self) -> None:
-        self.setSizes([1, 0])
+        self.collapse(1)
 
     def _apply_equal_sizes(self) -> None:
-        extent = (
-            self.width()
-            if self.orientation() == Qt.Orientation.Horizontal
-            else self.height()
-        )
-        available = extent - self.handleWidth() * max(0, self.count() - 1)
-        if available <= 0:
+        self.set_equal_sizes()
+
+    @Slot()
+    def open_selected(self) -> None:
+        data = self.table.selected_row_data()
+        if data:
+            self._on_row_double_clicked(data)
+
+    def set_capture_context(
+        self,
+        *,
+        capture_state: object,
+        endpoint: str,
+        total_count: int,
+        shown_count: int,
+        active_filter_count: int,
+    ) -> None:
+        value = getattr(capture_state, "value", capture_state)
+        self._capture_context = {
+            "capture_state": str(value),
+            "endpoint": endpoint,
+            "total_count": total_count,
+            "shown_count": shown_count,
+            "active_filter_count": active_filter_count,
+        }
+        self._refresh_empty_state()
+
+    @Slot(int, int, int)
+    def _on_stats_updated(self, total: int, shown: int, _selected: int) -> None:
+        self._capture_context["total_count"] = total
+        self._capture_context["shown_count"] = shown
+        self._refresh_empty_state()
+
+    def _refresh_empty_state(self) -> None:
+        total = int(self._capture_context["total_count"])
+        shown = int(self._capture_context["shown_count"])
+        state = str(self._capture_context["capture_state"])
+        filters = int(self._capture_context["active_filter_count"])
+
+        if shown > 0:
+            self.table_stack.setCurrentWidget(self.table)
             return
-        first = available // 2
-        self.setSizes([first, available - first])
+
+        self.table_stack.setCurrentWidget(self.empty_state)
+        if total > 0:
+            self.empty_state.set_text(
+                self.tr("没有匹配结果"),
+                self.tr("当前有 {} 个有效条件").format(filters),
+            )
+        elif state in ("running", "starting"):
+            self.empty_state.set_text(
+                self.tr("等待流量"),
+                str(self._capture_context["endpoint"]),
+            )
+        else:
+            subtitle = (
+                self.tr("代理已停止")
+                if self._capture_mode
+                else self.tr("当前会话没有 HTTP 流量")
+            )
+            self.empty_state.set_text(self.tr("暂无流量"), subtitle)
+
+
+class FlowEmptyState(QWidget):
+    """Small neutral empty state for the shared Flow table area."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.icon = IconWidget(FluentIcon.WIFI, self)
+        self.icon.setFixedSize(32, 32)
+        self.title = BodyLabel(self)
+        self.subtitle = CaptionLabel(self)
+        self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.addStretch(1)
+        layout.addWidget(self.icon, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(8)
+        layout.addWidget(self.title)
+        layout.addWidget(self.subtitle)
+        layout.addStretch(1)
+        self.set_text(self.tr("暂无流量"), self.tr("代理已停止"))
+
+    def set_text(self, title: str, subtitle: str) -> None:
+        self.title.setText(title)
+        self.subtitle.setText(subtitle)
 
 
 class CookieWidget(QWidget):
@@ -483,16 +716,24 @@ class CookieWidget(QWidget):
         """连接信号与槽函数"""
         self.copy_button.clicked.connect(self.__on_copy)
 
-    def set_cookies(self, cookies: dict):
+    def set_cookies(self, cookies: dict | list[dict]):
         """设置 cookie 数据 {name: value, ...}
 
         Args:
             cookies: Cookie 字典
         """
-        self.cookies = cookies
+        if isinstance(cookies, list):
+            normalized = {
+                str(item.get("name", "")): str(item.get("value", ""))
+                for item in cookies
+                if item.get("name")
+            }
+        else:
+            normalized = cookies
+        self.cookies = normalized
         self.tree.clear()
 
-        for key, value in cookies.items():
+        for key, value in normalized.items():
             item = QTreeWidgetItem(self.tree)
             item.setText(0, str(key))
             item.setText(1, str(value))
@@ -558,11 +799,12 @@ class RequestPanel(TabPanel):
 
     def __init_layout(self):
         """初始化布局结构"""
-        self.addTab("总览", self.overview, self.tr("总览"))
-        self.addTab("原始", self.raw_edit, "原始")
-        self.addTab("请求头", self.header_card, "请求头")
-        self.addTab("请求体", self.body_card, "请求体")
+        self.addTab("概览", self.overview, self.tr("概览"))
+        self.addTab("Headers", self.header_card, "Headers")
+        self.addTab("Params", self.params_widget, "Params")
         self.addTab("Cookies", self.cookie_card, "Cookies")
+        self.addTab("Body", self.body_card, "Body")
+        self.addTab("Raw", self.raw_edit, "Raw")
         self.setTabFontSize(12)
 
     def set_data(self, data: dict):
@@ -581,39 +823,16 @@ class RequestPanel(TabPanel):
 
         flow_id = data.get("Connection ID", "")
         content_type = data.get("Request Content-Type", "")
+        self._set_body_tab_label(content_type)
         body = data.get("Request Body", b"")
         self._fill_raw(body, content_type, flow_id)
         self._fill_body(data)
 
-        # 消费预解析的 URL 参数，动态决定是否显示"参数"tab
         params = data.get("Request Params", {})
         self.params_widget.set_items(params)
-        if params:
-            if "参数" not in self.pivot.items:
-                self.addTab("参数", self.params_widget, "参数", index=2)
-        else:
-            if "参数" in self.pivot.items:
-                if self.pivot.currentRouteKey() == "参数":
-                    self.pivot.setCurrentItem("原始")
-                self.pivot.removeWidget("参数")
-                idx = self.stacked.indexOf(self.params_widget)
-                if idx >= 0:
-                    self.stacked.removeWidget(self.params_widget)
 
-        # 消费预解析的 Cookie，无 Cookie 时自动隐藏 Cookies 面板
         cookies = data.get("Request Cookies", {})
         self.cookie_widget.set_cookies(cookies)
-        if cookies:
-            if "Cookies" not in self.pivot.items:
-                self.addTab("Cookies", self.cookie_card, "Cookies")
-        else:
-            if "Cookies" in self.pivot.items:
-                if self.pivot.currentRouteKey() == "Cookies":
-                    self.pivot.setCurrentItem("原始")
-                self.pivot.removeWidget("Cookies")
-                idx = self.stacked.indexOf(self.cookie_card)
-                if idx >= 0:
-                    self.stacked.removeWidget(self.cookie_card)
 
     def _fill_raw(self, body: bytes, content_type: str = "", flow_id: str = ""):
         """生成完整的原始HTTP请求格式
@@ -675,6 +894,14 @@ class RequestPanel(TabPanel):
         lang = _infer_body_lang(data.get("Request Content-Type", ""))
         self.body_card.set_text(text, lang=lang)
 
+    def _set_body_tab_label(self, content_type: str) -> None:
+        item = self.pivot.items.get("Body")
+        if item is None:
+            return
+        label = _body_type_label(content_type)
+        item.setText(f"Body · {label}" if label else "Body")
+        item.adjustSize()
+
 
 class ResponsePanel(TabPanel):
     """响应面板 - 包含原始、响应头、响应体三个标签"""
@@ -696,6 +923,7 @@ class ResponsePanel(TabPanel):
     def __init_widget(self):
         """初始化界面组件"""
         self.raw_edit = ToolPlainTextEdit()
+        self.raw_edit.set_read_only(True)
 
         self.body_card = JsonDualPanel()
         self.body_card.set_read_only(True)
@@ -703,11 +931,19 @@ class ResponsePanel(TabPanel):
         self.header_card = ItemDualPanel()
         self.header_card.set_read_only(True)
 
+        self.cookie_widget = CookieWidget()
+        self.cookie_card = SimpleCardWidget()
+        self.cookie_card.setBorderRadius(0)
+        cookie_layout = QVBoxLayout(self.cookie_card)
+        cookie_layout.setContentsMargins(0, 0, 0, 0)
+        cookie_layout.addWidget(self.cookie_widget)
+
     def __init_layout(self):
         """初始化布局结构"""
-        self.addTab("原始", self.raw_edit, "原始")
-        self.addTab("响应头", self.header_card, "响应头")
-        self.addTab("响应体", self.body_card, "响应体")
+        self.addTab("Headers", self.header_card, "Headers")
+        self.addTab("Cookies", self.cookie_card, "Cookies")
+        self.addTab("Body", self.body_card, "Body")
+        self.addTab("Raw", self.raw_edit, "Raw")
         self.setTabFontSize(12)
 
     def set_data(self, data: dict):
@@ -721,10 +957,12 @@ class ResponsePanel(TabPanel):
         # 响应头
         headers = data.get("Response Headers", {})
         self.header_card.set_items(headers)
+        self.cookie_widget.set_cookies(data.get("Response Cookies", {}))
 
         # 响应体（消费预解析字段）
         flow_id = data.get("Connection ID", "")
         content_type = data.get("Response Content-Type", "")
+        self._set_body_tab_label(content_type)
         body = data.get("Response Body", b"")
         self._fill_raw(body, content_type, flow_id)
         self._fill_body(data)
@@ -797,6 +1035,14 @@ class ResponsePanel(TabPanel):
             text = data.get("Response Body Text") or ""
         lang = _infer_body_lang(data.get("Response Content-Type", ""))
         self.body_card.set_text(text, lang=lang)
+
+    def _set_body_tab_label(self, content_type: str) -> None:
+        item = self.pivot.items.get("Body")
+        if item is None:
+            return
+        label = _body_type_label(content_type)
+        item.setText(f"Body · {label}" if label else "Body")
+        item.adjustSize()
 
 
 class Overview(SimpleCardWidget):
@@ -1301,6 +1547,7 @@ class FlowContextMenu(RoundMenu):
     """Flow 上下文菜单 - 提供复制、删除、查看等操作。"""
 
     delete_requested = Signal(int)  # 删除请求信号
+    replay_file_requested = Signal()  # 从文件回放请求信号
 
     def __init__(
         self,
@@ -1331,15 +1578,20 @@ class FlowContextMenu(RoundMenu):
         Args:
             row_index: 行索引
             row_data: 行数据字典
+            selected_flows: 当前选中的 Flow 列表（保持表格选中顺序）
         """
         self.row_index = row_index
         self.row_data = row_data
         self.flows = selected_flows or []
+        self._refresh_replay_label()
 
     def __init_widget(self):
         """初始化界面组件"""
         self.client_replay_action = BaseAction(
             parent=self, icon=FluentIcon.SYNC, text=self.tr("重发")
+        )
+        self.replay_from_file_action = BaseAction(
+            parent=self, icon=FluentIcon.FOLDER, text=self.tr("从文件回放…")
         )
         self.save_flows_action = BaseAction(
             parent=self, icon=FluentIcon.SAVE, text=self.tr("保存")
@@ -1358,6 +1610,7 @@ class FlowContextMenu(RoundMenu):
         self.addMenu(self.view_menu)
         if self.capabilities.can_replay:
             self.addAction(self.client_replay_action)
+            self.addAction(self.replay_from_file_action)
         self.addMenu(self.export_menu)
         if self.capabilities.can_save_selection:
             self.addAction(self.save_flows_action)
@@ -1367,9 +1620,18 @@ class FlowContextMenu(RoundMenu):
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
         self.client_replay_action.triggered.connect(self.__on_client_replay_triggered)
+        self.replay_from_file_action.triggered.connect(self.replay_file_requested.emit)
         self.save_flows_action.triggered.connect(self.__on_save_flows_triggered)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
+
+    def _refresh_replay_label(self) -> None:
+        """根据当前选中数量刷新重发动作文案：单选=重发，多选=重发 N 条。"""
+        count = len(self.flows)
+        if count <= 1:
+            self.client_replay_action.setText(self.tr("重发"))
+        else:
+            self.client_replay_action.setText(self.tr("重发 {} 条").format(count))
 
     @Slot()
     def __on_delete_triggered(self):
@@ -1410,10 +1672,23 @@ class FlowContextMenu(RoundMenu):
 
     @Slot()
     def __on_client_replay_triggered(self):
-        """重放当前选中的请求"""
-        flow_id = self.row_data.get("id", "")
-        if flow_id and self.controller:
-            self.controller.replay_flow(flow_id)
+        """重放当前选中的请求（支持单选/多选）。
+
+        多选时直接调用 ``controller.replay_flows(self.flows)``，保持选中
+        顺序；单选时回退到 ``replay_flow(flow_id)`` 兼容旧调用方。两种路径
+        最终都通过 ``ClientPlayback.start_replay`` 入队。
+        """
+        if not self.controller:
+            return
+        try:
+            if len(self.flows) > 1:
+                self.controller.replay_flows(self.flows)
+                return
+            flow_id = self.row_data.get("id", "")
+            if flow_id:
+                self.controller.replay_flow(flow_id)
+        except (ValueError, RuntimeError) as exc:
+            show_warning(self.tr("回放失败"), str(exc), self.main_window)
 
 
 class FlowExportMenu(RoundMenu):

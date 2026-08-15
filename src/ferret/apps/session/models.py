@@ -19,13 +19,11 @@ from ferret.utils.http_parser import format_bytes
 class SessionSource(StrEnum):
     CAPTURE = "capture"
     IMPORT = "import"
-    RECORDING = "recording"
 
 
 _SOURCE_LABELS: dict[SessionSource, str] = {
     SessionSource.CAPTURE: "抓包",
     SessionSource.IMPORT: "导入",
-    SessionSource.RECORDING: "录制",
 }
 
 
@@ -40,24 +38,6 @@ class SessionMeta:
     flow_count: int
     file_size: int
     source: SessionSource
-
-
-class RecordingState(StrEnum):
-    IDLE = "idle"
-    STARTING = "starting"
-    RECORDING = "recording"
-    STOPPING = "stopping"
-    FAILED = "failed"
-
-
-@dataclass(slots=True)
-class RecordingHandle:
-    session_id: str
-    name: str
-    created_at: datetime
-    flow_path: Path
-    meta_path: Path
-    flow_count: int = 0
 
 
 class SessionTableModel(QAbstractTableModel):
@@ -92,9 +72,9 @@ class SessionTableModel(QAbstractTableModel):
                 self.endRemoveRows()
                 return
 
-    def update_session(self, session: SessionMeta) -> None:
+    def update_session(self, old_session_id: str, session: SessionMeta) -> None:
         for i, s in enumerate(self._sessions):
-            if s.session_id == session.session_id:
+            if s.session_id == old_session_id:
                 self._sessions[i] = session
                 idx_start = self.index(i, 0)
                 idx_end = self.index(i, self.columnCount() - 1)

@@ -109,7 +109,6 @@ class SessionListPage(QWidget):
         self.table.sortByColumn(1, Qt.SortOrder.DescendingOrder)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setWordWrap(False)
         widths = [320, 170, 90, 100, 90]
         header = self.table.horizontalHeader()
@@ -281,26 +280,41 @@ class SessionListPage(QWidget):
         meta = self.source_model.session_at(row)
         if not meta:
             return
+        old_id = meta.session_id
         dlg = SessionNameDialog(
             self.tr("重命名会话"),
             default_name=meta.name,
+            flow_count=meta.flow_count,
             parent=self.window(),
         )
         if dlg.exec():
-            self.controller.rename_session(meta.session_id, dlg.get_name())
+            new_name = dlg.get_name()
+            if new_name != meta.name:
+                self.controller.rename_session(old_id, dlg.get_name())
 
     @Slot()
     def _on_delete(self):
         rows = self.table.selectionModel().selectedRows()
         if not rows:
             return
-        row = self.proxy_model.mapToSource(rows[0]).row()
-        meta = self.source_model.session_at(row)
-        if not meta:
+        metas = []
+        for r in rows:
+            src_row = self.proxy_model.mapToSource(r).row()
+            m = self.source_model.session_at(src_row)
+            if m:
+                metas.append(m)
+        if not metas:
             return
-        dlg = SessionDeleteDialog(meta.name, self.window())
+
+        if len(metas) == 1:
+            names = metas[0].name
+        else:
+            names = self.tr("选中 {} 个会话").format(len(metas))
+
+        dlg = SessionDeleteDialog(names, self.window())
         if dlg.exec():
-            self.controller.delete_session(meta.session_id)
+            for m in metas:
+                self.controller.delete_session(m.session_id)
 
     @Slot(QPoint)
     def _on_context_menu(self, pos: QPoint):

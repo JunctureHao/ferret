@@ -31,6 +31,7 @@ with redirect_stdout(io.StringIO()):
     from qfluentwidgets import FluentTranslator, qconfig
 
 from ferret.apps.window import MainWindow
+from ferret.application import ApplicationRuntime
 from ferret.core import resources_rc  # noqa: F401  注册资源（图标/i18n/qm）
 from ferret.core.log import init_logging
 from ferret.core.settings import (
@@ -52,6 +53,7 @@ class Application:
     def __init__(self):
         self.app: QApplication | None = None
         self.window: MainWindow | None = None
+        self.runtime: ApplicationRuntime | None = None
         self.translators: list[QTranslator] = []
 
     # ------------------------------------------------------------------ #
@@ -145,8 +147,16 @@ class Application:
 
     def _create_window(self):
         """创建并显示主窗口。"""
-        self.window = MainWindow()
+        self.runtime = ApplicationRuntime()
+        self.window = MainWindow(self.runtime)
+        self.runtime.start()
         self.window.show()
+
+    def _shutdown(self) -> None:
+        if self.window is not None:
+            self.window.shutdown()
+        elif self.runtime is not None:
+            self.runtime.shutdown()
 
     def run(self):
         """按序执行所有初始化步骤并进入事件循环。
@@ -160,4 +170,5 @@ class Application:
         app = self._create_qapp()
         self._init_i18n()
         self._create_window()
+        app.aboutToQuit.connect(self._shutdown)
         sys.exit(app.exec())
