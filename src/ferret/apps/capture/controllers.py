@@ -135,7 +135,7 @@ class CaptureController(QObject):
             return
         try:
             self._mitm.stop_capture_recording()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.exception("failed to stop capture recording")
         self._set_capture_state(CaptureState.STOPPED)
         self.captureStateChanged.emit(False)
@@ -183,6 +183,9 @@ class CaptureController(QObject):
     def get_raw_flow(self, flow_id: str) -> bytes:
         return self._mitm.get_raw_flow(flow_id)
 
+    def export_har(self, flows: list[HTTPFlow], path: str) -> None:
+        self._mitm.export_har(flows, path)
+
     def replay_flow(self, flow_id: str) -> None:
         self._mitm.replay_flow(flow_id)
 
@@ -220,7 +223,7 @@ class CaptureController(QObject):
             if with_recording:
                 try:
                     self._mitm.stop_capture_recording()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     log.exception("failed to roll back capture recording")
             self._pending_attach = False
             self._last_error = str(exc)
@@ -252,9 +255,9 @@ class CaptureController(QObject):
         self.captureStateChanged.emit(False)
 
     def _on_runtime_stopped(self) -> None:
-        if (
-            self._runtime.state == MitmRuntimeState.STOPPED
-            and self._capture_state in (CaptureState.STARTING, CaptureState.RUNNING)
+        if self._runtime.state == MitmRuntimeState.STOPPED and self._capture_state in (
+            CaptureState.STARTING,
+            CaptureState.RUNNING,
         ):
             self._on_runtime_failed("mitmproxy 内核已停止")
 

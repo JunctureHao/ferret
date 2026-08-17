@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ferret.apps.session.models import (
@@ -15,8 +15,8 @@ def make_session(session_id: str, name: str) -> SessionMeta:
         session_id=session_id,
         name=name,
         path=Path(session_id),
-        created_at=datetime(2026, 1, 1),
-        modified_at=datetime(2026, 1, 1),
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        modified_at=datetime(2026, 1, 1, tzinfo=UTC),
         flow_count=1,
         file_size=10,
         source=SessionSource.CAPTURE,

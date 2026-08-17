@@ -32,7 +32,7 @@ class ApplicationRuntime(QObject):
             return False
         try:
             self.mitm.stop_capture_recording()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.exception("failed to stop native flow recording")
         runtime_stopped = self.mitm_runtime.stop()
         self._shutdown = runtime_stopped

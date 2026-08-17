@@ -31,9 +31,9 @@ with redirect_stdout(io.StringIO()):
     from qfluentwidgets import FluentTranslator, qconfig
 
 from ferret.apps.window import MainWindow
-from ferret.application import ApplicationRuntime
 from ferret.core import resources_rc  # noqa: F401  注册资源（图标/i18n/qm）
 from ferret.core.log import init_logging
+from ferret.core.runtime import ApplicationRuntime
 from ferret.core.settings import (
     APP_NAME,
     CONFIG,

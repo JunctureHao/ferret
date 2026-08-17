@@ -1,16 +1,35 @@
-"""Export mitmproxy HTTP flows to commands and raw messages."""
+"""Export mitmproxy HTTP flows to commands and raw messages.
 
+除 ``curl_command`` 外全部委托给 ``mitmproxy.addons.export`` 的模块级函数，
+只在边界上把 ``CommandError`` 归一化成 ``ValueError``。
+"""
+
+import json
 import re
 import shlex
 import sys
+from collections.abc import Callable, Sequence
+from functools import partial
 
-from ferret.core.mitm.bindings import (
-    HTTPFlow,
-    Request,
-    Response,
-    assemble_request,
-    assemble_response,
-)
+from ferret.core.mitm.bindings import CommandError, HTTPFlow, SaveHar, export_module
+
+
+def _call[Arg, Result](exporter: Callable[[Arg], Result], target: Arg) -> Result:
+    """调用上游导出函数，不让 mitmproxy 的异常类型穿出 core 边界。"""
+    try:
+        return exporter(target)
+    except CommandError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _to_windows_curl(command: str) -> str:
+    """把 shlex 产出的 POSIX 单引号改写成 cmd.exe / PowerShell 可用的双引号。"""
+
+    def replace_quotes(match: re.Match[str]) -> str:
+        escaped = match.group(1).replace('"', r"\"")
+        return f'"{escaped}"'
+
+    return re.sub(r"'([^']*)'", replace_quotes, command)
 
 
 class FlowExporter:
@@ -18,8 +37,14 @@ class FlowExporter:
 
     @staticmethod
     def curl_command(flow: HTTPFlow) -> str:
-        request = FlowExporter._cleanup_request(flow)
-        FlowExporter._pop_headers(request)
+        """``mitmproxy.addons.export.curl_command`` 的本地分叉。
+
+        不能委托上游：上游会读 ``ctx.options.export_preserve_original_ip``，
+        该选项由 Export addon 注册而 FerretMaster 不加载它；且上游只产出 POSIX
+        引号，Windows 的 cmd.exe / PowerShell 会把单引号当字面字符。
+        """
+        request = _call(export_module.cleanup_request, flow)
+        export_module.pop_headers(request)
         args = ["curl"]
         for key, value in request.headers.items(multi=True):
             if key.lower() == "accept-encoding":
@@ -33,98 +58,37 @@ class FlowExporter:
         args.append(request.pretty_url)
         command = " ".join(shlex.quote(argument) for argument in args)
         if request.content:
-            command += f" -d {FlowExporter._request_content_for_console(request)}"
+            body = _call(export_module.request_content_for_console, request)
+            command += f" -d {body}"
         if sys.platform == "win32":
-            command = FlowExporter._to_windows_curl(command)
+            command = _to_windows_curl(command)
         return command
 
     @staticmethod
     def httpie_command(flow: HTTPFlow) -> str:
-        request = FlowExporter._cleanup_request(flow)
-        FlowExporter._pop_headers(request)
-        args = ["http", request.method, request.pretty_url]
-        for key, value in request.headers.items(multi=True):
-            args.append(f"{key}: {value}")
-        command = " ".join(shlex.quote(argument) for argument in args)
-        if request.content:
-            command += " <<< " + FlowExporter._request_content_for_console(request)
-        return command
+        return _call(export_module.httpie_command, flow)
 
     @staticmethod
     def raw_request(flow: HTTPFlow) -> bytes:
-        request = FlowExporter._cleanup_request(flow)
-        if request.raw_content is None:
-            raise ValueError("Request content missing.")
-        return assemble_request(request)
+        return _call(export_module.raw_request, flow)
 
     @staticmethod
     def raw_response(flow: HTTPFlow) -> bytes:
-        response = FlowExporter._cleanup_response(flow)
-        if response.raw_content is None:
-            raise ValueError("Response content missing.")
-        return assemble_response(response)
+        return _call(export_module.raw_response, flow)
 
     @staticmethod
     def raw(flow: HTTPFlow, separator: bytes = b"\r\n\r\n") -> bytes:
-        request_present = bool(flow.request and flow.request.raw_content is not None)
-        response_present = bool(flow.response and flow.response.raw_content is not None)
-        if request_present and response_present:
-            parts = [
-                FlowExporter.raw_request(flow),
-                FlowExporter.raw_response(flow),
-            ]
-            if flow.websocket:
-                parts.append(flow.websocket._get_formatted_messages())
-            return separator.join(parts)
-        if request_present:
-            return FlowExporter.raw_request(flow)
-        if response_present:
-            return FlowExporter.raw_response(flow)
-        raise ValueError("Can't export flow with no request or response.")
+        return _call(partial(export_module.raw, separator=separator), flow)
 
     @staticmethod
-    def _cleanup_request(flow: HTTPFlow) -> Request:
-        if not flow.request:
-            raise ValueError("Can't export flow with no request.")
-        request = flow.request.copy()
-        request.decode(strict=False)
-        return request
+    def save_har(flows: Sequence[HTTPFlow], path: str) -> None:
+        """把流量导出为标准 HAR 文件。
 
-    @staticmethod
-    def _cleanup_response(flow: HTTPFlow) -> Response:
-        if not flow.response:
-            raise ValueError("Can't export flow with no response.")
-        response = flow.response.copy()
-        response.decode(strict=False)
-        return response
+        复用 ``mitmproxy.addons.savehar.SaveHar.make_har``，该函数是纯函数、
+        不依赖 ``ctx``，可在 GUI 线程直接调用。单条与多条流量均可，均写入
+        同一个 ``.har`` 文件（``entries`` 数组长度不同）。
+        """
 
-    @staticmethod
-    def _pop_headers(request: Request) -> None:
-        request.headers.pop("content-length", None)
-        if request.headers.get("host", "") == request.host:
-            request.headers.pop("host")
-        if request.headers.get(":authority", "") == request.host:
-            request.headers.pop(":authority")
-
-    @staticmethod
-    def _request_content_for_console(request: Request) -> str:
-        try:
-            text = request.get_text(strict=True)
-        except ValueError:
-            raise ValueError("Request content must be valid unicode") from None
-        if not text:
-            raise ValueError("Request content must be valid unicode")
-        escape_control_chars = {chr(index): f"\\x{index:02x}" for index in range(32)}
-        escaped_text = "".join(escape_control_chars.get(char, char) for char in text)
-        if any(char in escape_control_chars for char in text):
-            return f'"$(printf {shlex.quote(escaped_text)})"'
-        return shlex.quote(escaped_text)
-
-    @staticmethod
-    def _to_windows_curl(command: str) -> str:
-        def replace_quotes(match):
-            content = match.group(1)
-            escaped = content.replace('"', r"\"")
-            return f'"{escaped}"'
-
-        return re.sub(r"'([^']*)'", replace_quotes, command)
+        har = json.dumps(SaveHar().make_har(flows), indent=4).encode()
+        with open(path, "wb") as file:
+            file.write(har)

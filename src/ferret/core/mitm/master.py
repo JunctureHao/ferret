@@ -4,8 +4,11 @@ import asyncio
 
 from ferret.core.mitm.addons import FerretTlsConfig, LogAddon
 from ferret.core.mitm.bindings import (
+    AntiCache,
+    AntiComp,
     ClientPlayback,
     Core,
+    DisableH2C,
     DnsResolver,
     Master,
     NextLayer,
@@ -13,6 +16,7 @@ from ferret.core.mitm.bindings import (
     Proxyserver,
     ReadFile,
     Save,
+    StripDnsHttpsRecords,
     View,
 )
 
@@ -35,13 +39,18 @@ class FerretMaster(Master):
 
         self.addons.add(
             Core(),
+            StripDnsHttpsRecords(),
+            AntiCache(),
+            AntiComp(),
+            self.client_playback,
+            DisableH2C(),
             self.proxyserver,
-            FerretTlsConfig(),
-            NextLayer(),
             DnsResolver(),
+            NextLayer(),
+
+            FerretTlsConfig(),
             self.view,
             self.readfile,
-            self.client_playback,
             self.save,
             LogAddon(),
         )

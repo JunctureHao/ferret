@@ -90,7 +90,7 @@ class CaptureControllerStateTests(unittest.TestCase):
         runtime = FakeRuntime()
         facade = FakeFacade(runtime)
         proxy = FakeSystemProxy(fail_attach=fail_attach)
-        controller = CaptureController(mitm=facade, system_proxy=proxy)
+        controller = CaptureController(mitm=facade, system_proxy=proxy)  # type: ignore
         return controller, runtime, facade, proxy
 
     def test_start_ready_stop_state_sequence(self) -> None:

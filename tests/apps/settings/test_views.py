@@ -7,7 +7,6 @@ from PySide6.QtWidgets import QApplication
 
 from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.settings.views import SettingsInterface
-from ferret.core.settings import CONFIG
 
 
 class AutoSaveSettingsTests(unittest.TestCase):

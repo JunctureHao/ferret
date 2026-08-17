@@ -87,6 +87,9 @@ class MitmFacade:
     def get_raw_flow(self, flow_id: str) -> bytes:
         return self._export(flow_id, FlowExporter.raw, b"")
 
+    def export_har(self, flows: list[HTTPFlow], path: str) -> None:
+        FlowExporter.save_har(flows, path)
+
     def _export(self, flow_id: str, exporter, default):
         def export():
             flow = self.view.get_by_id(flow_id)
@@ -95,12 +98,13 @@ class MitmFacade:
         return self.runtime.call(export) if self.runtime.is_running else export()
 
     def start_capture_recording(self) -> Path:
-        if not self.runtime.is_running:
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
             raise RuntimeError("mitmproxy 内核未运行")
         started_at = datetime.now().astimezone()
         path = get_sessions_dir() / f"capture-{started_at:%Y%m%d-%H%M%S}.flow"
         self.runtime.call(
-            lambda: self.runtime.master.options.update(
+            lambda: master.options.update(
                 save_stream_file=str(path), save_stream_filter="~http"
             )
         )
@@ -109,10 +113,9 @@ class MitmFacade:
 
     def stop_capture_recording(self) -> Path | None:
         path = self._recording_path
-        if self.runtime.is_running:
-            self.runtime.call(
-                lambda: self.runtime.master.options.update(save_stream_file=None)
-            )
+        master = self.runtime.master
+        if self.runtime.is_running and master is not None:
+            self.runtime.call(lambda: master.options.update(save_stream_file=None))
         self._recording_path = None
         if path is not None and path.exists() and path.stat().st_size == 0:
             path.unlink(missing_ok=True)

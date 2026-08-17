@@ -29,14 +29,14 @@ class FlowTableModelTests(unittest.TestCase):
     def completed_flow(*, duration_ms=128, content_type="application/json"):
         flow = tflow.tflow(resp=True)
         flow.request.timestamp_start = 100.0
-        flow.response.timestamp_end = 100.0 + duration_ms / 1000
-        flow.response.headers["Content-Type"] = content_type
+        flow.response.timestamp_end = 100.0 + duration_ms / 1000  # type: ignore
+        flow.response.headers["Content-Type"] = content_type  # type: ignore
         flow.request.raw_content = b"req"
-        flow.response.raw_content = b"response"
+        flow.response.raw_content = b"response"  # type: ignore
         return flow
 
     def model_with(self, *flows) -> FlowTableModel:
-        model = FlowTableModel(None)
+        model = FlowTableModel(None)  # type: ignore
         model._rows = list(flows)
         return model
 
@@ -79,7 +79,7 @@ class FlowTableModelTests(unittest.TestCase):
         slow = self.completed_flow(duration_ms=1200)
         fast = self.completed_flow(duration_ms=90)
         model = self.model_with(slow, fast)
-        proxy = FlowProxyModel(None)
+        proxy = FlowProxyModel(None)  # type: ignore
         proxy.setSourceModel(model)
         proxy.sort(6, Qt.SortOrder.AscendingOrder)
 
@@ -92,7 +92,7 @@ class FlowTableModelTests(unittest.TestCase):
             self.completed_flow(duration_ms=duration) for duration in (300, 100, 200)
         ]
         model = self.model_with(*flows)
-        proxy = FlowProxyModel(None)
+        proxy = FlowProxyModel(None)  # type: ignore
         proxy.setSourceModel(model)
         proxy.sort(6, Qt.SortOrder.AscendingOrder)
 
@@ -104,7 +104,7 @@ class FlowTableModelTests(unittest.TestCase):
     def test_number_column_sorts_by_stable_sequence(self) -> None:
         flows = [self.completed_flow(duration_ms=value) for value in (300, 100, 200)]
         model = self.model_with(*flows)
-        proxy = FlowProxyModel(None)
+        proxy = FlowProxyModel(None)  # type: ignore
         proxy.setSourceModel(model)
 
         proxy.sort(0, Qt.SortOrder.DescendingOrder)
@@ -125,7 +125,7 @@ class FlowTableModelTests(unittest.TestCase):
         self.assertEqual(model.data(model.index(0, 2)), flow.request.pretty_url)
 
     def test_horizontal_headers_are_left_aligned(self) -> None:
-        model = FlowTableModel(None)
+        model = FlowTableModel(None)  # type: ignore
         expected = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         for column in range(model.columnCount()):

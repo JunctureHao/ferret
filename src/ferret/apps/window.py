@@ -14,13 +14,13 @@ from qfluentwidgets import (
     setTheme,
 )
 
-from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.capture.controllers import CaptureState
+from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.session.controllers import SessionController
 from ferret.apps.session.views import SessionsInterface
 from ferret.apps.settings.views import SettingsInterface
-from ferret.application import ApplicationRuntime
+from ferret.core.runtime import ApplicationRuntime
 from ferret.core.settings import APP_NAME, CONFIG
 
 

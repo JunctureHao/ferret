@@ -46,9 +46,8 @@ class SystemProxyService:
         endpoint = ProxyEndpoint(host, port)
         if self._endpoint == endpoint and self._backend.owns(endpoint):
             return
-        if self._endpoint is not None:
-            if not self.detach():
-                raise RuntimeError("恢复原系统代理失败")
+        if self._endpoint is not None and not self.detach():
+            raise RuntimeError("恢复原系统代理失败")
         snapshot = self._backend.snapshot()
         self._write_journal(endpoint, snapshot)
         try:
@@ -97,9 +96,7 @@ class SystemProxyService:
         self._clear_journal()
         return True
 
-    def _write_journal(
-        self, endpoint: ProxyEndpoint, snapshot: ProxySnapshot
-    ) -> None:
+    def _write_journal(self, endpoint: ProxyEndpoint, snapshot: ProxySnapshot) -> None:
         path = self._journal_path
         if not isinstance(path, Path):
             return
@@ -120,9 +117,7 @@ class SystemProxyService:
             data = json.loads(path.read_text(encoding="utf-8"))
             endpoint_data = data["endpoint"]
             return (
-                ProxyEndpoint(
-                    str(endpoint_data["host"]), int(endpoint_data["port"])
-                ),
+                ProxyEndpoint(str(endpoint_data["host"]), int(endpoint_data["port"])),
                 ProxySnapshot(dict(data["snapshot"])),
             )
         except (OSError, ValueError, KeyError, TypeError):

@@ -41,7 +41,7 @@ def format_duration(duration_ms: float | None) -> str:
 
 
 class FlowTableModel(QAbstractTableModel):
-    HEADERS = ["#", "Method", "URL", "Status", "Type", "Size", "Time"]
+    HEADERS = ("#", "Method", "URL", "Status", "Type", "Size", "Time")
 
     def __init__(self, parent: QObject, view=None):
         super().__init__(parent)

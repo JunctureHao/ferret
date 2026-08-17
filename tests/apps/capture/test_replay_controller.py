@@ -70,9 +70,10 @@ class CaptureControllerReplayTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.runtime = FakeRuntime()
-        self.facade = MitmFacade(self.runtime)
+        self.facade = MitmFacade(self.runtime)  # type: ignore
         self.controller = CaptureController(
-            mitm=self.facade, system_proxy=FakeSystemProxy()
+            mitm=self.facade,
+            system_proxy=FakeSystemProxy(),  # type: ignore
         )
         self.flow = make_http_flow()
         self.runtime.view.add([self.flow])

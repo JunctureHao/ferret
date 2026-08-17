@@ -80,6 +80,10 @@ class SessionViewController(QObject):
     def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
         return FlowFile.write(path, flows)
 
+    def export_har(self, flows: list[HTTPFlow], path: str) -> None:
+        # save_har 是纯函数、不读 ctx，所以只读会话页没有 master 也能导出。
+        FlowExporter.save_har(flows, path)
+
 
 class WorkerSignals(QObject):
     succeeded = Signal(object)

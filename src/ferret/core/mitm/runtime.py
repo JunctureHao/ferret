@@ -34,7 +34,7 @@ class UiBridgeAddon:
     def __init__(
         self,
         view: View,
-        bridge: "MitmRuntime",
+        bridge: MitmRuntime,
         master: FerretMaster,
         generation: int,
     ) -> None:
@@ -64,22 +64,16 @@ class UiBridgeAddon:
         if not self._connected:
             return
         self._connected = False
-        for signal, slot in (
-            (self._view.sig_view_add, self._on_add),
-            (self._view.sig_view_update, self._on_update),
-            (self._view.sig_view_remove, self._on_remove),
-            (self._view.sig_view_refresh, self._on_refresh),
-        ):
-            try:
-                signal.disconnect(slot)
-            except RuntimeError:
-                pass
+        self._view.sig_view_add.disconnect(self._on_add)
+        self._view.sig_view_update.disconnect(self._on_update)
+        self._view.sig_view_remove.disconnect(self._on_remove)
+        self._view.sig_view_refresh.disconnect(self._on_refresh)
 
 
 class _MitmThread(QThread):
     failed = Signal(int, str)
 
-    def __init__(self, runtime: "MitmRuntime", generation: int) -> None:
+    def __init__(self, runtime: MitmRuntime, generation: int) -> None:
         super().__init__(runtime)
         self.runtime = runtime
         self.generation = generation
@@ -131,9 +125,7 @@ class _MitmThread(QThread):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.bind((self.runtime.listen_host, self.runtime.listen_port))
         except OSError as exc:
-            raise RuntimeError(
-                f"端口 {self.runtime.listen_port} 已被占用"
-            ) from exc
+            raise RuntimeError(f"端口 {self.runtime.listen_port} 已被占用") from exc
 
     def request_shutdown(self) -> None:
         self.stop_requested = True

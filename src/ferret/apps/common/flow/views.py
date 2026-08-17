@@ -1,6 +1,7 @@
 import re
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import ClassVar
 
 from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, QTimer, Signal, Slot
@@ -40,7 +41,7 @@ from ferret.apps.common.flow.protocols import (
     FlowViewCapabilities,
 )
 from ferret.apps.common.icon import BaseAction
-from ferret.apps.common.info_bar import show_success, show_warning
+from ferret.apps.common.info_bar import show_error, show_success, show_warning
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.core.mitm import HTTPFlow
@@ -1584,6 +1585,7 @@ class FlowContextMenu(RoundMenu):
         self.row_data = row_data
         self.flows = selected_flows or []
         self._refresh_replay_label()
+        self.export_menu.refresh_har_label()
 
     def __init_widget(self):
         """初始化界面组件"""
@@ -1735,6 +1737,11 @@ class FlowExportMenu(RoundMenu):
             icon=FluentIcon.DOCUMENT,
             text=self.tr("复制原始流量"),
         )
+        self.har_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.SAVE,
+            text=self.tr("导出为 HAR"),
+        )
 
     def __init_action(self):
         """初始化菜单动作"""
@@ -1744,6 +1751,8 @@ class FlowExportMenu(RoundMenu):
         self.addAction(self.raw_request_action)
         self.addAction(self.raw_response_action)
         self.addAction(self.raw_flow_action)
+        self.addSeparator()
+        self.addAction(self.har_action)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
@@ -1756,6 +1765,15 @@ class FlowExportMenu(RoundMenu):
             lambda: self.__export_bytes("raw_response")
         )
         self.raw_flow_action.triggered.connect(lambda: self.__export_bytes("raw_flow"))
+        self.har_action.triggered.connect(self.__export_har)
+
+    def refresh_har_label(self) -> None:
+        """和重发一致：HAR 作用于整个选区，把条数写进文案避免歧义。"""
+        count = len(self.context_menu.flows)
+        if count <= 1:
+            self.har_action.setText(self.tr("导出为 HAR"))
+        else:
+            self.har_action.setText(self.tr("导出 {} 条为 HAR").format(count))
 
     def __flow_id(self) -> str:
         """从上下文行数据取出 flow id"""
@@ -1836,6 +1854,62 @@ class FlowExportMenu(RoundMenu):
             self.tr("%s 已复制到剪贴板") % label,
             self.main_window,
         )
+
+    def __export_har(self) -> None:
+        """把当前选区的流量写成 HAR 文件。
+
+        选区来自 ``FlowContextMenu.flows``（和"保存"、"重发"同一份数据，保持
+        表格选中顺序），选 1 条就是 1 条，选 N 条就是 N 条，写进同一个 ``.har``
+        的 ``entries`` 数组。``FlowExporter.save_har`` 不依赖 ``ctx``，所以抓包页
+        和只读会话页（无 master）走同一条路径。
+        """
+        if not self.controller:
+            show_warning(self.tr("警告"), self.tr("控制器不可用"), self.main_window)
+            return
+
+        flows = list(self.context_menu.flows)
+        if not flows:
+            show_warning(
+                self.tr("警告"), self.tr("请先选中要导出的流量"), self.main_window
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self.main_window,
+            self.tr("导出 HAR"),
+            self.__har_file_name(flows),
+            self.tr("HAR 文件 (*.har)"),
+        )
+        if not path:  # 用户取消了对话框
+            return
+        if not path.lower().endswith(".har"):
+            path += ".har"
+
+        try:
+            self.controller.export_har(flows, path)
+        except Exception as exc:  # noqa: BLE001
+            show_error(self.tr("导出失败"), str(exc), self.main_window)
+            return
+
+        show_success(
+            self.tr("成功"),
+            self.tr("已导出 {} 条流量到 {}").format(len(flows), Path(path).name),
+            self.main_window,
+        )
+
+    @staticmethod
+    def __har_file_name(flows: list[HTTPFlow]) -> str:
+        """按"保存"动作的同一套规则生成默认文件名。"""
+        if len(flows) == 1:
+            request = flows[0].request
+            host = request.pretty_host or request.host or "unknown"
+            name = f"{request.method}_{host}"
+        else:
+            stamp = time.strftime(
+                "%Y%m%d_%H%M%S", time.localtime(flows[0].timestamp_created)
+            )
+            name = f"flows_{stamp}_{len(flows)}flows"
+        return re.sub(r'[\\/:*?"<>|]', "_", name) + ".har"
 
 
 class FlowSubViewMenu(RoundMenu):
