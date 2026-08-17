@@ -1585,7 +1585,7 @@ class FlowContextMenu(RoundMenu):
         self.row_data = row_data
         self.flows = selected_flows or []
         self._refresh_replay_label()
-        self.export_menu.refresh_har_label()
+        self.export_menu.refresh_selection_labels()
 
     def __init_widget(self):
         """初始化界面组件"""
@@ -1594,9 +1594,6 @@ class FlowContextMenu(RoundMenu):
         )
         self.replay_from_file_action = BaseAction(
             parent=self, icon=FluentIcon.FOLDER, text=self.tr("从文件回放…")
-        )
-        self.save_flows_action = BaseAction(
-            parent=self, icon=FluentIcon.SAVE, text=self.tr("保存")
         )
         self.delete_action = BaseAction(
             parent=self,
@@ -1614,8 +1611,6 @@ class FlowContextMenu(RoundMenu):
             self.addAction(self.client_replay_action)
             self.addAction(self.replay_from_file_action)
         self.addMenu(self.export_menu)
-        if self.capabilities.can_save_selection:
-            self.addAction(self.save_flows_action)
         if self.capabilities.can_delete:
             self.addAction(self.delete_action)
 
@@ -1623,7 +1618,6 @@ class FlowContextMenu(RoundMenu):
         """连接信号与槽函数"""
         self.client_replay_action.triggered.connect(self.__on_client_replay_triggered)
         self.replay_from_file_action.triggered.connect(self.replay_file_requested.emit)
-        self.save_flows_action.triggered.connect(self.__on_save_flows_triggered)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
 
@@ -1640,27 +1634,6 @@ class FlowContextMenu(RoundMenu):
         """删除动作触发时"""
         if self.row_index != -1:
             self.delete_requested.emit(self.row_index)
-
-    @Slot()
-    def __on_save_flows_triggered(self):
-        """保存流动作触发时"""
-        if len(self.flows) == 1:
-            flow = self.flows[0]
-            host = flow.request.pretty_host or flow.request.host or "unknown"
-            method = flow.request.method or ""
-            name = f"{method}_{host}"
-        else:
-            ts_str = time.strftime(
-                "%Y%m%d_%H%M%S", time.localtime(self.flows[0].timestamp_created)
-            )
-            name = f"flows_{ts_str}_{len(self.flows)}flows"
-
-        name = re.sub(r'[\\/:*?"<>|]', "_", name)
-
-        path, _ = QFileDialog.getSaveFileName(
-            self.main_window, self.tr("保存流量"), name, self.tr("Flow 文件 (*.flow)")
-        )
-        self.controller.save_flows(self.flows, path)
 
     @Slot()
     def __show_url_window(self):
@@ -1742,6 +1715,9 @@ class FlowExportMenu(RoundMenu):
             icon=FluentIcon.SAVE,
             text=self.tr("导出为 HAR"),
         )
+        self.save_flows_action = BaseAction(
+            parent=self, icon=FluentIcon.SAVE, text=self.tr("导出为 FLOW")
+        )
 
     def __init_action(self):
         """初始化菜单动作"""
@@ -1753,6 +1729,9 @@ class FlowExportMenu(RoundMenu):
         self.addAction(self.raw_flow_action)
         self.addSeparator()
         self.addAction(self.har_action)
+        # 门控从 FlowContextMenu 一起搬过来，保持原来的语义不变
+        if self.context_menu.capabilities.can_save_selection:
+            self.addAction(self.save_flows_action)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
@@ -1765,15 +1744,18 @@ class FlowExportMenu(RoundMenu):
             lambda: self.__export_bytes("raw_response")
         )
         self.raw_flow_action.triggered.connect(lambda: self.__export_bytes("raw_flow"))
-        self.har_action.triggered.connect(self.__export_har)
+        self.har_action.triggered.connect(lambda: self.__export_file("har"))
+        self.save_flows_action.triggered.connect(lambda: self.__export_file("flow"))
 
-    def refresh_har_label(self) -> None:
-        """和重发一致：HAR 作用于整个选区，把条数写进文案避免歧义。"""
+    def refresh_selection_labels(self) -> None:
+        """和重发一致：两个文件导出都作用于整个选区，把条数写进文案避免歧义。"""
         count = len(self.context_menu.flows)
         if count <= 1:
             self.har_action.setText(self.tr("导出为 HAR"))
+            self.save_flows_action.setText(self.tr("导出为 FLOW"))
         else:
             self.har_action.setText(self.tr("导出 {} 条为 HAR").format(count))
+            self.save_flows_action.setText(self.tr("导出 {} 条为 FLOW").format(count))
 
     def __flow_id(self) -> str:
         """从上下文行数据取出 flow id"""
@@ -1855,13 +1837,13 @@ class FlowExportMenu(RoundMenu):
             self.main_window,
         )
 
-    def __export_har(self) -> None:
-        """把当前选区的流量写成 HAR 文件。
+    def __export_file(self, kind: str) -> None:
+        """把当前选区的流量写成文件（HAR / Flow）。
 
-        选区来自 ``FlowContextMenu.flows``（和"保存"、"重发"同一份数据，保持
-        表格选中顺序），选 1 条就是 1 条，选 N 条就是 N 条，写进同一个 ``.har``
-        的 ``entries`` 数组。``FlowExporter.save_har`` 不依赖 ``ctx``，所以抓包页
-        和只读会话页（无 master）走同一条路径。
+        选区来自 ``FlowContextMenu.flows``（和"重发"同一份数据，保持表格选中
+        顺序），选 1 条就是 1 条，选 N 条就是 N 条，全部写进同一个文件。
+        ``FlowExporter.save_har`` 和 ``FlowFile.write`` 都不依赖 ``ctx``，所以抓包
+        页和只读会话页（无 master）走同一条路径。
         """
         if not self.controller:
             show_warning(self.tr("警告"), self.tr("控制器不可用"), self.main_window)
@@ -1874,19 +1856,33 @@ class FlowExportMenu(RoundMenu):
             )
             return
 
+        if kind == "har":
+            title = self.tr("导出 HAR")
+            suffix = ".har"
+            name_filter = self.tr("HAR 文件 (*.har)")
+        else:
+            title = self.tr("导出 Flow")
+            suffix = ".flow"
+            name_filter = self.tr("Flow 文件 (*.flow)")
+
         path, _ = QFileDialog.getSaveFileName(
             self.main_window,
-            self.tr("导出 HAR"),
-            self.__har_file_name(flows),
-            self.tr("HAR 文件 (*.har)"),
+            title,
+            self.__default_file_name(flows, suffix),
+            name_filter,
         )
-        if not path:  # 用户取消了对话框
+        # 用户取消时返回空串，必须挡在这里：空路径会让 open() 落到 "." 上抛
+        # PermissionError，而这是 Qt 槽，异常穿出去只进日志、界面毫无反馈。
+        if not path:
             return
-        if not path.lower().endswith(".har"):
-            path += ".har"
+        if not path.lower().endswith(suffix):
+            path += suffix
 
         try:
-            self.controller.export_har(flows, path)
+            if kind == "har":
+                self.controller.export_har(flows, path)
+            else:
+                self.controller.save_flows(flows, path)
         except Exception as exc:  # noqa: BLE001
             show_error(self.tr("导出失败"), str(exc), self.main_window)
             return
@@ -1898,8 +1894,8 @@ class FlowExportMenu(RoundMenu):
         )
 
     @staticmethod
-    def __har_file_name(flows: list[HTTPFlow]) -> str:
-        """按"保存"动作的同一套规则生成默认文件名。"""
+    def __default_file_name(flows: list[HTTPFlow], suffix: str) -> str:
+        """单选用 方法_主机，多选用 时间戳_条数，再滤掉 Windows 非法字符。"""
         if len(flows) == 1:
             request = flows[0].request
             host = request.pretty_host or request.host or "unknown"
@@ -1909,7 +1905,7 @@ class FlowExportMenu(RoundMenu):
                 "%Y%m%d_%H%M%S", time.localtime(flows[0].timestamp_created)
             )
             name = f"flows_{stamp}_{len(flows)}flows"
-        return re.sub(r'[\\/:*?"<>|]', "_", name) + ".har"
+        return re.sub(r'[\\/:*?"<>|]', "_", name) + suffix
 
 
 class FlowSubViewMenu(RoundMenu):
