@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
 
+from mitmproxy.utils import human
 from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QKeySequence
 from PySide6.QtWidgets import (
@@ -46,9 +47,18 @@ from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.core.mitm import HTTPFlow
 from ferret.core.settings import CONFIG
-from ferret.utils.http_parser import decode_body, format_bytes, format_time
+from ferret.utils.http_parser import format_bytes
 
 FieldKey = str | Callable[[dict], str]
+
+
+def _format_time(ts) -> str:
+    """时间戳 → 本地时间字符串；空值显示 ``-``。
+
+    ``human.format_timestamp`` 对 ``None`` 会返回“当前时间”（``time.localtime(None)``），
+    所以空值必须自己挡掉。
+    """
+    return human.format_timestamp(ts) if ts else "-"
 
 
 def _infer_body_lang(content_type: str) -> str:
@@ -826,7 +836,7 @@ class RequestPanel(TabPanel):
         content_type = data.get("Request Content-Type", "")
         self._set_body_tab_label(content_type)
         body = data.get("Request Body", b"")
-        self._fill_raw(body, content_type, flow_id)
+        self._fill_raw(body, flow_id)
         self._fill_body(data)
 
         params = data.get("Request Params", {})
@@ -835,12 +845,11 @@ class RequestPanel(TabPanel):
         cookies = data.get("Request Cookies", {})
         self.cookie_widget.set_cookies(cookies)
 
-    def _fill_raw(self, body: bytes, content_type: str = "", flow_id: str = ""):
+    def _fill_raw(self, body: bytes, flow_id: str = ""):
         """生成完整的原始HTTP请求格式
 
         Args:
             body: 请求体
-            content_type: 内容类型
             flow_id: 流 ID
         """
         # 尝试使用controller获取原始HTTP请求
@@ -876,7 +885,8 @@ class RequestPanel(TabPanel):
         # body内容
         if body:
             if isinstance(body, bytes):
-                text = body.decode("utf-8", errors="replace")
+                # models 阶段已用 Message.get_text 按 charset 解码好，直接消费
+                text = self.datas.get("Request Body Text") or ""
             else:
                 text = str(body)
             raw_lines.append(text)
@@ -965,15 +975,14 @@ class ResponsePanel(TabPanel):
         content_type = data.get("Response Content-Type", "")
         self._set_body_tab_label(content_type)
         body = data.get("Response Body", b"")
-        self._fill_raw(body, content_type, flow_id)
+        self._fill_raw(body, flow_id)
         self._fill_body(data)
 
-    def _fill_raw(self, body: bytes, content_type: str = "", flow_id: str = ""):
+    def _fill_raw(self, body: bytes, flow_id: str = ""):
         """生成完整的原始HTTP响应格式
 
         Args:
             body: 响应体
-            content_type: 内容类型
             flow_id: 流 ID
         """
         # 尝试使用controller获取原始HTTP响应
@@ -984,8 +993,7 @@ class ResponsePanel(TabPanel):
                 if raw_data:
                     # 如果成功获取到原始数据，直接使用
                     # raw_response 返回的是「状态行+响应头+空行+body」完整报文，
-                    # 直接按文本解码即可，切勿再过 decode_body（它是 body 解码器，
-                    # 会把 head+gzip body 误判为二进制而返回 None，导致压缩响应空白）。
+                    # 直接按文本解码即可，不要走 body 解码器。
                     if isinstance(raw_data, bytes):
                         text = raw_data.decode("utf-8", errors="replace")
                     else:
@@ -1017,8 +1025,9 @@ class ResponsePanel(TabPanel):
         # body内容
         if body:
             if isinstance(body, bytes):
-                # errors="replace" 保证 decode 不会抛异常
-                text = decode_body(body, content_type) or ""
+                # models 阶段已用 Message.get_text 按 charset 解码好，直接消费。
+                # 切勿在这里再解码一次：body 是解压后的内容，重跑解压会产乱码。
+                text = self.datas.get("Response Body Text") or ""
             else:
                 text = str(body)
             raw_lines.append(text)
@@ -1103,14 +1112,6 @@ class OverviewTree(TreeWidget):
         ("代理协议", "Proxy Protocol"),
     ]
 
-    # 应用程序信息（仅在有数据时显示）
-    APP_FIELDS: ClassVar[list[tuple[str, str]]] = [
-        ("名称", "App Name"),
-        ("ID", "App ID"),
-        ("路径", "App Path"),
-        ("进程ID", "Process ID"),
-    ]
-
     # 连接信息
     CONN_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("ID", "Connection ID"),
@@ -1169,8 +1170,8 @@ class OverviewTree(TreeWidget):
 
     # 时间信息
     TIME_FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
-        ("请求开始", lambda d: format_time(d.get("req_time"))),
-        ("请求结束", lambda d: format_time(d.get("req_timestamp_end"))),
+        ("请求开始", lambda d: _format_time(d.get("req_time"))),
+        ("请求结束", lambda d: _format_time(d.get("req_timestamp_end"))),
         (
             "请求时长",
             lambda d: (
@@ -1179,8 +1180,8 @@ class OverviewTree(TreeWidget):
                 else "-"
             ),
         ),
-        ("响应开始", lambda d: format_time(d.get("res_timestamp_start"))),
-        ("响应结束", lambda d: format_time(d.get("res_time"))),
+        ("响应开始", lambda d: _format_time(d.get("res_timestamp_start"))),
+        ("响应结束", lambda d: _format_time(d.get("res_time"))),
         (
             "响应时长",
             lambda d: (
@@ -1252,31 +1253,6 @@ class OverviewTree(TreeWidget):
             item.setTextAlignment(
                 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
-
-        # ── 应用程序信息（仅在有数据时显示） ──
-        has_app = any(data.get(k) for _, k in self.APP_FIELDS)
-        if has_app:
-            parent = QTreeWidgetItem(self)
-            parent.setText(0, self.tr("应用程序"))
-
-            # 加粗父级标题，与子级 key 区分
-            bold_font = QFont()
-            bold_font.setBold(True)
-            parent.setFont(0, bold_font)
-
-            for label, key in self.APP_FIELDS:
-                value = data.get(key)
-                if value in (None, "", "N/A", "-", 0):
-                    continue
-                item = QTreeWidgetItem(parent)
-                item.setText(0, label)
-                item.setText(1, str(value))
-                item.setTextAlignment(
-                    0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-                )
-                item.setTextAlignment(
-                    1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-                )
 
         # ── 连接信息（仅在有数据时显示） ──
         has_conn = any(data.get(k) for _, k in self.CONN_FIELDS)

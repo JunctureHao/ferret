@@ -13,7 +13,6 @@ from ferret.core.mitm.bindings import (
 from ferret.core.mitm.certificate import Cert, SystemCertificateService
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.facade import MitmFacade
-from ferret.core.mitm.flow import safe_content
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.master import CaptureMaster, FerretMaster
 from ferret.core.mitm.runtime import MitmRuntime, MitmRuntimeState
@@ -36,5 +35,4 @@ __all__ = [
     "SystemCertificateService",
     "View",
     "parse_filter",
-    "safe_content",
 ]

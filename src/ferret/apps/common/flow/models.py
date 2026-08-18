@@ -12,14 +12,8 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 from qfluentwidgets import isDarkTheme
 
-from ferret.core.mitm import FlowExporter, HTTPFlow, safe_content
-from ferret.utils.http_parser import (
-    build_body,
-    format_bytes,
-    parse_cookies_from_headers,
-    parse_params,
-)
-from ferret.utils.process_resolver import resolve_process
+from ferret.core.mitm import FlowExporter, HTTPFlow
+from ferret.utils.http_parser import build_body, format_bytes
 
 METHOD_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 STATUS_KIND_ROLE = int(Qt.ItemDataRole.UserRole) + 2
@@ -28,6 +22,18 @@ MIME_ROLE = int(Qt.ItemDataRole.UserRole) + 4
 DURATION_MS_ROLE = int(Qt.ItemDataRole.UserRole) + 5
 SIZE_BYTES_ROLE = int(Qt.ItemDataRole.UserRole) + 6
 SORT_ROLE = int(Qt.ItemDataRole.UserRole) + 7
+
+
+def flatten_multi(items) -> dict[str, str]:
+    """把 mitmproxy 的多值视图压成 ``{key: value}``，重复键用 ", " 连接。
+
+    ``dict(MultiDictView)`` 只会保留最后一个同名键，会静默丢数据，
+    因此必须走 ``items(multi=True)``。
+    """
+    grouped: dict[str, list[str]] = {}
+    for key, value in items:
+        grouped.setdefault(key, []).append(value)
+    return {k: v[0] if len(v) == 1 else ", ".join(v) for k, v in grouped.items()}
 
 
 def format_duration(duration_ms: float | None) -> str:
@@ -392,10 +398,6 @@ class FlowTableModel(QAbstractTableModel):
             elif keep_alive is None:
                 keep_alive = "false"
 
-            client_addr = flow.client_conn.peername if flow.client_conn else None
-            proc_info = resolve_process(client_addr) if client_addr else None
-            app = proc_info.to_dict() if proc_info else {}
-
             client_pn = flow.client_conn.peername if flow.client_conn else None
             client_sn = (
                 getattr(flow.client_conn, "sockname", None)
@@ -424,7 +426,6 @@ class FlowTableModel(QAbstractTableModel):
                     "req_headers_size": len(str(flow.request.headers)),
                     "Status Code": "等待中...",
                     "Keep Alive": keep_alive,
-                    **app,
                     "Connection ID": flow.id,
                     "Connection Time": conn_time,
                     "Front Client Address": client_pn[0] if client_pn else "N/A",
@@ -434,20 +435,20 @@ class FlowTableModel(QAbstractTableModel):
                 }
             )
 
-            data["Request Params"] = parse_params(flow.request.url)
-            data["Request Cookies"] = parse_cookies_from_headers(
-                dict(flow.request.headers), "Cookie"
+            data["Request Params"] = flatten_multi(flow.request.query.items(multi=True))
+            data["Request Cookies"] = flatten_multi(
+                flow.request.cookies.items(multi=True)
             )
 
         if state in ("request", "response_headers", "complete", "error"):
-            body = safe_content(flow.request)
+            req_body_info = build_body(flow.request)
+            body = req_body_info["raw"]
             req_duration = None
             if flow.request.timestamp_end and flow.request.timestamp_start:
                 req_duration = (
                     flow.request.timestamp_end - flow.request.timestamp_start
                 ) * 1000
             req_ct = flow.request.headers.get("Content-Type", "-")
-            req_body_info = build_body(body, req_ct)
             data.update(
                 {
                     "req_size": len(body),
@@ -463,8 +464,11 @@ class FlowTableModel(QAbstractTableModel):
             )
 
         if state in ("response_headers", "complete", "error") and flow.response:
-            data["Response Cookies"] = parse_cookies_from_headers(
-                dict(flow.response.headers), "Set-Cookie"
+            # Set-Cookie 有独立语法（属性 + 可重复），必须用 Response.cookies；
+            # 按 Cookie 头语法拆会把 Path/HttpOnly 当成 cookie 并丢掉后续条目。
+            data["Response Cookies"] = flatten_multi(
+                (name, value)
+                for name, (value, _attrs) in flow.response.cookies.items(multi=True)
             )
 
             server_addr = "N/A"
@@ -543,12 +547,12 @@ class FlowTableModel(QAbstractTableModel):
                 res_duration = (
                     flow.response.timestamp_end - flow.response.timestamp_start
                 ) * 1000
-            body = safe_content(flow.response)
+            res_body_info = build_body(flow.response)
+            body = res_body_info["raw"]
             req_total_size = data.get("req_headers_size", 0) + data.get("req_size", 0)
             res_total_size = data.get("res_headers_size", 0) + len(body)
             total_size = req_total_size + res_total_size
             res_ct = flow.response.headers.get("Content-Type", "-")
-            res_body_info = build_body(body, res_ct)
             data.update(
                 {
                     "Response Body": body,

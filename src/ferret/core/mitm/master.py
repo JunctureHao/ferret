@@ -47,7 +47,6 @@ class FerretMaster(Master):
             self.proxyserver,
             DnsResolver(),
             NextLayer(),
-
             FerretTlsConfig(),
             self.view,
             self.readfile,

@@ -54,13 +54,6 @@
 # nuitka-project: --nofollow-import-to=pyperclip
 # nuitka-project: --nofollow-import-to=zstandard.backend_cffi
 # nuitka-project: --noinclude-dlls=*zstandard*_cffi*
-# ── 瘦身：psutil 只走 Windows 后端，排除其余平台实现
-# nuitka-project: --nofollow-import-to=psutil._pslinux
-# nuitka-project: --nofollow-import-to=psutil._psbsd
-# nuitka-project: --nofollow-import-to=psutil._pssunos
-# nuitka-project: --nofollow-import-to=psutil._psaix
-# nuitka-project: --nofollow-import-to=psutil._psosx
-# nuitka-project: --nofollow-import-to=psutil._psposix
 
 from ferret.core.application import Application
 
