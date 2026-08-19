@@ -42,6 +42,10 @@ class MitmFacade:
         """Replace the block rules; applied immediately when the kernel runs."""
         self.runtime.apply_block_rules(rules)
 
+    def reload_certificate_store(self) -> bool:
+        """Pick up a regenerated CA without restarting the kernel."""
+        return self.runtime.reload_certificate_store()
+
     def get_flow(self, flow_id: str) -> HTTPFlow | None:
         def find() -> HTTPFlow | None:
             flow = self.view.get_by_id(flow_id)

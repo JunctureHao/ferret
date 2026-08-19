@@ -1,6 +1,6 @@
 """Capture-specific services.
 
-Shared mitmproxy runtime, flow I/O, export, and certificate integration live in
+Shared mitmproxy runtime, flow I/O, and export helpers live in
 ``ferret.core.mitm``. This module only contains behavior owned by the capture
 application.
 """

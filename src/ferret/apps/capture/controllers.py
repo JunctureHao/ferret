@@ -10,7 +10,6 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from ferret.apps.capture.services import compile_filter
 from ferret.core.log import get_logger
 from ferret.core.mitm import (
-    Cert,
     HTTPFlow,
     MitmFacade,
     MitmRuntime,
@@ -261,15 +260,3 @@ class CaptureController(QObject):
         ):
             self._on_runtime_failed("mitmproxy 内核已停止")
 
-
-class CertBadgeController(QObject):
-    status_changed = Signal(bool)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._cert = Cert()
-
-    def refresh(self) -> bool:
-        installed = self._cert.check()
-        self.status_changed.emit(installed)
-        return installed

@@ -27,6 +27,7 @@ Ferret 是基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS
 | HAR 导出 | `mitmproxy.addons.savehar.SaveHar().make_har`（纯函数，勿重写算法） | `core/mitm/export.py` |
 | httpie / raw 导出 | `mitmproxy.addons.export` 的模块级函数 | `core/mitm/export.py` |
 | 屏蔽请求 | `mitmproxy.addons.blocklist` 的 `BlockList` + `parse_spec`（匹配、`Response.make` 空响应、444 走 `flow.kill()` 全是原生的，ferret 只造 spec 字符串） | `core/mitm/blocklist.py` |
+| CA 证书：生成 / 查看 / 导出 | `certs.CertStore.from_store` → `create_store`（一次写全 6 个产物）、`Cert` 的现成字段（cn / subject / issuer / notbefore / notafter / has_expired / serial / fingerprint / keyinfo / is_ca）、`Cert.to_pem()`。**装进/移出系统信任库 mitmproxy 完全不管**，只能走系统命令（Windows `certutil`） | `core/mitm/certificate.py` |
 | 构造请求/响应（暂无调用点，将来需要时） | `Request.make` / `Response.make` | — |
 
 - **唯一允许的分叉**：`core/mitm/export.py::curl_command`。原生实现用 POSIX 单引号，
@@ -46,6 +47,26 @@ Ferret 是基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS
     不能 `Options(block_list=…)`，只能 `FerretMaster(...)` 之后 `options.update(...)`。
   - 失败的 `options.update` 整体回滚（选项值与 `BlockList.items` 都停在上一个合法状态），
     所以 `specs_from_rules` 一次性校验全部规则，坏一条就整批不下发。
+- CA 证书的六个坑（`core/mitm/certificate.py`，已实测）：
+  - **重新生成必须连 `{APP_NAME}-ca.pem`（私钥）一起删**：`from_store` 只要看到它就复用旧私钥，
+    序列号与指纹都不变，「重新生成」等于空操作。整组产物见 `CA_ARTIFACTS`（6 个）。
+  - **`certutil` 输出是本地化的**（本机打印中文），唯一可以分支的信号是**退出码**，
+    绝不解析 stdout：查到 `0`，查不到 `0x80090011`。
+  - **`certutil -delstore` 一条都没删到时也返回 `0`**，退出码判断不了「删没删掉」，
+    必须每轮先 `-store` 复核（`uninstall()` 的循环，最多删 `_MAX_DELETE_ROUNDS` 张）。
+  - **安装 / 卸载弹的 Windows 安全警告里点「否」，certutil 以 `0x800704c7`
+    （`ERROR_CANCELLED` 包成的 HRESULT）退出**，那不是失败而是「没做」：单独抛
+    `CertificateCancelled`（`CertificateError` 的子类），控制器把它翻成返回 `None`，
+    界面只补一次检测、不弹错误提示。卸载的删除循环也靠这个异常跳出，
+    否则同一个警告会被连弹 `_MAX_DELETE_ROUNDS` 次。退出码按 `& 0xFFFFFFFF`
+    当无符号读 —— DWORD 在某些环境里是负数递过来的。
+  - **信任状态按序列号判定，不能按 CN 子串**：同名旧 CA 会被误判成「已安装」，
+    表现是界面显示已信任、浏览器照样报证书错误 —— 这就是 `TrustState.STALE`，
+    必须单独出一档状态并提示重新安装。
+  - 重新生成后**不必重启内核**：`options.update(confdir=…)` 触发原生
+    `TlsConfig.configure({"confdir"})` → `CertStore.from_store`（`optmanager.update_known`
+    对传入的每个键都发 `changed`，即使值没变）。见 `runtime.reload_certificate_store`。
+    热加载失败只记日志：下次启动自然读到新证书。
 - 超过 `MAX_PRETTY_SIZE`（1MB）跳过美化直接给 raw：mitmproxy 的
   `content_view_lines_cutoff` 需要配套「显示全部」按钮，ferret 暂无。
 
@@ -125,12 +146,34 @@ Qt 在主线程。**只有三条合法通道**：
   （Windows 注册表代理开关）、`resources_rc.py`（Qt 生成物，勿手改）。
 - `core/mitm/`：`bindings`（唯一 mitmproxy 入口）、`master`（`FerretMaster` addon 装配）、
   `runtime`（线程 + 信号桥）、`facade`、`addons`（`FerretTlsConfig` / `LogAddon`）、
-  `export`、`io`、`certificate`、`blocklist`（屏蔽规则模型 + spec 构造，无 Qt）、
+  `export`、`io`、`certificate`（CA 生成 / 查看 / 导出 + Windows 信任库安装卸载，
+  无 Qt、全部同步阻塞，调用方负责挪线程）、`blocklist`（屏蔽规则模型 + spec 构造，无 Qt）、
   `__init__`（公开 API）。
   - `engine.py` 是历史兼容 shim，只 re-export `CaptureMaster` / `FerretMaster`，
     **零引用者，可直接删**。
-- `apps/`：业务与界面（`capture` / `common` / `session` / `settings` / `blocklist`），**不得直接
-  import mitmproxy 内部模块**（当前 0 例外），一律经 `core/mitm` 的封装访问。
+- `apps/`：业务与界面（`capture` / `certificate` / `common` / `session` / `settings` /
+  `blocklist`），**不得直接 import mitmproxy 内部模块**（当前 0 例外），
+  一律经 `core/mitm` 的封装访问。
+  - 后台任务统一用 `apps/common/tasks.py::FunctionTask`（`session` 与 `certificate` 共用），
+    不要在各页各写一份 `QRunnable`。
+  - `apps/certificate/`：证书页。certutil 一次查询实测 90~400ms、生成一套 CA 约 65ms，
+    全部丢进线程池（限 1 线程，保证「先卸旧、再装新」这类连续操作不互相插队）；
+    唯一留在主线程的是 `reload_certificate_store()` —— 它要碰 `master.options`（§3 红线）。
+    证书自成一页独立 interface，抓包页工具栏**没有**证书角标（`cert_btn` /
+    `certificate_requested` / `set_certificate_installed` 全仓库已 0 处），
+    `apps/capture` 与 `apps/certificate` 互不认识、也不经 `MainWindow` 转发检测结果。
+  - 设置页骨架（`apps/settings/views.py` 与 `apps/certificate/views.py` 共用：ScrollArea +
+    `setViewportMargins(0, 80, 0, 20)` + 悬浮 TitleLabel `move(36, 30)` + `ExpandLayout`
+    边距 `36,10,36,0` / 间距 28 + SettingCardGroup），三处细节非照抄不可（已实测）：
+    ① `enableTransparentBackground()` **必须在 `setWidget()` 之后**调 —— 它内部是
+    `if self.widget(): self.widget().setStyleSheet(...)`，提前调等于没调，
+    深色主题下内层 QWidget 留着浅色底（这就是证书页曾经的主题 bug）；
+    ② `ExpandLayout` 只按 `w.height()` 摆位、从不改高度，高度随内容变的卡片必须自己
+    `setFixedHeight` 再回头 `group.adjustSize()`（它的 eventFilter 只认「高度变、宽度没变」，
+    窗口横向缩放正落在盲区里）；
+    ③ 长文本标签一律 `setMinimumWidth(1)` —— QLabel 拿整段文字宽当 `minimumSizeHint` 往上顶，
+    横向滚动条又是关掉的，一个 SHA-256 指纹就能把整页顶到 1500px、把右侧按钮挤出视口
+    （指纹本身也改成空格分组，QLabel 只在空白处断行）。
   - 编辑类 UI 复用 `apps/common/edit/`：`ItemDualPanel` 编 headers、`ToolPlainTextEdit`
     编 body、`JsonDualPanel` 看 JSON 树，不新造编辑器。
   - 语法高亮走自写 lexer `apps/common/edit/syntax.py`（`tokenize_http` /
@@ -164,7 +207,9 @@ Qt 在主线程。**只有三条合法通道**：
   `default_addons()`，同时保证它早于 `View.request` —— 被拦的 flow 照样进流量表
   （403 显示状态码，444 走 `kill()` 显示 Error）。
 - 已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR / curl / httpie / raw
-  导出、CA 证书信任（Windows `certutil`）、系统代理开关、会话管理、
+  导出、**CA 证书页**（`apps/certificate`：查看原生字段 / 导出 PEM·CER·P12 /
+  安装卸载 Windows 用户根信任库 / 重新生成并热加载，见 §1.1 的六个坑）、
+  系统代理开关、会话管理、
   **屏蔽规则 blocklist**（`apps/blocklist` 规则页 + 流量表右键「屏蔽此主机」，
   规则存 `config.json` 的 `Proxy.BlockList`）。
 - 功能缺口（GUI 后续方向）：**断点拦截 intercept**（全仓库 0 处 `intercept`）、

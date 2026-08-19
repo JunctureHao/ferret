@@ -266,6 +266,20 @@ class MitmRuntime(QObject):
             self.block_rules = previous
             raise ValueError(str(exc)) from exc
 
+    def reload_certificate_store(self) -> bool:
+        """Rebuild the live CertStore through mitmproxy's own TlsConfig hook.
+
+        `optmanager.update_known` 对传入的每个键都发 `changed`（即使值没变），所以
+        重写一次 `confdir` 就会触发原生 `TlsConfig.configure({"confdir"})` →
+        `CertStore.from_store`：重新生成后的新 CA 立刻对后续连接生效，无需重启内核。
+        返回 False 表示内核没在跑，下次启动时自然会读到新证书。
+        """
+        master = self._master
+        if not self.is_running or master is None:
+            return False
+        self.call(lambda: master.options.update(confdir=str(get_certs_dir())))
+        return True
+
     def call(self, callback: Callable[[], Any], *, timeout: float = 5.0) -> Any:
         thread = self._thread
         master = self._master

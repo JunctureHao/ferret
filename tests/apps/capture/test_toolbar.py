@@ -34,7 +34,6 @@ class CaptureCommandBarTests(unittest.TestCase):
             "shown_count": 0,
             "selected_count": 0,
             "active_filter_count": 0,
-            "certificate_installed": True,
         }
         values.update(overrides)
         return CaptureUiState(**values)
@@ -80,14 +79,6 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.assertTrue(self.bar.captures_delete_btn.isEnabled())
         self.assertIn("已选 2 条", self.bar.stats_label.toolTip())
 
-    def test_certificate_badge_only_marks_missing_certificate(self) -> None:
-        self.bar.set_state(self.state(certificate_installed=True), False)
-        self.assertFalse(self.bar.cert_badge.isVisible())
-
-        self.bar.set_state(self.state(certificate_installed=False), False)
-        self.assertTrue(self.bar.cert_badge.isVisible())
-        self.assertIn("未安装", self.bar.cert_btn.toolTip())
-
     def test_compact_mode_shortens_endpoint_and_count(self) -> None:
         self.bar.set_state(
             self.state(total_count=43, shown_count=12), False
@@ -100,7 +91,6 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.bar.resize(600, 44)
         self.app.processEvents()
         self.assertFalse(self.bar.endpoint_btn.isVisible())
-        self.assertFalse(self.bar.cert_btn.isVisible())
         self.assertFalse(self.bar.proxy_setting_btn.isVisible())
         self.assertTrue(self.bar.environment_btn.isVisible())
         self.assertLessEqual(

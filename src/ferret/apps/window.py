@@ -18,6 +18,8 @@ from ferret.apps.blocklist.controllers import BlockListController
 from ferret.apps.blocklist.views import BlockListInterface
 from ferret.apps.capture.controllers import CaptureState
 from ferret.apps.capture.views import CapturesInterface
+from ferret.apps.certificate.controllers import CertificateController
+from ferret.apps.certificate.views import CertificateInterface
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.session.controllers import SessionController
 from ferret.apps.session.views import SessionsInterface
@@ -48,6 +50,12 @@ class MainWindow(FluentWindow):
         self.blocklist_controller = BlockListController(self, mitm=self.runtime.mitm)
         self.blocklist_interface = BlockListInterface(
             controller=self.blocklist_controller, parent=self
+        )
+        self.certificate_controller = CertificateController(
+            self, mitm=self.runtime.mitm
+        )
+        self.certificate_interface = CertificateInterface(
+            controller=self.certificate_controller, parent=self
         )
 
         self.tray_icon = SystemTray(self)
@@ -83,6 +91,12 @@ class MainWindow(FluentWindow):
 
         self.addSubInterface(
             self.blocklist_interface, FluentIcon.FILTER, self.tr("blocklist")
+        )
+
+        self.addSubInterface(
+            self.certificate_interface,
+            FluentIcon.CERTIFICATE,
+            self.tr("certificate"),
         )
 
         self.addSubInterface(

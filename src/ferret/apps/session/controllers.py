@@ -6,14 +6,13 @@ from typing import Any
 
 from PySide6.QtCore import (
     QObject,
-    QRunnable,
     QThreadPool,
     Signal,
 )
 
+from ferret.apps.common.tasks import FunctionTask
 from ferret.apps.session.models import SessionMeta, SessionSource
 from ferret.apps.session.repository import SessionRepository
-from ferret.core.log import get_logger
 from ferret.core.mitm import (
     FlowExporter,
     FlowFile,
@@ -21,8 +20,6 @@ from ferret.core.mitm import (
     View,
     parse_filter,
 )
-
-log = get_logger("session")
 
 
 class SessionViewController(QObject):
@@ -83,31 +80,6 @@ class SessionViewController(QObject):
     def export_har(self, flows: list[HTTPFlow], path: str) -> None:
         # save_har 是纯函数、不读 ctx，所以只读会话页没有 master 也能导出。
         FlowExporter.save_har(flows, path)
-
-
-class WorkerSignals(QObject):
-    succeeded = Signal(object)
-    failed = Signal(str)
-    finished = Signal()
-
-
-class FunctionTask(QRunnable):
-    def __init__(self, fn: Callable[..., Any], *args, **kwargs):
-        super().__init__()
-        self._fn = fn
-        self._args = args
-        self._kwargs = kwargs
-        self.signals = WorkerSignals()
-
-    def run(self) -> None:
-        try:
-            result = self._fn(*self._args, **self._kwargs)
-            self.signals.succeeded.emit(result)
-        except Exception as e:
-            log.exception("后台任务失败")
-            self.signals.failed.emit(str(e))
-        finally:
-            self.signals.finished.emit()
 
 
 class SessionController(QObject):

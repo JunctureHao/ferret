@@ -22,14 +22,10 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     FluentIcon,
-    IconInfoBadge,
-    IconWidget,
     InfoBadge,
     InfoBadgePosition,
     MessageBoxBase,
-    PushButton,
     RoundMenu,
-    SimpleCardWidget,
     SpinBox,
     StrongBodyLabel,
     SubtitleLabel,
@@ -39,16 +35,11 @@ from qfluentwidgets import (
     VerticalSeparator,
 )
 
-from ferret.apps.capture.controllers import (
-    CaptureController,
-    CaptureState,
-    CertBadgeController,
-)
+from ferret.apps.capture.controllers import CaptureController, CaptureState
 from ferret.apps.common.filter import MultiFilterManager
 from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
-from ferret.core.mitm import Cert
 from ferret.core.mitm.facade import MitmFacade
 from ferret.core.system_proxy import SystemProxyService
 
@@ -72,7 +63,6 @@ class CapturesInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("CapturesInterface")
         self.controller = CaptureController(self, mitm=mitm, system_proxy=system_proxy)
-        self.cert_controller = CertBadgeController(self)
         self._ui_state = CaptureUiState(
             capture_state=CaptureState.STOPPED,
             endpoint=f"127.0.0.1:{self.controller.current_port}",
@@ -80,7 +70,6 @@ class CapturesInterface(QWidget):
             shown_count=0,
             selected_count=0,
             active_filter_count=0,
-            certificate_installed=False,
         )
 
         self.__init_widget()
@@ -111,7 +100,6 @@ class CapturesInterface(QWidget):
         self.command_bar.captureToggled.connect(self.__on_capture_toggled)
         self.command_bar.filterToggled.connect(self.__toggle_filter_panel)
         self.command_bar.openRequested.connect(self.__on_open_flow_file_requested)
-        self.command_bar.certificateRequested.connect(self.__show_certificate_dialog)
         self.command_bar.portRequested.connect(self.__show_proxy_port_dialog)
         self.command_bar.locateRequested.connect(self.content.table.on_locate_selection)
         self.command_bar.clearRequested.connect(self.__confirm_clear_flows)
@@ -136,7 +124,6 @@ class CapturesInterface(QWidget):
 
         self.filter_panel.conditionsChanged.connect(self.__on_search_changed)
         self.filter_panel.panelCloseRequested.connect(self.__hide_filter_panel)
-        self.cert_controller.status_changed.connect(self.__on_certificate_status)
 
         # 统计信息更新
         self.content.table.stats_updated.connect(self.__on_stats_updated)
@@ -168,9 +155,8 @@ class CapturesInterface(QWidget):
         )
         QWidget.setTabOrder(self.command_bar.search_btn, self.command_bar.open_btn)
         QWidget.setTabOrder(self.command_bar.open_btn, self.command_bar.environment_btn)
-        QWidget.setTabOrder(self.command_bar.environment_btn, self.command_bar.cert_btn)
         QWidget.setTabOrder(
-            self.command_bar.cert_btn, self.command_bar.proxy_setting_btn
+            self.command_bar.environment_btn, self.command_bar.proxy_setting_btn
         )
         QWidget.setTabOrder(
             self.command_bar.proxy_setting_btn,
@@ -242,17 +228,6 @@ class CapturesInterface(QWidget):
                     endpoint=f"127.0.0.1:{self.controller.current_port}",
                 )
                 self._refresh_command_bar()
-
-    @Slot()
-    def __show_certificate_dialog(self) -> None:
-        dialog = CertSettingsDialog(self.window())
-        dialog.status_changed.connect(self.__on_certificate_status)
-        dialog.exec()
-
-    @Slot(bool)
-    def __on_certificate_status(self, installed: bool) -> None:
-        self._ui_state = replace(self._ui_state, certificate_installed=installed)
-        self._refresh_command_bar()
 
     @Slot(int, int, int)
     def __on_stats_updated(self, total: int, shown: int, selected: int) -> None:
@@ -361,11 +336,6 @@ class CapturesInterface(QWidget):
         """停止抓包（供外部调用，如MainWindow.closeEvent）"""
         self.controller.stop_capture()
 
-    def showEvent(self, event):
-        """每次打开（切到）抓包页面时，检测证书安装状态以刷新角标。"""
-        super().showEvent(event)
-        self.cert_controller.refresh()
-
 
 class CapturesContentArea(FlowViewerPane):
     """Capture-specific name for the shared Flow viewer."""
@@ -386,7 +356,6 @@ class CaptureUiState:
     shown_count: int
     selected_count: int
     active_filter_count: int
-    certificate_installed: bool
 
 
 class CaptureFilterPanel(MultiFilterManager):
@@ -411,7 +380,6 @@ class CaptureCommandBar(QWidget):
     filterToggled = Signal()
     openRequested = Signal()
     clearRequested = Signal()
-    certificateRequested = Signal()
     portRequested = Signal()
     locateRequested = Signal()
 
@@ -454,16 +422,6 @@ class CaptureCommandBar(QWidget):
         )
         self.filter_badge.hide()
 
-        self.cert_btn = TransparentToolButton(FluentIcon.CERTIFICATE, self)
-        self.cert_btn.setToolTip(self.tr("证书设置"))
-        self.cert_btn.setAccessibleName(self.tr("证书设置"))
-        self.cert_badge = IconInfoBadge.error(
-            FluentIcon.CANCEL_MEDIUM,
-            self,
-            self.cert_btn,
-            InfoBadgePosition.TOP_RIGHT,
-        )
-
         self.proxy_setting_btn = TransparentToolButton(FluentIcon.GLOBE, self)
         self.proxy_setting_btn.setToolTip(self.tr("端口设置"))
         self.proxy_setting_btn.setAccessibleName(self.tr("端口设置"))
@@ -471,13 +429,6 @@ class CaptureCommandBar(QWidget):
         self.environment_btn = TransparentToolButton(FluentIcon.MORE, self)
         self.environment_btn.setToolTip(self.tr("环境设置"))
         self.environment_btn.setAccessibleName(self.tr("环境设置"))
-        self.environment_badge = IconInfoBadge.error(
-            FluentIcon.CANCEL_MEDIUM,
-            self,
-            self.environment_btn,
-            InfoBadgePosition.TOP_RIGHT,
-        )
-        self.environment_badge.hide()
         self.environment_btn.hide()
 
         self.locate_selection_btn = TransparentToolButton(
@@ -500,7 +451,6 @@ class CaptureCommandBar(QWidget):
         for button in (
             self.search_btn,
             self.open_btn,
-            self.cert_btn,
             self.proxy_setting_btn,
             self.environment_btn,
             self.locate_selection_btn,
@@ -526,7 +476,6 @@ class CaptureCommandBar(QWidget):
         layout.addWidget(self.search_btn)
         layout.addWidget(self.open_btn)
         layout.addSpacing(4)
-        layout.addWidget(self.cert_btn)
         layout.addWidget(self.proxy_setting_btn)
         layout.addWidget(self.environment_btn)
         layout.addSpacing(4)
@@ -540,7 +489,6 @@ class CaptureCommandBar(QWidget):
         self.control_btn.clicked.connect(self.__emit_capture_toggle)
         self.search_btn.clicked.connect(self.filterToggled.emit)
         self.open_btn.clicked.connect(self.openRequested.emit)
-        self.cert_btn.clicked.connect(self.certificateRequested.emit)
         self.proxy_setting_btn.clicked.connect(self.portRequested.emit)
         self.environment_btn.clicked.connect(self.__show_environment_menu)
         self.locate_selection_btn.clicked.connect(self.locateRequested.emit)
@@ -556,11 +504,8 @@ class CaptureCommandBar(QWidget):
     @Slot()
     def __show_environment_menu(self) -> None:
         menu = RoundMenu(parent=self)
-        cert_action = Action(FluentIcon.CERTIFICATE, self.tr("证书设置"), menu)
         port_action = Action(FluentIcon.GLOBE, self.tr("端口设置"), menu)
-        cert_action.triggered.connect(self.certificateRequested.emit)
         port_action.triggered.connect(self.portRequested.emit)
-        menu.addAction(cert_action)
         menu.addAction(port_action)
         menu.exec(
             self.environment_btn.mapToGlobal(QPoint(0, self.environment_btn.height()))
@@ -638,12 +583,6 @@ class CaptureCommandBar(QWidget):
         self.filter_badge.adjustSize()
         self.filter_badge.raise_()
 
-        self.cert_badge.setVisible(not state.certificate_installed)
-        self.cert_btn.setToolTip(
-            self.tr("证书设置（证书已安装）")
-            if state.certificate_installed
-            else self.tr("HTTPS 解密证书未安装")
-        )
         self.captures_delete_btn.setEnabled(state.total_count > 0)
         self._apply_compact_mode(self.width())
 
@@ -673,15 +612,8 @@ class CaptureCommandBar(QWidget):
                 stats = f"{self._state.shown_count} / {self._state.total_count} 条"
         self.stats_label.setText(stats)
         self.endpoint_btn.setVisible(not very_compact)
-        self.cert_btn.setVisible(not very_compact)
         self.proxy_setting_btn.setVisible(not very_compact)
         self.environment_btn.setVisible(very_compact)
-        self.cert_badge.setVisible(
-            not very_compact and not self._state.certificate_installed
-        )
-        self.environment_badge.setVisible(
-            very_compact and not self._state.certificate_installed
-        )
 
     def update_stats(self, total: int, shown: int, selected: int) -> None:
         """Compatibility helper retained for external callers."""
@@ -722,99 +654,6 @@ class ClearFlowsDialog(MessageBoxBase):
         layout.addWidget(self.desc_label)
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(380)
-
-
-class CertSettingsDialog(MessageBoxBase):
-    """证书设置对话框
-
-    内容随当前安装状态变化：
-    - 已安装：“已安装”说明，无安装按钮
-    - 未安装：“未安装”说明 + 安装按钮，点击后自动安装并刷新
-    """
-
-    status_changed = Signal(bool)  # 状态变化（装完后广播），供 toolbar 角标同步
-
-    def __init__(self, parent: QWidget):
-        super().__init__(parent)
-        self._cert = Cert()
-        self.__init_widget()
-        self.__init_layout()
-        self.__connect_signal_to_slot()
-        self._refresh()
-
-    def __init_widget(self):
-        # 标题
-        self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr("证书设置"))
-
-        # 状态卡片（图标 + 主文案）
-        self.status_card = SimpleCardWidget(self)
-        self.status_card.setFixedHeight(72)
-
-        self.icon_widget = IconWidget(self.status_card)
-        self.icon_widget.setFixedSize(36, 36)
-
-        self.status_label = BodyLabel(self.status_card)
-        self.status_label.setWordWrap(True)
-
-        # 提示文字（次要信息）
-        self.tip_label = BodyLabel(self)
-        self.tip_label.setStyleSheet(
-            "color: rgba(255, 255, 255, 0.6); font-size: 12px;"
-        )
-        self.tip_label.setText(
-            self.tr("mitmproxy 需要信任其 CA 证书才能解密 HTTPS 流量。")
-        )
-        self.tip_label.setWordWrap(True)
-
-        # 安装按钮
-        self.install_btn = PushButton(self.tr("安装证书"), self)
-        self.install_btn.setFixedHeight(34)
-        self.install_btn.setMinimumWidth(140)
-
-    def __init_layout(self):
-        # 卡片内部布局：图标 + 文字
-        card_layout = QHBoxLayout(self.status_card)
-        card_layout.setContentsMargins(16, 10, 16, 10)
-        card_layout.setSpacing(14)
-        card_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        card_layout.addWidget(self.icon_widget)
-        card_layout.addWidget(self.status_label, 1)
-
-        # 对话框主布局
-        self.viewLayout.setSpacing(12)
-        self.viewLayout.setContentsMargins(24, 20, 24, 16)
-        self.viewLayout.addWidget(self.title_label)
-        self.viewLayout.addWidget(self.status_card)
-        self.viewLayout.addWidget(self.tip_label)
-        self.viewLayout.addWidget(self.install_btn)
-        self.widget.setMinimumWidth(400)
-
-    def __connect_signal_to_slot(self):
-        self.install_btn.clicked.connect(self._on_install)
-
-    def _refresh(self):
-        """按当前安装状态刷新图标、文案与按钮可见性。"""
-        installed = self._cert.check()
-        if installed:
-            self.icon_widget.setIcon(FluentIcon.ACCEPT_MEDIUM)
-            self.status_label.setText(self.tr("证书已安装"))
-            self.install_btn.setVisible(False)
-        else:
-            self.icon_widget.setIcon(FluentIcon.CANCEL_MEDIUM)
-            self.status_label.setText(self.tr("证书未安装"))
-            self.install_btn.setVisible(True)
-        self.status_changed.emit(installed)
-
-    @Slot()
-    def _on_install(self):
-        """点击安装：生成（如需要）+ 安装证书，完成后刷新。"""
-        try:
-            self._cert.install()
-            show_success("成功", "证书已安装", parent=self)
-        except RuntimeError as e:
-            show_warning("安装失败", str(e), parent=self)
-        self._refresh()
 
 
 class ProxyPortDialog(MessageBoxBase):
