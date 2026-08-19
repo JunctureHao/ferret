@@ -26,6 +26,7 @@ Ferret 是基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS
 | 字节大小格式化 | `human.pretty_size` → `11b` / `1.0k` / `3.0g`（不自造 `format_bytes`） | `apps/common/flow/{models,views}.py`、`apps/session/models.py` |
 | HAR 导出 | `mitmproxy.addons.savehar.SaveHar().make_har`（纯函数，勿重写算法） | `core/mitm/export.py` |
 | httpie / raw 导出 | `mitmproxy.addons.export` 的模块级函数 | `core/mitm/export.py` |
+| 屏蔽请求 | `mitmproxy.addons.blocklist` 的 `BlockList` + `parse_spec`（匹配、`Response.make` 空响应、444 走 `flow.kill()` 全是原生的，ferret 只造 spec 字符串） | `core/mitm/blocklist.py` |
 | 构造请求/响应（暂无调用点，将来需要时） | `Request.make` / `Response.make` | — |
 
 - **唯一允许的分叉**：`core/mitm/export.py::curl_command`。原生实现用 POSIX 单引号，
@@ -37,6 +38,14 @@ Ferret 是基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS
     **没有 `json`** —— JSON 视图自报 `yaml`。所以不能按 `yaml` 直接判 JSON，
     否则 protobuf / msgpack / urlencoded / hexdump 会被喂进 JSON lexer。
     映射规则见 `apps/common/flow/views.py::_body_lang`。
+- `block_list` spec（`<sep>flowfilter<sep>status`）的三个坑：
+  - 分隔符是 `option[0]`，`rem.split(sep, 2)` 要求**恰好 2 段** —— URL 天然带 `/` 和 `:`，
+    写死任一个都会切出 3 段抛 `ValueError`。`blocklist.py::_pick_separator` 按表达式内容
+    动态挑一个未出现的字符，拼完**必须再过一遍原生 `parse_block_spec` 复核**。
+  - `block_list` 选项由 `BlockList.load` 注册，`addons.add()` 之前**不存在** ——
+    不能 `Options(block_list=…)`，只能 `FerretMaster(...)` 之后 `options.update(...)`。
+  - 失败的 `options.update` 整体回滚（选项值与 `BlockList.items` 都停在上一个合法状态），
+    所以 `specs_from_rules` 一次性校验全部规则，坏一条就整批不下发。
 - 超过 `MAX_PRETTY_SIZE`（1MB）跳过美化直接给 raw：mitmproxy 的
   `content_view_lines_cutoff` 需要配套「显示全部」按钮，ferret 暂无。
 
@@ -116,10 +125,11 @@ Qt 在主线程。**只有三条合法通道**：
   （Windows 注册表代理开关）、`resources_rc.py`（Qt 生成物，勿手改）。
 - `core/mitm/`：`bindings`（唯一 mitmproxy 入口）、`master`（`FerretMaster` addon 装配）、
   `runtime`（线程 + 信号桥）、`facade`、`addons`（`FerretTlsConfig` / `LogAddon`）、
-  `export`、`io`、`certificate`、`__init__`（公开 API）。
+  `export`、`io`、`certificate`、`blocklist`（屏蔽规则模型 + spec 构造，无 Qt）、
+  `__init__`（公开 API）。
   - `engine.py` 是历史兼容 shim，只 re-export `CaptureMaster` / `FerretMaster`，
     **零引用者，可直接删**。
-- `apps/`：业务与界面（`capture` / `common` / `session` / `settings`），**不得直接
+- `apps/`：业务与界面（`capture` / `common` / `session` / `settings` / `blocklist`），**不得直接
   import mitmproxy 内部模块**（当前 0 例外），一律经 `core/mitm` 的封装访问。
   - 编辑类 UI 复用 `apps/common/edit/`：`ItemDualPanel` 编 headers、`ToolPlainTextEdit`
     编 body、`JsonDualPanel` 看 JSON 树，不新造编辑器。
@@ -146,13 +156,19 @@ Qt 在主线程。**只有三条合法通道**：
 ## 6. 功能状态速查
 
 - **实际装载的 addon 以 `core/mitm/master.py` 里 `FerretMaster.__init__` 的 `addons.add(...)`
-  为准**：Core、StripDnsHttpsRecords、AntiCache、AntiComp、ClientPlayback、DisableH2C、
+  为准**：Core、StripDnsHttpsRecords、BlockList、AntiCache、AntiComp、ClientPlayback、DisableH2C、
   Proxyserver、DnsResolver、NextLayer、FerretTlsConfig、View、ReadFile、Save、LogAddon。
-  （AntiCache / AntiComp 已装载但对应 option 默认关闭。）
+  （AntiCache / AntiComp 已装载但对应 option 默认关闭；BlockList 的 `block_list`
+  由 `apps/blocklist` 的规则页下发，无规则时等于关闭。）
+  BlockList 的位置（`StripDnsHttpsRecords` 之后、`AntiCache` 之前）对齐原生
+  `default_addons()`，同时保证它早于 `View.request` —— 被拦的 flow 照样进流量表
+  （403 显示状态码，444 走 `kill()` 显示 Error）。
 - 已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR / curl / httpie / raw
-  导出、CA 证书信任（Windows `certutil`）、系统代理开关、会话管理。
+  导出、CA 证书信任（Windows `certutil`）、系统代理开关、会话管理、
+  **屏蔽规则 blocklist**（`apps/blocklist` 规则页 + 流量表右键「屏蔽此主机」，
+  规则存 `config.json` 的 `Proxy.BlockList`）。
 - 功能缺口（GUI 后续方向）：**断点拦截 intercept**（全仓库 0 处 `intercept`）、
-  modifyheaders / modifybody、maplocal / mapremote、block、serverplayback、
+  modifyheaders / modifybody、maplocal / mapremote、serverplayback、
   stickycookie / stickyauth、**流量备注**（全仓库 0 处 `flow.comment`，也无备注 UI）。
 - ⚠️ **`README.md` 的「内置 Addon 功能对照」表已过期**：它把 readfile / anticache /
   anticomp / disable_h2c / strip_dns_https_records 标成 ❌，实际都已装载；savehar 标 ❌，
@@ -175,7 +191,7 @@ Qt 在主线程。**只有三条合法通道**：
     asgiref 只被 `asgiapp` 引，而 `mitmproxy/addons/__init__.py` 压根不 import 它；
     zstandard.backend_cffi 靠 C 扩展是主后端成立。
     注意 `bindings.py` 里 `from mitmproxy.addons import export` 会触发
-    `addons/__init__.py`，把 comment / script / block / modify* 等**全部** addon 拉进导入期
+    `addons/__init__.py`，把 comment / script / stickycookie / modify* 等**全部** addon 拉进导入期
     —— 桩机制存在的原因就是这个，别以为「没装载就不会被 import」。
   - `maplocal` 反过来是有桩没 nofollow（只省了 import，没省编译体积）。
   - `click` 裁的是 PyPI 的 click；mitmproxy 库路径用的是 vendored

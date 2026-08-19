@@ -33,6 +33,7 @@ class FlowViewCapabilities:
     can_save_selection: bool = True
     can_open_url: bool = True
     can_export: bool = True
+    can_block: bool = False
 
 
 CAPTURE_CAPABILITIES = FlowViewCapabilities(
@@ -41,6 +42,7 @@ CAPTURE_CAPABILITIES = FlowViewCapabilities(
     can_save_selection=True,
     can_open_url=True,
     can_export=True,
+    can_block=True,
 )
 
 READONLY_CAPABILITIES = FlowViewCapabilities(
@@ -49,4 +51,5 @@ READONLY_CAPABILITIES = FlowViewCapabilities(
     can_save_selection=True,
     can_open_url=True,
     can_export=True,
+    can_block=False,
 )

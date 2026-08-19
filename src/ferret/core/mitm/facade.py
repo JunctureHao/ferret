@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ferret.core.mitm.bindings import HTTPFlow, View
+from ferret.core.mitm.blocklist import BlockRule
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.runtime import MitmRuntime
@@ -32,6 +33,14 @@ class MitmFacade:
     @property
     def is_running(self) -> bool:
         return self.runtime.is_running
+
+    @property
+    def block_rules(self) -> list[BlockRule]:
+        return list(self.runtime.block_rules)
+
+    def set_block_rules(self, rules: list[BlockRule]) -> None:
+        """Replace the block rules; applied immediately when the kernel runs."""
+        self.runtime.apply_block_rules(rules)
 
     def get_flow(self, flow_id: str) -> HTTPFlow | None:
         def find() -> HTTPFlow | None:

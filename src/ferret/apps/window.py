@@ -14,6 +14,8 @@ from qfluentwidgets import (
     setTheme,
 )
 
+from ferret.apps.blocklist.controllers import BlockListController
+from ferret.apps.blocklist.views import BlockListInterface
 from ferret.apps.capture.controllers import CaptureState
 from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.common.icon import BaseAction
@@ -40,6 +42,12 @@ class MainWindow(FluentWindow):
         )
         self.sessions_interface = SessionsInterface(
             controller=self.session_controller, parent=self
+        )
+        # 建在 runtime.start() 之前：构造时就把已存规则交给 facade，
+        # Master 起来时 _run_master 会在服务第一个请求前下发。
+        self.blocklist_controller = BlockListController(self, mitm=self.runtime.mitm)
+        self.blocklist_interface = BlockListInterface(
+            controller=self.blocklist_controller, parent=self
         )
 
         self.tray_icon = SystemTray(self)
@@ -74,6 +82,10 @@ class MainWindow(FluentWindow):
         )
 
         self.addSubInterface(
+            self.blocklist_interface, FluentIcon.CANCEL_MEDIUM, self.tr("blocklist")
+        )
+
+        self.addSubInterface(
             self.settings_interface,
             FluentIcon.SETTING,
             self.tr("settings"),
@@ -86,6 +98,10 @@ class MainWindow(FluentWindow):
         self.tray_icon.activated.connect(self.__on_activated)
         self.captures_interface.controller.capture_state_changed.connect(
             self.__on_capture_state_changed
+        )
+        # 由主窗口牵线，apps/capture 不必认识 apps/blocklist。
+        self.captures_interface.block_host_requested.connect(
+            self.blocklist_controller.add_host_rule
         )
 
     @Slot(object)

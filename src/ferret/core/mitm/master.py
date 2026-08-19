@@ -6,6 +6,7 @@ from ferret.core.mitm.addons import FerretTlsConfig, LogAddon
 from ferret.core.mitm.bindings import (
     AntiCache,
     AntiComp,
+    BlockList,
     ClientPlayback,
     Core,
     DisableH2C,
@@ -35,11 +36,13 @@ class FerretMaster(Master):
         self.proxyserver = Proxyserver()
         self.readfile = ReadFile()
         self.client_playback = ClientPlayback()
+        self.block_list = BlockList()
         self.save = Save()
 
         self.addons.add(
             Core(),
             StripDnsHttpsRecords(),
+            self.block_list,
             AntiCache(),
             AntiComp(),
             self.client_playback,

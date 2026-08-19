@@ -13,7 +13,8 @@ from typing import Any
 from PySide6.QtCore import QObject, QThread, Signal
 
 from ferret.core.log import get_logger
-from ferret.core.mitm.bindings import Options, View, parse_filter
+from ferret.core.mitm.bindings import Options, OptionsError, View, parse_filter
+from ferret.core.mitm.blocklist import BlockRule, specs_from_rules
 from ferret.core.mitm.master import FerretMaster
 from ferret.core.settings import get_certs_dir
 
@@ -108,6 +109,7 @@ class _MitmThread(QThread):
                 self.generation,
             )
         )
+        self._apply_block_rules(master)
         self.master = master
         self.runtime._master_created.emit(self.generation, master)
         if self.stop_requested:
@@ -117,6 +119,13 @@ class _MitmThread(QThread):
         finally:
             self.master = None
             self.loop = None
+
+    def _apply_block_rules(self, master: FerretMaster) -> None:
+        """Seed block_list before serving traffic (already on the mitm loop)."""
+        try:
+            master.options.update(block_list=specs_from_rules(self.runtime.block_rules))
+        except (ValueError, OptionsError) as exc:
+            log.warning("屏蔽规则无法应用，已忽略: %s", exc)
 
     def _ensure_port_available(self) -> None:
         if self.runtime.listen_port == 0:
@@ -172,6 +181,7 @@ class MitmRuntime(QObject):
         self._master: FerretMaster | None = None
         self._last_error = ""
         self._generation = 0
+        self.block_rules: list[BlockRule] = []
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -236,6 +246,26 @@ class MitmRuntime(QObject):
             raise RuntimeError("mitmproxy 内核停止超时，无法重启")
         self.start()
 
+    def apply_block_rules(self, rules: list[BlockRule] | None = None) -> None:
+        """Store block rules and push them to the Master when one is running.
+
+        Specs are built (and natively validated) before anything is committed, so
+        a bad rule leaves both the stored copy and the live option untouched.
+        """
+        previous = self.block_rules
+        candidate = self.block_rules if rules is None else list(rules)
+        specs = specs_from_rules(candidate)
+        self.block_rules = candidate
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(lambda: master.options.update(block_list=specs))
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            self.block_rules = previous
+            raise ValueError(str(exc)) from exc
+
     def call(self, callback: Callable[[], Any], *, timeout: float = 5.0) -> Any:
         thread = self._thread
         master = self._master
@@ -281,6 +311,10 @@ class MitmRuntime(QObject):
         ):
             return
         self._set_state(MitmRuntimeState.RUNNING)
+        try:
+            self.apply_block_rules()
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            log.warning("屏蔽规则下发失败: %s", exc)
         self.ready.emit(self.view)
 
     def _on_failed(self, generation: int, message: str) -> None:

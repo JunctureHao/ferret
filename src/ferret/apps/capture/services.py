@@ -5,9 +5,7 @@ Shared mitmproxy runtime, flow I/O, export, and certificate integration live in
 application.
 """
 
-import re
-
-from ferret.core.mitm import parse_filter
+from ferret.core.mitm import escape_literal, parse_filter, quote_value
 
 _FIELD_TO_OP: dict[str, str] = {
     "全部": "u",
@@ -16,19 +14,6 @@ _FIELD_TO_OP: dict[str, str] = {
     "Header": "h",
     "Body": "b",
 }
-
-
-def _escape_regex(text: str) -> str:
-    """Escape text for literal matching in a flowfilter expression."""
-    return re.escape(text)
-
-
-def _quote_value(value: str) -> str:
-    """Quote a flowfilter value when its contents require it."""
-    if not value or (" " in value) or ('"' in value) or ("'" in value):
-        escaped = value.replace('"', '\\"')
-        return f'"{escaped}"'
-    return value
 
 
 def _condition_to_expr(condition: dict) -> str | None:
@@ -42,11 +27,11 @@ def _condition_to_expr(condition: dict) -> str | None:
     if logic == "正则表达式":
         regex = value
     elif logic == "等于":
-        regex = f"^{_escape_regex(value)}$"
+        regex = f"^{escape_literal(value)}$"
     else:
-        regex = _escape_regex(value)
+        regex = escape_literal(value)
 
-    expression = f"~{operator} {_quote_value(regex)}"
+    expression = f"~{operator} {quote_value(regex)}"
     return f"!{expression}" if logic == "不包含" else expression
 
 

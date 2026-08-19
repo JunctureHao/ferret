@@ -242,6 +242,32 @@ class FlowContextMenuTests(unittest.TestCase):
         menu.replay_from_file_action.trigger()
         self.assertEqual(signals, [1])
 
+    def test_capture_capabilities_show_block_host_action(self) -> None:
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        actions_text = [a.text() for a in menu.actions() if a.text()]
+        self.assertIn("屏蔽此主机", actions_text)
+
+    def test_readonly_capabilities_hide_block_host_action(self) -> None:
+        menu = self._make_menu(self.READONLY_CAPABILITIES)
+        actions_text = [a.text() for a in menu.actions() if a.text()]
+        self.assertNotIn("屏蔽此主机", actions_text)
+
+    def test_block_host_requested_carries_the_row_host(self) -> None:
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        hosts: list = []
+        menu.block_host_requested.connect(hosts.append)
+        menu.update_context(0, {"id": "flow-1", "Host": "ads.example.com"}, [])
+        menu.block_host_action.trigger()
+        self.assertEqual(hosts, ["ads.example.com"])
+
+    def test_block_host_requested_is_empty_without_a_host(self) -> None:
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        hosts: list = []
+        menu.block_host_requested.connect(hosts.append)
+        menu.update_context(0, {"id": "flow-1"}, [])
+        menu.block_host_action.trigger()
+        self.assertEqual(hosts, [""])
+
 
 if __name__ == "__main__":
     unittest.main()

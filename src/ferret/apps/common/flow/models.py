@@ -171,10 +171,16 @@ class FlowTableModel(QAbstractTableModel):
             if column_name == "URL":
                 return flow.request.pretty_url
             if column_name == "Status":
+                # blocklisted 是原生 BlockList addon 打的标记，白捡的可视化反馈
+                blocked = (
+                    "（已被屏蔽规则拦截）" if flow.metadata.get("blocklisted") else ""
+                )
                 if flow.error:
-                    return flow.error.msg if flow.error else "Flow error"
+                    msg = flow.error.msg if flow.error else "Flow error"
+                    return f"{msg}{blocked}"
                 if flow.response:
-                    return f"{flow.response.status_code} {flow.response.reason}"
+                    status = f"{flow.response.status_code} {flow.response.reason}"
+                    return f"{status}{blocked}"
             if column_name == "Type":
                 return self._mime(flow) or "未知内容类型"
             if column_name == "Time":

@@ -1515,6 +1515,7 @@ class FlowContextMenu(RoundMenu):
 
     delete_requested = Signal(int)  # 删除请求信号
     replay_file_requested = Signal()  # 从文件回放请求信号
+    block_host_requested = Signal(str)  # 屏蔽此主机请求信号（携带 host）
 
     def __init__(
         self,
@@ -1567,6 +1568,11 @@ class FlowContextMenu(RoundMenu):
             text=self.tr("删除"),
             shortcut=QKeySequence.StandardKey.Delete,
         )
+        self.block_host_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.CANCEL_MEDIUM,
+            text=self.tr("屏蔽此主机"),
+        )
         self.export_menu = FlowExportMenu(self, self.controller)
         self.view_menu = FlowSubViewMenu(self)
 
@@ -1577,6 +1583,8 @@ class FlowContextMenu(RoundMenu):
             self.addAction(self.client_replay_action)
             self.addAction(self.replay_from_file_action)
         self.addMenu(self.export_menu)
+        if self.capabilities.can_block:
+            self.addAction(self.block_host_action)
         if self.capabilities.can_delete:
             self.addAction(self.delete_action)
 
@@ -1585,6 +1593,7 @@ class FlowContextMenu(RoundMenu):
         self.client_replay_action.triggered.connect(self.__on_client_replay_triggered)
         self.replay_from_file_action.triggered.connect(self.replay_file_requested.emit)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
+        self.block_host_action.triggered.connect(self.__on_block_host_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
 
     def _refresh_replay_label(self) -> None:
@@ -1600,6 +1609,11 @@ class FlowContextMenu(RoundMenu):
         """删除动作触发时"""
         if self.row_index != -1:
             self.delete_requested.emit(self.row_index)
+
+    @Slot()
+    def __on_block_host_triggered(self):
+        """把当前行的主机交给屏蔽规则页（由主窗口牵线到 BlockListController）。"""
+        self.block_host_requested.emit(self.row_data.get("Host", ""))
 
     @Slot()
     def __show_url_window(self):

@@ -78,6 +78,15 @@ class Config(QConfig):
         serializer=LayoutSerializer(),
     )
 
+    # 屏蔽规则，存 list[dict]（见 core/mitm/blocklist.py 的 BlockRule.to_dict）。
+    # 注意 QConfig.set 开头有 `if item.value == value: return`，原地 mutate 再 set
+    # 会静默不落盘 —— 写回时必须传一个新 list。
+    block_list = ConfigItem(
+        group="Proxy",
+        name="BlockList",
+        default=[],
+    )
+
 def get_config_dir() -> Path:
     d = Path(
         QStandardPaths.writableLocation(

@@ -59,6 +59,9 @@ if TYPE_CHECKING:
 class CapturesInterface(QWidget):
     """抓包主界面 - 包含工具栏、搜索面板和内容区域"""
 
+    # 右键「屏蔽此主机」向外转发，由 MainWindow 接到 BlockListController
+    block_host_requested = Signal(str)
+
     def __init__(
         self,
         parent: "MainWindow | None" = None,
@@ -118,6 +121,11 @@ class CapturesInterface(QWidget):
         # 右键菜单"从文件回放…"信号 → 弹 file dialog → 调 controller
         self.content.table.context_menu.replay_file_requested.connect(
             self.__on_replay_from_file_requested
+        )
+
+        # 右键"屏蔽此主机"信号 → 冒泡给 MainWindow
+        self.content.table.context_menu.block_host_requested.connect(
+            self.block_host_requested
         )
 
         # Controller 状态信号 → UI 更新
