@@ -6,7 +6,7 @@
 # nuitka-project: --windows-icon-from-ico=src/ferret/resources/icon.ico
 # nuitka-project: --report=dist/report.xml
 # nuitka-project: --msvc=latest
-# nuitka-project: --lto=yes
+# nuitka-project: --lto=no
 # nuitka-project: --enable-plugins=pyside6
 # nuitka-project: --python-flag=no_docstrings
 # nuitka-project: --python-flag=no_asserts
