@@ -82,7 +82,7 @@ class MainWindow(FluentWindow):
         )
 
         self.addSubInterface(
-            self.blocklist_interface, FluentIcon.CANCEL_MEDIUM, self.tr("blocklist")
+            self.blocklist_interface, FluentIcon.FILTER, self.tr("blocklist")
         )
 
         self.addSubInterface(

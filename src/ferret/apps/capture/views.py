@@ -71,9 +71,7 @@ class CapturesInterface(QWidget):
     ):
         super().__init__(parent)
         self.setObjectName("CapturesInterface")
-        self.controller = CaptureController(
-            self, mitm=mitm, system_proxy=system_proxy
-        )
+        self.controller = CaptureController(self, mitm=mitm, system_proxy=system_proxy)
         self.cert_controller = CertBadgeController(self)
         self._ui_state = CaptureUiState(
             capture_state=CaptureState.STOPPED,
@@ -169,9 +167,7 @@ class CapturesInterface(QWidget):
             self.__toggle_capture_from_shortcut
         )
         QWidget.setTabOrder(self.command_bar.search_btn, self.command_bar.open_btn)
-        QWidget.setTabOrder(
-            self.command_bar.open_btn, self.command_bar.environment_btn
-        )
+        QWidget.setTabOrder(self.command_bar.open_btn, self.command_bar.environment_btn)
         QWidget.setTabOrder(self.command_bar.environment_btn, self.command_bar.cert_btn)
         QWidget.setTabOrder(
             self.command_bar.cert_btn, self.command_bar.proxy_setting_btn
@@ -446,7 +442,7 @@ class CaptureCommandBar(QWidget):
 
         self.stats_label = CaptionLabel("0 条", self)
 
-        self.search_btn = TransparentToolButton(FluentIcon.FILTER, self)
+        self.search_btn = TransparentToolButton(FluentIcon.SEARCH, self)
         self.search_btn.setCheckable(True)
         self.search_btn.setToolTip(self.tr("高级搜索") + " (Ctrl+F)")
         self.search_btn.setAccessibleName(self.tr("高级搜索"))
