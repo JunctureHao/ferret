@@ -45,7 +45,6 @@ class CodeEditor(PlainTextEdit):
 
         self.ln_left_padding = 25
         self.ln_right_padding = 25
-        self._fold_regions = []  # 折叠区域数据（待实现折叠 UI）
         self._search_active = False  # 查找模式下挂起当前行高亮，避免覆盖查找高亮
 
         self.__init_widget()
@@ -244,13 +243,6 @@ class CodeEditor(PlainTextEdit):
         self.highlighter.deleteLater()
         self.highlighter = cls(self.document())
         self._highlighter_class = cls
-
-    def enable_fold(self, regions: list):
-        """接收折叠区域数据（来自 Packet 预解析），供后续折叠 UI 使用。
-
-        当前仅保存数据，完整折叠交互在下一步实现。
-        """
-        self._fold_regions = regions or []
 
 
 __all__ = ["CodeEditor", "LineNumberArea"]

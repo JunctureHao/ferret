@@ -91,7 +91,6 @@ class HTTPHighlighter(QSyntaxHighlighter):
         self.format_cache = {}
         self.binary_format = None  # 二进制内容的灰暗斜体格式
         self.line_data = []  # 存储缓存: [[(length, QTextCharFormat), ...], ...]
-        self.fold_regions = []  # JSON body 折叠区域（全局行号）
         self._relexing = False  # 防止重入
 
         # 监听文档变化进行全量重解析
@@ -191,8 +190,6 @@ class HTTPHighlighter(QSyntaxHighlighter):
         in_body = False
         content_type = None
         header_text = []  # 累积 header 文本，用于解析 Content-Type
-        body_start_line = None  # body 起始行（0-based），用于折叠区域偏移
-        line_cursor = 0  # 当前全局行号
         for ttype, value in raw_tokens:
             # 空行标记 header/body 分界
             if (
@@ -204,7 +201,6 @@ class HTTPHighlighter(QSyntaxHighlighter):
                 and enhanced_tokens[-1][1] == "\n"
             ):
                 in_body = True
-                body_start_line = line_cursor + 1  # 空行之后即 body
                 # 进入 body 前，依据已收集 header 判定 body 类型
                 content_type = self._parse_content_type("".join(header_text))
             if not in_body:
@@ -221,8 +217,6 @@ class HTTPHighlighter(QSyntaxHighlighter):
                     enhanced_tokens.extend(detected)
                     continue
             enhanced_tokens.append((ttype, value))
-            # 统计全局行号（token 内的换行）
-            line_cursor += value.count("\n")
 
         new_line_data = [[]]
         line_idx = 0
@@ -241,26 +235,6 @@ class HTTPHighlighter(QSyntaxHighlighter):
                     line_idx += 1
 
         self.line_data = new_line_data
-
-        # 3. 计算 JSON body 的折叠区域（带 body 起始行偏移）
-        self.fold_regions = []
-        if content_type == "json" and body_start_line is not None:
-            raw_body = self.document().toPlainText().split("\n")[body_start_line:]
-            raw_body_text = "\n".join(raw_body)
-            try:
-                from ferret.utils.http_parser import compute_folds
-
-                self.fold_regions = [
-                    {
-                        "start": r["start"] + body_start_line,
-                        "end": r["end"] + body_start_line,
-                        "brace": r["brace"],
-                    }
-                    for r in compute_folds(raw_body_text)
-                ]
-            except (ImportError, TypeError, ValueError, KeyError):
-                self.fold_regions = []
-
         self.rehighlight()
         self._relexing = False
 
@@ -365,13 +339,8 @@ class HeadersHighlighter(HTTPHighlighter):
 class JSONHighlighter(HTTPHighlighter):
     """
     纯 JSON 高亮器，继承 HTTPHighlighter 的全量解析机制，
-    仅切换词法器为 tokenize_json，并支持外部注入 fold_regions。
-    用于 body 面板的独立 JSON 展示。
+    仅切换词法器为 tokenize_json。用于 body 面板的独立 JSON 展示。
     """
-
-    def __init__(self, document, lang="json"):
-        super().__init__(document, lang)
-        self.fold_regions = []  # 外部注入的折叠区域（供后续折叠 UI 使用）
 
     def _generate_tokens(self, text: str) -> Iterable[tuple[TokenType, str]]:
         return tokenize_json(text)
@@ -401,25 +370,8 @@ class JSONHighlighter(HTTPHighlighter):
                     new_line_data.append([])
                     line_idx += 1
         self.line_data = new_line_data
-
-        self.fold_regions = []
-        try:
-            from ferret.utils.http_parser import compute_folds
-
-            self.fold_regions = [
-                {"start": r["start"], "end": r["end"], "brace": r["brace"]}
-                for r in compute_folds(text)
-            ]
-        except (ImportError, TypeError, ValueError, KeyError):
-            self.fold_regions = []
-
         self.rehighlight()
         self._relexing = False
-
-    def set_fold_regions(self, regions: list):
-        """外部设置折叠区域并触发重解析"""
-        self.fold_regions = regions or []
-        self.refresh_style()
 
 
 __all__ = [

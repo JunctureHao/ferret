@@ -3,9 +3,7 @@
 from collections.abc import Iterable
 from pathlib import Path
 
-from mitmproxy.exceptions import FlowReadException
-
-from ferret.core.mitm.bindings import Flow, io
+from ferret.core.mitm.bindings import Flow, FlowReadException, io
 
 
 class FlowFile:

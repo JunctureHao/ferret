@@ -23,7 +23,7 @@ for _name, _attrs in _STUBBED_MODULES.items():
         setattr(_stub, _attr, _value)
     sys.modules.setdefault(_name, _stub)
 
-from mitmproxy import certs, connection, io
+from mitmproxy import certs, connection, contentviews, ctx, io
 from mitmproxy.addons import export as export_module
 from mitmproxy.addons import tlsconfig as _tlsconfig_module
 from mitmproxy.addons.anticache import AntiCache
@@ -43,7 +43,7 @@ from mitmproxy.addons.savehar import SaveHar
 from mitmproxy.addons.strip_dns_https_records import StripDnsHttpsRecords
 from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.view import View
-from mitmproxy.exceptions import CommandError
+from mitmproxy.exceptions import CommandError, FlowReadException
 from mitmproxy.flow import Flow
 from mitmproxy.flowfilter import parse as parse_filter
 from mitmproxy.http import HTTPFlow, Request, Response
@@ -55,6 +55,16 @@ from mitmproxy.utils import human
 
 tlsconfig_module: Any = _tlsconfig_module
 
+# contentviews 的 make_metadata 无条件读 ctx.options.protobuf_definitions，而
+# ctx.options 只由 Master.__init__ 写入（master.py:52）。ferret 的 Master 跑在
+# 独立线程，端口被占时压根不会建起来，只读会话页却照样要渲染 body。这里在导入
+# 期（主线程，早于 mitm 线程启动）一次性兜底成默认 options：
+# - 只在导入期写一次，不在运行期跨线程读写 ctx，不碰“禁止使用 ctx”那条红线；
+# - Master 起来后会用自己的 options 覆盖它，protobuf_definitions 照常生效。
+# ctx 不列入 __all__：除这处兜底外，其余模块一律不得碰它。
+if not hasattr(ctx, "options"):
+    ctx.options = Options()
+
 __all__ = [
     "KEY_SIZE",
     "AntiCache",
@@ -65,6 +75,7 @@ __all__ = [
     "DisableH2C",
     "DnsResolver",
     "Flow",
+    "FlowReadException",
     "HTTPFlow",
     "Master",
     "NextLayer",
@@ -81,6 +92,7 @@ __all__ = [
     "View",
     "certs",
     "connection",
+    "contentviews",
     "export_module",
     "human",
     "io",

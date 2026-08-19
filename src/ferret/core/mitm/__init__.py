@@ -8,6 +8,7 @@ from ferret.core.mitm.bindings import (
     Request,
     Response,
     View,
+    human,
     parse_filter,
 )
 from ferret.core.mitm.certificate import Cert, SystemCertificateService
@@ -34,5 +35,6 @@ __all__ = [
     "Response",
     "SystemCertificateService",
     "View",
+    "human",
     "parse_filter",
 ]

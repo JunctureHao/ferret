@@ -4,7 +4,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
 
-from mitmproxy.utils import human
 from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QKeySequence
 from PySide6.QtWidgets import (
@@ -45,9 +44,8 @@ from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success, show_warning
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
-from ferret.core.mitm import HTTPFlow
+from ferret.core.mitm import HTTPFlow, human
 from ferret.core.settings import CONFIG
-from ferret.utils.http_parser import format_bytes
 
 FieldKey = str | Callable[[dict], str]
 
@@ -61,33 +59,23 @@ def _format_time(ts) -> str:
     return human.format_timestamp(ts) if ts else "-"
 
 
-def _infer_body_lang(content_type: str) -> str:
-    """根据 Content-Type 推断 body 高亮语言。"""
-    ct = (content_type or "").lower()
-    if "json" in ct:
+def _body_lang(syntax: str, text: str) -> str:
+    """contentview 声明的高亮语言 → ferret 词法器。
+
+    mitmproxy 侧取值有 css / javascript / xml / yaml / none / error 六种，
+    ferret 只有 http / json / xml 三套词法器，按最近的一档落位：
+
+    - JSON 视图输出的是真 JSON（mitmproxy 把它归到 yaml），单独走 json 词法器，
+      顺带喂 ``JsonDualPanel`` 的树面板；
+    - xml（XML/HTML、WBXML）走 xml；
+    - 其余（yaml 的 ``key: value``、css、javascript、none、error）走 http，
+      HTTP 词法器对 ``Key: Value`` 行有原生分支，不会整片标红。
+    """
+    if syntax == "yaml" and text[:1] in ("{", "["):
         return "json"
-    if "xml" in ct or "html" in ct:
+    if syntax == "xml":
         return "xml"
     return "http"
-
-
-def _body_type_label(content_type: str) -> str:
-    value = (content_type or "").lower()
-    if "json" in value:
-        return "JSON"
-    if "html" in value:
-        return "HTML"
-    if "xml" in value:
-        return "XML"
-    if "javascript" in value:
-        return "JS"
-    if "css" in value:
-        return "CSS"
-    if value.startswith("text/"):
-        return "Text"
-    if value.startswith("image/"):
-        return "Binary"
-    return ""
 
 
 class FlowDataTable(TableView):
@@ -833,8 +821,7 @@ class RequestPanel(TabPanel):
         self.header_card.set_items(headers)
 
         flow_id = data.get("Connection ID", "")
-        content_type = data.get("Request Content-Type", "")
-        self._set_body_tab_label(content_type)
+        self._set_body_tab_label(data.get("Request Body View", ""))
         body = data.get("Request Body", b"")
         self._fill_raw(body, flow_id)
         self._fill_body(data)
@@ -902,15 +889,15 @@ class RequestPanel(TabPanel):
         text = data.get("Request Body Pretty")
         if text is None:
             text = data.get("Request Body Text") or ""
-        lang = _infer_body_lang(data.get("Request Content-Type", ""))
+        lang = _body_lang(data.get("Request Body Syntax", "none"), text)
         self.body_card.set_text(text, lang=lang)
 
-    def _set_body_tab_label(self, content_type: str) -> None:
+    def _set_body_tab_label(self, view: str) -> None:
+        """标签页后缀直接用 contentview 名（JSON / gRPC / Multipart Form …）。"""
         item = self.pivot.items.get("Body")
         if item is None:
             return
-        label = _body_type_label(content_type)
-        item.setText(f"Body · {label}" if label else "Body")
+        item.setText(f"Body · {view}" if view else "Body")
         item.adjustSize()
 
 
@@ -972,8 +959,7 @@ class ResponsePanel(TabPanel):
 
         # 响应体（消费预解析字段）
         flow_id = data.get("Connection ID", "")
-        content_type = data.get("Response Content-Type", "")
-        self._set_body_tab_label(content_type)
+        self._set_body_tab_label(data.get("Response Body View", ""))
         body = data.get("Response Body", b"")
         self._fill_raw(body, flow_id)
         self._fill_body(data)
@@ -1043,15 +1029,15 @@ class ResponsePanel(TabPanel):
         text = data.get("Response Body Pretty")
         if text is None:
             text = data.get("Response Body Text") or ""
-        lang = _infer_body_lang(data.get("Response Content-Type", ""))
+        lang = _body_lang(data.get("Response Body Syntax", "none"), text)
         self.body_card.set_text(text, lang=lang)
 
-    def _set_body_tab_label(self, content_type: str) -> None:
+    def _set_body_tab_label(self, view: str) -> None:
+        """标签页后缀直接用 contentview 名（JSON / gRPC / Multipart Form …）。"""
         item = self.pivot.items.get("Body")
         if item is None:
             return
-        label = _body_type_label(content_type)
-        item.setText(f"Body · {label}" if label else "Body")
+        item.setText(f"Body · {view}" if view else "Body")
         item.adjustSize()
 
 
@@ -1197,17 +1183,21 @@ class OverviewTree(TreeWidget):
     SIZE_FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
         (
             "请求",
-            lambda d: format_bytes(d.get("req_size", 0) + d.get("req_headers_size", 0)),
+            lambda d: human.pretty_size(
+                d.get("req_size", 0) + d.get("req_headers_size", 0)
+            ),
         ),
-        ("- 请求头", lambda d: format_bytes(d.get("req_headers_size", 0))),
-        ("- 请求体", lambda d: format_bytes(d.get("req_size", 0))),
+        ("- 请求头", lambda d: human.pretty_size(d.get("req_headers_size", 0))),
+        ("- 请求体", lambda d: human.pretty_size(d.get("req_size", 0))),
         (
             "响应",
-            lambda d: format_bytes(d.get("res_size", 0) + d.get("res_headers_size", 0)),
+            lambda d: human.pretty_size(
+                d.get("res_size", 0) + d.get("res_headers_size", 0)
+            ),
         ),
-        ("- 响应头", lambda d: format_bytes(d.get("res_headers_size", 0))),
-        ("- 响应体", lambda d: format_bytes(d.get("res_size", 0))),
-        ("总计", lambda d: format_bytes(d.get("total_size", 0))),
+        ("- 响应头", lambda d: human.pretty_size(d.get("res_headers_size", 0))),
+        ("- 响应体", lambda d: human.pretty_size(d.get("res_size", 0))),
+        ("总计", lambda d: human.pretty_size(d.get("total_size", 0))),
     ]
 
     def __init__(self, parent: QWidget):

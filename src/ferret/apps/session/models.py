@@ -13,7 +13,7 @@ from PySide6.QtCore import (
     Qt,
 )
 
-from ferret.utils.http_parser import format_bytes
+from ferret.core.mitm import human
 
 
 class SessionSource(StrEnum):
@@ -135,7 +135,7 @@ class SessionTableModel(QAbstractTableModel):
             if col == 2:
                 return session.flow_count
             if col == 3:
-                return format_bytes(session.file_size)
+                return human.pretty_size(session.file_size)
             if col == 4:
                 return _SOURCE_LABELS.get(session.source, session.source.value)
             return None

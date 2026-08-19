@@ -12,8 +12,8 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 from qfluentwidgets import isDarkTheme
 
-from ferret.core.mitm import FlowExporter, HTTPFlow
-from ferret.utils.http_parser import build_body, format_bytes
+from ferret.core.mitm import FlowExporter, HTTPFlow, human
+from ferret.utils.http_parser import build_body
 
 METHOD_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 STATUS_KIND_ROLE = int(Qt.ItemDataRole.UserRole) + 2
@@ -130,7 +130,7 @@ class FlowTableModel(QAbstractTableModel):
             if column_name == "Type":
                 return self._mime_label(self._mime(flow))
             if column_name == "Size":
-                return format_bytes(self._size_bytes(flow))
+                return human.pretty_size(self._size_bytes(flow))
             if column_name == "Time":
                 return format_duration(self._duration_ms(flow))
             return ""
@@ -441,7 +441,7 @@ class FlowTableModel(QAbstractTableModel):
             )
 
         if state in ("request", "response_headers", "complete", "error"):
-            req_body_info = build_body(flow.request)
+            req_body_info = build_body(flow, flow.request)
             body = req_body_info["raw"]
             req_duration = None
             if flow.request.timestamp_end and flow.request.timestamp_start:
@@ -457,9 +457,8 @@ class FlowTableModel(QAbstractTableModel):
                     "Request Content-Type": req_ct,
                     "Request Body Text": req_body_info["text"],
                     "Request Body Pretty": req_body_info["pretty"],
-                    "Request Fold Regions": req_body_info["fold_regions"],
-                    "Request Is Binary": req_body_info["is_binary"],
-                    "Request Body MIME": req_body_info["mime"],
+                    "Request Body View": req_body_info["view"],
+                    "Request Body Syntax": req_body_info["syntax"],
                 }
             )
 
@@ -547,7 +546,7 @@ class FlowTableModel(QAbstractTableModel):
                 res_duration = (
                     flow.response.timestamp_end - flow.response.timestamp_start
                 ) * 1000
-            res_body_info = build_body(flow.response)
+            res_body_info = build_body(flow, flow.response)
             body = res_body_info["raw"]
             req_total_size = data.get("req_headers_size", 0) + data.get("req_size", 0)
             res_total_size = data.get("res_headers_size", 0) + len(body)
@@ -559,9 +558,8 @@ class FlowTableModel(QAbstractTableModel):
                     "Response Content-Type": res_ct,
                     "Response Body Text": res_body_info["text"],
                     "Response Body Pretty": res_body_info["pretty"],
-                    "Response Fold Regions": res_body_info["fold_regions"],
-                    "Response Is Binary": res_body_info["is_binary"],
-                    "Response Body MIME": res_body_info["mime"],
+                    "Response Body View": res_body_info["view"],
+                    "Response Body Syntax": res_body_info["syntax"],
                     "res_size": len(body),
                     "res_time": flow.response.timestamp_end,
                     "res_duration": res_duration,
