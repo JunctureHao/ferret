@@ -45,12 +45,12 @@ class FlowTableModelTests(unittest.TestCase):
         model = self.model_with(flow)
 
         self.assertEqual(
-            model.HEADERS, ["#", "Method", "URL", "Status", "Type", "Size", "Time"]
+            model.HEADERS, ("#", "Method", "URL", "Status", "Type", "Size", "Time")
         )
         self.assertEqual(model.data(model.index(0, 2)), flow.request.pretty_url)
         self.assertEqual(model.data(model.index(0, 3)), 200)
         self.assertEqual(model.data(model.index(0, 4)), "JSON")
-        self.assertEqual(model.data(model.index(0, 5)), "11 B")
+        self.assertEqual(model.data(model.index(0, 5)), "11b")
         self.assertEqual(model.data(model.index(0, 6)), "128 ms")
         self.assertEqual(model.data(model.index(0, 3), STATUS_KIND_ROLE), "success")
         self.assertEqual(
