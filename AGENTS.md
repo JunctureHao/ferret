@@ -28,6 +28,7 @@ Ferret 是基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS
 | httpie / raw 导出 | `mitmproxy.addons.export` 的模块级函数 | `core/mitm/export.py` |
 | 代理访问控制（按来源 IP 类别） | `mitmproxy.addons.block` 的 `Block`（`client_connected` 里读 `is_loopback` / `is_private` / `is_global` 三个 stdlib 属性，命中就 `client.error` 杀连接。**没有任何名单**，也不看目的地址） | `core/mitm/master.py`、`core/network.py` |
 | 屏蔽请求 | `mitmproxy.addons.blocklist` 的 `BlockList` + `parse_spec`（匹配、`Response.make` 空响应、444 走 `flow.kill()` 全是原生的，ferret 只造 spec 字符串） | `core/mitm/blocklist.py` |
+| 重写请求目标（URL 重定向） | `mitmproxy.addons.mapremote` 的 `MapRemote` + `parse_map_remote_spec`（正则匹配、`re.sub` 改写、`request.url` setter 连 Host 头与 scheme/端口一起更新，全是原生的，ferret 只造 spec 字符串） | `core/mitm/rewrite.py` |
 | CA 证书：生成 / 查看 / 导出 | `certs.CertStore.from_store` → `create_store`（一次写全 6 个产物）、`Cert` 的现成字段（cn / subject / issuer / notbefore / notafter / has_expired / serial / fingerprint / keyinfo / is_ca）、`Cert.to_pem()`。**装进/移出系统信任库 mitmproxy 完全不管**，只能走系统命令（Windows `certutil`） | `core/mitm/certificate.py` |
 | 构造请求/响应（暂无调用点，将来需要时） | `Request.make` / `Response.make` | — |
 
@@ -48,6 +49,29 @@ Ferret 是基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS
     不能 `Options(block_list=…)`，只能 `FerretMaster(...)` 之后 `options.update(...)`。
   - 失败的 `options.update` 整体回滚（选项值与 `BlockList.items` 都停在上一个合法状态），
     所以 `specs_from_rules` 一次性校验全部规则，坏一条就整批不下发。
+- `map_remote` spec（`<sep>[flowfilter<sep>]url-regex<sep>replacement`）的六个坑（已实测）：
+  - 分隔符同样是 `option[0]`，但这次 `rem.split(sep, 2)` 接受 **2 段或 3 段**（3 段时
+    第一段当 flowfilter）—— 段数不固定，比 `block_list` 更阴：分隔符出现在 replacement 里
+    不抛异常，只是**静默读错**（实测 `parse_map_remote_spec("/foo/http://new.com/x")` →
+    subject=`http:`、replacement=`/new.com/x`）。所以 `rewrite.py::_pick_separator` 动态挑字符，
+    拼完过一遍原生解析器**还要回读比对两段是否原样** —— 只判「没抛异常」远远不够。
+  - 原生解析器**只 `re.compile` subject，从不校验 replacement**：坏反向引用要等
+    `MapRemote.request` 里那句 `re.sub` 才炸，异常直接窜出 addon 钩子（实测 `|foo|bar\1`
+    过得了 `parse_map_remote_spec`，请求期抛 `re.error`）。`_validate_template` 拿空串预跑
+    一次 `re.sub` 提前拦住 —— `re.sub` 是**预先**解析替换串的，模式不命中也照样报错。
+    两种异常都要 catch：坏转义是 `re.error`，未知分组名（`\g<nope>`）是 `IndexError`。
+  - **replacement 不能用 `re.escape`**：它是 `re.sub` 的替换串，唯一的元字符是反斜杠，
+    翻倍就够（`escape_template`）；`re.escape` 会给 `/`、`.` 也加反斜杠，直接写进 URL。
+  - **空 replacement 在钩子里抛 `ValueError: No hostname given`**（`request.url` 的 setter），
+    所以 `RewriteRule.template` 直接拒空；`equals` 模式是整条 URL 替换，还额外要求带
+    scheme + host 的完整 URL，缺一样同样是那个 setter 在真实流量上抛。
+  - **`MapRemote.request` 的 for 循环没有 `break`**：命中的 spec 按顺序**逐条累积**改写
+    同一条 URL（实测 `a.com→b.com` + `b.com→c.com` 两条会把 `https://a.com/x` 变成
+    `https://c.com/x`）。所以规则**行序有语义**：规则页提供上移/下移，表格不开排序。
+  - `map_remote` 选项与 `block_list` 同病：由 `MapRemote.load` 注册，`addons.add()` 之前
+    **不存在**（实测 `"map_remote" in options` → add 前 False / 后 True）；`options.update`
+    同样原子回滚，所以 `rewrite_option_updates` 一次性构造并校验全部规则，坏一条整批不下发，
+    且**恒写全量列表** —— 规则删光要把选项写成 `[]`，否则内核继续用上一批 spec。
 - `block_global` / `block_private` 的两个坑（已实测）：
   - 和 `block_list` 一样由 `Block.load` 注册，`addons.add()` 之前**不存在**
     （`registered before add? False` / `after add? True`），只能在 `FerretMaster(...)`
@@ -169,11 +193,12 @@ Qt 在主线程。**只有三条合法通道**：
   `runtime`（线程 + 信号桥）、`facade`、`addons`（`FerretTlsConfig` / `LogAddon`）、
   `export`、`io`、`certificate`（CA 生成 / 查看 / 导出 + Windows 信任库安装卸载，
   无 Qt、全部同步阻塞，调用方负责挪线程）、`blocklist`（屏蔽规则模型 + spec 构造，无 Qt）、
+  `rewrite`（重写规则模型 + spec 构造，无 Qt；只认 mitmproxy 的选项名，不含任何 UI 文案）、
   `__init__`（公开 API）。
   - `engine.py` 是历史兼容 shim，只 re-export `CaptureMaster` / `FerretMaster`，
     **零引用者，可直接删**。
 - `apps/`：业务与界面（`capture` / `certificate` / `common` / `session` / `settings` /
-  `blocklist`），**不得直接 import mitmproxy 内部模块**（当前 0 例外），
+  `blocklist` / `rewrite`），**不得直接 import mitmproxy 内部模块**（当前 0 例外），
   一律经 `core/mitm` 的封装访问。
   - 后台任务统一用 `apps/common/tasks.py::FunctionTask`（`session` 与 `certificate` 共用），
     不要在各页各写一份 `QRunnable`。
@@ -195,6 +220,15 @@ Qt 在主线程。**只有三条合法通道**：
     ③ 长文本标签一律 `setMinimumWidth(1)` —— QLabel 拿整段文字宽当 `minimumSizeHint` 往上顶，
     横向滚动条又是关掉的，一个 SHA-256 指纹就能把整页顶到 1500px、把右侧按钮挤出视口
     （指纹本身也改成空格分组，QLabel 只在空白处断行）。
+  - `apps/rewrite/`：重写规则页，四件套 `models` / `controllers` / `dialogs` / `views`
+    与 `apps/blocklist/` 同构（控制器是规则的唯一权威副本，先下发 facade 成功再落盘）。
+    页面按「容纳 mitmproxy 全部重写能力」搭骨架 —— 类型列与类型下拉都由 `RewriteKind`
+    生成，成员只有一个时下拉自动置灰 —— 但**目前只落地 `map_remote`**。扩展方式：给
+    `RewriteKind` 加成员（成员值就是 mitmproxy 的选项名）+ `RewriteRule.to_spec` 加一条
+    分支，`rewrite_option_updates` 与整条下发链路都不用改。
+    ⚠️ 接 `map_local` 之前得先摘掉 `bindings.py::_STUBBED_MODULES` 里的打包桩
+    （连带 `__main__.py` 的 `--nofollow-import-to`，见 §7）；`modify_body` 要等
+    `apps/common/edit/` 的代码编辑器修好。
   - 编辑类 UI 复用 `apps/common/edit/`：`ItemDualPanel` 编 headers、`ToolPlainTextEdit`
     编 body、`JsonDualPanel` 看 JSON 树，不新造编辑器。
   - 语法高亮走自写 lexer `apps/common/edit/syntax.py`（`tokenize_http` /
@@ -221,7 +255,8 @@ Qt 在主线程。**只有三条合法通道**：
 
 - **实际装载的 addon 以 `core/mitm/master.py` 里 `FerretMaster.__init__` 的 `addons.add(...)`
   为准**：Core、Block、StripDnsHttpsRecords、BlockList、AntiCache、AntiComp、ClientPlayback、
-  DisableH2C、Proxyserver、DnsResolver、NextLayer、FerretTlsConfig、View、ReadFile、Save、LogAddon。
+  DisableH2C、Proxyserver、DnsResolver、NextLayer、MapRemote、FerretTlsConfig、View、ReadFile、
+  Save、LogAddon。
   （AntiCache / AntiComp 已装载但对应 option 默认关闭；BlockList 的 `block_list`
   由 `apps/blocklist` 的规则页下发，无规则时等于关闭；Block 默认
   `block_global=True` / `block_private=False`，与 mitmproxy 出厂姿态一致。）
@@ -230,6 +265,9 @@ Qt 在主线程。**只有三条合法通道**：
   BlockList 的位置（`StripDnsHttpsRecords` 之后、`AntiCache` 之前）对齐原生
   `default_addons()`，同时保证它早于 `View.request` —— 被拦的 flow 照样进流量表
   （403 显示状态码，444 走 `kill()` 显示 Error）。
+  MapRemote 的位置（`NextLayer` 之后、`FerretTlsConfig` 之前）同样对齐原生
+  `default_addons()`，同时保证它早于 `View.request` —— 流量表显示的是改写后的目标地址。
+  `map_remote` 由 `apps/rewrite` 的规则页下发，无规则时是空列表，等于关闭。
 - 已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR / curl / httpie / raw
   导出、**CA 证书页**（`apps/certificate`：查看原生字段 / 导出 PEM·CER·P12 /
   安装卸载 Windows 用户根信任库 / 重新生成并热加载，见 §1.1 的六个坑）、
@@ -240,10 +278,18 @@ Qt 在主线程。**只有三条合法通道**：
   来源限制」一次提交；来源开关热生效走 `options.update`，绑定地址/端口要重开 socket，
   所以控制器先下发开关再重启 —— 重启失败不会丢掉已生效的开关。配置落
   `Proxy.{ListenHost,ListenPort,BlockGlobal,BlockPrivate}`；环回来源被原生 Block
-  无条件放行，所以绑环回时两个开关置灰但保留勾选状态）。
+  无条件放行，所以绑环回时两个开关置灰但保留勾选状态）、
+  **重写规则 mapremote**（`apps/rewrite` 规则页：命中的请求在发出前被改写目标地址，
+  Host 头/scheme/端口由原生 setter 一起更新；三种匹配方式 包含/等于/正则，
+  规则存 `config.json` 的 `Rewrite.Rules`，见 §1.1 的六个坑）。
 - 功能缺口（GUI 后续方向）：**断点拦截 intercept**（全仓库 0 处 `intercept`）、
-  modifyheaders / modifybody、maplocal / mapremote、serverplayback、
-  stickycookie / stickyauth、**流量备注**（全仓库 0 处 `flow.comment`，也无备注 UI）。
+  modifyheaders / modifybody（重写页已留好接入点，等 `apps/common/edit/` 可用）、
+  maplocal（同上，另需先摘打包桩）、serverplayback、stickycookie / stickyauth、
+  **流量备注**（全仓库 0 处 `flow.comment`，也无备注 UI）。
+- ⚠️ **侧边栏文案基本没进翻译文件**：`i18n/zh_CN.qm` 里只有 `captures` 与 `settings`
+  两条，`blocklist` / `sessions` / `certificate` / `rewrite` 都会**直接显示英文键名**
+  （`zh_CN.ts` 还引用着已不存在的 `../../view/window.py`，早已失效）。新增页面照现状
+  加就行，别单独给自己的页面硬编码中文 —— 要治就整体重跑 `pyside6-lupdate`。
 - ⚠️ **`README.md` 的「内置 Addon 功能对照」表已过期**：它把 readfile / anticache /
   anticomp / disable_h2c / strip_dns_https_records 标成 ❌，实际都已装载；savehar 标 ❌，
   实际 `make_har` 正在用。判断功能状态以 `master.py` 为准，别照抄 README。

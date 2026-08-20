@@ -12,6 +12,7 @@ from ferret.core.mitm.bindings import (
     Core,
     DisableH2C,
     DnsResolver,
+    MapRemote,
     Master,
     NextLayer,
     Options,
@@ -38,6 +39,7 @@ class FerretMaster(Master):
         self.readfile = ReadFile()
         self.client_playback = ClientPlayback()
         self.block_list = BlockList()
+        self.map_remote = MapRemote()
         self.save = Save()
 
         self.addons.add(
@@ -54,6 +56,10 @@ class FerretMaster(Master):
             self.proxyserver,
             DnsResolver(),
             NextLayer(),
+            # 位置对齐原生 default_addons()（next_layer → mapremote → …→ save →
+            # tlsconfig）。同时保证它早于 View.request：流量表第一次上屏拿到的
+            # 就已经是重写后的 URL，不会先闪一下原地址。
+            self.map_remote,
             FerretTlsConfig(),
             self.view,
             self.readfile,

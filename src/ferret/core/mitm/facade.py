@@ -9,6 +9,7 @@ from ferret.core.mitm.bindings import HTTPFlow, View
 from ferret.core.mitm.blocklist import BlockRule
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.io import FlowFile
+from ferret.core.mitm.rewrite import RewriteRule
 from ferret.core.mitm.runtime import MitmRuntime
 from ferret.core.network import LOOPBACK_HOST, detect_lan_address
 
@@ -66,6 +67,14 @@ class MitmFacade:
     def set_block_rules(self, rules: list[BlockRule]) -> None:
         """Replace the block rules; applied immediately when the kernel runs."""
         self.runtime.apply_block_rules(rules)
+
+    @property
+    def rewrite_rules(self) -> list[RewriteRule]:
+        return list(self.runtime.rewrite_rules)
+
+    def set_rewrite_rules(self, rules: list[RewriteRule]) -> None:
+        """Replace the rewrite rules; applied immediately when the kernel runs."""
+        self.runtime.apply_rewrite_rules(rules)
 
     @property
     def block_global(self) -> bool:

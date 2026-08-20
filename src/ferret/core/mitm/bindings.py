@@ -38,6 +38,7 @@ from mitmproxy.addons.clientplayback import (
 from mitmproxy.addons.core import Core
 from mitmproxy.addons.disable_h2c import DisableH2C
 from mitmproxy.addons.dns_resolver import DnsResolver
+from mitmproxy.addons.mapremote import MapRemote, parse_map_remote_spec
 from mitmproxy.addons.next_layer import NextLayer
 from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.readfile import ReadFile
@@ -82,6 +83,7 @@ __all__ = [
     "Flow",
     "FlowReadException",
     "HTTPFlow",
+    "MapRemote",
     "Master",
     "NextLayer",
     "Options",
@@ -104,6 +106,7 @@ __all__ = [
     "io",
     "parse_block_spec",
     "parse_filter",
+    "parse_map_remote_spec",
     "server_hooks",
     "status_codes",
     "tlsconfig_module",

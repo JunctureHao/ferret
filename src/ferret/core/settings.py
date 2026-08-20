@@ -124,6 +124,15 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 重写规则，存 list[dict]（见 core/mitm/rewrite.py 的 RewriteRule.to_dict）。
+    # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
+    # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。
+    rewrite_rules = ConfigItem(
+        group="Rewrite",
+        name="Rules",
+        default=[],
+    )
+
 
 def get_config_dir() -> Path:
     d = Path(

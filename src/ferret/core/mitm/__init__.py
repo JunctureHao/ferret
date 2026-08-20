@@ -38,6 +38,16 @@ from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.facade import MitmFacade
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.master import CaptureMaster, FerretMaster
+from ferret.core.mitm.rewrite import (
+    REWRITE_OPTIONS,
+    RewriteKind,
+    RewriteLogic,
+    RewriteRule,
+    escape_template,
+    rewrite_option_updates,
+    rewrite_rules_from_config,
+    rewrite_rules_to_config,
+)
 from ferret.core.mitm.runtime import MitmRuntime, MitmRuntimeState
 
 __all__ = [
@@ -45,6 +55,7 @@ __all__ = [
     "BLOCK_STATUS_DEFAULT",
     "CA_ARTIFACTS",
     "EXPORT_FORMATS",
+    "REWRITE_OPTIONS",
     "BlockField",
     "BlockLogic",
     "BlockRule",
@@ -66,14 +77,21 @@ __all__ = [
     "ReplayHandler",
     "Request",
     "Response",
+    "RewriteKind",
+    "RewriteLogic",
+    "RewriteRule",
     "SystemCertificateService",
     "TrustState",
     "View",
     "escape_literal",
+    "escape_template",
     "export_format",
     "human",
     "parse_filter",
     "quote_value",
+    "rewrite_option_updates",
+    "rewrite_rules_from_config",
+    "rewrite_rules_to_config",
     "rules_from_config",
     "rules_to_config",
 ]

@@ -16,6 +16,7 @@ from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import Options, OptionsError, View, parse_filter
 from ferret.core.mitm.blocklist import BlockRule, specs_from_rules
 from ferret.core.mitm.master import FerretMaster
+from ferret.core.mitm.rewrite import RewriteRule, rewrite_option_updates
 from ferret.core.network import LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
 
@@ -112,6 +113,7 @@ class _MitmThread(QThread):
         )
         self._apply_block_rules(master)
         self._apply_block_options(master)
+        self._apply_rewrite_rules(master)
         self.master = master
         self.runtime._master_created.emit(self.generation, master)
         if self.stop_requested:
@@ -142,6 +144,18 @@ class _MitmThread(QThread):
             )
         except (ValueError, OptionsError) as exc:
             log.warning("来源过滤开关无法应用，已忽略: %s", exc)
+
+    def _apply_rewrite_rules(self, master: FerretMaster) -> None:
+        """Seed the rewrite options before serving traffic (on the mitm loop).
+
+        `map_remote` 由 MapRemote.load 注册，构造 Options 时还不存在（实测
+        `addons.add()` 之前 `"map_remote" in options` 为 False），只能等 Master
+        建好之后再写 —— 和 `block_list` / `block_global` 完全同一个约束。
+        """
+        try:
+            master.options.update(**rewrite_option_updates(self.runtime.rewrite_rules))
+        except (ValueError, OptionsError) as exc:
+            log.warning("重写规则无法应用，已忽略: %s", exc)
 
     def _ensure_port_available(self) -> None:
         if self.runtime.listen_port == 0:
@@ -204,6 +218,7 @@ class MitmRuntime(QObject):
         self._last_error = ""
         self._generation = 0
         self.block_rules: list[BlockRule] = []
+        self.rewrite_rules: list[RewriteRule] = []
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -290,6 +305,27 @@ class MitmRuntime(QObject):
         except OptionsError as exc:
             # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
             self.block_rules = previous
+            raise ValueError(str(exc)) from exc
+
+    def apply_rewrite_rules(self, rules: list[RewriteRule] | None = None) -> None:
+        """Store rewrite rules and push them to the Master when one is running.
+
+        与 `apply_block_rules` 同构：specs 在提交任何东西之前就全部构造并过一遍原生
+        解析器，坏规则不会留下「内存副本已换、内核没收到」的状态。下发的 kwargs 恒
+        含全部重写选项，所以删光规则也会把对应选项清成空列表。
+        """
+        previous = self.rewrite_rules
+        candidate = self.rewrite_rules if rules is None else list(rules)
+        updates = rewrite_option_updates(candidate)
+        self.rewrite_rules = candidate
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(lambda: master.options.update(**updates))
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            self.rewrite_rules = previous
             raise ValueError(str(exc)) from exc
 
     def apply_block_options(
@@ -393,6 +429,10 @@ class MitmRuntime(QObject):
             self.apply_block_options()
         except (RuntimeError, TimeoutError, ValueError) as exc:
             log.warning("来源过滤开关下发失败: %s", exc)
+        try:
+            self.apply_rewrite_rules()
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            log.warning("重写规则下发失败: %s", exc)
         self.ready.emit(self.view)
 
     def _on_failed(self, generation: int, message: str) -> None:

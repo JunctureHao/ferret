@@ -21,6 +21,8 @@ from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import CertificateInterface
 from ferret.apps.common.icon import BaseAction
+from ferret.apps.rewrite.controllers import RewriteController
+from ferret.apps.rewrite.views import RewriteInterface
 from ferret.apps.session.controllers import SessionController
 from ferret.apps.session.views import SessionsInterface
 from ferret.apps.settings.views import SettingsInterface
@@ -45,11 +47,15 @@ class MainWindow(FluentWindow):
         self.sessions_interface = SessionsInterface(
             controller=self.session_controller, parent=self
         )
-        # 建在 runtime.start() 之前：构造时就把已存规则交给 facade，
+        # 两个规则控制器都建在 runtime.start() 之前：构造时就把已存规则交给 facade，
         # Master 起来时 _run_master 会在服务第一个请求前下发。
         self.blocklist_controller = BlockListController(self, mitm=self.runtime.mitm)
         self.blocklist_interface = BlockListInterface(
             controller=self.blocklist_controller, parent=self
+        )
+        self.rewrite_controller = RewriteController(self, mitm=self.runtime.mitm)
+        self.rewrite_interface = RewriteInterface(
+            controller=self.rewrite_controller, parent=self
         )
         self.certificate_controller = CertificateController(
             self, mitm=self.runtime.mitm
@@ -91,6 +97,10 @@ class MainWindow(FluentWindow):
 
         self.addSubInterface(
             self.blocklist_interface, FluentIcon.FILTER, self.tr("blocklist")
+        )
+
+        self.addSubInterface(
+            self.rewrite_interface, FluentIcon.SYNC, self.tr("rewrite")
         )
 
         self.addSubInterface(
