@@ -41,6 +41,9 @@ from ferret.core.settings import (
     get_config_file,
 )
 
+# UI 字体族：必须**单族**且自带中文字形，理由见 Application._init_font。
+UI_FONT_FAMILY = "Microsoft YaHei"
+
 
 class Application:
     """应用启动中心：负责初始化并运行 ferret。
@@ -72,6 +75,28 @@ class Application:
         """确保配置目录存在并加载配置"""
         config_file = get_config_file()
         qconfig.load(str(config_file), CONFIG)
+
+    def _init_font(self):
+        """把 UI 字体收敛成单族，避免启动时把整个系统字体库读进内存。
+
+        qfluentwidgets 的 `getFont()`（common/font.py）无条件
+        `setFamilies(qconfig.get(qconfig.fontFamilies))`，而上游默认值是
+        `['Segoe UI', 'Microsoft YaHei', 'PingFang SC']` 三族。QFont 只有**单族**
+        才走廉价的直接查表；一旦给多族，Qt 必须 populate 整个 QFontDatabase
+        才能决定用哪个 —— 实测 +45MB WS / +20MB Private。
+
+        两个已实测的坑：
+        ① 这里和 `apps/common/font.py::code_font` **必须一起改**。两处都会独立
+           触发整库扫描，是「或」关系，只堵一处实测只差 2MB（噪声级）。
+        ② 单族必须自带界面实际渲染的全部字符集。换成 `Segoe UI` 省下的是 **0**：
+           它没有中文字形，导航栏「抓包 / 会话」逼 Qt 做逐字回退搜索，而那个
+           搜索同样要填满字体库 —— 等于只把开销推迟到启动的下一毫秒。
+           YaHei 同时覆盖拉丁与中文，故永不触发回退。
+
+        `save=False`：不写进 config.json，方便以后改默认值；字体族在本机缺失时
+        Qt 自行回退，只是失去本优化，不影响显示。
+        """
+        CONFIG.set(CONFIG.fontFamilies, [UI_FONT_FAMILY], save=False)
 
     def _init_dpi(self):
         """根据配置应用高 DPI 缩放策略。
@@ -166,6 +191,7 @@ class Application:
         self._init_app_info()
         self._init_logging()
         self._init_config()
+        self._init_font()
         self._init_dpi()
         app = self._create_qapp()
         self._init_i18n()
