@@ -82,7 +82,7 @@ class MainWindow(FluentWindow):
 
     def __init_navigation(self):
         self.addSubInterface(
-            self.captures_interface, FluentIcon.GLOBE, self.tr("captures")
+            self.captures_interface, FluentIcon.WIFI, self.tr("captures")
         )
 
         self.addSubInterface(
