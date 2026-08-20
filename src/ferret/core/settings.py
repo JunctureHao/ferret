@@ -12,6 +12,8 @@ from qfluentwidgets import (
     QConfig,
 )
 
+from ferret.core.network import DEFAULT_PORT, LISTEN_HOSTS, LOOPBACK_HOST
+
 APP_NAME = "Ferret"
 
 CONFIG_NAME = "config.json"
@@ -86,6 +88,42 @@ class Config(QConfig):
         name="BlockList",
         default=[],
     )
+
+    # 绑定地址：只有环回和 0.0.0.0 两个合法值（见 core/network.py）。
+    # LISTEN_HOSTS 把环回排在首位，所以配置被手改成别的值时，
+    # OptionsValidator.correct 会退回环回 —— 出错方向永远偏安全。
+    listen_host = OptionsConfigItem(
+        group="Proxy",
+        name="ListenHost",
+        default=LOOPBACK_HOST,
+        validator=OptionsValidator(list(LISTEN_HOSTS)),
+    )
+
+    # 故意不挂 RangeValidator：它的 correct 是 `min(max(lo, v), hi)`，遇到手改成
+    # 字符串的配置会抛 TypeError，而 QConfig.load 不 catch —— 启动就崩。
+    # 端口的收敛统一交给 core/network.py 的 normalize_listen_port。
+    listen_port = ConfigItem(
+        group="Proxy",
+        name="ListenPort",
+        default=DEFAULT_PORT,
+    )
+
+    # 原生 Block addon 的来源过滤（mitmproxy/addons/block.py），按**来源 IP 类别**
+    # 拒连；默认沿用 mitmproxy 出厂姿态：拒公网、放局域网。环回恒放行且不可配。
+    block_global = ConfigItem(
+        group="Proxy",
+        name="BlockGlobal",
+        default=True,
+        validator=BoolValidator(),
+    )
+
+    block_private = ConfigItem(
+        group="Proxy",
+        name="BlockPrivate",
+        default=False,
+        validator=BoolValidator(),
+    )
+
 
 def get_config_dir() -> Path:
     d = Path(

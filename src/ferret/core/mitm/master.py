@@ -6,6 +6,7 @@ from ferret.core.mitm.addons import FerretTlsConfig, LogAddon
 from ferret.core.mitm.bindings import (
     AntiCache,
     AntiComp,
+    Block,
     BlockList,
     ClientPlayback,
     Core,
@@ -41,6 +42,9 @@ class FerretMaster(Master):
 
         self.addons.add(
             Core(),
+            # 位置对齐原生 default_addons()（core → block → strip_dns_https_records）：
+            # Block 只挂 client_connected，必须在任何流量成形之前决定放不放这条连接。
+            Block(),
             StripDnsHttpsRecords(),
             self.block_list,
             AntiCache(),

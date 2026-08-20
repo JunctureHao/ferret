@@ -46,7 +46,8 @@ uv run ferret
 | stickyauth              | 固化认证                  | ❌   |
 | anticache               | 去除缓存头强制走源站      | ❌   |
 | anticomp                | 去除压缩头看明文          | ❌   |
-| block / blocklist       | 屏蔽请求                  | ✅   |
+| block                   | 代理访问控制（按来源 IP） | ✅   |
+| blocklist               | 屏蔽匹配的请求            | ✅   |
 | cut                     | 截断大 body               | ❌   |
 | disable_h2c             | 禁用 h2c 升级             | ❌   |
 | strip_dns_https_records | 剥离 DNS HTTPS 记录       | ❌   |

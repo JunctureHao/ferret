@@ -16,6 +16,7 @@ from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import Options, OptionsError, View, parse_filter
 from ferret.core.mitm.blocklist import BlockRule, specs_from_rules
 from ferret.core.mitm.master import FerretMaster
+from ferret.core.network import LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
 
 log = get_logger("mitmproxy")
@@ -110,6 +111,7 @@ class _MitmThread(QThread):
             )
         )
         self._apply_block_rules(master)
+        self._apply_block_options(master)
         self.master = master
         self.runtime._master_created.emit(self.generation, master)
         if self.stop_requested:
@@ -126,6 +128,20 @@ class _MitmThread(QThread):
             master.options.update(block_list=specs_from_rules(self.runtime.block_rules))
         except (ValueError, OptionsError) as exc:
             log.warning("屏蔽规则无法应用，已忽略: %s", exc)
+
+    def _apply_block_options(self, master: FerretMaster) -> None:
+        """Seed Block's source filters before serving traffic (on the mitm loop).
+
+        `block_global` / `block_private` 由 Block.load 注册，构造 Options 时还不存在，
+        所以只能等 Master 建好之后再写 —— 和 `block_list` 完全同一个约束。
+        """
+        try:
+            master.options.update(
+                block_global=self.runtime.block_global,
+                block_private=self.runtime.block_private,
+            )
+        except (ValueError, OptionsError) as exc:
+            log.warning("来源过滤开关无法应用，已忽略: %s", exc)
 
     def _ensure_port_available(self) -> None:
         if self.runtime.listen_port == 0:
@@ -168,12 +184,18 @@ class MitmRuntime(QObject):
         self,
         parent: QObject | None = None,
         *,
-        listen_host: str = "127.0.0.1",
+        listen_host: str = LOOPBACK_HOST,
         listen_port: int = 8080,
+        block_global: bool = True,
+        block_private: bool = False,
     ) -> None:
         super().__init__(parent)
-        self.listen_host = listen_host
+        self.listen_host = normalize_listen_host(listen_host)
         self.listen_port = listen_port
+        # 原生 Block addon 的两个来源过滤开关（mitmproxy/addons/block.py）。
+        # 默认沿用 mitmproxy 出厂姿态：拒公网、放局域网；环回永远放行且不可配。
+        self.block_global = block_global
+        self.block_private = block_private
         self.view = View()
         self.view.set_filter(parse_filter("~http"))
         self._state = MitmRuntimeState.STOPPED
@@ -239,7 +261,11 @@ class MitmRuntime(QObject):
         self._set_state(MitmRuntimeState.STOPPED)
         return True
 
-    def restart(self, *, listen_port: int | None = None) -> None:
+    def restart(
+        self, *, listen_host: str | None = None, listen_port: int | None = None
+    ) -> None:
+        if listen_host is not None:
+            self.listen_host = normalize_listen_host(listen_host)
         if listen_port is not None:
             self.listen_port = listen_port
         if not self.stop():
@@ -265,6 +291,40 @@ class MitmRuntime(QObject):
             # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
             self.block_rules = previous
             raise ValueError(str(exc)) from exc
+
+    def apply_block_options(
+        self, *, block_global: bool | None = None, block_private: bool | None = None
+    ) -> None:
+        """Store Block's source filters and push them to a running Master.
+
+        与 `apply_block_rules` 同构：下发失败就把内存副本回滚，绝不留下「界面显示
+        已生效、内核其实没收到」的状态。
+        """
+        previous = (self.block_global, self.block_private)
+        if block_global is not None:
+            self.block_global = block_global
+        if block_private is not None:
+            self.block_private = block_private
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        wanted = (self.block_global, self.block_private)
+        try:
+            self.call(
+                lambda: master.options.update(
+                    block_global=wanted[0], block_private=wanted[1]
+                )
+            )
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            self.block_global, self.block_private = previous
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            # 这两个是 bool 选项，传错类型 optmanager 抛的是 TypeError（未知键则是
+            # KeyError），都不经 OptionsError。那属于编程错误，照原样抛出去 ——
+            # 但内存副本必须先回滚，否则界面会显示一个内核根本没收到的状态。
+            self.block_global, self.block_private = previous
+            raise
 
     def reload_certificate_store(self) -> bool:
         """Rebuild the live CertStore through mitmproxy's own TlsConfig hook.
@@ -329,6 +389,10 @@ class MitmRuntime(QObject):
             self.apply_block_rules()
         except (RuntimeError, TimeoutError, ValueError) as exc:
             log.warning("屏蔽规则下发失败: %s", exc)
+        try:
+            self.apply_block_options()
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            log.warning("来源过滤开关下发失败: %s", exc)
         self.ready.emit(self.view)
 
     def _on_failed(self, generation: int, message: str) -> None:

@@ -10,6 +10,11 @@ from ferret.core.mitm.blocklist import BlockRule
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.runtime import MitmRuntime
+from ferret.core.network import LOOPBACK_HOST, detect_lan_address
+
+# 改个名，免得和下面同名的 MitmFacade.is_lan_exposed 属性看混。
+# ruff 默认 combine-as-imports = false，`as` 导入只能单独成句。
+from ferret.core.network import is_lan_exposed as host_is_lan_exposed
 from ferret.core.settings import get_sessions_dir
 
 
@@ -24,7 +29,27 @@ class MitmFacade:
 
     @property
     def listen_host(self) -> str:
+        """绑定地址：交给 socket bind 的值，可能是 `0.0.0.0`。**不要**拿它去连。"""
         return self.runtime.listen_host
+
+    @property
+    def local_client_host(self) -> str:
+        """本机接入地址，恒为环回。
+
+        系统代理、本机客户端、工具栏展示的端点都用这个。绑定 `0.0.0.0` 时环回依旧
+        可达（`INADDR_ANY` 覆盖所有网卡，含 lo），所以本机这条路径永远不需要跟着变；
+        真把 `0.0.0.0:8080` 写进系统代理，抓包会整体失效。
+        """
+        return LOOPBACK_HOST
+
+    @property
+    def is_lan_exposed(self) -> bool:
+        """当前绑定地址是否允许局域网设备连进来。"""
+        return host_is_lan_exposed(self.runtime.listen_host)
+
+    def lan_address(self) -> str | None:
+        """本机在局域网里的 IPv4 地址，**仅供显示 / 复制**；拿不到返回 None。"""
+        return detect_lan_address()
 
     @property
     def listen_port(self) -> int:
@@ -41,6 +66,24 @@ class MitmFacade:
     def set_block_rules(self, rules: list[BlockRule]) -> None:
         """Replace the block rules; applied immediately when the kernel runs."""
         self.runtime.apply_block_rules(rules)
+
+    @property
+    def block_global(self) -> bool:
+        """是否拒绝来自公网的连接（原生 Block addon 的 `block_global`）。"""
+        return self.runtime.block_global
+
+    @property
+    def block_private(self) -> bool:
+        """是否拒绝来自局域网的连接（原生 Block addon 的 `block_private`）。"""
+        return self.runtime.block_private
+
+    def set_block_options(
+        self, *, block_global: bool | None = None, block_private: bool | None = None
+    ) -> None:
+        """Update Block's source filters; applied immediately when the kernel runs."""
+        self.runtime.apply_block_options(
+            block_global=block_global, block_private=block_private
+        )
 
     def reload_certificate_store(self) -> bool:
         """Pick up a regenerated CA without restarting the kernel."""

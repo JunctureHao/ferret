@@ -28,6 +28,7 @@ from mitmproxy.addons import export as export_module
 from mitmproxy.addons import tlsconfig as _tlsconfig_module
 from mitmproxy.addons.anticache import AntiCache
 from mitmproxy.addons.anticomp import AntiComp
+from mitmproxy.addons.block import Block
 from mitmproxy.addons.blocklist import BlockList
 from mitmproxy.addons.blocklist import parse_spec as parse_block_spec
 from mitmproxy.addons.clientplayback import (
@@ -71,6 +72,7 @@ __all__ = [
     "KEY_SIZE",
     "AntiCache",
     "AntiComp",
+    "Block",
     "BlockList",
     "ClientPlayback",
     "CommandError",

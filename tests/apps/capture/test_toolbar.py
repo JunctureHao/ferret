@@ -36,7 +36,7 @@ class CaptureCommandBarTests(unittest.TestCase):
             "active_filter_count": 0,
         }
         values.update(overrides)
-        return CaptureUiState(**values)
+        return CaptureUiState(**values)  # type: ignore
 
     def test_lifecycle_states_update_text_and_control(self) -> None:
         self.bar.set_state(self.state(), False)
@@ -107,6 +107,31 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.assertIsInstance(self.bar.endpoint_label, QLabel)
         self.assertIs(self.bar.endpoint_btn, self.bar.endpoint_label)
         self.assertEqual(self.bar.endpoint_label.toolTip(), "")
+
+    def test_exposure_label_marks_an_open_listen_address(self) -> None:
+        """绑定 0.0.0.0 是外部设备能连进来的唯一入口，必须在工具栏上看得见。"""
+        self.bar.set_state(self.state(lan_exposed=True), False)
+        self.assertTrue(self.bar.exposure_label.isVisible())
+
+        self.bar.set_state(self.state(lan_exposed=False), False)
+        self.assertFalse(self.bar.exposure_label.isVisible())
+
+    def test_exposure_label_yields_to_very_compact_mode(self) -> None:
+        self.bar.set_state(self.state(lan_exposed=True), False)
+        self.bar.resize(600, 44)
+        self.app.processEvents()
+        self.assertFalse(self.bar.exposure_label.isVisible())
+
+    def test_endpoint_tooltip_distinguishes_local_from_open(self) -> None:
+        """端点文本恒为环回，所以「谁能连」这件事只能靠 tooltip 说清楚。"""
+        self.bar.set_state(self.state(lan_exposed=False), False)
+        local_tip = self.bar.endpoint_btn.toolTip()
+        self.assertIn("127.0.0.1:8080", local_tip)
+
+        self.bar.set_state(self.state(lan_exposed=True), False)
+        open_tip = self.bar.endpoint_btn.toolTip()
+        self.assertIn("127.0.0.1:8080", open_tip)
+        self.assertNotEqual(local_tip, open_tip)
 
 
 if __name__ == "__main__":

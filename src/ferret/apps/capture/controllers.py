@@ -16,6 +16,7 @@ from ferret.core.mitm import (
     MitmRuntimeState,
     View,
 )
+from ferret.core.settings import CONFIG
 from ferret.core.system_proxy import SystemProxyService
 
 log = get_logger("mitmproxy")
@@ -99,6 +100,33 @@ class CaptureController(QObject):
         return self._mitm.listen_port
 
     @property
+    def current_host(self) -> str:
+        """绑定地址（可能是 `0.0.0.0`）。只用于回显设置，别拿它去连。"""
+        return self._mitm.listen_host
+
+    @property
+    def local_endpoint(self) -> str:
+        """本机客户端 / 系统代理该填的端点，恒为环回。"""
+        return f"{self._mitm.local_client_host}:{self._mitm.listen_port}"
+
+    @property
+    def is_lan_exposed(self) -> bool:
+        """当前是否允许局域网设备连进来。"""
+        return self._mitm.is_lan_exposed
+
+    def lan_address(self) -> str | None:
+        """本机的局域网 IPv4 地址，**仅供显示 / 复制**；拿不到返回 None。"""
+        return self._mitm.lan_address()
+
+    @property
+    def block_global(self) -> bool:
+        return self._mitm.block_global
+
+    @property
+    def block_private(self) -> bool:
+        return self._mitm.block_private
+
+    @property
     def view(self) -> View:
         return self._mitm.view
 
@@ -145,12 +173,55 @@ class CaptureController(QObject):
             self._owned_runtime.stop()
 
     def update_port(self, new_port: int) -> None:
-        if new_port == self.current_port:
+        """Change the listen port only; kept for callers that touch nothing else."""
+        self.update_proxy_settings(listen_port=new_port)
+
+    def update_proxy_settings(
+        self,
+        *,
+        listen_host: str | None = None,
+        listen_port: int | None = None,
+        block_global: bool | None = None,
+        block_private: bool | None = None,
+    ) -> None:
+        """Commit the proxy settings dialog in one shot and persist the result.
+
+        两组设置的代价完全不同：来源过滤开关是热生效的（`options.update`），绑定地址
+        和端口要重开监听 socket。所以先做热的那组 —— 它落地后再重启，重启失败也不会
+        丢掉已经生效的开关；反过来则会留下「重启成功但开关没跟上」。
+        """
+        self._apply_block_options(
+            block_global=block_global, block_private=block_private
+        )
+        self._apply_listen_endpoint(listen_host=listen_host, listen_port=listen_port)
+
+    def _apply_block_options(
+        self, *, block_global: bool | None, block_private: bool | None
+    ) -> None:
+        wanted_global = self.block_global if block_global is None else block_global
+        wanted_private = self.block_private if block_private is None else block_private
+        if (wanted_global, wanted_private) == (self.block_global, self.block_private):
+            return
+        self._mitm.set_block_options(
+            block_global=wanted_global, block_private=wanted_private
+        )
+        CONFIG.set(CONFIG.block_global, wanted_global)
+        CONFIG.set(CONFIG.block_private, wanted_private)
+
+    def _apply_listen_endpoint(
+        self, *, listen_host: str | None, listen_port: int | None
+    ) -> None:
+        wanted_host = self.current_host if listen_host is None else listen_host
+        wanted_port = self.current_port if listen_port is None else listen_port
+        if (wanted_host, wanted_port) == (self.current_host, self.current_port):
             return
         was_capturing = self._capture_state == CaptureState.RUNNING
         if was_capturing:
             self.stop_capture()
-        self._runtime.restart(listen_port=new_port)
+        self._runtime.restart(listen_host=wanted_host, listen_port=wanted_port)
+        # 读回内核实际采纳的值：normalize_listen_host 可能把非法地址纠成环回。
+        CONFIG.set(CONFIG.listen_host, self.current_host)
+        CONFIG.set(CONFIG.listen_port, self.current_port)
         if was_capturing:
             self._pending_attach = True
             self._set_capture_state(CaptureState.STARTING)
@@ -216,7 +287,11 @@ class CaptureController(QObject):
             return
         try:
             self._mitm.start_capture_recording()
-            self._system_proxy.attach(self._mitm.listen_host, self._mitm.listen_port)
+            # 必须是环回，不是 listen_host：绑定 0.0.0.0 时把 `0.0.0.0:8080` 写进
+            # 系统代理，Windows 会拿它当目标地址去连，抓包会整体失效。
+            self._system_proxy.attach(
+                self._mitm.local_client_host, self._mitm.listen_port
+            )
         except Exception as exc:  # noqa: BLE001
             with_recording = self._mitm.runtime.is_running
             if with_recording:
@@ -259,4 +334,3 @@ class CaptureController(QObject):
             CaptureState.RUNNING,
         ):
             self._on_runtime_failed("mitmproxy 内核已停止")
-

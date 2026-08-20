@@ -2,13 +2,14 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QSize, Qt, Signal, Slot
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QComboBox,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLineEdit,
     QPlainTextEdit,
@@ -21,6 +22,8 @@ from qfluentwidgets import (
     Action,
     BodyLabel,
     CaptionLabel,
+    CheckBox,
+    ComboBox,
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
@@ -41,6 +44,7 @@ from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.core.mitm.facade import MitmFacade
+from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 from ferret.core.system_proxy import SystemProxyService
 
 if TYPE_CHECKING:
@@ -65,7 +69,8 @@ class CapturesInterface(QWidget):
         self.controller = CaptureController(self, mitm=mitm, system_proxy=system_proxy)
         self._ui_state = CaptureUiState(
             capture_state=CaptureState.STOPPED,
-            endpoint=f"127.0.0.1:{self.controller.current_port}",
+            endpoint=self.controller.local_endpoint,
+            lan_exposed=self.controller.is_lan_exposed,
             total_count=0,
             shown_count=0,
             selected_count=0,
@@ -213,21 +218,35 @@ class CapturesInterface(QWidget):
 
     @Slot()
     def __show_proxy_port_dialog(self):
-        """弹出端口设置对话框"""
+        """弹出代理监听设置对话框"""
         w = ProxyPortDialog(
             self.controller.current_port,
             self.window(),
             is_running=self.controller.is_capturing,
+            listen_host=self.controller.current_host,
+            block_global=self.controller.block_global,
+            block_private=self.controller.block_private,
+            lan_address=self.controller.lan_address(),
         )
-        if w.exec():
-            new_port = w.get_port()
-            if new_port and new_port != self.controller.current_port:
-                self.controller.update_port(new_port)
-                self._ui_state = replace(
-                    self._ui_state,
-                    endpoint=f"127.0.0.1:{self.controller.current_port}",
-                )
-                self._refresh_command_bar()
+        if not w.exec():
+            return
+        try:
+            # 一次提交四项：控制器自己判断哪些真的变了、哪些需要重启内核。
+            self.controller.update_proxy_settings(
+                listen_host=w.get_listen_host(),
+                listen_port=w.get_port(),
+                block_global=w.get_block_global(),
+                block_private=w.get_block_private(),
+            )
+        except (RuntimeError, ValueError) as exc:
+            show_warning(self.tr("代理设置未生效"), str(exc), self.window())
+            return
+        self._ui_state = replace(
+            self._ui_state,
+            endpoint=self.controller.local_endpoint,
+            lan_exposed=self.controller.is_lan_exposed,
+        )
+        self._refresh_command_bar()
 
     @Slot(int, int, int)
     def __on_stats_updated(self, total: int, shown: int, selected: int) -> None:
@@ -356,6 +375,9 @@ class CaptureUiState:
     shown_count: int
     selected_count: int
     active_filter_count: int
+    # endpoint 恒为本机环回端点；这一位单独说明「局域网设备也能连进来」。
+    # 两者不能合并：把局域网地址显示成端点会误导用户去改系统代理。
+    lan_exposed: bool = False
 
 
 class CaptureFilterPanel(MultiFilterManager):
@@ -407,6 +429,13 @@ class CaptureCommandBar(QWidget):
         self.endpoint_label.setFont(self.font())
         # Compatibility alias for callers that read the endpoint text/visibility.
         self.endpoint_btn = self.endpoint_label
+
+        # 放开到局域网是个有安全含义的状态，必须常驻可见，不能只藏在设置对话框里。
+        self.exposure_label = CaptionLabel(self.tr("局域网"), self)
+        self.exposure_label.setFixedHeight(28)
+        self.exposure_label.setAccessibleName(self.tr("局域网设备可连接"))
+        self.exposure_label.setStyleSheet("color: #c07000;")
+        self.exposure_label.setVisible(False)
 
         self.stats_label = CaptionLabel("0 条", self)
 
@@ -469,6 +498,7 @@ class CaptureCommandBar(QWidget):
         layout.addWidget(self.state_label)
         layout.addSpacing(6)
         layout.addWidget(self.endpoint_btn)
+        layout.addWidget(self.exposure_label)
         layout.addSpacing(4)
         layout.addWidget(self.stats_label)
         layout.addSpacing(6)
@@ -562,6 +592,11 @@ class CaptureCommandBar(QWidget):
         self.control_btn.setAccessibleName(self.tr(tooltip))
 
         self.endpoint_btn.setText(state.endpoint)
+        self.endpoint_btn.setToolTip(
+            self.tr("本机通过 {} 接入；局域网设备也可连接").format(state.endpoint)
+            if state.lan_exposed
+            else self.tr("本机通过 {} 接入").format(state.endpoint)
+        )
         if state.shown_count == state.total_count:
             stats_text = self.tr("{} 条").format(state.total_count)
         else:
@@ -612,6 +647,7 @@ class CaptureCommandBar(QWidget):
                 stats = f"{self._state.shown_count} / {self._state.total_count} 条"
         self.stats_label.setText(stats)
         self.endpoint_btn.setVisible(not very_compact)
+        self.exposure_label.setVisible(self._state.lan_exposed and not very_compact)
         self.proxy_setting_btn.setVisible(not very_compact)
         self.environment_btn.setVisible(very_compact)
 
@@ -657,10 +693,17 @@ class ClearFlowsDialog(MessageBoxBase):
 
 
 class ProxyPortDialog(MessageBoxBase):
-    """代理端口设置对话框"""
+    """代理监听设置：绑定地址、端口、来源限制。
 
-    PORT_MIN = 1024
-    PORT_MAX = 65535
+    三个地址各有各的用途，别在这里混起来（见 core/network.py 的模块注释）：
+    绑定地址决定「谁能连进来」，本机接入地址恒为环回，局域网地址只用于显示和复制。
+    """
+
+    # 端口范围直接取 core/network 的常量，保证对话框和配置的收敛逻辑不会各说一套。
+    PORT_MIN = PORT_MIN
+    PORT_MAX = PORT_MAX
+
+    _HOSTS: tuple[str, ...] = (LOOPBACK_HOST, ANY_HOST)
 
     def __init__(
         self,
@@ -668,39 +711,118 @@ class ProxyPortDialog(MessageBoxBase):
         parent: QWidget | None = None,
         *,
         is_running: bool = False,
+        listen_host: str = LOOPBACK_HOST,
+        block_global: bool = True,
+        block_private: bool = False,
+        lan_address: str | None = None,
     ):
-        """初始化端口设置对话框
+        """初始化代理监听设置对话框
 
         Args:
             current_port: 当前端口号
             parent: 父组件
+            is_running: 内核是否在跑，决定要不要提示「修改后将重启」
+            listen_host: 当前绑定地址
+            block_global: 当前是否拒绝公网来源
+            block_private: 当前是否拒绝局域网来源
+            lan_address: 本机局域网 IPv4，None 表示探测失败
         """
         super().__init__(parent)
-        self.__init_widget(current_port, is_running)
+        self._lan_address = lan_address
+        self.__init_widget(
+            current_port, is_running, listen_host, block_global, block_private
+        )
         self.__init_layout()
+        self.__connect_signal_to_slot()
+        self._sync_exposure()
 
-    def __init_widget(self, current_port: int, is_running: bool):
-        """初始化界面组件
-
-        :param int current_port: 当前端口号
-        """
+    def __init_widget(
+        self,
+        current_port: int,
+        is_running: bool,
+        listen_host: str,
+        block_global: bool,
+        block_private: bool,
+    ):
+        """初始化界面组件"""
         self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr("设置代理端口"))
-        self.host_label = CaptionLabel(self.tr("监听地址：127.0.0.1"), self)
+        self.title_label.setText(self.tr("设置代理监听"))
+
+        self.host_combo = ComboBox(self)
+        self.host_combo.addItems(
+            [
+                self.tr("仅本机（{}）").format(LOOPBACK_HOST),
+                self.tr("局域网可访问（{}）").format(ANY_HOST),
+            ]
+        )
+        self.host_combo.setCurrentIndex(
+            self._HOSTS.index(listen_host) if listen_host in self._HOSTS else 0
+        )
+
         self.port_spin = SpinBox(self)
         self.port_spin.setRange(self.PORT_MIN, self.PORT_MAX)
         self.port_spin.setValue(current_port)
         self.port_spin.setSingleStep(1)
+
+        # 本机这条路径永远不变，写在最显眼的地方 —— 用户最容易误以为
+        # 放开监听之后系统代理也得跟着改。
+        self.local_hint = CaptionLabel(self)
+        self.local_hint.setWordWrap(True)
+
+        self.lan_label = BodyLabel(self)
+        self.lan_value = CaptionLabel(self)
+        self.lan_copy_btn = TransparentToolButton(FluentIcon.COPY, self)
+        self.lan_copy_btn.setToolTip(self.tr("复制局域网地址"))
+        self.lan_copy_btn.setAccessibleName(self.tr("复制局域网地址"))
+        self.lan_copy_btn.setFixedSize(28, 28)
+
+        self.source_title = StrongBodyLabel(self.tr("来源限制"), self)
+        # 文案用「拒绝」而不是「允许」：直接对应原生 Block addon 的语义
+        # （勾上 = block_global/block_private 为真 = 杀掉该类来源的连接），
+        # 不用在脑子里做一次取反。
+        self.block_global_check = CheckBox(self.tr("拒绝来自公网的连接"), self)
+        self.block_global_check.setChecked(block_global)
+        self.block_private_check = CheckBox(self.tr("拒绝来自局域网的连接"), self)
+        self.block_private_check.setChecked(block_private)
+        self.source_hint = CaptionLabel(self)
+        self.source_hint.setWordWrap(True)
+
         self.restart_hint = CaptionLabel(self.tr("修改后将重启代理"), self)
         self.restart_hint.setVisible(is_running)
 
     def __init_layout(self):
         """初始化布局结构"""
-        self.viewLayout.addWidget(self.title_label)
-        self.viewLayout.addWidget(self.host_label)
-        self.viewLayout.addWidget(self.port_spin)
-        self.viewLayout.addWidget(self.restart_hint)
-        self.widget.setMinimumWidth(350)
+        form = QFormLayout()
+        form.setSpacing(8)
+        form.addRow(BodyLabel(self.tr("监听地址"), self), self.host_combo)
+        form.addRow(BodyLabel(self.tr("端口"), self), self.port_spin)
+
+        lan_row = QHBoxLayout()
+        lan_row.setSpacing(6)
+        lan_row.addWidget(self.lan_value)
+        lan_row.addWidget(self.lan_copy_btn)
+        lan_row.addStretch(1)
+        form.addRow(self.lan_label, lan_row)
+
+        # 两个开关与「监听地址」是兄弟关系，不做嵌套：它们各自独立生效，
+        # 视觉上嵌进地址下面会暗示「只有选某个地址才存在」，那是错的。
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+        layout.addWidget(self.title_label)
+        layout.addLayout(form)
+        layout.addWidget(self.local_hint)
+        layout.addWidget(self.source_title)
+        layout.addWidget(self.block_global_check)
+        layout.addWidget(self.block_private_check)
+        layout.addWidget(self.source_hint)
+        layout.addWidget(self.restart_hint)
+        self.viewLayout.addLayout(layout)
+        self.widget.setMinimumWidth(400)
+
+    def __connect_signal_to_slot(self):
+        self.host_combo.currentIndexChanged.connect(self._sync_exposure)
+        self.port_spin.valueChanged.connect(self._sync_exposure)
+        self.lan_copy_btn.clicked.connect(self._copy_lan_address)
 
     def get_port(self) -> int:
         """获取用户设置的端口号
@@ -708,3 +830,59 @@ class ProxyPortDialog(MessageBoxBase):
         :return: 用户设置的端口号，例如 8080
         """
         return self.port_spin.value()
+
+    def get_listen_host(self) -> str:
+        """获取用户选择的绑定地址（`127.0.0.1` 或 `0.0.0.0`）。"""
+        index = self.host_combo.currentIndex()
+        return self._HOSTS[index] if 0 <= index < len(self._HOSTS) else LOOPBACK_HOST
+
+    def get_block_global(self) -> bool:
+        """是否拒绝公网来源。"""
+        return self.block_global_check.isChecked()
+
+    def get_block_private(self) -> bool:
+        """是否拒绝局域网来源。"""
+        return self.block_private_check.isChecked()
+
+    def _sync_exposure(self):
+        """按当前选择刷新提示文案与来源限制的可用性。"""
+        exposed = self.get_listen_host() == ANY_HOST
+        port = self.port_spin.value()
+
+        self.local_hint.setText(
+            self.tr(
+                "本机始终通过 {}:{} 接入，切换监听地址只影响别的设备能否连进来。"
+            ).format(LOOPBACK_HOST, port)
+        )
+
+        self.lan_label.setVisible(exposed)
+        self.lan_value.setVisible(exposed)
+        self.lan_copy_btn.setVisible(exposed)
+        if exposed:
+            self.lan_label.setText(self.tr("局域网地址"))
+            if self._lan_address:
+                self.lan_value.setText(f"{self._lan_address}:{port}")
+                self.lan_copy_btn.setEnabled(True)
+            else:
+                # 多网卡 / VPN 场景下探测可能失败。宁可说「未知」，也不要显示一个
+                # Hyper-V 虚拟网卡的地址让用户白试半天。
+                self.lan_value.setText(self.tr("未能识别，请在系统网络设置中查看"))
+                self.lan_copy_btn.setEnabled(False)
+
+        # 环回监听时两个开关都是空转：外部来源根本到不了 socket，而环回来源被
+        # 原生 Block 无条件放行。置灰但保留勾选状态，切回局域网时用户的偏好还在。
+        self.block_global_check.setEnabled(exposed)
+        self.block_private_check.setEnabled(exposed)
+        self.source_hint.setVisible(not exposed)
+        if not exposed:
+            self.source_hint.setText(self.tr("仅本机监听时不生效"))
+
+    def _copy_lan_address(self):
+        if not self._lan_address:
+            return
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            return
+        clipboard.setText(f"{self._lan_address}:{self.port_spin.value()}")
+        self.lan_copy_btn.setIcon(FluentIcon.ACCEPT)
+        QTimer.singleShot(1200, lambda: self.lan_copy_btn.setIcon(FluentIcon.COPY))

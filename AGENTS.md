@@ -26,6 +26,7 @@ Ferret 是基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS
 | 字节大小格式化 | `human.pretty_size` → `11b` / `1.0k` / `3.0g`（不自造 `format_bytes`） | `apps/common/flow/{models,views}.py`、`apps/session/models.py` |
 | HAR 导出 | `mitmproxy.addons.savehar.SaveHar().make_har`（纯函数，勿重写算法） | `core/mitm/export.py` |
 | httpie / raw 导出 | `mitmproxy.addons.export` 的模块级函数 | `core/mitm/export.py` |
+| 代理访问控制（按来源 IP 类别） | `mitmproxy.addons.block` 的 `Block`（`client_connected` 里读 `is_loopback` / `is_private` / `is_global` 三个 stdlib 属性，命中就 `client.error` 杀连接。**没有任何名单**，也不看目的地址） | `core/mitm/master.py`、`core/network.py` |
 | 屏蔽请求 | `mitmproxy.addons.blocklist` 的 `BlockList` + `parse_spec`（匹配、`Response.make` 空响应、444 走 `flow.kill()` 全是原生的，ferret 只造 spec 字符串） | `core/mitm/blocklist.py` |
 | CA 证书：生成 / 查看 / 导出 | `certs.CertStore.from_store` → `create_store`（一次写全 6 个产物）、`Cert` 的现成字段（cn / subject / issuer / notbefore / notafter / has_expired / serial / fingerprint / keyinfo / is_ca）、`Cert.to_pem()`。**装进/移出系统信任库 mitmproxy 完全不管**，只能走系统命令（Windows `certutil`） | `core/mitm/certificate.py` |
 | 构造请求/响应（暂无调用点，将来需要时） | `Request.make` / `Response.make` | — |
@@ -47,6 +48,14 @@ Ferret 是基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS
     不能 `Options(block_list=…)`，只能 `FerretMaster(...)` 之后 `options.update(...)`。
   - 失败的 `options.update` 整体回滚（选项值与 `BlockList.items` 都停在上一个合法状态），
     所以 `specs_from_rules` 一次性校验全部规则，坏一条就整批不下发。
+- `block_global` / `block_private` 的两个坑（已实测）：
+  - 和 `block_list` 一样由 `Block.load` 注册，`addons.add()` 之前**不存在**
+    （`registered before add? False` / `after add? True`），只能在 `FerretMaster(...)`
+    之后 `options.update(...)`。
+  - 它们是 bool 选项，**不走 `OptionsError`**：类型不对抛
+    `TypeError: Expected <class 'bool'> for block_global, ...`，键名不对抛
+    `KeyError: Unknown options: ...`。所以 `runtime.apply_block_options` 的回滚写成
+    「先回滚内存副本，再原样抛」——只 catch `OptionsError` 那段代码永远不会执行。
 - CA 证书的六个坑（`core/mitm/certificate.py`，已实测）：
   - **重新生成必须连 `{APP_NAME}-ca.pem`（私钥）一起删**：`from_store` 只要看到它就复用旧私钥，
     序列号与指纹都不变，「重新生成」等于空操作。整组产物见 `CA_ARTIFACTS`（6 个）。
@@ -134,6 +143,16 @@ Qt 在主线程。**只有三条合法通道**：
   唯一豁免：`bindings.py` 末尾在**导入期、主线程**给 `ctx.options` 兜一个默认 `Options()`
   （`contentviews.make_metadata` 无条件读它，而 Master 起不来时只读会话页也要能渲染 body）。
   正因这是唯一豁免，`ctx` **不进 `bindings.__all__`**，别再从任何地方引它。
+- **三个地址，三个用途，不能混用一个变量**（词表见 `core/network.py`）：
+  ① **绑定地址** `listen_host`（`127.0.0.1` 或 `0.0.0.0`）只用于 socket bind 与端口探测；
+  ② **本机接入地址恒为 `127.0.0.1`**，系统代理和工具栏端点只能取
+  `MitmFacade.local_client_host`；③ **局域网展示地址**（`detect_lan_address()`）
+  只用于显示和复制，**绝不写进配置，也不进任何网络调用**。
+  `0.0.0.0` 是「多开一个入口」，不是「换一个入口」—— `INADDR_ANY` 本身覆盖环回，
+  所以放开监听时系统代理**不需要**跟着改。把 `0.0.0.0:8080` 写进 Windows 代理设置，
+  系统会拿它当目标地址去连，抓包会整体失效（回归用例见
+  `tests/apps/capture/test_controllers.py` 的
+  `test_system_proxy_stays_on_loopback_when_bound_to_all_interfaces`）。
 - 修改 `flow.request.content` / `response.content` 后，mitmproxy 自动重算
   `Content-Length`，不要手动改 header。
 - 不向 master 追加 mitmproxy 的命令行 addon（comment / cut / export / script 等），
@@ -142,7 +161,9 @@ Qt 在主线程。**只有三条合法通道**：
 ## 4. 目录分层（禁止跨层）
 
 - `core/`：`application.py`（QApplication 装配）、`runtime.py`（`AppRuntime`，持有
-  `MitmRuntime` + `MitmFacade`）、`settings.py`、`log.py`、`system_proxy/`
+  `MitmRuntime` + `MitmFacade`）、`settings.py`、`network.py`
+  （监听地址词表 + 端口/地址收敛 + 局域网 IP 探测，无 Qt 无 mitmproxy，core 与 apps 共用）、
+  `log.py`、`system_proxy/`
   （Windows 注册表代理开关）、`resources_rc.py`（Qt 生成物，勿手改）。
 - `core/mitm/`：`bindings`（唯一 mitmproxy 入口）、`master`（`FerretMaster` addon 装配）、
   `runtime`（线程 + 信号桥）、`facade`、`addons`（`FerretTlsConfig` / `LogAddon`）、
@@ -199,10 +220,13 @@ Qt 在主线程。**只有三条合法通道**：
 ## 6. 功能状态速查
 
 - **实际装载的 addon 以 `core/mitm/master.py` 里 `FerretMaster.__init__` 的 `addons.add(...)`
-  为准**：Core、StripDnsHttpsRecords、BlockList、AntiCache、AntiComp、ClientPlayback、DisableH2C、
-  Proxyserver、DnsResolver、NextLayer、FerretTlsConfig、View、ReadFile、Save、LogAddon。
+  为准**：Core、Block、StripDnsHttpsRecords、BlockList、AntiCache、AntiComp、ClientPlayback、
+  DisableH2C、Proxyserver、DnsResolver、NextLayer、FerretTlsConfig、View、ReadFile、Save、LogAddon。
   （AntiCache / AntiComp 已装载但对应 option 默认关闭；BlockList 的 `block_list`
-  由 `apps/blocklist` 的规则页下发，无规则时等于关闭。）
+  由 `apps/blocklist` 的规则页下发，无规则时等于关闭；Block 默认
+  `block_global=True` / `block_private=False`，与 mitmproxy 出厂姿态一致。）
+  Block 的位置（`Core` 之后、`StripDnsHttpsRecords` 之前）对齐原生 `default_addons()`：
+  它只挂 `client_connected`，必须在任何流量成形之前决定放不放这条连接。
   BlockList 的位置（`StripDnsHttpsRecords` 之后、`AntiCache` 之前）对齐原生
   `default_addons()`，同时保证它早于 `View.request` —— 被拦的 flow 照样进流量表
   （403 显示状态码，444 走 `kill()` 显示 Error）。
@@ -211,7 +235,12 @@ Qt 在主线程。**只有三条合法通道**：
   安装卸载 Windows 用户根信任库 / 重新生成并热加载，见 §1.1 的六个坑）、
   系统代理开关、会话管理、
   **屏蔽规则 blocklist**（`apps/blocklist` 规则页 + 流量表右键「屏蔽此主机」，
-  规则存 `config.json` 的 `Proxy.BlockList`）。
+  规则存 `config.json` 的 `Proxy.BlockList`）、
+  **代理访问控制 block**（`apps/capture` 的 `ProxyPortDialog` 把「监听地址 + 端口 +
+  来源限制」一次提交；来源开关热生效走 `options.update`，绑定地址/端口要重开 socket，
+  所以控制器先下发开关再重启 —— 重启失败不会丢掉已生效的开关。配置落
+  `Proxy.{ListenHost,ListenPort,BlockGlobal,BlockPrivate}`；环回来源被原生 Block
+  无条件放行，所以绑环回时两个开关置灰但保留勾选状态）。
 - 功能缺口（GUI 后续方向）：**断点拦截 intercept**（全仓库 0 处 `intercept`）、
   modifyheaders / modifybody、maplocal / mapremote、serverplayback、
   stickycookie / stickyauth、**流量备注**（全仓库 0 处 `flow.comment`，也无备注 UI）。
