@@ -9,7 +9,7 @@
 # nuitka-project: --output-filename=Ferret
 # nuitka-project: --output-folder-name=Ferret
 # nuitka-project: --windows-icon-from-ico=src/ferret/resources/icon.ico
-# nuitka-project: --report=dist/report.xml
+# nuitka-project: --report=dist/{STAMP}/report.xml
 # nuitka-project: --msvc=latest
 # nuitka-project: --lto=no
 # nuitka-project: --enable-plugins=pyside6
