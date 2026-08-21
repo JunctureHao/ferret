@@ -6,8 +6,8 @@ from datetime import datetime
 from pathlib import Path
 
 from ferret.core.mitm.bindings import HTTPFlow, View
-from ferret.core.mitm.blocklist import BlockRule
 from ferret.core.mitm.export import FlowExporter
+from ferret.core.mitm.gateway import GatewayRule
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.rewrite import RewriteRule
 from ferret.core.mitm.runtime import MitmRuntime
@@ -61,12 +61,21 @@ class MitmFacade:
         return self.runtime.is_running
 
     @property
-    def block_rules(self) -> list[BlockRule]:
-        return list(self.runtime.block_rules)
+    def gateway_rules(self) -> list[GatewayRule]:
+        return list(self.runtime.gateway_rules)
 
-    def set_block_rules(self, rules: list[BlockRule]) -> None:
-        """Replace the block rules; applied immediately when the kernel runs."""
-        self.runtime.apply_block_rules(rules)
+    @property
+    def gateway_enabled(self) -> bool:
+        """网关总开关。关掉之后所有规则一律不判，挂起中的流量立刻放行。"""
+        return self.runtime.gateway_enabled
+
+    def set_gateway_rules(self, rules: list[GatewayRule]) -> None:
+        """Replace the gateway rules; applied immediately when the kernel runs."""
+        self.runtime.apply_gateway_rules(rules)
+
+    def set_gateway_enabled(self, enabled: bool) -> None:
+        """Flip the gateway master switch; applied immediately when it runs."""
+        self.runtime.apply_gateway_rules(enabled=enabled)
 
     @property
     def rewrite_rules(self) -> list[RewriteRule]:
@@ -243,15 +252,30 @@ class MitmFacade:
         return int(self.runtime.call(load, timeout=30.0))
 
     def clear_flows(self) -> None:
-        if self.runtime.is_running:
-            self.runtime.call(self.view.clear)
-        else:
+        def clear() -> None:
+            # 清空之后挂起中的行就没了，界面上再也找不到它 —— 顺手放行，别留下一批
+            # 看不见、又一直钉着连接的流量。
+            master = self.runtime.master
+            if master is not None:
+                master.gateway.release_all()
             self.view.clear()
+
+        if self.runtime.is_running:
+            self.runtime.call(clear)
+        else:
+            clear()
 
     def remove_flows(self, flows: list[HTTPFlow]) -> None:
         flow_ids = [flow.id for flow in flows]
 
         def remove() -> None:
+            # 必须先放行：`View.remove` 对 killable 的 flow 直接 kill()
+            # （`addons/view.py:435`），而 kill() 会把 intercepted 清成 False，之后
+            # resume() 开头那句 `if not intercepted: return` 就再也唤不醒它 ——
+            # 挂起中的行被删掉，等于让那条连接永久挂死在 wait_for_resume() 上。
+            master = self.runtime.master
+            if master is not None:
+                master.gateway.release(flow_ids)
             current = [self.view.get_by_id(flow_id) for flow_id in flow_ids]
             self.view.remove([flow for flow in current if flow is not None])
 

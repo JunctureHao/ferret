@@ -11,17 +11,6 @@ from ferret.core.mitm.bindings import (
     human,
     parse_filter,
 )
-from ferret.core.mitm.blocklist import (
-    BLOCK_STATUS_CLOSE,
-    BLOCK_STATUS_DEFAULT,
-    BlockField,
-    BlockLogic,
-    BlockRule,
-    escape_literal,
-    quote_value,
-    rules_from_config,
-    rules_to_config,
-)
 from ferret.core.mitm.certificate import (
     CA_ARTIFACTS,
     EXPORT_FORMATS,
@@ -36,6 +25,23 @@ from ferret.core.mitm.certificate import (
 )
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.facade import MitmFacade
+from ferret.core.mitm.filters import escape_literal, quote_value
+from ferret.core.mitm.gateway import (
+    GATEWAY_METADATA_KEY,
+    GATEWAY_OPTIONS,
+    GATEWAY_STATUS_CLOSE,
+    GATEWAY_STATUS_DEFAULT,
+    LAYER_POLICIES,
+    SUSPEND_POLICIES,
+    GatewayField,
+    GatewayLayer,
+    GatewayLogic,
+    GatewayPolicy,
+    GatewayRule,
+    gateway_rules_from_block_config,
+    gateway_rules_from_config,
+    gateway_rules_to_config,
+)
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.master import CaptureMaster, FerretMaster
 from ferret.core.mitm.rewrite import (
@@ -51,14 +57,15 @@ from ferret.core.mitm.rewrite import (
 from ferret.core.mitm.runtime import MitmRuntime, MitmRuntimeState
 
 __all__ = [
-    "BLOCK_STATUS_CLOSE",
-    "BLOCK_STATUS_DEFAULT",
     "CA_ARTIFACTS",
     "EXPORT_FORMATS",
+    "GATEWAY_METADATA_KEY",
+    "GATEWAY_OPTIONS",
+    "GATEWAY_STATUS_CLOSE",
+    "GATEWAY_STATUS_DEFAULT",
+    "LAYER_POLICIES",
     "REWRITE_OPTIONS",
-    "BlockField",
-    "BlockLogic",
-    "BlockRule",
+    "SUSPEND_POLICIES",
     "CaInfo",
     "CaptureMaster",
     "CertExportFormat",
@@ -69,6 +76,11 @@ __all__ = [
     "Flow",
     "FlowExporter",
     "FlowFile",
+    "GatewayField",
+    "GatewayLayer",
+    "GatewayLogic",
+    "GatewayPolicy",
+    "GatewayRule",
     "HTTPFlow",
     "MitmFacade",
     "MitmRuntime",
@@ -86,12 +98,13 @@ __all__ = [
     "escape_literal",
     "escape_template",
     "export_format",
+    "gateway_rules_from_block_config",
+    "gateway_rules_from_config",
+    "gateway_rules_to_config",
     "human",
     "parse_filter",
     "quote_value",
     "rewrite_option_updates",
     "rewrite_rules_from_config",
     "rewrite_rules_to_config",
-    "rules_from_config",
-    "rules_to_config",
 ]

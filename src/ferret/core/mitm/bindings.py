@@ -29,8 +29,6 @@ from mitmproxy.addons import tlsconfig as _tlsconfig_module
 from mitmproxy.addons.anticache import AntiCache
 from mitmproxy.addons.anticomp import AntiComp
 from mitmproxy.addons.block import Block
-from mitmproxy.addons.blocklist import BlockList
-from mitmproxy.addons.blocklist import parse_spec as parse_block_spec
 from mitmproxy.addons.clientplayback import (
     ClientPlayback,
     ReplayHandler,
@@ -47,7 +45,12 @@ from mitmproxy.addons.savehar import SaveHar
 from mitmproxy.addons.strip_dns_https_records import StripDnsHttpsRecords
 from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.view import View
-from mitmproxy.exceptions import CommandError, FlowReadException, OptionsError
+from mitmproxy.exceptions import (
+    AddonHalt,
+    CommandError,
+    FlowReadException,
+    OptionsError,
+)
 from mitmproxy.flow import Flow
 from mitmproxy.flowfilter import parse as parse_filter
 from mitmproxy.http import HTTPFlow, Request, Response
@@ -71,10 +74,10 @@ if not hasattr(ctx, "options"):
 
 __all__ = [
     "KEY_SIZE",
+    "AddonHalt",
     "AntiCache",
     "AntiComp",
     "Block",
-    "BlockList",
     "ClientPlayback",
     "CommandError",
     "Core",
@@ -104,7 +107,6 @@ __all__ = [
     "export_module",
     "human",
     "io",
-    "parse_block_spec",
     "parse_filter",
     "parse_map_remote_spec",
     "server_hooks",

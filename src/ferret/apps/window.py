@@ -14,13 +14,13 @@ from qfluentwidgets import (
     setTheme,
 )
 
-from ferret.apps.blocklist.controllers import BlockListController
-from ferret.apps.blocklist.views import BlockListInterface
 from ferret.apps.capture.controllers import CaptureState
 from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import CertificateInterface
 from ferret.apps.common.icon import BaseAction
+from ferret.apps.gateway.controllers import GatewayController
+from ferret.apps.gateway.views import GatewayInterface
 from ferret.apps.rewrite.controllers import RewriteController
 from ferret.apps.rewrite.views import RewriteInterface
 from ferret.apps.session.controllers import SessionController
@@ -49,9 +49,9 @@ class MainWindow(FluentWindow):
         )
         # 两个规则控制器都建在 runtime.start() 之前：构造时就把已存规则交给 facade，
         # Master 起来时 _run_master 会在服务第一个请求前下发。
-        self.blocklist_controller = BlockListController(self, mitm=self.runtime.mitm)
-        self.blocklist_interface = BlockListInterface(
-            controller=self.blocklist_controller, parent=self
+        self.gateway_controller = GatewayController(self, mitm=self.runtime.mitm)
+        self.gateway_interface = GatewayInterface(
+            controller=self.gateway_controller, parent=self
         )
         self.rewrite_controller = RewriteController(self, mitm=self.runtime.mitm)
         self.rewrite_interface = RewriteInterface(
@@ -95,9 +95,7 @@ class MainWindow(FluentWindow):
             self.sessions_interface, FluentIcon.HISTORY, self.tr("sessions")
         )
 
-        self.addSubInterface(
-            self.blocklist_interface, FluentIcon.FILTER, self.tr("blocklist")
-        )
+        self.addSubInterface(self.gateway_interface, FluentIcon.VPN, self.tr("gateway"))
 
         self.addSubInterface(
             self.rewrite_interface, FluentIcon.SYNC, self.tr("rewrite")
@@ -123,9 +121,9 @@ class MainWindow(FluentWindow):
         self.captures_interface.controller.capture_state_changed.connect(
             self.__on_capture_state_changed
         )
-        # 由主窗口牵线，apps/capture 不必认识 apps/blocklist。
+        # 由主窗口牵线，apps/capture 不必认识 apps/gateway。
         self.captures_interface.block_host_requested.connect(
-            self.blocklist_controller.add_host_rule
+            self.gateway_controller.add_host_rule
         )
 
     @Slot(object)
