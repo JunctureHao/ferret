@@ -80,7 +80,8 @@ class Config(QConfig):
         serializer=LayoutSerializer(),
     )
 
-    # 屏蔽规则，存 list[dict]（见 core/mitm/blocklist.py 的 BlockRule.to_dict）。
+    # 旧版屏蔽规则。网关页取代屏蔽页之后这一项**只剩迁移用途**：
+    # apps/gateway 首次启动时把它转成网关规则再清空（见 GatewayController）。
     # 注意 QConfig.set 开头有 `if item.value == value: return`，原地 mutate 再 set
     # 会静默不落盘 —— 写回时必须传一个新 list。
     block_list = ConfigItem(
@@ -121,6 +122,23 @@ class Config(QConfig):
         group="Proxy",
         name="BlockPrivate",
         default=False,
+        validator=BoolValidator(),
+    )
+
+    # 网关规则，存 list[dict]（见 core/mitm/gateway.py 的 GatewayRule.to_dict）。
+    # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
+    # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。
+    gateway_rules = ConfigItem(
+        group="Gateway",
+        name="Rules",
+        default=[],
+    )
+
+    # 网关总开关。关掉之后所有规则一律不判，挂起中的流量立刻放行。
+    gateway_enabled = ConfigItem(
+        group="Gateway",
+        name="Enabled",
+        default=True,
         validator=BoolValidator(),
     )
 

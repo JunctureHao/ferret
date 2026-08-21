@@ -71,6 +71,9 @@ class CaptureController(QObject):
 
         runtime.flow_added.connect(self.flow_added)
         runtime.flow_updated.connect(self.flow_updated)
+        # 挂起/放行也当成一次更新：网关挂起发生在 `request`，而 `View` 没有这个钩子，
+        # 不借道 flow_updated 那一行的「挂起中」永远不上屏。
+        runtime.flow_suspended.connect(self.flow_updated)
         runtime.flow_removed.connect(self.flow_removed)
         runtime.view_refreshed.connect(self.view_refreshed)
         runtime.ready.connect(self._on_runtime_ready)

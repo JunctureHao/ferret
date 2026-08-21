@@ -19,6 +19,7 @@ class FakeRuntime(QObject):
     flow_updated = Signal(object)
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
+    flow_suspended = Signal(object)
     ready = Signal(object)
     failed = Signal(str)
     stopped = Signal()
