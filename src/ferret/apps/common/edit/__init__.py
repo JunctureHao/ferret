@@ -1,21 +1,27 @@
 """编辑 / 高亮 / 键值对面板子包。
 
 对外保持与旧模块一致的导入路径：
-    from ferret.views.common.edit import KVDualPanel, ToolPlainTextEdit
+    from ferret.apps.common.edit import ItemDualPanel, ToolPlainTextEdit
 
 内部按职责拆分：
-    - highlighter.py : UniversalHighlighter / HTTPHighlighter / HeadersHighlighter / JSONHighlighter
+    - syntax.py      : Language / 各语言分词器 / MaterialStyle(暗) + MaterialLightStyle(亮)
+    - theme.py       : EditorPalette —— 按主题取色，编辑器配色的唯一出处
+    - highlighter.py : TokenHighlighter —— 唯一高亮器，语言可原地切换
     - editor.py      : CodeEditor / LineNumberArea
-    - widgets.py     : ToolWidget / KVTableWidget / KVTableToolWidget / ToolPlainTextEdit / KVDualPanel / SortState / SORT_TRANSITION
+    - widgets.py     : ToolWidget / ItemTableWidget / ItemTableToolWidget /
+                       ToolPlainTextEdit / ItemDualPanel / JsonTreeWidget /
+                       JsonTreePanel / JsonDualPanel / SortState / SORT_TRANSITION
+
+高亮器由四个类（``UniversalHighlighter``/``HTTPHighlighter``/``HeadersHighlighter``/
+``JSONHighlighter``）收敛为一个 ``TokenHighlighter``：其中三个类的"覆写
+``_generate_tokens`` 换词法器"钩子从来没有被调用过，``HeadersHighlighter`` 因此整个
+是 no-op。换语言现在走 ``CodeEditor.set_language`` / ``TokenHighlighter.set_language``。
 """
 
 from .editor import CodeEditor, LineNumberArea
-from .highlighter import (
-    HeadersHighlighter,
-    HTTPHighlighter,
-    JSONHighlighter,
-    UniversalHighlighter,
-)
+from .highlighter import LEX_LIMIT, TokenHighlighter
+from .syntax import Language
+from .theme import EditorPalette
 from .widgets import (
     SORT_TRANSITION,
     ItemDualPanel,
@@ -30,22 +36,22 @@ from .widgets import (
 )
 
 __all__ = [
+    "LEX_LIMIT",
     "SORT_TRANSITION",
     "CodeEditor",
-    "HTTPHighlighter",
-    "HeadersHighlighter",
+    "EditorPalette",
     "ItemDualPanel",
     "ItemTableToolWidget",
     "ItemTableWidget",
-    "JSONHighlighter",
     "JsonDualPanel",
     "JsonTreePanel",
     "JsonTreeWidget",
+    "Language",
     "LineNumberArea",
     "SortState",
+    "TokenHighlighter",
     "ToolPlainTextEdit",
     "ToolWidget",
-    "UniversalHighlighter",
 ]
 
 

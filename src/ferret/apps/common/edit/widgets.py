@@ -2,7 +2,7 @@ import json
 from enum import Enum, auto
 
 from PySide6.QtCore import QSize, Qt, Slot
-from PySide6.QtGui import QColor, QTextCursor
+from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -22,7 +22,6 @@ from qfluentwidgets import (
     SimpleCardWidget,
     TableWidget,
     TreeWidget,
-    isDarkTheme,
 )
 
 from ferret.apps.common.button import TransparentTooltipButton
@@ -30,6 +29,8 @@ from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 
 from .editor import CodeEditor
+from .syntax import Language
+from .theme import EditorPalette
 
 
 class ToolWidget(QWidget):
@@ -459,9 +460,8 @@ class ToolPlainTextEdit(SimpleCardWidget):
     def _apply_search_highlight(self):
         """用 ExtraSelection 高亮所有命中：当前项橙色，其余黄色"""
         selections = []
-        is_dark = isDarkTheme()
-        base_bg = QColor(255, 235, 120, 120) if is_dark else QColor(255, 235, 0, 120)
-        cur_bg = QColor(255, 160, 40, 180) if is_dark else QColor(255, 150, 0, 180)
+        base_bg = EditorPalette.search_match()
+        cur_bg = EditorPalette.search_current()
         for i, c in enumerate(self._search_results):
             sel = QTextEdit.ExtraSelection()
             sel.format.setBackground(base_bg)
@@ -483,10 +483,13 @@ class ToolPlainTextEdit(SimpleCardWidget):
     def tool_layout(self) -> QHBoxLayout:
         return self.tool_widget.left_layout
 
-    def set_text(self, text: str, lang: str = "http"):
-        """设置文本并指定高亮语言。lang: http/headers/json/xml"""
+    def set_text(self, text: str, lang: Language | str = Language.HTTP):
+        """设置文本并指定高亮语言（见 ``syntax.Language``）。"""
         self.code_widget.set_language(lang)
         self.code_widget.setPlainText(text)
+        # 整体换文本是程序化路径，绕过 highlighter 的输入防抖：否则新报文会先
+        # 以无色状态闪一帧（点一条 flow 就闪一次）。
+        self.code_widget.highlighter.relex_now()
         # 文本变更时清空旧的查找结果
         self._search_results = []
         self._search_index = -1
@@ -549,7 +552,7 @@ class ItemDualPanel(QWidget):
         self.table.set_items(items)
         text_content = "\n".join(f"{k}: {v}" for k, v in items.items())
         # 请求头/响应头/参数为 Key: Value 结构，用 headers 高亮避免全红
-        self.text.set_text(text_content, lang="headers")
+        self.text.set_text(text_content, lang=Language.HEADERS)
 
     def set_read_only(self, read_only: bool):
         self.text.set_read_only(read_only)
@@ -617,17 +620,13 @@ class JsonTreeWidget(TreeWidget):
     @staticmethod
     def _count_font():
         """计数标签字体：斜体灰色，与基础字体区分"""
-        from PySide6.QtGui import QFont
-
         f = QFont()
         f.setItalic(True)
         return f
 
     def _apply_count_color(self):
         """给带计数的单元格上灰色（遍历已建好的项）"""
-        from PySide6.QtGui import QColor
-
-        gray = QColor(128, 128, 128)
+        gray = EditorPalette.tree_count()
         stack: list[QTreeWidgetItem] = [
             item
             for i in range(self.topLevelItemCount())
@@ -713,18 +712,17 @@ class JsonDualPanel(QWidget):
             return current.sizeHint()
         return super().sizeHint()
 
-    def set_text(self, text: str, lang: str = "json"):
-        """设置文本并指定语言；lang=json 时自动建树。"""
+    def set_text(self, text: str, lang: Language | str = Language.JSON):
+        """设置文本并指定语言；JSON 时顺带建树。"""
+        lang = Language.coerce(lang)
         self.text.set_text(text, lang=lang)
-        if lang == "json":
-            try:
-                import json
-
-                parsed = json.loads(text)
-                self.tree.tree.set_data(parsed)
-            except (ImportError, ValueError, RuntimeError):
-                self.tree.tree.clear()
-        else:
+        if lang is not Language.JSON:
+            self.tree.tree.clear()
+            return
+        try:
+            self.tree.tree.set_data(json.loads(text))
+        except ValueError:
+            # json.JSONDecodeError 是 ValueError 子类；body 常常是被截断的 JSON。
             self.tree.tree.clear()
 
     def set_read_only(self, read_only: bool):
@@ -737,6 +735,7 @@ __all__ = [
     "ItemTableToolWidget",
     "ItemTableWidget",
     "JsonDualPanel",
+    "JsonTreePanel",
     "JsonTreeWidget",
     "SortState",
     "ToolPlainTextEdit",

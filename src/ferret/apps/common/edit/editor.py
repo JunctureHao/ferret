@@ -1,4 +1,9 @@
-import contextlib
+"""带行号的代码编辑器。
+
+高亮不再由本模块挑选实现类：``TokenHighlighter`` 一个实例贯穿始终，换语言只是换
+它内部的词法器（见 ``highlighter.py``）。颜色一律问 ``EditorPalette``，本模块不再
+自己算 ``QColor``。
+"""
 
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import (
@@ -9,15 +14,13 @@ from PySide6.QtGui import (
     QTextFormat,
 )
 from PySide6.QtWidgets import QTextEdit, QWidget
-from qfluentwidgets import PlainTextEdit, isDarkTheme, qconfig, setCustomStyleSheet
+from qfluentwidgets import PlainTextEdit, qconfig, setCustomStyleSheet
 
 from ferret.apps.common.font import FontManager
 
-from .highlighter import (
-    HeadersHighlighter,
-    HTTPHighlighter,
-    JSONHighlighter,
-)
+from .highlighter import TokenHighlighter
+from .syntax import Language
+from .theme import EditorPalette
 
 
 class LineNumberArea(QWidget):
@@ -40,8 +43,8 @@ class CodeEditor(PlainTextEdit):
         self.editor_font = FontManager.code_font(10)
         self.setFont(self.editor_font)
         self.line_number_area.setFont(self.editor_font)
-        self.highlighter = HTTPHighlighter(self.document())
-        self._highlighter_class = HTTPHighlighter
+        # 单个 highlighter 贯穿生命周期：换语言走 set_language，不再重建实例。
+        self.highlighter = TokenHighlighter(self.document())
 
         self.ln_left_padding = 25
         self.ln_right_padding = 25
@@ -134,17 +137,12 @@ class CodeEditor(PlainTextEdit):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
         cursor_block = self.textCursor().blockNumber()
-        is_dark = isDarkTheme()
 
-        # 删除了 base_bg_color，不再需要强行擦除背景
+        # 每帧取一次色即可（``EditorPalette`` 只读当前主题），不要放进 while 循环。
         h_bg_color = self.get_highlight_line_color()
-        active_num_color = (
-            QColor(255, 255, 255, 255) if is_dark else QColor(0, 0, 0, 255)
-        )
-        normal_num_color = (
-            QColor(255, 255, 255, 120) if is_dark else QColor(0, 0, 0, 120)
-        )
-        divider_color = QColor(255, 255, 255, 40) if is_dark else QColor(0, 0, 0, 30)
+        active_num_color = EditorPalette.line_number_active()
+        normal_num_color = EditorPalette.line_number_normal()
+        divider_color = EditorPalette.gutter_divider()
 
         block = self.firstVisibleBlock()
         blockNumber = block.blockNumber()
@@ -211,7 +209,7 @@ class CodeEditor(PlainTextEdit):
             self.set_highlight_current_line()
 
     def get_highlight_line_color(self) -> QColor:
-        return QColor(255, 255, 255, 15) if isDarkTheme() else QColor(0, 0, 0, 10)
+        return EditorPalette.current_line()
 
     def set_word_wrap(self, wrap: bool):
         if wrap:
@@ -219,30 +217,19 @@ class CodeEditor(PlainTextEdit):
         else:
             self.setLineWrapMode(self.LineWrapMode.NoWrap)
 
-    def set_language(self, lang: str):
+    @property
+    def language(self) -> Language:
+        return self.highlighter.language
+
+    def set_language(self, lang: Language | str) -> None:
         """切换编辑器的高亮语言。
 
-        支持: "http"(完整报文) / "headers"(纯 Key: Value) / "json" / "xml"。
-        不同语言对应不同 highlighter，避免把纯 header 文本误判为 Token.Error 全红。
+        原实现按语言 new 一个 highlighter 子类、``deleteLater()`` 旧的，还要手动
+        ``disconnect`` 对方的私有 slot；现在只是把词法器换一个函数。``str`` 入参
+        经 ``Language.coerce`` 收敛（``flow/views.py::_body_lang`` 等旧调用点仍传
+        字符串），无法识别时退回 HTTP，与历史 fallback 行为一致。
         """
-        mapping = {
-            "http": HTTPHighlighter,
-            "headers": HeadersHighlighter,
-            "json": JSONHighlighter,
-            "xml": HTTPHighlighter,  # 含 html/xml 的报文仍走 http lexer
-        }
-        cls = mapping.get(lang, HTTPHighlighter)
-        if cls is self._highlighter_class:
-            return
-        # 断开旧 highlighter 的内容变更监听，替换为新的
-        # 信号未连接过时 disconnect 会抛 RuntimeError，忽略即可
-        with contextlib.suppress(RuntimeError):
-            self.highlighter.document().contentsChanged.disconnect(
-                self.highlighter._on_contents_changed
-            )
-        self.highlighter.deleteLater()
-        self.highlighter = cls(self.document())
-        self._highlighter_class = cls
+        self.highlighter.set_language(Language.coerce(lang))
 
 
 __all__ = ["CodeEditor", "LineNumberArea"]
