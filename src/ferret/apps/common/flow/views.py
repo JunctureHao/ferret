@@ -34,7 +34,12 @@ from qfluentwidgets import (
 )
 
 from ferret.apps.common.dialog import TextCopyDialog
-from ferret.apps.common.edit import ItemDualPanel, JsonDualPanel, ToolPlainTextEdit
+from ferret.apps.common.edit import (
+    ItemDualPanel,
+    JsonDualPanel,
+    Language,
+    ToolPlainTextEdit,
+)
 from ferret.apps.common.flow.models import FlowProxyModel, FlowTableModel
 from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
@@ -59,7 +64,7 @@ def _format_time(ts) -> str:
     return human.format_timestamp(ts) if ts else "-"
 
 
-def _body_lang(syntax: str, text: str) -> str:
+def _body_lang(syntax: str, text: str) -> Language:
     """contentview 声明的高亮语言 → ferret 词法器。
 
     mitmproxy 侧取值有 css / javascript / xml / yaml / none / error 六种，
@@ -72,10 +77,10 @@ def _body_lang(syntax: str, text: str) -> str:
       HTTP 词法器对 ``Key: Value`` 行有原生分支，不会整片标红。
     """
     if syntax == "yaml" and text[:1] in ("{", "["):
-        return "json"
+        return Language.JSON
     if syntax == "xml":
-        return "xml"
-    return "http"
+        return Language.XML
+    return Language.HTTP
 
 
 class FlowDataTable(TableView):
