@@ -12,7 +12,14 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 from qfluentwidgets import isDarkTheme
 
-from ferret.core.mitm import FlowExporter, HTTPFlow, human
+from ferret.core.mitm import (
+    GATEWAY_METADATA_KEY,
+    SUSPEND_POLICIES,
+    FlowExporter,
+    GatewayPolicy,
+    HTTPFlow,
+    human,
+)
 from ferret.utils.http_parser import build_body
 
 METHOD_ROLE = int(Qt.ItemDataRole.UserRole) + 1
@@ -22,6 +29,33 @@ MIME_ROLE = int(Qt.ItemDataRole.UserRole) + 4
 DURATION_MS_ROLE = int(Qt.ItemDataRole.UserRole) + 5
 SIZE_BYTES_ROLE = int(Qt.ItemDataRole.UserRole) + 6
 SORT_ROLE = int(Qt.ItemDataRole.UserRole) + 7
+
+# 网关往 flow.metadata 里写的是策略名（`str(GatewayPolicy)`）。这里只认字符串、
+# 不导 apps/gateway —— apps/common 不该认识具体页面。
+_SUSPEND_MARKS: frozenset[str] = frozenset(str(policy) for policy in SUSPEND_POLICIES)
+
+_GATEWAY_TOOLTIPS: dict[str, str] = {
+    str(GatewayPolicy.BLOCK): "（已被网关屏蔽）",
+    str(GatewayPolicy.BLOCK_OUT): "（已被网关屏蔽：请求没有发往服务器）",
+    str(GatewayPolicy.BLOCK_IN): "（已被网关屏蔽：响应没有转发给客户端）",
+    str(GatewayPolicy.SUSPEND_OUT): "（网关挂起中：请求没有发出）",
+    str(GatewayPolicy.SUSPEND_IN): "（网关挂起中：响应没有转发给客户端）",
+}
+
+
+def is_suspended(flow: HTTPFlow) -> bool:
+    """这条流量是否正被网关挂着。放行时 addon 会把标记摘掉，所以这是实时状态。"""
+    return flow.metadata.get(GATEWAY_METADATA_KEY) in _SUSPEND_MARKS
+
+
+def gateway_note(flow: HTTPFlow) -> str:
+    """Status 列的悬浮补充说明；没被网关动过就是空串。"""
+    policy = flow.metadata.get(GATEWAY_METADATA_KEY)
+    if policy:
+        return _GATEWAY_TOOLTIPS.get(policy, "（已被网关处理）")
+    # blocklisted 是原生 BlockList addon 的标记。网关已经取代了它，只有从旧会话
+    # 文件读回来的 flow 才会带（metadata 随 flow 一起存档）。
+    return "（已被屏蔽规则拦截）" if flow.metadata.get("blocklisted") else ""
 
 
 def flatten_multi(items) -> dict[str, str]:
@@ -122,6 +156,10 @@ class FlowTableModel(QAbstractTableModel):
             if column_name == "URL":
                 return flow.request.pretty_url
             if column_name == "Status":
+                # 挂起优先于响应码：挂起（入）时响应已经回来了，但客户端一个字节
+                # 都没拿到，显示 200 会骗人。真实码进悬浮提示。
+                if is_suspended(flow):
+                    return "挂起中"
                 if flow.error:
                     return "Error"
                 if flow.response is None:
@@ -143,6 +181,8 @@ class FlowTableModel(QAbstractTableModel):
             if column_name == "URL":
                 return flow.request.pretty_url.lower()
             if column_name == "Status":
+                if is_suspended(flow):
+                    return -1
                 if flow.error:
                     return 600
                 return flow.response.status_code if flow.response else -1
@@ -171,16 +211,15 @@ class FlowTableModel(QAbstractTableModel):
             if column_name == "URL":
                 return flow.request.pretty_url
             if column_name == "Status":
-                # blocklisted 是原生 BlockList addon 打的标记，白捡的可视化反馈
-                blocked = (
-                    "（已被屏蔽规则拦截）" if flow.metadata.get("blocklisted") else ""
-                )
+                note = gateway_note(flow)
                 if flow.error:
                     msg = flow.error.msg if flow.error else "Flow error"
-                    return f"{msg}{blocked}"
+                    return f"{msg}{note}"
                 if flow.response:
                     status = f"{flow.response.status_code} {flow.response.reason}"
-                    return f"{status}{blocked}"
+                    return f"{status}{note}"
+                if note:
+                    return note.strip("（）")
             if column_name == "Type":
                 return self._mime(flow) or "未知内容类型"
             if column_name == "Time":
@@ -272,6 +311,8 @@ class FlowTableModel(QAbstractTableModel):
 
     @staticmethod
     def _status_kind(flow: HTTPFlow) -> str:
+        if is_suspended(flow):
+            return "pending"
         if flow.error:
             return "error"
         if flow.response is None:
