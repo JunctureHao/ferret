@@ -1,5 +1,10 @@
+# ── 产物按构建时刻分目录 dist/YYYYmmdd_HHMM/，历史构建可并存
+# {STAMP} 须先 -set 再引用；表达式在 Nuitka 自身命名空间 eval，那里没有 time，必须 __import__
+# nuitka-project-set: STAMP = __import__("time").strftime("%Y%m%d_%H%M")
 # nuitka-project: --mode=standalone
-# nuitka-project: --output-dir=dist
+# nuitka-project: --output-dir=dist/{STAMP}
+# .build 脚手架约 480MB/次，产出 exe 后删除；C 编译缓存是全局的，不影响增量速度
+# nuitka-project: --remove-output
 # nuitka-project: --windows-console-mode=force
 # nuitka-project: --output-filename=Ferret
 # nuitka-project: --output-folder-name=Ferret
