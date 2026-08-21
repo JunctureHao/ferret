@@ -98,7 +98,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.gateway_interface, FluentIcon.VPN, self.tr("gateway"))
 
         self.addSubInterface(
-            self.rewrite_interface, FluentIcon.SYNC, self.tr("rewrite")
+            self.rewrite_interface, FluentIcon.PENCIL_INK, self.tr("rewrite")
         )
 
         self.addSubInterface(
