@@ -60,8 +60,11 @@ from ferret.apps.common.flow.protocols import (
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
+from ferret.core.log import get_logger
 from ferret.core.mitm import HTTPFlow
 from ferret.core.settings import CONFIG
+
+log = get_logger("flow")
 
 
 def _body_lang(syntax: str, text: str) -> Language:
@@ -829,7 +832,7 @@ class RequestPanel(TabPanel):
         headers = data.get("Request Headers", {})
         self.header_card.set_items(headers)
 
-        flow_id = data.get("Connection ID", "")
+        flow_id = data.get("Flow ID", "")
         self._set_body_tab_label(data.get("Request Body View", ""))
         body = data.get("Request Body", b"")
         self._fill_raw(body, flow_id)
@@ -967,7 +970,7 @@ class ResponsePanel(TabPanel):
         self.cookie_widget.set_cookies(data.get("Response Cookies", {}))
 
         # 响应体（消费预解析字段）
-        flow_id = data.get("Connection ID", "")
+        flow_id = data.get("Flow ID", "")
         self._set_body_tab_label(data.get("Response Body View", ""))
         body = data.get("Response Body", b"")
         self._fill_raw(body, flow_id)
@@ -996,7 +999,7 @@ class ResponsePanel(TabPanel):
                     self.raw_edit.set_text(text)
                     return
             except (AttributeError, ValueError, TypeError, RuntimeError) as e:
-                print(f"failed to read the raw HTTP payload: {e}")
+                log.warning("failed to read the raw HTTP payload: %s", e)
 
         # 如果获取失败，使用手动构建的格式
         if not self.datas:

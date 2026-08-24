@@ -213,7 +213,7 @@ _CERT_KEYS: tuple[str, ...] = (
     *(f"Issuer {key}" for _label, key in _CERT_NAME_FIELDS),
     "Not Before",
     "Not After",
-    "Fingerprint SHA1",
+    "Fingerprint SHA256",
     "Serial Number Hex",
 )
 
@@ -227,13 +227,42 @@ _TIME_KEYS: tuple[str, ...] = (
     "Duration",
 )
 
+#: 大小组的四种口径，每侧三个键加一个合计：
+#:
+#: * ``*_headers_size`` —— 头部字节，走 `assemble_*_head()` 拿真实线格式；
+#: * ``*_wire_size`` —— 报文体的**线上**字节（压缩后），和表格 Size 列同源；
+#: * ``*_decoded_size`` —— 报文体**解压后**的字节，只在和线上不一样时才显示；
+#: * ``*_total_size`` / ``total_size`` —— 头部 + 线上，也就是这条报文实际占的字节。
+#:
+#: 改造前只有 ``req_size`` / ``res_size`` 一个含混的「大小」（量的是解压后），
+#: 却和头部字节加在一起当合计，于是同一条 gzip 响应在表格和详情里能差好几倍。
 _SIZE_KEYS: tuple[str, ...] = (
-    "req_size",
     "req_headers_size",
-    "res_size",
+    "req_wire_size",
+    "req_decoded_size",
+    "req_total_size",
     "res_headers_size",
+    "res_wire_size",
+    "res_decoded_size",
+    "res_total_size",
     "total_size",
 )
+
+
+def _decoded_size(wire_key: str, decoded_key: str) -> Callable[[dict], str | None]:
+    """「解压后」这一行 —— 和线上字节一样大就不显示。
+
+    绝大多数报文没压缩，两个数字一模一样，并排摆两行相同的值只是噪音。这一行出现
+    就说明这条报文确实压缩过、两个口径确实不是一回事，读的人也就知道该看哪个。
+    """
+
+    def read(data: dict) -> str | None:
+        decoded = data.get(decoded_key)
+        if decoded is None or int(decoded) == int(data.get(wire_key) or 0):
+            return None
+        return human.pretty_size(int(decoded))
+
+    return read
 
 
 def _peer_section(title: str, prefix: str) -> Section:
@@ -249,15 +278,16 @@ def _peer_section(title: str, prefix: str) -> Section:
 def _cert_name_section(title: str, prefix: str) -> Section:
     """证书的「主体」「签发者」小节 —— 六项同名字段，只差键前缀。
 
-    这两组历来空值也占一行（`always=True`）。models 现在根本不产出这六项，所以整组眼下
-    全是字面 ``-`` —— 补产出与去掉 `always` 都是下一期的事，这一期只换驱动方式。
+    这两组不再用 `always=True`：证书里没有的项就不占行。上一期这里空值也硬占一行，
+    加上 models 压根没产出这六项，整组渲染出来是 12 行字面 ``-`` —— 看着像「读到了
+    证书但每项都是空的」，其实是根本没读。现在 `certificate_fields()` 产出实际有的
+    项，缺哪项少哪行，整张证书都没有就整组不显示。
     """
     return Section(
         title=title,
         subgroup=True,
         fields=tuple(
-            Field(label, f"{prefix} {key}", always=True)
-            for label, key in _CERT_NAME_FIELDS
+            Field(label, f"{prefix} {key}") for label, key in _CERT_NAME_FIELDS
         ),
     )
 
@@ -316,7 +346,7 @@ SECTIONS: tuple[Section, ...] = (
             Field(QT_TRANSLATE_NOOP("FlowFields", "Not after"), "Not After"),
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "Fingerprint"),
-                "Fingerprint SHA1",
+                "Fingerprint SHA256",
                 mono=True,
             ),
             Field(
@@ -369,27 +399,35 @@ SECTIONS: tuple[Section, ...] = (
         fields=(
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "Request"),
-                _size_of("req_size", "req_headers_size"),
+                _size_of("req_total_size"),
             ),
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "- Request headers"),
                 _size_of("req_headers_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "- Request body"),
-                _size_of("req_size"),
+                QT_TRANSLATE_NOOP("FlowFields", "- Request body on the wire"),
+                _size_of("req_wire_size"),
+            ),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "- Request body decoded"),
+                _decoded_size("req_wire_size", "req_decoded_size"),
             ),
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "Response"),
-                _size_of("res_size", "res_headers_size"),
+                _size_of("res_total_size"),
             ),
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "- Response headers"),
                 _size_of("res_headers_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "- Response body"),
-                _size_of("res_size"),
+                QT_TRANSLATE_NOOP("FlowFields", "- Response body on the wire"),
+                _size_of("res_wire_size"),
+            ),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "- Response body decoded"),
+                _decoded_size("res_wire_size", "res_decoded_size"),
             ),
             Field(QT_TRANSLATE_NOOP("FlowFields", "Total"), _size_of("total_size")),
         ),

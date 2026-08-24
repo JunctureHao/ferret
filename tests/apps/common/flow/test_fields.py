@@ -105,7 +105,28 @@ class FieldValueTests(unittest.TestCase):
         """只抓到请求的流量照旧显示 ``0b`` 的响应大小，不是整行消失。"""
         total = find_field("Total")
         self.assertEqual(field_value(total, {}), "0b")
-        self.assertEqual(field_value(find_field("Request"), {"req_size": 384}), "384b")
+        self.assertEqual(
+            field_value(find_field("Request"), {"req_total_size": 384}), "384b"
+        )
+
+    def test_the_decoded_row_only_shows_up_when_it_differs_from_the_wire(self) -> None:
+        """没压缩的报文两个口径一样大，并排列两行相同的值只是噪音。"""
+        decoded = find_field("- Response body decoded")
+        same = {"res_wire_size": 900, "res_decoded_size": 900}
+        self.assertIsNone(field_value(decoded, same))
+        gzipped = {"res_wire_size": 900, "res_decoded_size": 4096}
+        self.assertEqual(field_value(decoded, gzipped), "4.0k")
+        self.assertIsNone(field_value(decoded, {}))
+
+    def test_wire_and_decoded_are_separate_rows(self) -> None:
+        """两个口径各有各的行，谁也不冒充「大小」 —— 混成一个数才是原来的毛病。"""
+        data = {"res_wire_size": 900, "res_decoded_size": 4096}
+        self.assertEqual(
+            field_value(find_field("- Response body on the wire"), data), "900b"
+        )
+        self.assertEqual(
+            field_value(find_field("- Response body decoded"), data), "4.0k"
+        )
 
 
 class LabelTests(unittest.TestCase):
@@ -216,15 +237,30 @@ class OverviewTreeTests(unittest.TestCase):
         self.assertNotIn("Connection", self.titles())
 
     def test_a_subgroup_nests_under_its_parent_with_a_dash_prefix(self) -> None:
-        self.tree.set_data({"Not Before": "2026-01-01"})
+        self.tree.set_data(
+            {"Subject Common Name": "example.com", "Not Before": "2026-01-01"}
+        )
         rows = self.rows()
         self.assertIn((0, "Server certificate", ""), rows)
         self.assertIn((1, "Subject", ""), rows)
-        self.assertIn((2, "- Common Name", "-"), rows)
+        self.assertIn((2, "- Common Name", "example.com"), rows)
         self.assertIn((1, "Not before", "2026-01-01"), rows)
 
-    def test_group_titles_are_bold_and_subgroup_titles_underlined(self) -> None:
+    def test_certificate_subgroups_no_longer_pad_themselves_with_dashes(self) -> None:
+        """证书组曾经渲染出 12 行字面 ``-``，看着像「读到证书但每项都空」。
+
+        那是 `always=True` 加 models 不产出这六项凑出来的假象。现在缺哪项少哪行 ——
+        只有有效期的证书就只显示有效期，不再凭空多出主体和签发者两个小节。
+        """
         self.tree.set_data({"Not Before": "2026-01-01"})
+        rows = self.rows()
+        self.assertIn((1, "Not before", "2026-01-01"), rows)
+        self.assertNotIn((1, "Subject", ""), rows)
+        self.assertNotIn((1, "Issuer", ""), rows)
+        self.assertEqual([row for row in rows if row[2] == "-"], [])
+
+    def test_group_titles_are_bold_and_subgroup_titles_underlined(self) -> None:
+        self.tree.set_data({"Subject Common Name": "example.com"})
         certificate = self.top(self.titles().index("Server certificate"))
         self.assertTrue(certificate.font(0).bold())
         self.assertTrue(self.child(certificate, 0).font(0).underline())

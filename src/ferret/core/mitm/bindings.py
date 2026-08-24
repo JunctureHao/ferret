@@ -62,6 +62,10 @@ from mitmproxy.net.http import status_codes
 
 # ruff 默认 combine-as-imports = false，`as` 导入只能单独成句。
 from mitmproxy.net.http import url as http_url
+from mitmproxy.net.http.http1.assemble import (
+    assemble_request_head,
+    assemble_response_head,
+)
 from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
 from mitmproxy.utils import human
@@ -112,6 +116,8 @@ __all__ = [
     "StripDnsHttpsRecords",
     "TlsConfig",
     "View",
+    "assemble_request_head",
+    "assemble_response_head",
     "certs",
     "connection",
     "contentviews",

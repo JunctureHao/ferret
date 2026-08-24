@@ -13,16 +13,23 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 from qfluentwidgets import isDarkTheme
 
+from ferret.core.log import get_logger
 from ferret.core.mitm import (
     GATEWAY_METADATA_KEY,
     SUSPEND_POLICIES,
     FlowExporter,
     GatewayPolicy,
     HTTPFlow,
+    Request,
+    Response,
+    assemble_request_head,
+    assemble_response_head,
     human,
 )
 from ferret.utils.http_parser import build_body
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
+
+log = get_logger("flow")
 
 METHOD_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 STATUS_KIND_ROLE = int(Qt.ItemDataRole.UserRole) + 2
@@ -116,6 +123,307 @@ def format_duration(duration_ms: float | None) -> str:
     if duration_ms < 1000:
         return f"{duration_ms:.0f} ms"
     return f"{duration_ms / 1000:.2f} s"
+
+
+#: 证书主体/签发者里要读的 OID 短名 → 详情字典的键名后缀。
+#: `certs.Cert.subject` / `.issuer` 返回 ``[(短名, 值)]``，短名就是 OID 的通用缩写。
+_CERT_NAME_PARTS: tuple[tuple[str, str], ...] = (
+    ("CN", "Common Name"),
+    ("C", "Country"),
+    ("ST", "State"),
+    ("L", "Locality"),
+    ("O", "Organization"),
+    ("OU", "Organizational Unit"),
+)
+
+#: 证书有效期的显示格式，逐字沿用改造前的写法（末尾那个 ``.000`` 也是原样）。
+_CERT_TIME_FORMAT = "%Y-%m-%d %H:%M:%S.000"
+
+
+def decode_bytes(value: object) -> str:
+    """ALPN 之类的 `bytes` 字段解成字符串；非 bytes 原样 `str()`。
+
+    用 ``errors="replace"`` 而不是裸 `.decode()` —— 对端给什么都可能，
+    一个畸形 ALPN 值不该让整个详情面板打不开。
+    """
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def head_size(message: Request | Response) -> int:
+    """报文头的**真实线上字节数**。
+
+    别写成 ``len(str(message.headers))`` —— 那量的是 `multidict.__repr__` 出来的
+    Python repr（``Headers[(b'host', b'example.com')]``），既含引号和 ``b`` 前缀、
+    又缺请求行/状态行，和线上字节没有任何关系，一条普通请求能虚报一两倍。
+    这里走原生 `assemble_request_head` / `assemble_response_head`，拿到的是
+    「请求行（状态行）+ 头 + 空行」的完整字节。
+
+    HTTP/2 及以上没有 http1 线格式（头部走 HPACK 压缩），此时这个数字是
+    **等效 HTTP/1 头部字节**，不是真正传输的字节数。
+    """
+    try:
+        if isinstance(message, Response):
+            return len(assemble_response_head(message))
+        return len(assemble_request_head(message))
+    except (AttributeError, TypeError, ValueError) as e:
+        log.warning("failed to assemble the message head: %s", e)
+        return 0
+
+
+def wire_size(message: Request | Response | None) -> int:
+    """报文体的线上字节数（**压缩后**），也就是表格 Size 列的口径。
+
+    表格 Size 列和详情面板的「线上」行都走这里，两处数字才不会互相打脸：
+    详情面板早先量的是 `get_content()`（**解压后**），同一条 gzip 响应
+    和表格能差出好几倍，两个数字谁也说不清自己在说什么。
+    「解压后」是另一个口径，由 `build_body()` 的解码结果单独量。
+    """
+    if message is None:
+        return 0
+    return len(message.raw_content or b"")
+
+
+def tls_fields(conn, prefix: str) -> dict[str, Any]:
+    """一侧连接的 TLS 六项；没握手成功就一个键都不产出。
+
+    服务端沿用历来的 ``TLS`` 前缀，客户端用 ``Client TLS`` —— 详情面板早先只显示
+    服务端一侧，客户端握手用了哪个版本、哪个套件、有没有走 ALPN 全都看不到。
+    """
+    if not getattr(conn, "tls_established", False):
+        return {}
+    return {
+        f"{prefix} Version": conn.tls_version or "",
+        f"{prefix} SNI": conn.sni or "",
+        f"{prefix} ALPN Offers": [decode_bytes(v) for v in conn.alpn_offers or ()],
+        f"{prefix} ALPN Selected": decode_bytes(conn.alpn) if conn.alpn else "",
+        f"{prefix} Cipher": conn.cipher or "",
+        f"{prefix} Cipher List": list(conn.cipher_list or ()),
+    }
+
+
+def certificate_fields(conn) -> dict[str, Any]:
+    """服务端证书链 → 详情面板的证书字段；拿不到证书就一个键都不产出。
+
+    「证书组渲染出 12 行字面 ``-``」是两处凑出来的：models 从来只写
+    ``Not Before`` / ``Not After``，而界面那侧空值也硬占一行。这里补齐产出，
+    `fields.py` 那侧去掉 `always` —— 缺哪项就少哪行，整组都没有就整组不显示。
+
+    空值不写进字典（而不是写成 ``""``）是刻意的：详情字段的语义是「没有这个键
+    就不显示这一行」，写个空串等于把判断推给每个渲染器各自实现一遍。
+    """
+    chain = list(getattr(conn, "certificate_list", None) or [])
+    if not chain:
+        return {}
+    cert = chain[0]
+    fields: dict[str, Any] = {}
+    try:
+        for prefix, pairs in (("Subject", cert.subject), ("Issuer", cert.issuer)):
+            names: dict[str, str] = {}
+            for short_name, value in pairs:
+                # 同一个短名可以出现多次（多值 OU），这一行是给人扫的，取第一个够用。
+                names.setdefault(short_name, value)
+            for short_name, suffix in _CERT_NAME_PARTS:
+                if names.get(short_name):
+                    fields[f"{prefix} {suffix}"] = names[short_name]
+        fields["Not Before"] = cert.notbefore.strftime(_CERT_TIME_FORMAT)
+        fields["Not After"] = cert.notafter.strftime(_CERT_TIME_FORMAT)
+        # `Cert.fingerprint()` 给的是 SHA-256（32 字节）。键名照实写 —— 早先这里叫
+        # `Fingerprint SHA1`，但因为从来没有值，名字错了也没人发现。
+        fields["Fingerprint SHA256"] = cert.fingerprint().hex(":").upper()
+        fields["Serial Number Hex"] = format(cert.serial, "X")
+        fields["Certificate Expired"] = "true" if cert.has_expired() else "false"
+        fields["Certificate Is CA"] = "true" if cert.is_ca else "false"
+        algorithm, bits = cert.keyinfo
+        fields["Certificate Key"] = f"{algorithm} {bits}"
+        altnames = [str(getattr(name, "value", name)) for name in cert.altnames]
+        if altnames:
+            fields["Certificate Alt Names"] = altnames
+        fields["Certificate Chain Depth"] = len(chain)
+        chain_names = [entry.cn for entry in chain if entry.cn]
+        if chain_names:
+            fields["Certificate Chain"] = chain_names
+    except (AttributeError, TypeError, ValueError) as e:
+        # 证书是对端给的，畸形字段不该让整个详情面板打不开。
+        log.warning("failed to read the server certificate: %s", e)
+    return fields
+
+
+def response_cookies(response: Response) -> list[dict[str, Any]]:
+    """响应 Cookie，连属性一起产出。
+
+    `Response.cookies` 的值是 ``(value, attrs)``，早先只留了 ``(name, value)``，
+    Path/Domain/Max-Age/Expires/HttpOnly/Secure/SameSite 全丢了。而且 Set-Cookie
+    允许同名重复，压成字典会把后一条覆盖掉，所以这里是 `list[dict]` 不是字典。
+
+    HttpOnly/Secure 这类标志属性没有值（`CookieAttrs` 给 `None`），统一归成空串，
+    否则 `flatten_multi` 拼接时会撞上 `None`。
+    """
+    cookies: list[dict[str, Any]] = []
+    for name, (value, attrs) in response.cookies.items(multi=True):
+        cookies.append(
+            {
+                "name": name,
+                "value": value,
+                "attrs": flatten_multi(
+                    (key, "" if attr is None else attr)
+                    for key, attr in attrs.items(multi=True)
+                ),
+            }
+        )
+    return cookies
+
+
+def request_fields(flow: HTTPFlow) -> dict[str, Any]:
+    """请求一侧的详情字段。
+
+    这里不做状态判断：每条流量都有请求，而改造前那个
+    ``state in ("request_headers", "request", "response_headers", "complete", "error")``
+    把 `FlowTableModel.__infer_state()` 可能返回的状态全列上了，等于恒真。
+    """
+    request = flow.request
+    keep_alive = request.headers.get("keep-alive", None)
+    if keep_alive is None:
+        keep_alive = "true" if request.http_version == "HTTP/1.1" else "false"
+
+    body_info = build_body(flow, request)
+    body = body_info["raw"]
+    headers_size = head_size(request)
+    wire = wire_size(request)
+
+    req_duration = None
+    if request.timestamp_end and request.timestamp_start:
+        req_duration = (request.timestamp_end - request.timestamp_start) * 1000
+
+    conn_time = ""
+    if request.timestamp_start:
+        conn_time = (
+            datetime.fromtimestamp(request.timestamp_start, tz=UTC)
+            .astimezone()
+            .strftime("%Y-%m-%d %H:%M:%S.%f")
+        )
+
+    client_conn = flow.client_conn
+    peername = client_conn.peername if client_conn else None
+    sockname = getattr(client_conn, "sockname", None) if client_conn else None
+
+    fields: dict[str, Any] = {
+        "Method": request.method,
+        "URL": request.pretty_url,
+        "Host": request.host,
+        "Path": request.path,
+        "Scheme": request.scheme,
+        "Authority": request.authority,
+        "HTTP Version": request.http_version,
+        "Request Headers": dict(request.headers),
+        "Request Params": flatten_multi(request.query.items(multi=True)),
+        "Request Cookies": flatten_multi(request.cookies.items(multi=True)),
+        "Request Body": body,
+        "Request Content-Type": request.headers.get("Content-Type", "-"),
+        "Request Body Text": body_info["text"],
+        "Request Body Pretty": body_info["pretty"],
+        "Request Body View": body_info["view"],
+        "Request Body Syntax": body_info["syntax"],
+        "Status Code": QCoreApplication.translate("FlowTableModel", "Pending..."),
+        "Keep Alive": keep_alive,
+        # `Flow ID` 是新键。改造前叫 `Connection ID`，存的却是 `flow.id` —— 名字
+        # 占着连接的位置，真正的 `Connection.id` 反而无处可放。
+        "Flow ID": flow.id,
+        "Connection Time": conn_time,
+        "Front Client Address": peername[0] if peername else "N/A",
+        "Front Client Port": peername[1] if peername else "N/A",
+        "Front Server Address": sockname[0] if sockname else "N/A",
+        "Front Server Port": sockname[1] if sockname else "N/A",
+        "req_time": request.timestamp_start,
+        "req_timestamp_end": request.timestamp_end,
+        "req_duration": req_duration,
+        "req_headers_size": headers_size,
+        "req_wire_size": wire,
+        "req_decoded_size": len(body),
+        "req_total_size": headers_size + wire,
+    }
+    if client_conn is not None:
+        fields["Connection ID"] = client_conn.id
+        fields.update(tls_fields(client_conn, "Client TLS"))
+        if client_conn.mitmcert is not None:
+            fields["Client Mitm Certificate"] = client_conn.mitmcert.cn or ""
+        if client_conn.proxy_mode is not None:
+            fields["Client Proxy Mode"] = client_conn.proxy_mode.full_spec
+    if request.trailers:
+        fields["Request Trailers"] = flatten_multi(request.trailers.items(multi=True))
+    return fields
+
+
+def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
+    """响应一侧的详情字段。
+
+    改造前这些字段分在两个分支里：一个判 ``("response_headers", "complete",
+    "error")``，一个判 ``("complete", "error")``，两个都还要再 `and flow.response`。
+    `__infer_state()` 只会给出 ``request`` / ``complete`` / ``error`` 三种，
+    ``complete`` 必然有响应、``request`` 必然没有、``error`` 两种都可能 ——
+    所以两个条件都等价于「有响应」，合成一个分支后逐字等价。
+    """
+    body_info = build_body(flow, response)
+    body = body_info["raw"]
+    headers_size = head_size(response)
+    wire = wire_size(response)
+
+    res_duration = None
+    if response.timestamp_end and response.timestamp_start:
+        res_duration = (response.timestamp_end - response.timestamp_start) * 1000
+    duration = (response.timestamp_end or 0) - (flow.request.timestamp_start or 0)
+
+    server_conn = flow.server_conn
+    peername = server_conn.peername if server_conn else None
+    sockname = getattr(server_conn, "sockname", None) if server_conn else None
+    server_addr = f"{peername[0]}:{peername[1]}" if peername else "N/A"
+
+    protocol = flow.request.http_version
+    if server_conn and server_conn.alpn:
+        protocol = decode_bytes(server_conn.alpn)
+
+    proxy_protocol = "http"
+    if server_conn and getattr(server_conn, "tls_established", False):
+        proxy_protocol = "https"
+
+    fields: dict[str, Any] = {
+        "Status Code": response.status_code,
+        "Reason": response.reason,
+        "Response Headers": dict(response.headers),
+        "Response Cookies": response_cookies(response),
+        "Response HTTP Version": response.http_version,
+        "Response Body": body,
+        "Response Content-Type": response.headers.get("Content-Type", "-"),
+        "Response Body Text": body_info["text"],
+        "Response Body Pretty": body_info["pretty"],
+        "Response Body View": body_info["view"],
+        "Response Body Syntax": body_info["syntax"],
+        "Server Address": server_addr,
+        "Protocol": protocol,
+        "Proxy Protocol": proxy_protocol,
+        "Duration": f"{duration * 1000:.0f} ms",
+        # `source_address` 在 mitmproxy 12 的 `Connection` 上已经不存在了，
+        # 这四行历来全是 "N/A"；本机出口地址现在从 `sockname` 读。
+        "Back Client Address": sockname[0] if sockname else "N/A",
+        "Back Client Port": sockname[1] if sockname else "N/A",
+        "Back Server Address": peername[0] if peername else "N/A",
+        "Back Server Port": peername[1] if peername else "N/A",
+        "res_time": response.timestamp_end,
+        "res_timestamp_start": response.timestamp_start,
+        "res_duration": res_duration,
+        "res_headers_size": headers_size,
+        "res_wire_size": wire,
+        "res_decoded_size": len(body),
+        "res_total_size": headers_size + wire,
+    }
+    if server_conn is not None:
+        fields["Back Connection ID"] = server_conn.id
+        fields.update(tls_fields(server_conn, "TLS"))
+        fields.update(certificate_fields(server_conn))
+    if response.trailers:
+        fields["Response Trailers"] = flatten_multi(response.trailers.items(multi=True))
+    return fields
 
 
 class FlowTableModel(QAbstractTableModel):
@@ -261,6 +569,8 @@ class FlowTableModel(QAbstractTableModel):
                     return note
             if column_name == "Type":
                 return self._mime(flow) or self.tr("Unknown content type")
+            if column_name == "Size":
+                return self._size_tooltip(flow)
             if column_name == "Time":
                 return self._time_tooltip(flow)
 
@@ -322,9 +632,11 @@ class FlowTableModel(QAbstractTableModel):
 
     @staticmethod
     def _size_bytes(flow: HTTPFlow) -> int:
-        request_body = flow.request.raw_content or b""
-        response_body = flow.response.raw_content if flow.response else b""
-        return len(request_body) + len(response_body or b"")
+        """Size 列的字节数 —— 请求体 + 响应体的**线上**字节（压缩后）。
+
+        和详情面板的「线上」行同走 `wire_size()`，两处数字才必然一致。
+        """
+        return wire_size(flow.request) + wire_size(flow.response)
 
     @staticmethod
     def _duration_ms(flow: HTTPFlow) -> float | None:
@@ -379,6 +691,26 @@ class FlowTableModel(QAbstractTableModel):
             "neutral": "#b0b0b0" if dark else "#555555",
         }
         return QColor(colors.get(kind, colors["neutral"]))
+
+    @staticmethod
+    def _size_tooltip(flow: HTTPFlow) -> str:
+        """Size 列的口径说明 —— 这一列量的是**线上**字节，压缩后。
+
+        列宽只放得下一个总数，而「384b」到底是压缩前还是压缩后，差一个 gzip 就差
+        好几倍。拆成请求/响应两行摆出来，再点明口径，读的人才不用猜；详情面板的
+        「解压后」是另一行，两处口径在 `wire_size()` 上是同一个函数。
+        """
+        translate = QCoreApplication.translate
+        request = translate("FlowTableModel", "Request")
+        response = translate("FlowTableModel", "Response")
+        note = translate("FlowTableModel", "Body bytes on the wire (compressed)")
+        return "\n".join(
+            (
+                f"{request}: {human.pretty_size(wire_size(flow.request))}",
+                f"{response}: {human.pretty_size(wire_size(flow.response))}",
+                note,
+            )
+        )
 
     @classmethod
     def _time_tooltip(cls, flow: HTTPFlow) -> str:
@@ -476,201 +808,29 @@ class FlowTableModel(QAbstractTableModel):
         return {}
 
     def _build_row_data(self, flow: HTTPFlow) -> dict[str, Any]:
-        """以 mitmproxy 原生 ``flow.get_state()`` 字典为基础，叠加 ferret
-        详情面板所需的加工字段（参数/ Cookie/ 进程/ 客户端地址/ pretty body/
-        curl 等），就地构造展示字典。下游消费的字段名保持稳定。"""
+        """以 mitmproxy 原生 ``flow.get_state()`` 字典为基础，叠加 ferret 详情面板
+        所需的加工字段（参数/ Cookie/ 证书/ 双向 TLS/ trailers/ pretty body/ curl
+        等），就地构造展示字典。下游消费的字段名保持稳定。
+
+        分支只按「有没有响应」分，不再按 `__infer_state()` 的状态字符串分 ——
+        它只会返回 ``request`` / ``complete`` / ``error``，改造前那两条
+        ``request_headers`` / ``response_headers`` 分支永远进不去。
+        """
         state = self.__infer_state(flow)
         data: dict[str, Any] = dict(flow.get_state())
         data["id"] = flow.id
         data["state"] = state
+        data.update(request_fields(flow))
 
-        if state in (
-            "request_headers",
-            "request",
-            "response_headers",
-            "complete",
-            "error",
-        ):
-            keep_alive = flow.request.headers.get("keep-alive", None)
-            if keep_alive is None and flow.request.http_version == "HTTP/1.1":
-                keep_alive = "true"
-            elif keep_alive is None:
-                keep_alive = "false"
+        response = flow.response
+        if response is not None:
+            data.update(response_fields(flow, response))
 
-            client_pn = flow.client_conn.peername if flow.client_conn else None
-            client_sn = (
-                getattr(flow.client_conn, "sockname", None)
-                if flow.client_conn
-                else None
-            )
-            conn_time = ""
-            if flow.request.timestamp_start:
-                conn_time = (
-                    datetime.fromtimestamp(flow.request.timestamp_start, tz=UTC)
-                    .astimezone()
-                    .strftime("%Y-%m-%d %H:%M:%S.%f")
-                )
-
-            data.update(
-                {
-                    "Method": flow.request.method,
-                    "URL": flow.request.pretty_url,
-                    "Host": flow.request.host,
-                    "Path": flow.request.path,
-                    "Scheme": flow.request.scheme,
-                    "HTTP Version": flow.request.http_version,
-                    "Request Headers": dict(flow.request.headers),
-                    "req_time": flow.request.timestamp_start,
-                    "req_timestamp_end": flow.request.timestamp_end,
-                    "req_headers_size": len(str(flow.request.headers)),
-                    "Status Code": QCoreApplication.translate(
-                        "FlowTableModel", "Pending..."
-                    ),
-                    "Keep Alive": keep_alive,
-                    "Connection ID": flow.id,
-                    "Connection Time": conn_time,
-                    "Front Client Address": client_pn[0] if client_pn else "N/A",
-                    "Front Client Port": client_pn[1] if client_pn else "N/A",
-                    "Front Server Address": client_sn[0] if client_sn else "N/A",
-                    "Front Server Port": client_sn[1] if client_sn else "N/A",
-                }
-            )
-
-            data["Request Params"] = flatten_multi(flow.request.query.items(multi=True))
-            data["Request Cookies"] = flatten_multi(
-                flow.request.cookies.items(multi=True)
-            )
-
-        if state in ("request", "response_headers", "complete", "error"):
-            req_body_info = build_body(flow, flow.request)
-            body = req_body_info["raw"]
-            req_duration = None
-            if flow.request.timestamp_end and flow.request.timestamp_start:
-                req_duration = (
-                    flow.request.timestamp_end - flow.request.timestamp_start
-                ) * 1000
-            req_ct = flow.request.headers.get("Content-Type", "-")
-            data.update(
-                {
-                    "req_size": len(body),
-                    "req_duration": req_duration,
-                    "Request Body": body,
-                    "Request Content-Type": req_ct,
-                    "Request Body Text": req_body_info["text"],
-                    "Request Body Pretty": req_body_info["pretty"],
-                    "Request Body View": req_body_info["view"],
-                    "Request Body Syntax": req_body_info["syntax"],
-                }
-            )
-
-        if state in ("response_headers", "complete", "error") and flow.response:
-            # Set-Cookie 有独立语法（属性 + 可重复），必须用 Response.cookies；
-            # 按 Cookie 头语法拆会把 Path/HttpOnly 当成 cookie 并丢掉后续条目。
-            data["Response Cookies"] = flatten_multi(
-                (name, value)
-                for name, (value, _attrs) in flow.response.cookies.items(multi=True)
-            )
-
-            server_addr = "N/A"
-            if flow.server_conn and flow.server_conn.peername:
-                server_addr = (
-                    f"{flow.server_conn.peername[0]}:{flow.server_conn.peername[1]}"
-                )
-
-            protocol = flow.request.http_version
-            if flow.server_conn and flow.server_conn.alpn:
-                protocol = flow.server_conn.alpn.decode()
-
-            proxy_protocol = "http"
-            if (
-                flow.server_conn
-                and hasattr(flow.server_conn, "tls_established")
-                and flow.server_conn.tls_established
-            ):
-                proxy_protocol = "https"
-
-            server_pn = flow.server_conn.peername if flow.server_conn else None
-            server_sn = (
-                getattr(flow.server_conn, "source_address", None)
-                if flow.server_conn
-                else None
-            )
-
-            data.update(
-                {
-                    "Status Code": flow.response.status_code,
-                    "Reason": flow.response.reason,
-                    "Response Headers": dict(flow.response.headers),
-                    "Response HTTP Version": flow.response.http_version,
-                    "Server Address": server_addr,
-                    "Protocol": protocol,
-                    "res_headers_size": len(str(flow.response.headers)),
-                    "res_timestamp_start": flow.response.timestamp_start,
-                    "Proxy Protocol": proxy_protocol,
-                    "Back Client Address": server_sn[0] if server_sn else "N/A",
-                    "Back Client Port": server_sn[1] if server_sn else "N/A",
-                    "Back Server Address": server_pn[0] if server_pn else "N/A",
-                    "Back Server Port": server_pn[1] if server_pn else "N/A",
-                }
-            )
-
-            conn = flow.server_conn
-            if conn and getattr(conn, "tls_established", False):
-                tls_info = {
-                    "TLS Version": getattr(conn, "tls_version", "N/A"),
-                    "TLS SNI": getattr(conn, "sni", "N/A"),
-                    "TLS ALPN Offers": [
-                        a.decode() if isinstance(a, bytes) else str(a)
-                        for a in getattr(conn, "alpn_offers", []) or []
-                    ],
-                    "TLS ALPN Selected": (conn.alpn.decode() if conn.alpn else "N/A"),
-                    "TLS Cipher": getattr(conn, "cipher", "N/A"),
-                    "TLS Cipher List": list(getattr(conn, "cipher_list", []) or []),
-                }
-                if hasattr(conn, "certificate_list") and conn.certificate_list:
-                    server_cert = conn.certificate_list[0]
-                    if server_cert:
-                        tls_info["Not Before"] = server_cert.notbefore.strftime(
-                            "%Y-%m-%d %H:%M:%S.000"
-                        )
-                        tls_info["Not After"] = server_cert.notafter.strftime(
-                            "%Y-%m-%d %H:%M:%S.000"
-                        )
-                data.update(tls_info)
-
-        if state in ("complete", "error") and flow.response:
-            duration = (flow.response.timestamp_end or 0) - (
-                flow.request.timestamp_start or 0
-            )
-            res_duration = None
-            if flow.response.timestamp_end and flow.response.timestamp_start:
-                res_duration = (
-                    flow.response.timestamp_end - flow.response.timestamp_start
-                ) * 1000
-            res_body_info = build_body(flow, flow.response)
-            body = res_body_info["raw"]
-            req_total_size = data.get("req_headers_size", 0) + data.get("req_size", 0)
-            res_total_size = data.get("res_headers_size", 0) + len(body)
-            total_size = req_total_size + res_total_size
-            res_ct = flow.response.headers.get("Content-Type", "-")
-            data.update(
-                {
-                    "Response Body": body,
-                    "Response Content-Type": res_ct,
-                    "Response Body Text": res_body_info["text"],
-                    "Response Body Pretty": res_body_info["pretty"],
-                    "Response Body View": res_body_info["view"],
-                    "Response Body Syntax": res_body_info["syntax"],
-                    "res_size": len(body),
-                    "res_time": flow.response.timestamp_end,
-                    "res_duration": res_duration,
-                    "Duration": f"{duration * 1000:.0f} ms",
-                    "total_size": total_size,
-                    "TLS Version": getattr(flow.server_conn, "tls_version", "N/A")
-                    if flow.server_conn
-                    else "N/A",
-                }
-            )
+        # 合计无条件算：只抓到请求的流量早先会显示「请求 384b / 合计 0b」，
+        # 两个数字自己打自己。
+        data["total_size"] = data.get("req_total_size", 0) + data.get(
+            "res_total_size", 0
+        )
 
         if state == "error":
             data.update(
@@ -684,7 +844,7 @@ class FlowTableModel(QAbstractTableModel):
             try:
                 data["curl_command"] = FlowExporter.curl_command(flow)
             except Exception as e:  # noqa: BLE001
-                print(f"curl command generation failed: {e}")
+                log.warning("curl command generation failed: %s", e)
                 data["curl_command"] = f"Error generating curl command: {e}"
 
         return data

@@ -8,6 +8,8 @@ from ferret.core.mitm.bindings import (
     Request,
     Response,
     View,
+    assemble_request_head,
+    assemble_response_head,
     human,
     parse_filter,
 )
@@ -127,6 +129,8 @@ __all__ = [
     "SystemCertificateService",
     "TrustState",
     "View",
+    "assemble_request_head",
+    "assemble_response_head",
     "escape_literal",
     "escape_template",
     "export_format",
