@@ -102,9 +102,7 @@ class EditorPalette:
     @staticmethod
     def _mono(alpha: int) -> QColor:
         """半透明白（暗色主题）/ 半透明黑（亮色主题）。"""
-        return (
-            QColor(255, 255, 255, alpha) if isDarkTheme() else QColor(0, 0, 0, alpha)
-        )
+        return QColor(255, 255, 255, alpha) if isDarkTheme() else QColor(0, 0, 0, alpha)
 
     @classmethod
     def line_number_active(cls) -> QColor:
@@ -120,9 +118,7 @@ class EditorPalette:
     def gutter_divider(cls) -> QColor:
         """行号区与正文之间的竖分割线。"""
         return cls._mono(
-            _GUTTER_DIVIDER_ALPHA_DARK
-            if isDarkTheme()
-            else _GUTTER_DIVIDER_ALPHA_LIGHT
+            _GUTTER_DIVIDER_ALPHA_DARK if isDarkTheme() else _GUTTER_DIVIDER_ALPHA_LIGHT
         )
 
     @classmethod

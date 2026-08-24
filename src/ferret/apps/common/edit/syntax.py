@@ -46,21 +46,21 @@ class _TokenType(str):
         obj = super().__new__(cls, value)
         return obj
 
-    def __getattr__(self, name: str) -> "_TokenType":
+    def __getattr__(self, name: str) -> _TokenType:
         # 避免与 str 内部属性（如 __xxx__）及已定义的 parent 冲突
         if name.startswith("_"):
             raise AttributeError(name)
         return _TokenType._get(f"{self}.{name}")
 
     @property
-    def parent(self) -> "_TokenType | None":
+    def parent(self) -> _TokenType | None:
         idx = self.rfind(".")
         if idx == -1:
             return None
         return _TokenType._get(self[:idx])
 
     @classmethod
-    def _get(cls, value: str) -> "_TokenType":
+    def _get(cls, value: str) -> _TokenType:
         cached = cls._cache.get(value)
         if cached is None:
             cached = cls(value)

@@ -40,10 +40,7 @@ JSON_MESSAGE = (
 )
 
 CRLF_JSON_MESSAGE = (
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Type: application/json\r\n"
-    "\r\n"
-    '{"user": "jun"}'
+    'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"user": "jun"}'
 )
 
 
@@ -161,15 +158,25 @@ class LineFormatTests(HighlighterTestCase):
 
     def test_one_entry_per_block(self) -> None:
         highlighter = self.make(JSON_MESSAGE)
-        self.assertEqual(
-            len(highlighter._line_formats), JSON_MESSAGE.count("\n") + 1
-        )
+        self.assertEqual(len(highlighter._line_formats), JSON_MESSAGE.count("\n") + 1)
 
     def test_lengths_match_each_line(self) -> None:
+        """要对齐的是 **block** 的长度，不是源字符串按 "\\n" 切出来的行。
+
+        ``setFormat`` 的偏移量相对于 ``highlightBlock`` 收到的那段文本，而
+        ``QTextDocument`` 收文本时会吞掉 CRLF 里的 ``\\r``（``fromPlainText`` 见到
+        ``\\r\\n`` 就跳过 ``\\r``）。拿源串当基准的话，CRLF 报文每行都会多算一个字符，
+        而真正要防的回归——整行着色左移——量的是 block。
+        """
         for text in (JSON_MESSAGE, CRLF_JSON_MESSAGE, "A: 1\n\nB: 2"):
             with self.subTest(text=text):
                 highlighter = self.make(text)
-                for i, line in enumerate(text.split("\n")):
+                blocks = [
+                    self.doc.findBlockByNumber(i).text()
+                    for i in range(self.doc.blockCount())
+                ]
+                self.assertEqual(len(highlighter._line_formats), len(blocks))
+                for i, line in enumerate(blocks):
                     total = sum(n for n, _ in highlighter._line_formats[i])
                     self.assertEqual(total, len(line), f"line {i}: {line!r}")
 

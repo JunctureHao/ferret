@@ -15,6 +15,9 @@ class BaseIcon(FluentIconBase, Enum):
 
     TABLE = "Table"
 
+    #: Fluent「Bug 24 Filled」—— 断点页用它，调试语义比暂停符更贴切。
+    BUG = "Bug"
+
     LINE_BREAK = "Line_Break"
 
     CONVERT_TO_TABLE = "Convert_To_Table"

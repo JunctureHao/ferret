@@ -19,7 +19,7 @@ class TextCopyDialog(MessageBoxBase):
         self.edit = TextBrowser(self)
         self.edit.setText(self.content)
 
-        self.yesButton.setText(self.tr("复制"))
+        self.yesButton.setText(self.tr("Copy"))
 
     def __init_layout(self):
         self.viewLayout.addWidget(self.title_label)

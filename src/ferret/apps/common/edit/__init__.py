@@ -25,6 +25,7 @@ from .theme import EditorPalette
 from .widgets import (
     SORT_TRANSITION,
     ItemDualPanel,
+    ItemSource,
     ItemTableToolWidget,
     ItemTableWidget,
     JsonDualPanel,
@@ -33,6 +34,9 @@ from .widgets import (
     SortState,
     ToolPlainTextEdit,
     ToolWidget,
+    items_from_text,
+    items_to_text,
+    normalize_items,
 )
 
 __all__ = [
@@ -41,6 +45,7 @@ __all__ = [
     "CodeEditor",
     "EditorPalette",
     "ItemDualPanel",
+    "ItemSource",
     "ItemTableToolWidget",
     "ItemTableWidget",
     "JsonDualPanel",
@@ -52,6 +57,9 @@ __all__ = [
     "TokenHighlighter",
     "ToolPlainTextEdit",
     "ToolWidget",
+    "items_from_text",
+    "items_to_text",
+    "normalize_items",
 ]
 
 
@@ -78,7 +86,7 @@ if __name__ == "__main__":
     window.setWindowTitle("KeyValueViewPanel Demo")
 
     btn_theme = TransparentToolButton(FluentIcon.CONSTRACT)
-    btn_theme.setToolTip("切换主题")
+    btn_theme.setToolTip("Toggle theme")
     title_layout = window.titleBar.hBoxLayout
     title_layout.insertWidget(
         title_layout.count() - 1, btn_theme, 0, Qt.AlignmentFlag.AlignVCenter

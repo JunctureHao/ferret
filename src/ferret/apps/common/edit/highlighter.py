@@ -46,7 +46,7 @@ from .theme import EditorPalette
 
 #: 超过这个字符数就降级为逐行分词。512 KB 是"全文分词还能在一帧内跑完"的经验上限；
 #: 抓包场景里超过它的基本都是 minified JS / base64 / 大 JSON，逐行已经够用。
-LEX_LIMIT = 512 * 1024
+LEX_LIMIT: int = 512 * 1024
 
 #: ``contentsChanged`` 合并窗口（毫秒）。连续输入只在停手后重分词一次。
 RELEX_DEBOUNCE_MS = 50
@@ -238,9 +238,7 @@ class TokenHighlighter(QSyntaxHighlighter):
         finally:
             self._relexing = False
 
-    def _build_line_formats(
-        self, text: str
-    ) -> list[list[tuple[int, QTextCharFormat]]]:
+    def _build_line_formats(self, text: str) -> list[list[tuple[int, QTextCharFormat]]]:
         """全文分词 → 按行的 ``(长度, 格式)`` 列表（与 block 序号一一对应）。"""
         tokens = self._tokenize(text)
         lines: list[list[tuple[int, QTextCharFormat]]] = [[]]
@@ -288,7 +286,7 @@ class TokenHighlighter(QSyntaxHighlighter):
 
     # —— 渲染 ——
 
-    def highlightBlock(self, text: str) -> None:  # noqa: N802 (Qt 虚函数)
+    def highlightBlock(self, text: str) -> None:  # Qt 虚函数，名字随原生
         if self._lazy:
             self._highlight_line(text)
             return

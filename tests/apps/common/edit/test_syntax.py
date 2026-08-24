@@ -225,7 +225,7 @@ class JsonTests(unittest.TestCase):
         self.assertEqual(tokens[1], (StringDouble, '"a"'))
 
     def test_literals_and_numbers(self) -> None:
-        tokens = dict((v, t) for t, v in tokenize_json("[true, null, -2.5e10]"))
+        tokens = {v: t for t, v in tokenize_json("[true, null, -2.5e10]")}
         self.assertEqual(tokens["true"], KeywordConstant)
         self.assertEqual(tokens["null"], KeywordConstant)
         self.assertEqual(tokens["-2.5e10"], Number)
@@ -315,9 +315,7 @@ class StyleTests(unittest.TestCase):
 
     def test_light_style_covers_every_dark_token(self) -> None:
         """浅色表不能漏项——漏一个就会在白底上继续用为暗底挑的颜色。"""
-        self.assertLessEqual(
-            set(MaterialStyle.styles), set(MaterialLightStyle.styles)
-        )
+        self.assertLessEqual(set(MaterialStyle.styles), set(MaterialLightStyle.styles))
 
     def test_light_style_actually_differs_on_low_contrast_tokens(self) -> None:
         """历史上靠 hex 比对只改了 green/cyan 两项，其余在白底上过浅无人管。"""
