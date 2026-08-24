@@ -8,8 +8,6 @@ from ferret.core.mitm.bindings import (
     Request,
     Response,
     View,
-    assemble_request_head,
-    assemble_response_head,
     human,
     parse_filter,
 )
@@ -24,6 +22,12 @@ from ferret.core.mitm.certificate import (
     SystemCertificateService,
     TrustState,
     export_format,
+)
+from ferret.core.mitm.detail import (
+    build_flow_detail,
+    head_size,
+    infer_state,
+    wire_size,
 )
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.facade import MitmFacade
@@ -129,15 +133,16 @@ __all__ = [
     "SystemCertificateService",
     "TrustState",
     "View",
-    "assemble_request_head",
-    "assemble_response_head",
+    "build_flow_detail",
     "escape_literal",
     "escape_template",
     "export_format",
     "gateway_rules_from_block_config",
     "gateway_rules_from_config",
     "gateway_rules_to_config",
+    "head_size",
     "human",
+    "infer_state",
     "intercept_expression",
     "intercept_option_updates",
     "intercept_rules_from_config",
@@ -147,4 +152,5 @@ __all__ = [
     "rewrite_option_updates",
     "rewrite_rules_from_config",
     "rewrite_rules_to_config",
+    "wire_size",
 ]

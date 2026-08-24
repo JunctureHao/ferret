@@ -159,12 +159,11 @@ def _any_present(*keys: str) -> Callable[[dict], bool]:
 
 
 #: `state` 键 → 状态文案标记。求值在 `_state()` 里。
-#: `request_headers` / `response_headers` 两条其实 `__infer_state()` 永远不会返回，
-#: 这一期只搬不改，清理留给下一期。
+#: 只有这三条：`infer_state()` 只会返回 ``request`` / ``complete`` / ``error``。
+#: 早先还挂着 ``request_headers`` / ``response_headers`` 两条，配的是产出侧同样
+#: 永远进不去的两条分支 —— 两边一起清掉了。
 _STATE_LABELS: dict[str, str] = {
-    "request_headers": QT_TRANSLATE_NOOP("FlowFields", "Pending..."),
     "request": QT_TRANSLATE_NOOP("FlowFields", "Request sent"),
-    "response_headers": QT_TRANSLATE_NOOP("FlowFields", "Response headers received"),
     "complete": QT_TRANSLATE_NOOP("FlowFields", "Completed"),
     "error": QT_TRANSLATE_NOOP("FlowFields", "Error"),
 }

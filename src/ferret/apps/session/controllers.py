@@ -18,6 +18,7 @@ from ferret.core.mitm import (
     FlowFile,
     HTTPFlow,
     View,
+    build_flow_detail,
     parse_filter,
 )
 
@@ -49,6 +50,11 @@ class SessionViewController(QObject):
     def get_flow(self, flow_id: str) -> HTTPFlow | None:
         flow = self._view.get_by_id(flow_id)
         return flow if isinstance(flow, HTTPFlow) else None
+
+    def flow_detail(self, flow_id: str) -> dict[str, Any]:
+        """会话页的流量是从文件读回来的，没有 mitm 线程也就没有活 flow —— 直接构建。"""
+        flow = self.get_flow(flow_id)
+        return build_flow_detail(flow) if flow else {}
 
     def get_raw_request(self, flow_id: str) -> bytes:
         flow = self.get_flow(flow_id)

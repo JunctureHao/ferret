@@ -121,5 +121,51 @@ class ResumeCountTests(unittest.TestCase):
         self.assertEqual(self.facade.release_flows(["nope"]), 0)
 
 
+class FlowDetailTests(unittest.TestCase):
+    """详情字典必须**穿过 `runtime.call`** 才交给界面（AGENTS.md §3）。
+
+    界面早先自己拿着活 flow 现算（`FlowTableModel._build_row_data`），选一行就在 Qt
+    线程上读一遍正在被 mitm 改写的对象。这里钉的是「走没走 `call`」这条路，不是字典
+    内容 —— 内容由 `tests/core/mitm/test_detail.py` 覆盖。
+    """
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+        self.flow = tflow.tflow(resp=True)
+        self.runtime.view.add([self.flow])
+
+    def test_the_detail_is_built_through_the_runtime(self) -> None:
+        calls: list[str] = []
+        inner = self.runtime.call
+
+        def spy(callback, *, timeout: float = 5.0):
+            calls.append("call")
+            return inner(callback, timeout=timeout)
+
+        self.runtime.call = spy  # type: ignore
+        data = self.facade.flow_detail(self.flow.id)
+
+        self.assertEqual(calls, ["call"])
+        self.assertEqual(data["id"], self.flow.id)
+        self.assertEqual(data["state"], "complete")
+
+    def test_an_unknown_id_yields_an_empty_dict(self) -> None:
+        """选中行和内核删流量能抢在一起 —— 空字典让面板清空，而不是抛异常。"""
+        self.assertEqual(self.facade.flow_detail("nope"), {})
+
+    def test_a_non_http_flow_yields_an_empty_dict(self) -> None:
+        """View 里也躺着 tcp/udp 流量，详情面板目前只认 HTTP。"""
+        tcp = tflow.ttcpflow()
+        self.runtime.view.add([tcp])
+        self.assertEqual(self.facade.flow_detail(tcp.id), {})
+
+    def test_a_stopped_kernel_still_answers(self) -> None:
+        """没跑内核就没有事件循环 —— 此时就地构建，不能因为 `call` 抛错而空着。"""
+        facade = MitmFacade(MitmRuntime())
+        facade.view.add([self.flow])
+        self.assertEqual(facade.flow_detail(self.flow.id)["id"], self.flow.id)
+
+
 if __name__ == "__main__":
     unittest.main()

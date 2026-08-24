@@ -1,15 +1,10 @@
 import os
-import tempfile
 import unittest
-from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import gzip
 
-from cryptography import x509
-from mitmproxy import certs
-from mitmproxy.http import Headers
 from mitmproxy.test import tflow
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
@@ -24,9 +19,8 @@ from ferret.apps.common.flow.models import (
     FlowProxyModel,
     FlowTableModel,
     format_duration,
-    head_size,
-    wire_size,
 )
+from ferret.core.mitm import build_flow_detail
 
 
 class FlowTableModelTests(unittest.TestCase):
@@ -167,218 +161,26 @@ class FlowTableModelTests(unittest.TestCase):
             model.data(model.index(0, 2), Qt.ItemDataRole.TextAlignmentRole),
         )
 
-
-class RowDataTests(unittest.TestCase):
-    """详情字典的产出：证书、双向 TLS、Cookie 属性、trailers、四种大小口径。
-
-    这些是「界面显示了 12 行字面 ``-``」「表格说 900b 详情说 4.0k」两类毛病的源头 ——
-    毛病都在产出这一侧，所以钉在这里，而不是钉在某个控件的渲染结果上。
-    """
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.app = QApplication.instance() or QApplication([])
-
-    @staticmethod
-    def row_data(flow) -> dict:
-        model = FlowTableModel(None)  # type: ignore
-        model._rows = [flow]
-        return model.get_row_data(0)
-
-    @classmethod
-    def certificate(cls):
-        """真造一张证书，而不是拿假对象糊 —— 要验的正是「从真证书上读得出来」。"""
-        tmp = tempfile.mkdtemp()
-        certs.CertStore.create_store(
-            Path(tmp), "mitmproxy", 2048, organization="mitmproxy", cn="mitmproxy CA"
-        )
-        store = certs.CertStore.from_store(Path(tmp), "mitmproxy", 2048)
-        entry = store.get_cert(
-            "example.com",
-            [x509.DNSName("example.com"), x509.DNSName("www.example.com")],
-            "Example Org",
-        )
-        return entry.cert, list(entry.chain_certs)
-
-    def test_the_certificate_group_reports_what_the_certificate_says(self) -> None:
-        """改造前 models 只写有效期两项，主体/签发者十二项一个都不产出。"""
-        cert, chain = self.certificate()
-        flow = tflow.tflow(resp=True)
-        flow.server_conn.certificate_list = [cert, *chain]
-        data = self.row_data(flow)
-
-        self.assertEqual(data["Subject Common Name"], "example.com")
-        self.assertEqual(data["Subject Organization"], "Example Org")
-        self.assertEqual(data["Issuer Common Name"], "mitmproxy CA")
-        self.assertEqual(data["Issuer Organization"], "mitmproxy")
-        self.assertEqual(data["Certificate Key"], "RSA 2048")
-        self.assertEqual(data["Certificate Expired"], "false")
-        self.assertEqual(data["Certificate Is CA"], "false")
-        self.assertEqual(
-            data["Certificate Alt Names"], ["example.com", "www.example.com"]
-        )
-        self.assertEqual(data["Certificate Chain Depth"], 1 + len(chain))
-        self.assertEqual(
-            data["Not Before"], cert.notbefore.strftime("%Y-%m-%d %H:%M:%S.000")
-        )
-
-    def test_the_fingerprint_key_says_the_algorithm_it_actually_holds(self) -> None:
-        """`Cert.fingerprint()` 给的是 SHA-256（32 字节）。
-
-        键名历来写作 `Fingerprint SHA1` —— 因为从来没有值，名字错了也没人发现。
-        """
-        cert, chain = self.certificate()
-        flow = tflow.tflow(resp=True)
-        flow.server_conn.certificate_list = [cert, *chain]
-        data = self.row_data(flow)
-
-        self.assertNotIn("Fingerprint SHA1", data)
-        digest = data["Fingerprint SHA256"]
-        self.assertEqual(digest, cert.fingerprint().hex(":").upper())
-        self.assertEqual(len(digest.split(":")), 32)
-
-    def test_a_flow_without_a_certificate_produces_no_certificate_keys(self) -> None:
-        """没证书就一个键都不写 —— 界面那侧靠「没有这个键」决定整组不显示。"""
-        flow = tflow.tflow(resp=True)
-        flow.server_conn.certificate_list = []
-        data = self.row_data(flow)
-
-        for key in ("Subject Common Name", "Not Before", "Fingerprint SHA256"):
-            self.assertNotIn(key, data)
-
-    def test_both_sides_of_the_tls_handshake_are_reported(self) -> None:
-        """客户端一侧历来完全看不到，只有服务端那六项。"""
-        flow = tflow.tflow(resp=True)
-        data = self.row_data(flow)
-
-        self.assertEqual(data["TLS Version"], flow.server_conn.tls_version)
-        self.assertEqual(data["Client TLS Version"], flow.client_conn.tls_version)
-        self.assertEqual(data["Client TLS SNI"], flow.client_conn.sni)
-        self.assertEqual(
-            data["Client Proxy Mode"], flow.client_conn.proxy_mode.full_spec
-        )
-
-    def test_a_connection_without_tls_produces_no_tls_keys(self) -> None:
-        flow = tflow.tflow(resp=True)
-        # `tls_established` 是只读派生属性，清掉握手时间戳才是「没走 TLS」。
-        flow.client_conn.timestamp_tls_setup = None
-        flow.server_conn.timestamp_tls_setup = None
-        data = self.row_data(flow)
-
-        self.assertNotIn("TLS Version", data)
-        self.assertNotIn("Client TLS Version", data)
-
-    def test_response_cookies_keep_their_attributes_and_duplicates(self) -> None:
-        """`Set-Cookie` 允许同名重复，压成字典会把后一条盖掉，属性也整个丢了。"""
-        flow = tflow.tflow(resp=True)
-        assert flow.response is not None
-        flow.response.headers.add("Set-Cookie", "sid=1; Path=/; HttpOnly")
-        flow.response.headers.add("Set-Cookie", "sid=2; Path=/admin")
-        cookies = self.row_data(flow)["Response Cookies"]
-
-        self.assertEqual([c["name"] for c in cookies], ["sid", "sid"])
-        self.assertEqual([c["value"] for c in cookies], ["1", "2"])
-        self.assertEqual(cookies[0]["attrs"], {"Path": "/", "HttpOnly": ""})
-        self.assertEqual(cookies[1]["attrs"], {"Path": "/admin"})
-
-    def test_trailers_show_up_only_when_the_message_has_them(self) -> None:
-        flow = tflow.tflow(resp=True)
-        assert flow.response is not None
-        self.assertNotIn("Response Trailers", self.row_data(flow))
-
-        flow.response.trailers = Headers([(b"x-checksum", b"deadbeef")])
-        self.assertEqual(
-            self.row_data(flow)["Response Trailers"], {"x-checksum": "deadbeef"}
-        )
-
-    def test_header_bytes_are_the_real_wire_head_not_a_python_repr(self) -> None:
-        """改造前量的是 ``len(str(headers))`` —— `multidict.__repr__` 的长度。
-
-        那串东西含引号、``b`` 前缀和 ``Headers[...]`` 外壳，又缺请求行和结尾空行，
-        和线上字节没有任何关系。
-        """
-        flow = tflow.tflow(resp=True)
-        assert flow.response is not None
-        data = self.row_data(flow)
-
-        self.assertEqual(data["req_headers_size"], head_size(flow.request))
-        self.assertEqual(data["res_headers_size"], head_size(flow.response))
-        # 真实头部含请求行且以 CRLF 空行收尾 —— repr 两样都没有，所以两个数字不相等。
-        self.assertNotEqual(data["req_headers_size"], len(str(flow.request.headers)))
-        self.assertGreater(data["req_headers_size"], 0)
-
-    def test_the_wire_and_decoded_sizes_are_two_separate_numbers(self) -> None:
-        """gzip 响应上，「线上」和「解压后」差好几倍，混成一个数就谁也说不清。"""
-        payload = b"x" * 4096
-        flow = tflow.tflow(resp=True)
-        assert flow.response is not None
-        flow.response.headers["Content-Encoding"] = "gzip"
-        compressed = gzip.compress(payload)
-        flow.response.raw_content = compressed
-        data = self.row_data(flow)
-
-        self.assertEqual(data["res_wire_size"], len(compressed))
-        self.assertEqual(data["res_decoded_size"], len(payload))
-        self.assertLess(data["res_wire_size"], data["res_decoded_size"])
-
-    def test_the_table_size_column_and_the_detail_wire_rows_agree(self) -> None:
+    def test_the_size_column_and_the_detail_wire_rows_agree(self) -> None:
         """两处数字必须一致 —— 而且是结构上一致：同走 `wire_size()` 一个函数。
 
-        改造前表格量压缩后、详情量解压后，同一条 gzip 响应两处能差好几倍，
-        用户没法判断哪个是真的。
+        表格这侧在 `_size_bytes`、详情那侧在 `build_flow_detail`，两段代码离得远，
+        但都从 `core.mitm` 里 import 同一个函数。改造前表格量压缩后、详情量解压后，
+        同一条 gzip 响应两处能差好几倍，用户没法判断哪个是真的。
         """
         flow = tflow.tflow(resp=True)
         assert flow.response is not None
         flow.response.headers["Content-Encoding"] = "gzip"
         flow.response.raw_content = gzip.compress(b"y" * 2048)
-        model = FlowTableModel(None)  # type: ignore
-        model._rows = [flow]
-        data = model.get_row_data(0)
+        model = self.model_with(flow)
+        data = build_flow_detail(flow)
 
         column = model.data(model.index(0, 5), SIZE_BYTES_ROLE)
         self.assertEqual(data["req_wire_size"] + data["res_wire_size"], column)
 
-    def test_the_totals_add_the_headers_to_the_wire_bytes(self) -> None:
-        flow = tflow.tflow(resp=True)
-        data = self.row_data(flow)
-
-        self.assertEqual(
-            data["req_total_size"], data["req_headers_size"] + data["req_wire_size"]
-        )
-        self.assertEqual(
-            data["res_total_size"], data["res_headers_size"] + data["res_wire_size"]
-        )
-        self.assertEqual(
-            data["total_size"], data["req_total_size"] + data["res_total_size"]
-        )
-
-    def test_a_request_only_flow_still_totals_its_request(self) -> None:
-        """只抓到请求时早先显示「请求 384b / 合计 0b」，两个数字自己打自己。"""
-        flow = tflow.tflow()
-        data = self.row_data(flow)
-
-        self.assertGreater(data["req_total_size"], 0)
-        self.assertEqual(data["total_size"], data["req_total_size"])
-        self.assertNotIn("res_wire_size", data)
-
-    def test_the_flow_id_no_longer_squats_on_the_connection_key(self) -> None:
-        """`Connection ID` 历来存的是 `flow.id`，真正的连接 id 无处可放。"""
-        flow = tflow.tflow(resp=True)
-        data = self.row_data(flow)
-
-        self.assertEqual(data["Flow ID"], flow.id)
-        self.assertEqual(data["Connection ID"], flow.client_conn.id)
-        self.assertEqual(data["Back Connection ID"], flow.server_conn.id)
-        self.assertNotEqual(data["Connection ID"], flow.id)
-
-    def test_wire_size_treats_a_missing_message_as_zero(self) -> None:
-        self.assertEqual(wire_size(None), 0)
-
     def test_the_size_tooltip_states_the_caliber(self) -> None:
         """列宽只放得下一个总数，口径得靠 tooltip 说清。"""
-        flow = tflow.tflow(resp=True)
-        model = FlowTableModel(None)  # type: ignore
-        model._rows = [flow]
+        model = self.model_with(tflow.tflow(resp=True))
         tooltip = model.data(model.index(0, 5), Qt.ItemDataRole.ToolTipRole)
 
         self.assertIn("wire", tooltip)

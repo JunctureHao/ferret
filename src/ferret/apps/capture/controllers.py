@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
@@ -234,6 +235,9 @@ class CaptureController(QObject):
 
     def get_flow(self, flow_id: str) -> HTTPFlow | None:
         return self._mitm.get_flow(flow_id)
+
+    def flow_detail(self, flow_id: str) -> dict[str, Any]:
+        return self._mitm.flow_detail(flow_id)
 
     def total_count(self) -> int:
         return self._mitm.total_count()

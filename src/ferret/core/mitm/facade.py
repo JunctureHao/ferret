@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm.bindings import HTTPFlow, View
+from ferret.core.mitm.detail import build_flow_detail
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.gateway import GatewayRule
 from ferret.core.mitm.intercept import (
@@ -319,6 +321,23 @@ class MitmFacade:
             return flow if isinstance(flow, HTTPFlow) else None
 
         return self.runtime.call(find) if self.runtime.is_running else find()
+
+    def flow_detail(self, flow_id: str) -> dict[str, Any]:
+        """详情面板要的整个字典，**在 mitm 线程内**构建好再交出来。
+
+        界面早先是自己拿着活 flow 现算（`FlowTableModel._build_row_data`），既踩了
+        AGENTS.md §3「不在 Qt 线程读活 flow」的红线，又把 body 美化和证书解析压在
+        界面线程上。现在 Qt 侧只拿纯数据。
+
+        代价是构建期间 mitm 的 event loop 被这一次调用占住 —— body 美化本来就有
+        1 MiB 上限，量级是几十毫秒，换到的是界面不再直读活 flow。
+        """
+
+        def build() -> dict[str, Any]:
+            flow = self.view.get_by_id(flow_id)
+            return build_flow_detail(flow) if isinstance(flow, HTTPFlow) else {}
+
+        return self.runtime.call(build) if self.runtime.is_running else build()
 
     def total_count(self) -> int:
         count = lambda: sum(

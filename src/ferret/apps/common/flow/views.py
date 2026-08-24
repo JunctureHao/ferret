@@ -174,6 +174,21 @@ class FlowDataTable(TableView):
         self.context_menu.controller = controller
         self.context_menu.export_menu.controller = controller
 
+    def row_detail(self, row: int) -> dict:
+        """行号 → 详情字典，由 controller 在 mitm 线程内构建。
+
+        改造前这一步是 `FlowTableModel._build_row_data`，在 **Qt 线程**上直接读活
+        flow（AGENTS.md §3 的红线），还顺手做了 body 美化和证书解析。现在表格模型
+        只管七列，详情整份由 `FlowViewController.flow_detail` 产出。
+
+        没有 controller 只发生在裸构造 `FlowViewerPane()` 的场合（测试）——
+        此时没有任何流量可查，空字典就是正确答案。
+        """
+        flow = self.source_model.get_flow(row)
+        if flow is None or self.controller is None:
+            return {}
+        return self.controller.flow_detail(flow.id)
+
     def get_selected_flows(self) -> list[HTTPFlow]:
         """获取当前选中的 flow 对象列表(单选/多选通用)"""
         flows = []
@@ -195,7 +210,7 @@ class FlowDataTable(TableView):
             index = indexes[0]
             source_index = self.proxy_model.mapToSource(index)
             row = source_index.row()
-            data = self.source_model.get_row_data(row)
+            data = self.row_detail(row)
             self.row_selected.emit(data)
 
         # 更新统计信息
@@ -214,7 +229,7 @@ class FlowDataTable(TableView):
 
         source_index = self.proxy_model.mapToSource(index)
         row = source_index.row()
-        row_data = self.source_model.get_row_data(row)  # ← 就来自这里
+        row_data = self.row_detail(row)  # ← 就来自这里
         selected_flows = self.get_selected_flows()
         self.context_menu.update_context(row, row_data, selected_flows)
         self.context_menu.exec(self.viewport().mapToGlobal(pos))
@@ -298,7 +313,7 @@ class FlowDataTable(TableView):
                 return {}
             index = indexes[0]
         source_index = self.proxy_model.mapToSource(index)
-        return self.source_model.get_row_data(source_index.row())
+        return self.row_detail(source_index.row())
 
     @Slot(QModelIndex)
     def __on_row_double_clicked(self, index: QModelIndex):
@@ -309,7 +324,7 @@ class FlowDataTable(TableView):
         """
         source_index = self.proxy_model.mapToSource(index)
         row = source_index.row()
-        data = self.source_model.get_row_data(row)
+        data = self.row_detail(row)
         self.row_double_clicked.emit(data)
 
     def resizeEvent(self, e) -> None:
