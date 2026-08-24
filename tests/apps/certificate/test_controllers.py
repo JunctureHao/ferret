@@ -181,7 +181,7 @@ class InstallTests(ControllerTestCase):
             self.controller.install()
             self.drain()
         self.assertEqual(len(self.failures), 1)
-        self.assertEqual(self.failures[0][0], "安装失败")
+        self.assertEqual(self.failures[0][0], "Install failed")
         self.assertIn("0x80090011", self.failures[0][1])
         # 装了一半也要把真实状态查回来，且只补查一次。
         self.assertEqual(self.service.calls.count("trust_state"), 1)
@@ -255,14 +255,14 @@ class ExportTests(ControllerTestCase):
         self.assertFalse(self.controller.busy)
         self.assertEqual(self.service.calls, [])
         self.assertEqual(len(self.failures), 1)
-        self.assertEqual(self.failures[0][0], "导出失败")
+        self.assertEqual(self.failures[0][0], "Export failed")
 
     def test_export_failure_is_reported(self) -> None:
         self.service.errors["export"] = OSError("目标磁盘只读")
         with self.assertLogs("ferret.tasks", "ERROR"):
             self.controller.export("cer", Path("D:/out/x.cer"))
             self.drain()
-        self.assertEqual(self.failures[0][0], "导出失败")
+        self.assertEqual(self.failures[0][0], "Export failed")
         self.assertIn("只读", self.failures[0][1])
         self.assertEqual(self.messages, [])
 

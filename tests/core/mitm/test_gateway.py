@@ -72,7 +72,7 @@ class GatewayRulePatternTests(unittest.TestCase):
         for value in ("", "   "):
             with self.subTest(value=value), self.assertRaises(ValueError) as ctx:
                 _ = l7(GatewayPolicy.BYPASS, value).pattern
-            self.assertIn("匹配值不能为空", str(ctx.exception))
+            self.assertIn("Match value cannot be empty", str(ctx.exception))
 
     def test_value_is_stripped_before_compiling(self) -> None:
         self.assertEqual(l7(GatewayPolicy.BYPASS, "  a.com  ").pattern, r"a\.com")
@@ -86,7 +86,7 @@ class GatewayRulePatternTests(unittest.TestCase):
         rule = l7(GatewayPolicy.BYPASS, "(unclosed", logic=GatewayLogic.REGEX)
         with self.assertRaises(ValueError) as ctx:
             rule.compile()
-        self.assertIn("正则", str(ctx.exception))
+        self.assertIn("Invalid regular expression", str(ctx.exception))
 
 
 class GatewayRuleValidateTests(unittest.TestCase):
@@ -107,13 +107,13 @@ class GatewayRuleValidateTests(unittest.TestCase):
                 rule = GatewayRule(layer=layer, policy=policy, value=HOST)
                 with self.assertRaises(ValueError) as ctx:
                     rule.validate()
-                self.assertIn("不支持策略", str(ctx.exception))
+                self.assertIn("does not support the", str(ctx.exception))
 
     def test_transport_layer_cannot_match_on_method(self) -> None:
         rule = l4(GatewayPolicy.BLOCK, "POST", field=GatewayField.METHOD)
         with self.assertRaises(ValueError) as ctx:
             rule.validate()
-        self.assertIn("只能按主机匹配", str(ctx.exception))
+        self.assertIn("can only match on the host", str(ctx.exception))
 
     def test_block_out_status_code_bounds(self) -> None:
         for code in (99, 600, 0, -1):

@@ -14,6 +14,19 @@ nuitka .\src\ferret\
 uv run ferret
 ```
 
+# 翻译指令
+
+界面文案以**英文为源语言**，中文由 `src/ferret/resources/i18n/zh_CN.ts` 提供。改过任何
+界面文案或用户可见报错之后跑一次（lupdate → lrelease → rcc 一条链，产物是
+`src/ferret/core/resources_rc.py`）：
+
+```sh
+uv run python -m ferret.utils.scripts
+```
+
+新提取的条目会是 `type="unfinished"`，补完 `<translation>` 再跑一次即可。少跑这一步不会
+报错，界面只会静默显示英文 —— `tests/core/test_i18n.py` 会替你抓住。详见 `AGENTS.md` §8。
+
 # 内置 Addon 功能对照（对比 mitmproxy）
 
 状态图例：✅ 已实现　🟡 未实现（GUI 场景通常不需要）　❌ 未实现（功能缺口）
@@ -33,15 +46,15 @@ uv run ferret
 | LogAddon        | 连接/HTTP 生命周期日志 | ✅   |
 | FlowExporter    | curl/httpie/raw 导出   | ✅   |
 
-## 流量修改类（功能缺口）
+## 流量修改类
 
 | Addon                   | 功能                      | 状态 |
 | ----------------------- | ------------------------- | ---- |
-| intercept               | 拦截/断点修改             | ❌   |
-| modifyheaders           | 修改请求/响应头           | ❌   |
-| modifybody              | 修改请求/响应体           | ❌   |
-| maplocal                | 本地文件映射（mock 响应） | ❌   |
-| mapremote               | 远程 URL 映射重写         | ❌   |
+| intercept               | 拦截/断点修改             | ✅   |
+| modifyheaders           | 修改请求/响应头           | ✅   |
+| modifybody              | 修改请求/响应体           | ✅   |
+| maplocal                | 本地文件映射（mock 响应） | ✅   |
+| mapremote               | 远程 URL 映射重写         | ✅   |
 | stickycookie            | 固化 Cookie               | ❌   |
 | stickyauth              | 固化认证                  | ❌   |
 | anticache               | 去除缓存头强制走源站      | ❌   |

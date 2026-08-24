@@ -151,6 +151,24 @@ class Config(QConfig):
         default=[],
     )
 
+    # 断点规则，存 list[dict]（见 core/mitm/intercept.py 的 InterceptRule.to_dict）。
+    # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
+    # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。
+    intercept_rules = ConfigItem(
+        group="Intercept",
+        name="Rules",
+        default=[],
+    )
+
+    # 断点总开关。默认**关**：断点会把客户端连接一直钉住等人处理，一启动就生效
+    # 等于用户还没看见界面、流量就先卡住了（重写、网关都是无人值守的，断点不是）。
+    intercept_enabled = ConfigItem(
+        group="Intercept",
+        name="Enabled",
+        default=False,
+        validator=BoolValidator(),
+    )
+
 
 def get_config_dir() -> Path:
     d = Path(

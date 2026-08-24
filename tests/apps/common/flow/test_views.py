@@ -94,7 +94,7 @@ class FlowViewerPaneTests(unittest.TestCase):
             shown_count=0,
             active_filter_count=0,
         )
-        self.assertEqual(self.viewer.empty_state.title.text(), "等待流量")
+        self.assertEqual(self.viewer.empty_state.title.text(), "Waiting for traffic")
         self.assertEqual(self.viewer.empty_state.subtitle.text(), "127.0.0.1:8080")
 
         self.viewer.set_capture_context(
@@ -104,8 +104,10 @@ class FlowViewerPaneTests(unittest.TestCase):
             shown_count=0,
             active_filter_count=2,
         )
-        self.assertEqual(self.viewer.empty_state.title.text(), "没有匹配结果")
-        self.assertEqual(self.viewer.empty_state.subtitle.text(), "当前有 2 个有效条件")
+        self.assertEqual(self.viewer.empty_state.title.text(), "No matches")
+        self.assertEqual(
+            self.viewer.empty_state.subtitle.text(), "2 active condition(s)"
+        )
 
     def test_table_defaults_to_newest_first(self) -> None:
         header = self.viewer.table.horizontalHeader()
@@ -179,6 +181,7 @@ class FlowContextMenuTests(unittest.TestCase):
 
     def _make_controller(self):
         """Build a stub controller exposing replay_flows/replay_flow."""
+
         class StubController:
             def __init__(self) -> None:
                 self.replay_calls: list = []
@@ -204,14 +207,14 @@ class FlowContextMenuTests(unittest.TestCase):
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
         # Both replay actions should be present in the action list.
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertIn("重发", actions_text)
-        self.assertIn("从文件回放…", actions_text)
+        self.assertIn("Replay", actions_text)
+        self.assertIn("Replay from file...", actions_text)
 
     def test_readonly_capabilities_hide_replay_actions(self) -> None:
         menu = self._make_menu(self.READONLY_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertNotIn("重发", actions_text)
-        self.assertNotIn("从文件回放…", actions_text)
+        self.assertNotIn("Replay", actions_text)
+        self.assertNotIn("Replay from file...", actions_text)
 
     def test_single_selection_calls_replay_flow(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
@@ -245,12 +248,12 @@ class FlowContextMenuTests(unittest.TestCase):
     def test_capture_capabilities_show_block_host_action(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertIn("屏蔽此主机", actions_text)
+        self.assertIn("Block this host", actions_text)
 
     def test_readonly_capabilities_hide_block_host_action(self) -> None:
         menu = self._make_menu(self.READONLY_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertNotIn("屏蔽此主机", actions_text)
+        self.assertNotIn("Block this host", actions_text)
 
     def test_block_host_requested_carries_the_row_host(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)

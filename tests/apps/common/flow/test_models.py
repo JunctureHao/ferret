@@ -65,7 +65,7 @@ class FlowTableModelTests(unittest.TestCase):
         error = tflow.tflow(err=True)
         model = self.model_with(pending, error)
 
-        self.assertEqual(model.data(model.index(0, 3)), "等待中")
+        self.assertEqual(model.data(model.index(0, 3)), "Pending")
         self.assertEqual(model.data(model.index(0, 3), STATUS_KIND_ROLE), "pending")
         self.assertEqual(model.data(model.index(1, 3)), "Error")
         self.assertEqual(model.data(model.index(1, 3), STATUS_KIND_ROLE), "error")

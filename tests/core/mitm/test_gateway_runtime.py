@@ -19,6 +19,7 @@ from ferret.core.mitm.gateway import (
     GatewayRule,
     GatewayRuleSet,
 )
+from ferret.core.mitm.intercept import InterceptState
 
 HOST = "example.com"
 
@@ -44,6 +45,7 @@ def broken() -> GatewayRule:
 class FakeMaster:
     def __init__(self) -> None:
         self.gateway = GatewayState()
+        self.intercept_state = InterceptState()
         self.options = MagicMock()
 
 
@@ -53,6 +55,7 @@ class FakeRuntime(QObject):
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
     flow_suspended = Signal(object)
+    flow_intercepted = Signal(object)
     ready = Signal(object)
     failed = Signal(str)
     stopped = Signal()

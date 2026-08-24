@@ -17,6 +17,7 @@ from ferret.apps.rewrite.models import (
     logic_label,
 )
 from ferret.core.mitm import (
+    WHOLE_BODY_PATTERN,
     MitmFacade,
     MitmRuntime,
     RewriteKind,
@@ -50,7 +51,7 @@ class RewriteRuleTableModelTests(unittest.TestCase):
 
     def test_row_and_column_counts(self) -> None:
         self.assertEqual(self.model.rowCount(), 2)
-        self.assertEqual(self.model.columnCount(), 5)
+        self.assertEqual(self.model.columnCount(), 6)
 
     def test_check_state_reflects_enabled(self) -> None:
         role = Qt.ItemDataRole.CheckStateRole
@@ -74,8 +75,42 @@ class RewriteRuleTableModelTests(unittest.TestCase):
         self.assertEqual(
             self.model.data(self.model.index(0, 3), role), "https://a.com/x"
         )
+        # 重定向两类没有「目标」，那一格恒为空。
+        self.assertEqual(self.model.data(self.model.index(0, 4), role), "")
         self.assertEqual(
-            self.model.data(self.model.index(0, 4), role), "http://127.0.0.1:8000/x"
+            self.model.data(self.model.index(0, 5), role), "http://127.0.0.1:8000/x"
+        )
+
+    def test_the_target_column_shows_the_header_name(self) -> None:
+        self.model.set_rules(
+            [
+                RewriteRule(
+                    kind=RewriteKind.MODIFY_REQUEST_HEADER,
+                    logic=RewriteLogic.CONTAINS,
+                    value="a.com",
+                    target="User-Agent",
+                    replacement="ferret/1.0",
+                )
+            ]
+        )
+        role = Qt.ItemDataRole.DisplayRole
+        self.assertEqual(self.model.data(self.model.index(0, 4), role), "User-Agent")
+        self.assertEqual(self.model.data(self.model.index(0, 5), role), "ferret/1.0")
+
+    def test_a_blank_body_regex_shows_the_pattern_it_really_sends(self) -> None:
+        """否则「整体替换」和「还没填」在表格里长得一模一样。"""
+        self.model.set_rules(
+            [
+                RewriteRule(
+                    kind=RewriteKind.MODIFY_RESPONSE_BODY,
+                    logic=RewriteLogic.CONTAINS,
+                    value="a.com",
+                )
+            ]
+        )
+        role = Qt.ItemDataRole.DisplayRole
+        self.assertEqual(
+            self.model.data(self.model.index(0, 4), role), WHOLE_BODY_PATTERN
         )
 
     def test_tooltip_shows_the_generated_regex_pair(self) -> None:
@@ -86,7 +121,7 @@ class RewriteRuleTableModelTests(unittest.TestCase):
     def test_tooltip_explains_an_unusable_rule(self) -> None:
         self.model.set_rules([make_rule("https://a.com/x", replacement="")])
         tooltip = self.model.data(self.model.index(0, 3), Qt.ItemDataRole.ToolTipRole)
-        self.assertEqual(tooltip, "重写目标不能为空")
+        self.assertEqual(tooltip, "Rewrite target cannot be empty")
 
     def test_user_role_returns_the_rule(self) -> None:
         rule = self.model.data(self.model.index(1, 0), Qt.ItemDataRole.UserRole)
@@ -260,12 +295,17 @@ class RewriteControllerTests(unittest.TestCase):
         self.assertEqual(len(controller.rules), 1)
         self.assertFalse(controller.rules[0].enabled)
 
-    def test_rule_missing_a_replacement_is_kept_but_disabled(self) -> None:
-        broken = make_rule("https://a.com/x", replacement="")
-        CONFIG.set(CONFIG.rewrite_rules, [broken.to_dict()])
+    def test_a_half_filled_rule_stays_enabled(self) -> None:
+        """没填完的规则**不**被停用：`filled` 为假时下发链路本来就整条跳过它。
+
+        判据必须和 `rewrite_option_updates` 里的 `_is_active` 逐字一致 —— 否则一条
+        手填了 URL 却还没填头名的规则会在开机时被悄悄停用，用户改完还得再点一次启用。
+        """
+        half = make_rule("https://a.com/x", replacement="")
+        CONFIG.set(CONFIG.rewrite_rules, [half.to_dict()])
         controller = RewriteController(mitm=MitmFacade(MitmRuntime()))
         self.assertEqual(len(controller.rules), 1)
-        self.assertFalse(controller.rules[0].enabled)
+        self.assertTrue(controller.rules[0].enabled)
 
 
 if __name__ == "__main__":

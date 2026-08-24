@@ -40,7 +40,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 3. 事件经 `_ViewSignalBridge` 转 Qt Signal，**不要自己 poll View**。
 
 禁止项：
-- ❌ 在 Qt 线程直接读写 flow/master/view。要快照用 `flow.copy()`（见 `MitmFacade.all_http_flows`）。`apps/common/flow/models.py` 的 `set_view`/`handle_refresh`/`clear_data`/`remove_row` 是已知违反，应改走 facade 的 `clear_flows()`/`remove_flows()`。
+- ❌ 在 Qt 线程直接读写 flow/master/view。要快照走 `facade._snapshot()`（见 `MitmFacade.all_http_flows`/`intercepted_flows`），**不要**直接用 `flow.copy()`：原生 `Serializable.copy()` 会换掉 `flow.id`，而界面回头找真流量（`release_flows` / `apply_request_edits` / `save_flows`）全靠这个 id。`apps/common/flow/models.py` 的 `set_view`/`handle_refresh`/`clear_data`/`remove_row` 是已知违反，应改走 facade 的 `clear_flows()`/`remove_flows()`。
 - ❌ 使用 `ctx`。需 master/options 用手上的 `runtime.master`。`ctx` 不进 `bindings.__all__`。
 - ❌ 跨层 import mitmproxy。`from mitmproxy import ...` 只允许在 `core/mitm/bindings.py`；`core/mitm/*` 内 `from ...bindings import`，其余 `from ferret.core.mitm import`。
 - ❌ 向 master 追加 mitmproxy 命令行 addon（comment/cut/export/script 等），GUI 自行实现等效能力。
@@ -50,9 +50,9 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 ## 4. 目录分层
 
 - `core/`：`application.py`/`runtime.py`(`AppRuntime`)/`settings.py`/`network.py`(地址词表+局域网探测，无 Qt 无 mitmproxy)/`log.py`/`system_proxy/`(注册表代理)/`resources_rc.py`(勿手改)。
-- `core/mitm/`：`bindings`(唯一 mitmproxy 入口)/`master`/`runtime`/`facade`/`addons`(`FerretTlsConfig`/`LogAddon`)/`export`/`io`/`certificate`(无 Qt 同步阻塞)/`blocklist`/`rewrite`/`__init__`(公开 API)。`engine.py` 零引用可删。
-- `apps/`：`capture`/`certificate`/`common`/`session`/`settings`/`blocklist`/`rewrite`，**不直接 import mitmproxy 内部模块**。后台任务统一用 `apps/common/tasks.py::FunctionTask`。编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel`/`ToolPlainTextEdit`/`JsonDualPanel`），不新造编辑器。
-- `utils/`：`http_parser.py`(body 预处理)/`scripts.py`(subprocess)。新增 utils 不再加依赖（现 `http_parser.py` 已误引 `core.mitm.bindings`，别扩散）。
+- `core/mitm/`：`bindings`(唯一 mitmproxy 入口)/`master`/`runtime`/`facade`/`addons`(`FerretTlsConfig`/`LogAddon`)/`export`/`io`/`certificate`(同步阻塞，调用方负责挪后台线程)/`blocklist`/`rewrite`/`intercept`(断点规则+报文写回，规则不带 `~q`/`~s`，两个钩子共用一个过滤器)/`__init__`(公开 API)。`engine.py` 零引用可删。**会送到界面的异常文案**（`certificate`/`facade`/`gateway`/`intercept`/`rewrite`/`runtime`）用 `QCoreApplication.translate("<Ctx>", ...)` 包一层，所以这几个模块 import QtCore（不碰控件）；日志与 `from_dict` 校验消息不译（后者被 `rules_from_raw` 吞掉，从不上界面）。
+- `apps/`：`capture`/`certificate`/`common`/`session`/`settings`/`blocklist`/`rewrite`/`intercept`（断点页只留规则；队列与请求/响应编辑器在独立的非模态窗口 `intercept/window.py`，构造时 parent 必须为 None，否则 `qframelesswindow` 不补 `Qt.Window` 会退化成子控件），**不直接 import mitmproxy 内部模块**。后台任务统一用 `apps/common/tasks.py::FunctionTask`。编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel`/`ToolPlainTextEdit`/`JsonDualPanel`），不新造编辑器。
+- `utils/`：`http_parser.py`(body 预处理)/`scripts.py`(i18n 流水线，subprocess)/`i18n.py`(`QT_TRANSLATE_NOOP` 标记 + `resolve_marker`，见 §8)。新增 utils 不再加依赖（现 `http_parser.py` 已误引 `core.mitm.bindings`，别扩散）。
 
 ## 5. 技术决策（勿推翻）
 
@@ -62,17 +62,30 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 ## 6. 功能状态
 
-实际装载 addon（`core/mitm/master.py` 为准）：Core、Block、StripDnsHttpsRecords、BlockList、AntiCache(关)、AntiComp(关)、ClientPlayback、DisableH2C、Proxyserver、DnsResolver、NextLayer、MapRemote、FerretTlsConfig、View、ReadFile、Save、LogAddon。
+实际装载 addon（`core/mitm/master.py` 为准）：Core、Block、StripDnsHttpsRecords、AntiCache(关)、AntiComp(关)、ClientPlayback、DisableH2C、Proxyserver、DnsResolver、GatewayL4Addon、NextLayer、MapRemote、MapLocal、ModifyBody、ModifyHeaders、FerretTlsConfig、GatewayL7Addon、FerretIntercept、View、ReadFile、Save、LogAddon。BlockList 已撤（网关取代，见 `master.py` 注释）。
 
-已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR/curl/httpie/raw 导出、CA 证书页、系统代理开关、会话管理、屏蔽 blocklist、代理来源限制 block、重写 mapremote。
+已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR/curl/httpie/raw 导出、CA 证书页、系统代理开关、会话管理、屏蔽 blocklist、代理来源限制 block、网关（L4/L7 策略）、重写六类（mapremote/maplocal/modifyheaders×2/modifybody×2）、断点 intercept（命中即在请求期与响应期各停一次，规则不选阶段；改请求或响应→放行/丢弃/伪造响应/撤销）。
 
-缺口：断点拦截 intercept、modifyheaders/modifybody、maplocal、serverplayback、stickycookie/stickyauth、流量备注 `flow.comment`。
+缺口：serverplayback、stickycookie/stickyauth、流量备注 `flow.comment`。
 
 ⚠️ `README.md` 的「内置 Addon 对照」表已过期，以 `master.py` 为准。
 
 ## 7. Nuitka 打包（发布/大改动前）
 
 - 瘦身项统一维护在 `src/ferret/__main__.py` 的 `# nuitka-project:` 注释；打包 `nuitka .\src\ferret\`（目录，非单文件）。
-- `bindings._STUBBED_MODULES` 现有 6 桩：`mitmproxy.addons.{onboarding,onboardingapp,proxyauth,maplocal,cut}` + `pyperclip`，须在 mitmproxy 导入前完成。
+- `bindings._STUBBED_MODULES` 现有 5 桩：`mitmproxy.addons.{onboarding,onboardingapp,proxyauth,cut}` + `pyperclip`，须在 mitmproxy 导入前完成。`maplocal` 已解桩（重写页的「重定向（本地）」要用它），别再加回去。
 - 接新 mitmproxy addon / 第三方依赖时，先确认是否会被 Nuitka 误裁，必要时加 `--include-package` 或移除对应 `--nofollow`。勿裁 `pyasn1`(aioquic 硬链)、`ruamel.yaml`、`mitmproxy_rs.contentviews`、aioquic/pylsqpack。
 - 打包后冒烟：exe 能起、GUI 不崩、mitmproxy master 正常 listen。
+
+## 8. i18n（英文源 + `zh_CN.qm`）
+
+- **源语言是英文**：所有 `tr()` / `translate()` 的字面量写英文，中文只存在于 `src/ferret/resources/i18n/zh_CN.ts`。默认语言仍是简体中文（`core/settings.py`）。选 English 时**不装业务翻译器**（源文本即英文），仓库里没有也不需要 `en_GB.qm`。
+- 改完任何文案跑 `uv run python -m ferret.utils.scripts`：lupdate → lrelease → rcc 一条链。少跑一步不会报错，界面只是静默退回英文 —— `tests/core/test_i18n.py` 就是为此立的守卫（代码字面量与 `.ts` 双向对齐、`.ts` 逐条与编译后的 `.qm` 一致、`<location>` 指向真实文件）。
+- **lupdate 必须排除 `core/resources_rc.py`**：3.6 MB 生成物会让它以 `0xC0000409`(STACK_BUFFER_OVERRUN) 崩掉。历史上目录停更半年就是这么来的。
+- **rcc 输出必须落在 `core/resources_rc.py`**：应用 import 的是 `ferret.core.resources_rc`，写到别处等于没编。
+- rcc 会把源文件的 mtime 编进资源表，所以每跑一次流水线，`core/resources_rc.py` 都会有几字节的时间戳差异（3.8 MB 文件的 diff 看着吓人，实际只有那一处）。别为了「diff 干净」去手改这个文件。
+- **模块级与类体（含 `ClassVar`）不得求值翻译**：`core/application.py` 顶层就 `from ferret.apps.window import MainWindow`，那一刻 `_init_i18n()` 还没装翻译器，求出来的文案会永久冻结成英文。这类表存 `QT_TRANSLATE_NOOP("Ctx", "text")` 标记，到使用点用 `QCoreApplication.translate` / `resolve_marker` 求值（`utils/i18n.py`；那里还重绑了 `QT_TRANSLATE_NOOP` 的签名，PySide6 的 stub 返回 `object` 会让 ty 报错）。
+- **lupdate 是静态扫描**，两件事提取不到：**f-string 内部**（把文案整句留在外面、变量交给 `.format()`）、**`tr(变量)` / `translate(变量, ...)`**（context 与源文本都得是字面量；唯一例外是 `resolve_marker` 那个共用查表器，context 由调用方给）。
+- **不要拼句**：`tr("{}失败").format(动作)` 换个语序就没法译，每个分支写整句（例：`core/mitm/certificate.py::_checked` 由调用方整句传入）。
+- 日志（`logger.*`）与 `from_dict` 校验消息不译 —— 后者被 `rules_from_raw` 吞掉，从不上界面。**但 `core/` 里会经信号/异常上界面的报错要译**（例：`core/system_proxy/service.py` 的三条异常经 `CaptureController.last_error` 显示在捕获页的警告条上）。
+- 语言名（`apps/settings/views.py` 的 `["简体中文", "English"]`）刻意不译：看不懂当前界面语言的人也得认出自己的语言。

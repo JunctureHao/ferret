@@ -408,10 +408,21 @@ class FerretMasterGatewayWiringTests(unittest.TestCase):
             self.names.index(NextLayer.__name__),
         )
 
-    def test_l7_addon_runs_immediately_before_the_view(self) -> None:
-        """AddonHalt 只截断当前派发，所以要挨着 View 才能让它一条都收不到。"""
+    def test_l7_addon_runs_immediately_before_the_breakpoint_plane(self) -> None:
+        """AddonHalt 只截断当前派发，所以网关之后的 addon 一条都收不到。
+
+        断点必须紧跟在它后面：绕行/仅允许命中时这条流量根本到不了断点，用户明确
+        说了不管的流量不该被断点拦下来。
+        """
         self.assertEqual(
             self.names.index(GatewayL7Addon.__name__) + 1,
+            self.names.index("FerretIntercept"),
+        )
+
+    def test_the_breakpoint_plane_runs_immediately_before_the_view(self) -> None:
+        """位置对齐原生 console master（intercept → view）。"""
+        self.assertEqual(
+            self.names.index("FerretIntercept") + 1,
             self.names.index(type(self.master.view).__name__),
         )
 

@@ -1,10 +1,17 @@
-"""Ownership-aware system proxy attachment service."""
+"""Ownership-aware system proxy attachment service.
+
+这里抛出来的异常会一路走到界面：`CaptureController` 把 `str(exc)` 存进
+`last_error`，捕获页在 `CaptureState.FAILED` 时把它显示在警告条里。所以
+消息要翻译 —— 只用 QtCore 的 `QCoreApplication.translate`，不碰控件。
+"""
 
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
+
+from PySide6.QtCore import QCoreApplication
 
 from ferret.core.settings import get_config_dir
 from ferret.core.system_proxy.backends import (
@@ -42,12 +49,21 @@ class SystemProxyService:
 
     def attach(self, host: str, port: int) -> None:
         if not host or not (1 <= int(port) <= 65535):
-            raise ValueError("无效的系统代理地址")
+            raise ValueError(
+                QCoreApplication.translate(
+                    "SystemProxyService", "Invalid system proxy address"
+                )
+            )
         endpoint = ProxyEndpoint(host, port)
         if self._endpoint == endpoint and self._backend.owns(endpoint):
             return
         if self._endpoint is not None and not self.detach():
-            raise RuntimeError("恢复原系统代理失败")
+            raise RuntimeError(
+                QCoreApplication.translate(
+                    "SystemProxyService",
+                    "Restoring the previous system proxy failed",
+                )
+            )
         snapshot = self._backend.snapshot()
         self._write_journal(endpoint, snapshot)
         try:
@@ -61,8 +77,16 @@ class SystemProxyService:
             if self._backend.restore(snapshot):
                 self._clear_journal()
             if apply_error is not None:
-                raise RuntimeError("设置系统代理失败") from apply_error
-            raise RuntimeError("设置系统代理失败")
+                raise RuntimeError(
+                    QCoreApplication.translate(
+                        "SystemProxyService", "Setting the system proxy failed"
+                    )
+                ) from apply_error
+            raise RuntimeError(
+                QCoreApplication.translate(
+                    "SystemProxyService", "Setting the system proxy failed"
+                )
+            )
         self._snapshot = snapshot
         self._endpoint = endpoint
 

@@ -57,11 +57,11 @@ class CertificateStateTests(unittest.TestCase):
 
     def test_trusted_but_expired_warns(self) -> None:
         state = CertificateState(TrustState.TRUSTED, make_info(days=-5, expired=True))
-        self.assertIn("已过期", state.detail)
+        self.assertIn("expired", state.detail)
 
     def test_trusted_but_expiring_soon_shows_days(self) -> None:
         state = CertificateState(TrustState.TRUSTED, make_info(days=10))
-        self.assertIn("10 天", state.detail)
+        self.assertIn("10 day(s)", state.detail)
 
     def test_expiry_warning_only_applies_when_trusted(self) -> None:
         # 没装进系统的时候，先说「要安装」比说「快过期」有用。
@@ -118,35 +118,37 @@ class InfoRowsTests(unittest.TestCase):
     def test_covers_every_native_field(self) -> None:
         rows = self.rows()
         self.assertEqual(len(rows), 10)
-        self.assertEqual(rows["通用名称"], "Ferret")
-        self.assertEqual(rows["序列号"], "0a1b2c")
-        self.assertEqual(rows["密钥"], "RSA 2048 位")
-        self.assertEqual(rows["证书类型"], "根 CA")
-        self.assertEqual(rows["文件位置"], str(Path("C:/certs/Ferret-ca-cert.pem")))
+        self.assertEqual(rows["Common name"], "Ferret")
+        self.assertEqual(rows["Serial number"], "0a1b2c")
+        self.assertEqual(rows["Key"], "RSA 2048 bits")
+        self.assertEqual(rows["Certificate type"], "Root CA")
+        self.assertEqual(rows["File location"], str(Path("C:/certs/Ferret-ca-cert.pem")))
 
     def test_self_signed_is_marked_on_issuer(self) -> None:
-        self.assertIn("（自签名）", self.rows()["颁发者"])
+        self.assertIn("(self-signed)", self.rows()["Issuer"])
 
     def test_cross_signed_issuer_has_no_marker(self) -> None:
         rows = self.rows(issuer="CN=Other CA")
-        self.assertEqual(rows["颁发者"], "CN=Other CA")
+        self.assertEqual(rows["Issuer"], "CN=Other CA")
 
     def test_blank_fields_fall_back_to_dash(self) -> None:
         rows = self.rows(common_name="", organization="")
-        self.assertEqual(rows["通用名称"], "-")
-        self.assertEqual(rows["组织"], "-")
+        self.assertEqual(rows["Common name"], "-")
+        self.assertEqual(rows["Organization"], "-")
 
     def test_non_ca_cert_is_labelled(self) -> None:
-        self.assertEqual(self.rows(is_ca=False)["证书类型"], "非 CA 证书")
+        self.assertEqual(
+            self.rows(is_ca=False)["Certificate type"], "Not a CA certificate"
+        )
 
     def test_validity_shows_remaining_days(self) -> None:
-        self.assertIn("剩余 3648 天", self.rows()["有效期"])
+        self.assertIn("3648 day(s) left", self.rows()["Validity"])
 
     def test_validity_shows_expired(self) -> None:
-        self.assertIn("已过期", self.rows(days=-5, expired=True)["有效期"])
+        self.assertIn("expired", self.rows(days=-5, expired=True)["Validity"])
 
     def test_fingerprint_row_is_grouped(self) -> None:
-        self.assertEqual(self.rows()["SHA-256 指纹"], " ".join(["AB"] * 32))
+        self.assertEqual(self.rows()["SHA-256 fingerprint"], " ".join(["AB"] * 32))
 
 
 if __name__ == "__main__":

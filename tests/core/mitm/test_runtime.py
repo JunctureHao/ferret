@@ -49,7 +49,7 @@ class MitmRuntimeTests(unittest.TestCase):
 
             values = self.wait_for_signal(runtime.failed)
             self.assertTrue(values)
-            self.assertIn("已被占用", values[0][0])
+            self.assertIn("already in use", values[0][0])
             self.assertEqual(runtime.state, MitmRuntimeState.FAILED)
             self.assertTrue(runtime.stop())
 
