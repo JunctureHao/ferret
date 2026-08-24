@@ -223,6 +223,14 @@ class MitmFacade:
         """Undo every edit made to a held flow (native ``Flow.revert``)."""
         self._mutate(flow_id, lambda flow: flow.revert(), release=False)
 
+    def set_flow_comment(self, flow_id: str, comment: str) -> None:
+        """Set a comment on a held flow."""
+
+        def assign(flow) -> None:
+            flow.comment = comment
+
+        self._mutate(flow_id, assign, release=False)
+
     def apply_request_edits(
         self, flow_id: str, edit: RequestEdit, *, release: bool = False
     ) -> None:

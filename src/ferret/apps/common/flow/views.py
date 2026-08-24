@@ -42,7 +42,7 @@ from qfluentwidgets import (
     TreeWidget,
 )
 
-from ferret.apps.common.dialog import TextCopyDialog
+from ferret.apps.common.dialog import CommentDialog, TextCopyDialog
 from ferret.apps.common.edit import (
     ItemDualPanel,
     JsonDualPanel,
@@ -1584,6 +1584,7 @@ class FlowContextMenu(RoundMenu):
     delete_requested = Signal(int)  # 删除请求信号
     replay_file_requested = Signal()  # 从文件回放请求信号
     block_host_requested = Signal(str)  # 屏蔽此主机请求信号（携带 host）
+    comment_requested = Signal()
 
     def __init__(
         self,
@@ -1641,6 +1642,11 @@ class FlowContextMenu(RoundMenu):
             icon=FluentIcon.CANCEL_MEDIUM,
             text=self.tr("Block this host"),
         )
+        self.comment_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.TAG,
+            text=self.tr("Comment..."),
+        )
         self.export_menu = FlowExportMenu(self, self.controller)
         self.view_menu = FlowSubViewMenu(self)
 
@@ -1656,6 +1662,8 @@ class FlowContextMenu(RoundMenu):
         if self.capabilities.can_delete:
             self.addAction(self.delete_action)
 
+        self.addAction(self.comment_action)
+
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
         self.client_replay_action.triggered.connect(self.__on_client_replay_triggered)
@@ -1663,6 +1671,7 @@ class FlowContextMenu(RoundMenu):
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.block_host_action.triggered.connect(self.__on_block_host_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
+        self.comment_action.triggered.connect(self.__on_comment_triggered)
 
     def _refresh_replay_label(self) -> None:
         """根据当前选中数量刷新重发动作文案：单选=重发，多选=重发 N 条。"""
@@ -1671,6 +1680,27 @@ class FlowContextMenu(RoundMenu):
             self.client_replay_action.setText(self.tr("Replay"))
         else:
             self.client_replay_action.setText(self.tr("Replay {} flows").format(count))
+
+    @Slot()
+    def __on_comment_triggered(self) -> None:
+        """编辑当前行的备注。"""
+        if not self.controller:
+            return
+        flow_id = self.row_data.get("id", "")
+        if not flow_id:
+            return
+        dialog = CommentDialog(self.row_data.get("comment", "") or "", self.main_window)
+        if not dialog.exec():
+            return
+        try:
+            self.controller.set_flow_comment(flow_id, dialog.comment())
+            show_success(
+                self.tr("Success"),
+                self.tr("Comment saved"),
+                self.main_window,
+            )
+        except (ValueError, RuntimeError) as exc:
+            show_warning(self.tr("Failed to save comment"), str(exc), self.main_window)
 
     @Slot()
     def __on_delete_triggered(self):

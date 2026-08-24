@@ -340,3 +340,6 @@ class CaptureController(QObject):
             CaptureState.RUNNING,
         ):
             self._on_runtime_failed(self.tr("The mitmproxy core has stopped"))
+
+    def set_flow_comment(self, flow_id: str, comment: str) -> None:
+        self._mitm.set_flow_comment(flow_id, comment)
