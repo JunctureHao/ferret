@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from PySide6.QtCore import (
     QAbstractTableModel,
+    QCoreApplication,
     QModelIndex,
     QObject,
     QPersistentModelIndex,
@@ -14,6 +15,7 @@ from PySide6.QtCore import (
 )
 
 from ferret.core.mitm import human
+from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 
 class SessionSource(StrEnum):
@@ -21,9 +23,11 @@ class SessionSource(StrEnum):
     IMPORT = "import"
 
 
+# 文案在这里只做标记、不求值 —— 模块级求值赶在翻译器安装之前（`core/application.py`
+# 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在 `data()` 里做。
 _SOURCE_LABELS: dict[SessionSource, str] = {
-    SessionSource.CAPTURE: "抓包",
-    SessionSource.IMPORT: "导入",
+    SessionSource.CAPTURE: QT_TRANSLATE_NOOP("SessionSource", "Capture"),
+    SessionSource.IMPORT: QT_TRANSLATE_NOOP("SessionSource", "Import"),
 }
 
 
@@ -41,7 +45,14 @@ class SessionMeta:
 
 
 class SessionTableModel(QAbstractTableModel):
-    HEADERS: ClassVar[list[str]] = ["名称", "修改时间", "流量数", "大小", "来源"]
+    # 同理只做标记：类体也是导入期就求值的。求值在 `headerData()` 里做。
+    HEADERS: ClassVar[list[str]] = [
+        QT_TRANSLATE_NOOP("SessionTableModel", "Name"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "Modified"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "Flows"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "Size"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "Source"),
+    ]
     SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 
     def __init__(self, parent: QObject | None = None):
@@ -99,7 +110,9 @@ class SessionTableModel(QAbstractTableModel):
             role == Qt.ItemDataRole.DisplayRole
             and orientation == Qt.Orientation.Horizontal
         ):
-            return self.HEADERS[section]
+            return QCoreApplication.translate(
+                "SessionTableModel", self.HEADERS[section]
+            )
         return None
 
     def rowCount(
@@ -137,7 +150,10 @@ class SessionTableModel(QAbstractTableModel):
             if col == 3:
                 return human.pretty_size(session.file_size)
             if col == 4:
-                return _SOURCE_LABELS.get(session.source, session.source.value)
+                label = _SOURCE_LABELS.get(session.source)
+                if label is None:
+                    return session.source.value
+                return QCoreApplication.translate("SessionSource", label)
             return None
 
         if role == Qt.ItemDataRole.TextAlignmentRole:

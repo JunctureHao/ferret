@@ -12,7 +12,6 @@ _STUBBED_MODULES: dict[str, dict[str, Any]] = {
     "mitmproxy.addons.onboarding": {},
     "mitmproxy.addons.onboardingapp": {"app": None},
     "mitmproxy.addons.proxyauth": {},
-    "mitmproxy.addons.maplocal": {},
     "mitmproxy.addons.cut": {},
     "pyperclip": {"copy": None, "PyperclipException": Exception},
 }
@@ -36,7 +35,11 @@ from mitmproxy.addons.clientplayback import (
 from mitmproxy.addons.core import Core
 from mitmproxy.addons.disable_h2c import DisableH2C
 from mitmproxy.addons.dns_resolver import DnsResolver
+from mitmproxy.addons.intercept import Intercept
+from mitmproxy.addons.maplocal import MapLocal, parse_map_local_spec
 from mitmproxy.addons.mapremote import MapRemote, parse_map_remote_spec
+from mitmproxy.addons.modifybody import ModifyBody
+from mitmproxy.addons.modifyheaders import ModifyHeaders, parse_modify_spec
 from mitmproxy.addons.next_layer import NextLayer
 from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.readfile import ReadFile
@@ -53,9 +56,12 @@ from mitmproxy.exceptions import (
 )
 from mitmproxy.flow import Flow
 from mitmproxy.flowfilter import parse as parse_filter
-from mitmproxy.http import HTTPFlow, Request, Response
+from mitmproxy.http import Headers, HTTPFlow, Request, Response
 from mitmproxy.master import Master
 from mitmproxy.net.http import status_codes
+
+# ruff 默认 combine-as-imports = false，`as` 导入只能单独成句。
+from mitmproxy.net.http import url as http_url
 from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
 from mitmproxy.utils import human
@@ -86,8 +92,13 @@ __all__ = [
     "Flow",
     "FlowReadException",
     "HTTPFlow",
+    "Headers",
+    "Intercept",
+    "MapLocal",
     "MapRemote",
     "Master",
+    "ModifyBody",
+    "ModifyHeaders",
     "NextLayer",
     "Options",
     "OptionsError",
@@ -105,10 +116,13 @@ __all__ = [
     "connection",
     "contentviews",
     "export_module",
+    "http_url",
     "human",
     "io",
     "parse_filter",
+    "parse_map_local_spec",
     "parse_map_remote_spec",
+    "parse_modify_spec",
     "server_hooks",
     "status_codes",
     "tlsconfig_module",

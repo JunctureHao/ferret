@@ -22,3 +22,16 @@ def quote_value(value: str) -> str:
         escaped = value.replace('"', '\\"')
         return f'"{escaped}"'
     return value
+
+
+def quote_regex(value: str) -> str:
+    r"""Always quote a regex token, doubling backslashes so the lexer keeps them.
+
+    比 `quote_value` 更严：正则**必须**加引号。原生未引用 token 的词法是
+    ``CharsNotIn("()~'\"" + 空白)``，正则里的分组括号会直接把 token 截断。
+    而引号内又是 ``QuotedString('"', escChar="\\")``：它会把 ``\x`` 反转义成 ``x``，
+    ``\.`` 进去出来就成了 ``.``（点变成"任意字符"，匹配范围悄悄变宽）。
+    所以引号内的反斜杠得先翻倍 —— 顺序不能反，先翻倍反斜杠再转义引号。
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'

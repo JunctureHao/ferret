@@ -16,6 +16,14 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
+#: 过滤字段的**取值**（不是界面文案）。`get_condition()` 送出去的就是这些，
+#: `apps/capture/services.py` 拿它映射 flowfilter 操作符。取值与文案必须分开：
+#: 早先两者是同一个中文串，翻译一开下游就会静默失配、筛选整条失效。
+FILTER_FIELDS = ("all", "URL", "Method", "Header", "Body")
+
+#: 过滤逻辑的取值，理由同上。顺序即下拉框顺序，索引 0 是默认项。
+FILTER_LOGICS = ("contains", "excludes", "regex", "equals")
+
 
 class FilterRow(QWidget):
     """动态过滤行：包含复选框、下拉框、输入框和增减按钮"""
@@ -35,28 +43,43 @@ class FilterRow(QWidget):
         self.check_box.setChecked(True)
         self.check_box.setFixedWidth(20)
 
+        field_labels = {
+            "all": self.tr("All"),
+            "URL": "URL",
+            "Method": "Method",
+            "Header": "Header",
+            "Body": "Body",
+        }
         self.field_box = ComboBox(self)
         self.field_box.setMinimumWidth(96)
         self.field_box.setMaximumWidth(132)
-        self.field_box.addItems(["全部", "URL", "Method", "Header", "Body"])
+        for field in FILTER_FIELDS:
+            self.field_box.addItem(field_labels[field], userData=field)
 
+        logic_labels = {
+            "contains": self.tr("Contains"),
+            "excludes": self.tr("Excludes"),
+            "regex": self.tr("Regex"),
+            "equals": self.tr("Equals"),
+        }
         self.logic_box = ComboBox(self)
         self.logic_box.setMinimumWidth(104)
         self.logic_box.setMaximumWidth(140)
-        self.logic_box.addItems(["包含", "不包含", "正则表达式", "等于"])
+        for logic in FILTER_LOGICS:
+            self.logic_box.addItem(logic_labels[logic], userData=logic)
 
         self.value_input = LineEdit(self)
         self.value_input.setMinimumWidth(160)
         self.value_input.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.value_input.setPlaceholderText("搜索内容...")
+        self.value_input.setPlaceholderText(self.tr("Search content..."))
 
         self.remove_btn = TransparentToolButton(FluentIcon.REMOVE_FROM, self)
         self.add_btn = TransparentToolButton(FluentIcon.ADD_TO, self)
         for button, tooltip in (
-            (self.remove_btn, self.tr("删除条件")),
-            (self.add_btn, self.tr("添加条件")),
+            (self.remove_btn, self.tr("Remove condition")),
+            (self.add_btn, self.tr("Add condition")),
         ):
             button.setFixedSize(28, 28)
             button.setIconSize(QSize(16, 16))
@@ -92,9 +115,10 @@ class FilterRow(QWidget):
         text = self.value_input.text().strip()
         if not text:
             return None
+        # 送取值、不送界面文案 —— 见 FILTER_FIELDS 上面那段。
         return {
-            "field": self.field_box.currentText(),
-            "logic": self.logic_box.currentText(),
+            "field": self.field_box.currentData(),
+            "logic": self.logic_box.currentData(),
             "value": text,
         }
 
@@ -126,12 +150,14 @@ class MultiFilterManager(QWidget):
         self.setVisible(False)
 
         self.summary_label = CaptionLabel(self)
-        self.clear_btn = TransparentPushButton(FluentIcon.CLEAR_SELECTION, "清除全部", self)
-        self.close_btn = TransparentPushButton(FluentIcon.UP, "收起", self)
-        self.clear_btn.setToolTip(self.tr("清除全部筛选条件"))
-        self.close_btn.setToolTip(self.tr("收起筛选面板"))
-        self.clear_btn.setAccessibleName(self.tr("清除全部筛选条件"))
-        self.close_btn.setAccessibleName(self.tr("收起筛选面板"))
+        self.clear_btn = TransparentPushButton(
+            FluentIcon.CLEAR_SELECTION, self.tr("Clear all"), self
+        )
+        self.close_btn = TransparentPushButton(FluentIcon.UP, self.tr("Collapse"), self)
+        self.clear_btn.setToolTip(self.tr("Clear every filter condition"))
+        self.close_btn.setToolTip(self.tr("Collapse the filter panel"))
+        self.clear_btn.setAccessibleName(self.tr("Clear every filter condition"))
+        self.close_btn.setAccessibleName(self.tr("Collapse the filter panel"))
 
     def __init_layout(self):
         root_layout = QVBoxLayout(self)
@@ -256,7 +282,7 @@ class MultiFilterManager(QWidget):
 
     def _update_summary(self) -> None:
         count = self.active_condition_count()
-        self.summary_label.setText(self.tr("{} 个有效条件").format(count))
+        self.summary_label.setText(self.tr("{} active condition(s)").format(count))
         self.clear_btn.setEnabled(count > 0 or len(self._rows()) > 1)
 
     @Slot()

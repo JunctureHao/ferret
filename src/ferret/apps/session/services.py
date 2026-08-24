@@ -8,6 +8,8 @@ from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
+from PySide6.QtCore import QCoreApplication
+
 from ferret.apps.session.models import SessionMeta, SessionSource
 from ferret.core.mitm import Flow, FlowFile, HTTPFlow
 
@@ -15,11 +17,25 @@ from ferret.core.mitm import Flow, FlowFile, HTTPFlow
 def normalize_session_name(value: str) -> str:
     name = " ".join(value.strip().split())
     if not name:
-        raise ValueError("会话名称不能为空")
+        raise ValueError(
+            QCoreApplication.translate(
+                "SessionRepository", "The session name cannot be empty"
+            )
+        )
     if len(name) > 80:
-        raise ValueError("会话名称不能超过 80 个字符")
+        raise ValueError(
+            QCoreApplication.translate(
+                "SessionRepository",
+                "The session name cannot be longer than 80 characters",
+            )
+        )
     if any(char in name for char in '<>:"/\\|?*'):
-        raise ValueError("会话名称包含文件名不允许的字符")
+        raise ValueError(
+            QCoreApplication.translate(
+                "SessionRepository",
+                "The session name holds characters a file name cannot hold",
+            )
+        )
     return name
 
 
@@ -52,7 +68,9 @@ class SessionRepository:
     def _read_http(path: Path) -> list[HTTPFlow]:
         return [f for f in FlowFile.read_valid_prefix(path) if isinstance(f, HTTPFlow)]
 
-    def _meta(self, path: Path, source: SessionSource = SessionSource.CAPTURE) -> SessionMeta:
+    def _meta(
+        self, path: Path, source: SessionSource = SessionSource.CAPTURE
+    ) -> SessionMeta:
         stat = path.stat()
         modified = datetime.fromtimestamp(stat.st_mtime).astimezone()
         created = datetime.fromtimestamp(stat.st_ctime).astimezone()
@@ -86,11 +104,24 @@ class SessionRepository:
     def import_file(self, source_path: Path, name: str | None = None) -> SessionMeta:
         source_path = Path(source_path)
         if not source_path.exists():
-            raise FileNotFoundError(f"源文件不存在: {source_path}")
+            raise FileNotFoundError(
+                QCoreApplication.translate(
+                    "SessionRepository", "Source file not found: {}"
+                ).format(source_path)
+            )
         if source_path.resolve().parent == self.root.resolve():
-            raise ValueError("不能导入会话目录中的内部文件")
+            raise ValueError(
+                QCoreApplication.translate(
+                    "SessionRepository",
+                    "Files inside the session folder cannot be imported",
+                )
+            )
         if not self._read_http(source_path):
-            raise ValueError("该文件中没有可导入的 HTTP 流量")
+            raise ValueError(
+                QCoreApplication.translate(
+                    "SessionRepository", "This file holds no importable HTTP traffic"
+                )
+            )
         stem = normalize_session_name(name or source_path.stem)
         destination = self._unique_path(stem)
         shutil.copy2(source_path, destination)
@@ -111,19 +142,31 @@ class SessionRepository:
     def get(self, session_id: str) -> SessionMeta:
         path = self._path(session_id)
         if not path.exists():
-            raise FileNotFoundError(f"会话不存在: {session_id}")
+            raise FileNotFoundError(
+                QCoreApplication.translate(
+                    "SessionRepository", "Session not found: {}"
+                ).format(session_id)
+            )
         return self._meta(path)
 
     def load_flows(self, session_id: str) -> list[HTTPFlow]:
         path = self._path(session_id)
         if not path.exists():
-            raise FileNotFoundError(f"会话文件不存在: {session_id}")
+            raise FileNotFoundError(
+                QCoreApplication.translate(
+                    "SessionRepository", "Session file not found: {}"
+                ).format(session_id)
+            )
         return self._read_http(path)
 
     def rename(self, session_id: str, name: str) -> SessionMeta:
         source = self._path(session_id)
         if not source.exists():
-            raise FileNotFoundError(f"会话不存在: {session_id}")
+            raise FileNotFoundError(
+                QCoreApplication.translate(
+                    "SessionRepository", "Session not found: {}"
+                ).format(session_id)
+            )
         destination = self._unique_path(normalize_session_name(name))
         source.rename(destination)
         return self._meta(destination)
@@ -136,7 +179,11 @@ class SessionRepository:
     def export(self, session_id: str, destination: Path) -> None:
         source = self._path(session_id)
         if not source.exists():
-            raise FileNotFoundError(f"会话文件不存在: {session_id}")
+            raise FileNotFoundError(
+                QCoreApplication.translate(
+                    "SessionRepository", "Session file not found: {}"
+                ).format(session_id)
+            )
         destination = Path(destination)
         tmp = destination.with_suffix(".flow.tmp")
         try:

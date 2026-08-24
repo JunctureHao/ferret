@@ -1,32 +1,62 @@
 """证书页的展示模型：把 core 的 `CaInfo` / `TrustState` 翻成界面文案。
 
-不含 Qt。这里只负责「数据 → 字符串」，图标与按钮由 `views.py` 决定。
+只碰 `QtCore` 的翻译接口，不碰控件。这里只负责「数据 → 字符串」，图标与按钮由
+`views.py` 决定。
+
+界面文案的源语言是英文，中文来自 `zh_CN.qm`。模块级的两张表因此只做标记不求值 ——
+`core/application.py` 顶层就 import 了 `MainWindow`，模块级求值赶在 `_init_i18n()`
+安装翻译器之前，译文会永久冻结成英文。求值放在 `title` / `detail` 里。
 """
 
 from dataclasses import dataclass
 from datetime import datetime
 
+from PySide6.QtCore import QCoreApplication
+
 from ferret.core.mitm import CaInfo, TrustState
+from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 STATE_TITLES: dict[TrustState, str] = {
-    TrustState.MISSING: "尚未生成 CA 证书",
-    TrustState.ABSENT: "证书未安装",
-    TrustState.TRUSTED: "证书已安装",
-    TrustState.STALE: "系统信任的是旧证书",
-    TrustState.UNAVAILABLE: "无法检测安装状态",
+    TrustState.MISSING: QT_TRANSLATE_NOOP("CertificateState", "No CA certificate yet"),
+    TrustState.ABSENT: QT_TRANSLATE_NOOP(
+        "CertificateState", "Certificate not installed"
+    ),
+    TrustState.TRUSTED: QT_TRANSLATE_NOOP("CertificateState", "Certificate installed"),
+    TrustState.STALE: QT_TRANSLATE_NOOP(
+        "CertificateState", "The system trusts an older certificate"
+    ),
+    TrustState.UNAVAILABLE: QT_TRANSLATE_NOOP(
+        "CertificateState", "Cannot detect the install state"
+    ),
 }
 
 # STALE 是最容易踩的坑：界面若只按名字判定就会显示「已安装」，
 # 但系统里那张旧 CA 和现在的私钥对不上，HTTPS 照样解密失败。
 STATE_DETAILS: dict[TrustState, str] = {
-    TrustState.MISSING: "点击安装会自动生成一套 CA 证书并写入系统信任库。",
-    TrustState.ABSENT: "解密 HTTPS 流量前，需要把本机 CA 证书装进系统受信任的根证书。",
-    TrustState.TRUSTED: "系统受信任的根证书里就是当前这张 CA，可以正常解密 HTTPS。",
-    TrustState.STALE: (
-        "系统里存的是同名的旧 CA，与当前证书不匹配，HTTPS 仍会报证书错误。"
-        "重新安装即可覆盖。"
+    TrustState.MISSING: QT_TRANSLATE_NOOP(
+        "CertificateState",
+        "Installing generates a CA certificate and writes it into the system trust store.",
     ),
-    TrustState.UNAVAILABLE: "当前系统上找不到 certutil 命令，请手动导入证书文件。",
+    TrustState.ABSENT: QT_TRANSLATE_NOOP(
+        "CertificateState",
+        "Install this machine's CA certificate into the system trusted roots before "
+        "decrypting HTTPS traffic.",
+    ),
+    TrustState.TRUSTED: QT_TRANSLATE_NOOP(
+        "CertificateState",
+        "The system trusted roots hold this exact CA, so HTTPS decrypts normally.",
+    ),
+    TrustState.STALE: QT_TRANSLATE_NOOP(
+        "CertificateState",
+        "The system holds an older CA with the same name that does not match the "
+        "current certificate, so HTTPS still reports certificate errors. "
+        "Reinstalling overwrites it.",
+    ),
+    TrustState.UNAVAILABLE: QT_TRANSLATE_NOOP(
+        "CertificateState",
+        "The certutil command is missing on this system; import the certificate file "
+        "manually.",
+    ),
 }
 
 _INSTALLABLE = (TrustState.MISSING, TrustState.ABSENT, TrustState.STALE)
@@ -42,16 +72,24 @@ class CertificateState:
 
     @property
     def title(self) -> str:
-        return STATE_TITLES[self.trust]
+        return QCoreApplication.translate("CertificateState", STATE_TITLES[self.trust])
 
     @property
     def detail(self) -> str:
+        translate = QCoreApplication.translate
         if self.trust is TrustState.TRUSTED and self.info is not None:
             if self.info.expired:
-                return "证书已过期，请重新生成后再安装。"
+                return translate(
+                    "CertificateState",
+                    "The certificate has expired; regenerate it before installing.",
+                )
             if self.info.days_remaining < 30:
-                return f"证书已安装，但只剩 {self.info.days_remaining} 天有效期。"
-        return STATE_DETAILS[self.trust]
+                # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
+                return translate(
+                    "CertificateState",
+                    "Certificate installed, but only {} day(s) of validity remain.",
+                ).format(self.info.days_remaining)
+        return translate("CertificateState", STATE_DETAILS[self.trust])
 
     @property
     def can_install(self) -> bool:
@@ -82,24 +120,43 @@ def format_fingerprint(hex_digest: str) -> str:
 
 
 def _validity(info: CaInfo) -> str:
-    days = info.days_remaining
+    translate = QCoreApplication.translate
     span = f"{format_time(info.not_before)} ~ {format_time(info.not_after)}"
     if info.expired:
-        return f"{span}（已过期）"
-    return f"{span}（剩余 {days} 天）"
+        return translate("CertificateInfo", "{} (expired)").format(span)
+    return translate("CertificateInfo", "{} ({} day(s) left)").format(
+        span, info.days_remaining
+    )
 
 
 def info_rows(info: CaInfo) -> list[tuple[str, str]]:
     """详情卡的字段表。全部取自 mitmproxy `certs.Cert` 的现成字段。"""
+    translate = QCoreApplication.translate
+    issuer = info.issuer
+    if info.self_signed:
+        issuer = translate("CertificateInfo", "{} (self-signed)").format(issuer)
     return [
-        ("通用名称", info.common_name or "-"),
-        ("组织", info.organization or "-"),
-        ("使用者", info.subject),
-        ("颁发者", info.issuer + ("（自签名）" if info.self_signed else "")),
-        ("序列号", info.serial_hex),
-        ("SHA-256 指纹", format_fingerprint(info.fingerprint_sha256)),
-        ("有效期", _validity(info)),
-        ("密钥", f"{info.key_type} {info.key_bits} 位"),
-        ("证书类型", "根 CA" if info.is_ca else "非 CA 证书"),
-        ("文件位置", str(info.path)),
+        (translate("CertificateInfo", "Common name"), info.common_name or "-"),
+        (translate("CertificateInfo", "Organization"), info.organization or "-"),
+        (translate("CertificateInfo", "Subject"), info.subject),
+        (translate("CertificateInfo", "Issuer"), issuer),
+        (translate("CertificateInfo", "Serial number"), info.serial_hex),
+        (
+            translate("CertificateInfo", "SHA-256 fingerprint"),
+            format_fingerprint(info.fingerprint_sha256),
+        ),
+        (translate("CertificateInfo", "Validity"), _validity(info)),
+        (
+            translate("CertificateInfo", "Key"),
+            translate("CertificateInfo", "{} {} bits").format(
+                info.key_type, info.key_bits
+            ),
+        ),
+        (
+            translate("CertificateInfo", "Certificate type"),
+            translate("CertificateInfo", "Root CA")
+            if info.is_ca
+            else translate("CertificateInfo", "Not a CA certificate"),
+        ),
+        (translate("CertificateInfo", "File location"), str(info.path)),
     ]

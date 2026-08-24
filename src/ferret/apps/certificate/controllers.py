@@ -64,27 +64,27 @@ class CertificateController(QObject):
     # --- 对外动作 ---
 
     def refresh(self) -> None:
-        self._run(self._snapshot, fail_title=self.tr("检测失败"), recover=False)
+        self._run(self._snapshot, fail_title=self.tr("Detection failed"), recover=False)
 
     def install(self) -> None:
         self._run(
             self._install,
-            fail_title=self.tr("安装失败"),
-            message=self.tr("证书已安装到系统信任库"),
+            fail_title=self.tr("Install failed"),
+            message=self.tr("Certificate installed into the system trust store"),
         )
 
     def uninstall(self) -> None:
         self._run(
             self._uninstall,
-            fail_title=self.tr("卸载失败"),
-            message=self.tr("证书已从系统信任库移除"),
+            fail_title=self.tr("Uninstall failed"),
+            message=self.tr("Certificate removed from the system trust store"),
         )
 
     def regenerate(self) -> None:
         self._run(
             self._regenerate,
-            fail_title=self.tr("重新生成失败"),
-            message=self.tr("已重新生成 CA 证书，请重新安装"),
+            fail_title=self.tr("Regeneration failed"),
+            message=self.tr("CA certificate regenerated; install it again"),
             after=self._reload_store,
         )
 
@@ -92,13 +92,13 @@ class CertificateController(QObject):
         try:
             fmt = export_format(key)
         except CertificateError as exc:
-            self.operation_failed.emit(self.tr("导出失败"), str(exc))
+            self.operation_failed.emit(self.tr("Export failed"), str(exc))
             return
         self._run(
             self._service.export,
             fmt,
             target,
-            fail_title=self.tr("导出失败"),
+            fail_title=self.tr("Export failed"),
             on_success=self._on_exported,
         )
 
@@ -143,7 +143,7 @@ class CertificateController(QObject):
 
     def _on_exported(self, path: object) -> None:
         self.exported.emit(path)
-        self.operation_succeeded.emit(self.tr("已导出到 {}").format(path))
+        self.operation_succeeded.emit(self.tr("Exported to {}").format(path))
 
     def _reload_store(self) -> None:
         """让正在跑的内核换用新 CA。失败只记日志：下次启动自然会读到新证书。"""

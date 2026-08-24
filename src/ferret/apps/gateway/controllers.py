@@ -78,9 +78,9 @@ class GatewayController(QObject):
             # 等价物，只能丢弃 —— 但绝不能悄悄丢。
             log.warning("%d 条按 URL 匹配的旧屏蔽规则无法迁移，已丢弃", dropped)
             self.pending_notice = (
-                self.tr("部分旧屏蔽规则已丢弃"),
+                self.tr("Some old block rules were dropped"),
                 self.tr(
-                    "{} 条按 URL 匹配的规则无法迁移：网关只按主机和方法匹配"
+                    "{} rule(s) matching on the URL cannot be migrated: the gateway only matches host and method."
                 ).format(dropped),
             )
         return rules
@@ -100,21 +100,23 @@ class GatewayController(QObject):
         return None
 
     def add_rule(self, rule: GatewayRule) -> bool:
-        return self._commit([*self._rules, rule], self.tr("已添加网关规则"))
+        return self._commit([*self._rules, rule], self.tr("Gateway rule added"))
 
     def update_rule(self, index: int, rule: GatewayRule) -> bool:
         if not (0 <= index < len(self._rules)):
             return False
         rules = list(self._rules)
         rules[index] = rule
-        return self._commit(rules, self.tr("已更新网关规则"))
+        return self._commit(rules, self.tr("Gateway rule updated"))
 
     def remove_rules(self, indexes: list[int]) -> bool:
         dropped = {i for i in indexes if 0 <= i < len(self._rules)}
         if not dropped:
             return False
         rules = [r for i, r in enumerate(self._rules) if i not in dropped]
-        return self._commit(rules, self.tr("已删除 {} 条网关规则").format(len(dropped)))
+        return self._commit(
+            rules, self.tr("Deleted {} gateway rule(s)").format(len(dropped))
+        )
 
     def set_enabled(self, index: int, enabled: bool) -> bool:
         rule = self.rule_at(index)
@@ -139,7 +141,7 @@ class GatewayController(QObject):
         host = (host or "").strip()
         if not host:
             self.operation_failed.emit(
-                self.tr("无法屏蔽"), self.tr("该流量没有可用的主机名")
+                self.tr("Cannot block"), self.tr("This flow has no usable host name.")
             )
             return False
         rule = GatewayRule(
@@ -156,11 +158,11 @@ class GatewayController(QObject):
                 and existing.value.strip() == host
             ):
                 self.operation_failed.emit(
-                    self.tr("无需重复添加"),
-                    self.tr("{} 已有对应的网关规则").format(host),
+                    self.tr("Already there"),
+                    self.tr("{} already has a matching gateway rule.").format(host),
                 )
                 return False
-        return self._commit([*self._rules, rule], self.tr("已屏蔽 {}").format(host))
+        return self._commit([*self._rules, rule], self.tr("Blocked {}").format(host))
 
     def set_gateway_enabled(self, enabled: bool) -> bool:
         """Flip the master switch. 关掉时内核会把挂起中的流量一并放行。"""
@@ -170,13 +172,15 @@ class GatewayController(QObject):
             self._mitm.set_gateway_enabled(enabled)
         except (ValueError, RuntimeError, TimeoutError) as exc:
             self.enabled_changed.emit(self._enabled)
-            self.operation_failed.emit(self.tr("总开关未生效"), str(exc))
+            self.operation_failed.emit(
+                self.tr("The master switch did not take effect"), str(exc)
+            )
             return False
         self._enabled = enabled
         CONFIG.set(CONFIG.gateway_enabled, enabled)
         self.enabled_changed.emit(enabled)
         self.operation_succeeded.emit(
-            self.tr("网关已开启") if enabled else self.tr("网关已关闭")
+            self.tr("Gateway on") if enabled else self.tr("Gateway off")
         )
         return True
 
@@ -187,7 +191,9 @@ class GatewayController(QObject):
         except (ValueError, RuntimeError, TimeoutError) as exc:
             self._rules = previous
             self.rules_changed.emit(list(previous))
-            self.operation_failed.emit(self.tr("规则未生效"), str(exc))
+            self.operation_failed.emit(
+                self.tr("The rules did not take effect"), str(exc)
+            )
             return False
         self._rules = rules
         # QConfig.set 开头会比较 item.value == value，必须传新 list 才会落盘。

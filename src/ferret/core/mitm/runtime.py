@@ -10,7 +10,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import StrEnum
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import Options, OptionsError, View, parse_filter
@@ -19,6 +19,7 @@ from ferret.core.mitm.gateway import (
     GatewayRuleSet,
     gateway_option_updates,
 )
+from ferret.core.mitm.intercept import InterceptRule, intercept_option_updates
 from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.rewrite import RewriteRule, rewrite_option_updates
 from ferret.core.network import LOOPBACK_HOST, normalize_listen_host
@@ -61,7 +62,11 @@ class UiBridgeAddon:
 
     def running(self) -> None:
         if not self._master.proxyserver.listen_addrs():
-            raise RuntimeError("代理端口监听失败")
+            raise RuntimeError(
+                QCoreApplication.translate(
+                    "MitmRuntime", "The proxy could not start listening on its port"
+                )
+            )
         self._bridge._master_running.emit(self._generation)
 
     def done(self) -> None:
@@ -118,6 +123,7 @@ class _MitmThread(QThread):
         self._apply_gateway_rules(master)
         self._apply_block_options(master)
         self._apply_rewrite_rules(master)
+        self._apply_intercept_rules(master)
         self.master = master
         self.runtime._master_created.emit(self.generation, master)
         if self.stop_requested:
@@ -166,6 +172,25 @@ class _MitmThread(QThread):
         except (ValueError, OptionsError) as exc:
             log.warning("重写规则无法应用，已忽略: %s", exc)
 
+    def _apply_intercept_rules(self, master: FerretMaster) -> None:
+        """Seed the breakpoint option before serving traffic (on the mitm loop).
+
+        拦截变更回调也在这里接，理由与 `_apply_gateway_rules` 里的挂起回调逐字相同：
+        `InterceptState` 只在 mitm 线程上被读写，回调本身只做一次 `Signal.emit`。
+        ``intercept`` 由 Intercept.load 注册，构造 Options 时还不存在，同样只能等
+        Master 建好之后再写。
+        """
+        master.intercept_state.on_intercept_changed = self.runtime._on_flow_intercepted
+        try:
+            master.options.update(
+                **intercept_option_updates(
+                    self.runtime.intercept_rules,
+                    enabled=self.runtime.intercept_enabled,
+                )
+            )
+        except (ValueError, OptionsError) as exc:
+            log.warning("断点规则无法应用，已忽略: %s", exc)
+
     def _ensure_port_available(self) -> None:
         if self.runtime.listen_port == 0:
             return
@@ -173,7 +198,12 @@ class _MitmThread(QThread):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.bind((self.runtime.listen_host, self.runtime.listen_port))
         except OSError as exc:
-            raise RuntimeError(f"端口 {self.runtime.listen_port} 已被占用") from exc
+            # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
+            raise RuntimeError(
+                QCoreApplication.translate(
+                    "MitmRuntime", "Port {} is already in use"
+                ).format(self.runtime.listen_port)
+            ) from exc
 
     def request_shutdown(self) -> None:
         self.stop_requested = True
@@ -200,6 +230,7 @@ class MitmRuntime(QObject):
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
     flow_suspended = Signal(object)
+    flow_intercepted = Signal(object)
 
     _master_created = Signal(int, object)
     _master_running = Signal(int)
@@ -230,6 +261,11 @@ class MitmRuntime(QObject):
         self.gateway_rules: list[GatewayRule] = []
         self.gateway_enabled = True
         self.rewrite_rules: list[RewriteRule] = []
+        self.intercept_rules: list[InterceptRule] = []
+        # 断点默认**关**：拦截会把客户端连接一直钉住等人处理，一启动就生效等于用户
+        # 还没打开界面、流量就先卡住了。开关由界面显式打开（见 core/settings.py 的
+        # intercept_enabled）。
+        self.intercept_enabled = False
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -295,7 +331,12 @@ class MitmRuntime(QObject):
         if listen_port is not None:
             self.listen_port = listen_port
         if not self.stop():
-            raise RuntimeError("mitmproxy 内核停止超时，无法重启")
+            raise RuntimeError(
+                QCoreApplication.translate(
+                    "MitmRuntime",
+                    "The mitmproxy core did not stop in time, so it cannot restart",
+                )
+            )
         self.start()
 
     def apply_gateway_rules(
@@ -388,6 +429,48 @@ class MitmRuntime(QObject):
             self.rewrite_rules = previous
             raise ValueError(str(exc)) from exc
 
+    def apply_intercept_rules(
+        self,
+        rules: list[InterceptRule] | None = None,
+        *,
+        enabled: bool | None = None,
+    ) -> None:
+        """Store breakpoint rules and push them to the Master when one is running.
+
+        与 `apply_rewrite_rules` 同构：表达式在提交任何东西之前就编译并过一遍原生
+        解析器。总开关关掉时下发的是 ``intercept=None``，所以「删光规则」和「关掉
+        开关」走的是同一条清空路径。
+
+        规则变更**不**顺带放行已拦下的流量（和网关 `set_rules` 刻意相反）：网关的
+        挂起是规则的副产物，规则一改旧判定就不算数了；断点拦下的这条流量用户正在
+        编辑器里改，改到一半去动规则列表不该把它冲掉。放行始终是显式动作。
+        """
+        previous = (self.intercept_rules, self.intercept_enabled)
+        candidate = self.intercept_rules if rules is None else list(rules)
+        wanted = self.intercept_enabled if enabled is None else enabled
+        updates = intercept_option_updates(candidate, enabled=wanted)
+        self.intercept_rules, self.intercept_enabled = candidate, wanted
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(lambda: master.options.update(**updates))
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            self.intercept_rules, self.intercept_enabled = previous
+            raise ValueError(str(exc)) from exc
+
+    def release_intercepted(self) -> int:
+        """Let every breakpoint-held flow go; 返回放行条数（内核没跑就是 0）。
+
+        只管断点这本账。网关挂起的那批走 `release_suspended` —— 两边各记一本，
+        谁拦的谁放（见 `InterceptState.arm` 对 `flow.intercepted` 的退让）。
+        """
+        master = self._master
+        if not self.is_running or master is None:
+            return 0
+        return int(self.call(lambda: master.intercept_state.release_all()))
+
     def apply_block_options(
         self, *, block_global: bool | None = None, block_private: bool | None = None
     ) -> None:
@@ -441,7 +524,11 @@ class MitmRuntime(QObject):
         master = self._master
         loop = thread.loop if thread is not None else None
         if not self.is_running or master is None or loop is None:
-            raise RuntimeError("mitmproxy 内核未运行")
+            raise RuntimeError(
+                QCoreApplication.translate(
+                    "MitmRuntime", "The mitmproxy core is not running"
+                )
+            )
         try:
             current_loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -460,7 +547,11 @@ class MitmRuntime(QObject):
             return future.result(timeout=timeout)
         except FutureTimeoutError as exc:
             future.cancel()
-            raise TimeoutError("mitmproxy 任务执行超时") from exc
+            raise TimeoutError(
+                QCoreApplication.translate(
+                    "MitmRuntime", "The mitmproxy task timed out"
+                )
+            ) from exc
 
     def _on_flow_suspended(self, flow: Any) -> None:
         """Republish a suspend/release from the mitm thread as a Qt signal.
@@ -470,6 +561,15 @@ class MitmRuntime(QObject):
         永远不上屏。跨线程 emit 走 Qt 的队列连接，和 `UiBridgeAddon` 同一条路子。
         """
         self.flow_suspended.emit(flow)
+
+    def _on_flow_intercepted(self, flow: Any) -> None:
+        """Republish a breakpoint hold/release from the mitm thread as a Qt signal.
+
+        与 `_on_flow_suspended` 同一个理由：请求期拦截发生在 `request` 钩子，而
+        `View` 只在 `requestheaders` / `response` / `error` 上更新行，不自己补发
+        一次「已拦截」就永远不上屏。
+        """
+        self.flow_intercepted.emit(flow)
 
     def _set_state(self, state: MitmRuntimeState) -> None:
         if state == self._state:
@@ -502,6 +602,10 @@ class MitmRuntime(QObject):
             self.apply_rewrite_rules()
         except (RuntimeError, TimeoutError, ValueError) as exc:
             log.warning("重写规则下发失败: %s", exc)
+        try:
+            self.apply_intercept_rules()
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            log.warning("断点规则下发失败: %s", exc)
         self.ready.emit(self.view)
 
     def _on_failed(self, generation: int, message: str) -> None:

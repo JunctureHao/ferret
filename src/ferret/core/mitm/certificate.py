@@ -10,7 +10,9 @@
 - **导出**：`Cert.to_pem()`（PEM），`.cer` / `.p12` 直接取 `create_store` 已经写好的文件。
 - **安装 / 卸载**：mitmproxy 完全不管系统信任库，只能走系统命令（Windows `certutil`）。
 
-无 Qt：所有方法都是同步阻塞的，调用方负责挪到后台线程（见 `apps/certificate`）。
+只用 QtCore 的 `QCoreApplication.translate`、不碰控件：本模块抛出的异常消息会被
+`apps/certificate` 原样显示给用户，所以文案必须过翻译目录。所有方法都是同步阻塞的，
+调用方负责挪到后台线程（见 `apps/certificate`）。
 """
 
 from __future__ import annotations
@@ -22,8 +24,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from PySide6.QtCore import QCoreApplication
+
 from ferret.core.mitm.bindings import KEY_SIZE, certs
 from ferret.core.settings import APP_NAME, get_certs_dir
+from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 # certs.CertStore.create_store 一次写出的全部产物，重新生成时必须整组删掉，
 # 只删证书不删 -ca.pem 会让 from_store 直接复用旧私钥、序列号不变。
@@ -96,28 +101,40 @@ class CertExportFormat:
     from_pem_api: bool = False
 
 
+# 三段文案只存标记：这张表是模块级常量，求值赶在翻译器安装之前（`core/application.py`
+# 顶层就 import 了主窗口），译文会永久冻结成英文。求值在用的地方做 —— 见
+# `apps/certificate/views.py` 的 `_export_texts`。
 EXPORT_FORMATS: tuple[CertExportFormat, ...] = (
     CertExportFormat(
         key="pem",
         filename=CA_CERT_PEM,
-        label="PEM 证书 (.pem)",
-        hint="桌面浏览器、curl、OpenSSL 通用格式",
-        file_filter="PEM 证书 (*.pem)",
+        label=QT_TRANSLATE_NOOP("CertExportFormat", "PEM certificate (.pem)"),
+        hint=QT_TRANSLATE_NOOP(
+            "CertExportFormat", "Common format for desktop browsers, curl and OpenSSL"
+        ),
+        file_filter=QT_TRANSLATE_NOOP("CertExportFormat", "PEM certificate (*.pem)"),
         from_pem_api=True,
     ),
     CertExportFormat(
         key="cer",
         filename=CA_CERT_CER,
-        label="CER 证书 (.cer)",
-        hint="Android 设备导入用，内容与 PEM 相同",
-        file_filter="CER 证书 (*.cer)",
+        label=QT_TRANSLATE_NOOP("CertExportFormat", "CER certificate (.cer)"),
+        hint=QT_TRANSLATE_NOOP(
+            "CertExportFormat", "For importing on Android; same content as the PEM"
+        ),
+        file_filter=QT_TRANSLATE_NOOP("CertExportFormat", "CER certificate (*.cer)"),
     ),
     CertExportFormat(
         key="p12",
         filename=CA_CERT_P12,
-        label="PKCS#12 证书 (.p12)",
-        hint="Windows / iOS 设备导入用，不含私钥",
-        file_filter="PKCS#12 证书 (*.p12)",
+        label=QT_TRANSLATE_NOOP("CertExportFormat", "PKCS#12 certificate (.p12)"),
+        hint=QT_TRANSLATE_NOOP(
+            "CertExportFormat",
+            "For importing on Windows / iOS; does not contain the private key",
+        ),
+        file_filter=QT_TRANSLATE_NOOP(
+            "CertExportFormat", "PKCS#12 certificate (*.p12)"
+        ),
     ),
 )
 
@@ -126,7 +143,12 @@ def export_format(key: str) -> CertExportFormat:
     for fmt in EXPORT_FORMATS:
         if fmt.key == key:
             return fmt
-    raise CertificateError(f"未知的导出格式：{key}")
+    # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
+    raise CertificateError(
+        QCoreApplication.translate(
+            "CertificateService", "Unknown export format: {}"
+        ).format(key)
+    )
 
 
 def _join_name(pairs: Sequence[tuple[str, str]]) -> str:
@@ -203,7 +225,12 @@ def run_certutil(args: Sequence[str]) -> int:
             check=False,
         )
     except OSError as exc:  # FileNotFoundError 也是 OSError
-        raise CertutilUnavailable("当前系统上找不到 certutil 命令") from exc
+        raise CertutilUnavailable(
+            QCoreApplication.translate(
+                "CertificateService",
+                "The certutil command was not found on this system",
+            )
+        ) from exc
     return completed.returncode
 
 
@@ -249,10 +276,19 @@ class SystemCertificateService:
         try:
             certs.CertStore.from_store(directory, APP_NAME, KEY_SIZE)
         except (OSError, ValueError) as exc:
-            raise CertificateError(f"CA 证书生成失败：{exc}") from exc
+            raise CertificateError(
+                QCoreApplication.translate(
+                    "CertificateService", "Could not generate the CA certificate: {}"
+                ).format(exc)
+            ) from exc
         info = self.load()
         if info is None:
-            raise CertificateError(f"CA 证书生成后仍读不到 {self.cert_path}")
+            raise CertificateError(
+                QCoreApplication.translate(
+                    "CertificateService",
+                    "The CA certificate was generated but {} still cannot be read",
+                ).format(self.cert_path)
+            )
         return info
 
     def regenerate(self) -> CaInfo:
@@ -266,7 +302,12 @@ class SystemCertificateService:
             try:
                 path.unlink(missing_ok=True)
             except OSError as exc:
-                raise CertificateError(f"无法删除旧证书 {path.name}：{exc}") from exc
+                raise CertificateError(
+                    QCoreApplication.translate(
+                        "CertificateService",
+                        "Could not delete the old certificate {}: {}",
+                    ).format(path.name, exc)
+                ) from exc
         return self.ensure()
 
     # --- 查看（原生字段） ---
@@ -286,7 +327,11 @@ class SystemCertificateService:
     def require(self) -> CaInfo:
         info = self.load()
         if info is None:
-            raise CertificateError("尚未生成 CA 证书")
+            raise CertificateError(
+                QCoreApplication.translate(
+                    "CertificateService", "No CA certificate has been generated yet"
+                )
+            )
         return info
 
     # --- 导出（原生 to_pem / create_store 的产物） ---
@@ -309,7 +354,11 @@ class SystemCertificateService:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         except (OSError, ValueError) as exc:
-            raise CertificateError(f"导出失败：{exc}") from exc
+            raise CertificateError(
+                QCoreApplication.translate(
+                    "CertificateService", "Export failed: {}"
+                ).format(exc)
+            ) from exc
         return target
 
     # --- 系统信任库（certutil） ---
@@ -318,14 +367,19 @@ class SystemCertificateService:
         """信任库里是否存在匹配 cert_id 的证书。CertId 可以是序列号或 CN。"""
         return self._runner(["-store", "-user", _ROOT_STORE, cert_id]) == 0
 
-    def _checked(self, args: Sequence[str], action: str) -> None:
+    def _checked(self, args: Sequence[str], *, cancelled: str, failed: str) -> None:
+        """两句文案由调用方整句给出。
+
+        不接「动作名」再去拼「{动作}失败」：别的语言语序不同，拼出来的句子没法翻。
+        `failed` 是个带一个 `{}` 的模板，占位处填 certutil 的退出码。
+        """
         # Windows 退出码是 DWORD，按无符号看：0x800704c7 之类的高位码
         # 在某些环境里会以负数递过来。
         code = self._runner(args) & 0xFFFFFFFF
         if code == _ERROR_CANCELLED:
-            raise CertificateCancelled(f"{action}已取消")
+            raise CertificateCancelled(cancelled)
         if code != 0:
-            raise CertificateError(f"{action}失败（certutil 退出码 0x{code:08x}）")
+            raise CertificateError(failed.format(f"0x{code:08x}"))
 
     def trust_state(self) -> TrustState:
         """按**序列号**判定，而不是 CN 子串。
@@ -352,9 +406,14 @@ class SystemCertificateService:
         info = self.ensure()
         if self.trust_state() is TrustState.STALE:
             self.uninstall()
+        translate = QCoreApplication.translate
         self._checked(
             ["-addstore", "-user", _ROOT_STORE, str(self.cert_path)],
-            "安装证书",
+            cancelled=translate("CertificateService", "Certificate install cancelled"),
+            failed=translate(
+                "CertificateService",
+                "Could not install the certificate (certutil exit code {})",
+            ),
         )
         return info
 
@@ -364,16 +423,32 @@ class SystemCertificateService:
         `certutil -delstore` 一条都没删到时**也返回 0**（实测），所以不能拿它的
         退出码判断「删没删掉」，只能每轮先用 `-store` 查询复核。
         """
+        translate = QCoreApplication.translate
         removed = 0
         while self._query(APP_NAME):
             if removed >= _MAX_DELETE_ROUNDS:
                 raise CertificateError(
-                    "系统信任库中仍有残留证书，请手动检查 certmgr.msc"
+                    translate(
+                        "CertificateService",
+                        "Certificates are still left in the system trust store; "
+                        "check certmgr.msc by hand",
+                    )
                 )
             self._checked(
                 ["-delstore", "-user", _ROOT_STORE, APP_NAME],
-                "卸载证书",
+                cancelled=translate(
+                    "CertificateService", "Certificate removal cancelled"
+                ),
+                failed=translate(
+                    "CertificateService",
+                    "Could not remove the certificate (certutil exit code {})",
+                ),
             )
             removed += 1
         if not removed:
-            raise CertificateError(f"系统信任库中没有找到 {APP_NAME} 的 CA 证书")
+            raise CertificateError(
+                translate(
+                    "CertificateService",
+                    "No {} CA certificate was found in the system trust store",
+                ).format(APP_NAME)
+            )

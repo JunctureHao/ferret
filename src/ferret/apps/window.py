@@ -18,9 +18,12 @@ from ferret.apps.capture.controllers import CaptureState
 from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import CertificateInterface
-from ferret.apps.common.icon import BaseAction
+from ferret.apps.common.icon import BaseAction, BaseIcon
 from ferret.apps.gateway.controllers import GatewayController
 from ferret.apps.gateway.views import GatewayInterface
+from ferret.apps.intercept.controllers import InterceptController
+from ferret.apps.intercept.views import InterceptInterface
+from ferret.apps.intercept.window import InterceptWindow
 from ferret.apps.rewrite.controllers import RewriteController
 from ferret.apps.rewrite.views import RewriteInterface
 from ferret.apps.session.controllers import SessionController
@@ -47,7 +50,7 @@ class MainWindow(FluentWindow):
         self.sessions_interface = SessionsInterface(
             controller=self.session_controller, parent=self
         )
-        # 两个规则控制器都建在 runtime.start() 之前：构造时就把已存规则交给 facade，
+        # 三个规则控制器都建在 runtime.start() 之前：构造时就把已存规则交给 facade，
         # Master 起来时 _run_master 会在服务第一个请求前下发。
         self.gateway_controller = GatewayController(self, mitm=self.runtime.mitm)
         self.gateway_interface = GatewayInterface(
@@ -57,6 +60,14 @@ class MainWindow(FluentWindow):
         self.rewrite_interface = RewriteInterface(
             controller=self.rewrite_controller, parent=self
         )
+        self.intercept_controller = InterceptController(self, mitm=self.runtime.mitm)
+        self.intercept_interface = InterceptInterface(
+            controller=self.intercept_controller, parent=self
+        )
+        # 断点窗口是独立顶层窗口，构造时不能给 Qt 父对象（`qframelesswindow` 的
+        # `updateFrameless()` 不补 `Qt.Window`，给了父对象就退化成子控件），所以它的
+        # 生命周期就靠这个属性持着 —— 丢了引用窗口会被 GC 掉。
+        self.intercept_window = InterceptWindow(self.intercept_controller)
         self.certificate_controller = CertificateController(
             self, mitm=self.runtime.mitm
         )
@@ -88,29 +99,33 @@ class MainWindow(FluentWindow):
 
     def __init_navigation(self):
         self.addSubInterface(
-            self.captures_interface, FluentIcon.WIFI, self.tr("captures")
+            self.captures_interface, FluentIcon.WIFI, self.tr("Captures")
         )
 
         self.addSubInterface(
-            self.sessions_interface, FluentIcon.HISTORY, self.tr("sessions")
+            self.sessions_interface, FluentIcon.HISTORY, self.tr("Sessions")
         )
 
-        self.addSubInterface(self.gateway_interface, FluentIcon.VPN, self.tr("gateway"))
+        self.addSubInterface(self.gateway_interface, FluentIcon.VPN, self.tr("Gateway"))
 
         self.addSubInterface(
-            self.rewrite_interface, FluentIcon.PENCIL_INK, self.tr("rewrite")
+            self.rewrite_interface, FluentIcon.PENCIL_INK, self.tr("Rewrite")
+        )
+
+        self.addSubInterface(
+            self.intercept_interface, BaseIcon.BUG, self.tr("Intercept")
         )
 
         self.addSubInterface(
             self.certificate_interface,
             FluentIcon.CERTIFICATE,
-            self.tr("certificate"),
+            self.tr("Certificate"),
         )
 
         self.addSubInterface(
             self.settings_interface,
             FluentIcon.SETTING,
-            self.tr("settings"),
+            self.tr("Settings"),
             NavigationItemPosition.BOTTOM,
         )
 
@@ -124,6 +139,24 @@ class MainWindow(FluentWindow):
         # 由主窗口牵线，apps/capture 不必认识 apps/gateway。
         self.captures_interface.block_host_requested.connect(
             self.gateway_controller.add_host_rule
+        )
+        # 同上：断点页和断点窗口互不认识，两个方向都从这里接。
+        self.intercept_interface.queue_requested.connect(self.intercept_window.pop_up)
+        self.intercept_window.attention_requested.connect(self.__on_intercept_attention)
+
+    @Slot(int)
+    def __on_intercept_attention(self, count: int) -> None:
+        """断点刚攥住第一批流量，托盘再提醒一次。
+
+        窗口自己已经 show/raise/activateWindow 过了（边沿判定只在
+        `InterceptWindow._on_flows_changed` 里做一次），但主窗口最小化到托盘、或者
+        用户正在别的应用里全屏时，那次抢焦点未必看得见。
+        """
+        self.tray_icon.showMessage(
+            APP_NAME,
+            self.tr("Intercepted {} flow(s), waiting to be handled").format(count),
+            QIcon(":/icon"),
+            5000,
         )
 
     @Slot(object)
@@ -153,11 +186,19 @@ class MainWindow(FluentWindow):
         self.captures_interface.stop_capture()
         complete = self.runtime.shutdown()
         self._shutdown_complete = complete
+        if complete:
+            # hide 而不是 close：`closeEvent` 在队列非空时会弹确认框，而这里用户已经
+            # 决定退出了，再问一遍「挂着的怎么办」只是噪音 —— 内核马上停，挂起的连接
+            # 跟着断，这就是退出该有的语义（本轮刻意不做超时自动放行）。
+            self.intercept_window.hide()
         return complete
 
     def closeEvent(self, event):
         if CONFIG.get(CONFIG.minimize_to_tray):
             event.ignore()
+            # 断点窗口跟着一起收起来：主窗口都藏了还留一个飘在桌面上会很意外。挂起的
+            # 流量不会因此丢，从断点页的「拦截队列」还能把它叫回来。
+            self.intercept_window.hide()
             self.hide()
         else:
             if self.shutdown():
@@ -186,7 +227,7 @@ class SystemTray(QSystemTrayIcon):
     def __init_tray_menu(self):
         self.quit_action = BaseAction(
             icon=FluentIcon.POWER_BUTTON,
-            text=self.tr("退出"),
+            text=self.tr("Quit"),
             parent=self,
             triggered=self._on_quit,
         )
@@ -215,7 +256,7 @@ class PinButton(FluentTitleBarButton):
 
     def __init_widget(self):
         """初始化组件"""
-        self.setToolTip(self.tr("置顶"))
+        self.setToolTip(self.tr("Pin window"))
         self.installEventFilter(ToolTipFilter(self, 1000, ToolTipPosition.TOP))
 
     def __init_shortcut(self):
@@ -238,7 +279,7 @@ class PinButton(FluentTitleBarButton):
         """更新 UI"""
         if self._is_pinned:
             self.setIcon(FluentIcon.UNPIN)
-            self.setToolTip(self.tr("取消置顶") + f" ({self._shortcut})")
+            self.setToolTip(self.tr("Unpin window") + f" ({self._shortcut})")
         else:
             self.setIcon(FluentIcon.PIN)
-            self.setToolTip(self.tr("置顶") + f" ({self._shortcut})")
+            self.setToolTip(self.tr("Pin window") + f" ({self._shortcut})")

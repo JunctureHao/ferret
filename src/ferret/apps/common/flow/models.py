@@ -3,6 +3,7 @@ from typing import Any
 
 from PySide6.QtCore import (
     QAbstractTableModel,
+    QCoreApplication,
     QModelIndex,
     QObject,
     QPersistentModelIndex,
@@ -21,6 +22,7 @@ from ferret.core.mitm import (
     human,
 )
 from ferret.utils.http_parser import build_body
+from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 METHOD_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 STATUS_KIND_ROLE = int(Qt.ItemDataRole.UserRole) + 2
@@ -34,28 +36,64 @@ SORT_ROLE = int(Qt.ItemDataRole.UserRole) + 7
 # 不导 apps/gateway —— apps/common 不该认识具体页面。
 _SUSPEND_MARKS: frozenset[str] = frozenset(str(policy) for policy in SUSPEND_POLICIES)
 
+# 文案在这里只做标记、不求值 —— 模块级求值赶在翻译器安装之前（`core/application.py`
+# 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在 `gateway_note()` 里做。
 _GATEWAY_TOOLTIPS: dict[str, str] = {
-    str(GatewayPolicy.BLOCK): "（已被网关屏蔽）",
-    str(GatewayPolicy.BLOCK_OUT): "（已被网关屏蔽：请求没有发往服务器）",
-    str(GatewayPolicy.BLOCK_IN): "（已被网关屏蔽：响应没有转发给客户端）",
-    str(GatewayPolicy.SUSPEND_OUT): "（网关挂起中：请求没有发出）",
-    str(GatewayPolicy.SUSPEND_IN): "（网关挂起中：响应没有转发给客户端）",
+    str(GatewayPolicy.BLOCK): QT_TRANSLATE_NOOP(
+        "FlowTableModel", "blocked by the gateway"
+    ),
+    str(GatewayPolicy.BLOCK_OUT): QT_TRANSLATE_NOOP(
+        "FlowTableModel", "blocked by the gateway: the request never left"
+    ),
+    str(GatewayPolicy.BLOCK_IN): QT_TRANSLATE_NOOP(
+        "FlowTableModel",
+        "blocked by the gateway: the response never reached the client",
+    ),
+    str(GatewayPolicy.SUSPEND_OUT): QT_TRANSLATE_NOOP(
+        "FlowTableModel", "suspended by the gateway: the request has not been sent"
+    ),
+    str(GatewayPolicy.SUSPEND_IN): QT_TRANSLATE_NOOP(
+        "FlowTableModel",
+        "suspended by the gateway: the response is not being forwarded",
+    ),
 }
 
 
 def is_suspended(flow: HTTPFlow) -> bool:
-    """这条流量是否正被网关挂着。放行时 addon 会把标记摘掉，所以这是实时状态。"""
+    """这条流量此刻是否停着不动 —— 网关挂起或断点拦下都算。
+
+    两个来源都要认：网关放行时 addon 会把 metadata 标记摘掉，断点则由原生
+    `flow.intercepted` 表示（`resume()` 会清成 False），所以两边都是实时状态。
+    断点还会拦网关挂起以外的流量，只看 metadata 会让「拦截队列」里明明钉着的那条
+    在流量表里显示成「等待中」。
+    """
+    if flow.intercepted:
+        return True
     return flow.metadata.get(GATEWAY_METADATA_KEY) in _SUSPEND_MARKS
 
 
 def gateway_note(flow: HTTPFlow) -> str:
-    """Status 列的悬浮补充说明；没被网关动过就是空串。"""
+    """Status 列的悬浮补充说明；没被网关或断点动过就是空串。
+
+    返回的是**不带括号**的短句，加括号由调用点负责 —— 中文用全角括号、英文用半角，
+    早先把括号写进文案里，单独显示时还得 `strip("（）")` 把它抠掉，换个语言就漏。
+    """
+    translate = QCoreApplication.translate
     policy = flow.metadata.get(GATEWAY_METADATA_KEY)
     if policy:
-        return _GATEWAY_TOOLTIPS.get(policy, "（已被网关处理）")
+        # 网关的挂起标记比断点更具体（能说清是请求还是响应停住了），优先用它。
+        note = _GATEWAY_TOOLTIPS.get(policy)
+        if note is None:
+            return translate("FlowTableModel", "handled by the gateway")
+        return translate("FlowTableModel", note)
+    if flow.intercepted:
+        # 断点不写 metadata，只能问原生状态。
+        return translate("FlowTableModel", "held at a breakpoint, waiting for you")
     # blocklisted 是原生 BlockList addon 的标记。网关已经取代了它，只有从旧会话
     # 文件读回来的 flow 才会带（metadata 随 flow 一起存档）。
-    return "（已被屏蔽规则拦截）" if flow.metadata.get("blocklisted") else ""
+    if flow.metadata.get("blocklisted"):
+        return translate("FlowTableModel", "blocked by a blocklist rule")
+    return ""
 
 
 def flatten_multi(items) -> dict[str, str]:
@@ -159,11 +197,11 @@ class FlowTableModel(QAbstractTableModel):
                 # 挂起优先于响应码：挂起（入）时响应已经回来了，但客户端一个字节
                 # 都没拿到，显示 200 会骗人。真实码进悬浮提示。
                 if is_suspended(flow):
-                    return "挂起中"
+                    return self.tr("Suspended")
                 if flow.error:
                     return "Error"
                 if flow.response is None:
-                    return "等待中"
+                    return self.tr("Pending")
                 return flow.response.status_code
             if column_name == "Type":
                 return self._mime_label(self._mime(flow))
@@ -212,16 +250,17 @@ class FlowTableModel(QAbstractTableModel):
                 return flow.request.pretty_url
             if column_name == "Status":
                 note = gateway_note(flow)
+                suffix = f" ({note})" if note else ""
                 if flow.error:
                     msg = flow.error.msg if flow.error else "Flow error"
-                    return f"{msg}{note}"
+                    return f"{msg}{suffix}"
                 if flow.response:
                     status = f"{flow.response.status_code} {flow.response.reason}"
-                    return f"{status}{note}"
+                    return f"{status}{suffix}"
                 if note:
-                    return note.strip("（）")
+                    return note
             if column_name == "Type":
-                return self._mime(flow) or "未知内容类型"
+                return self._mime(flow) or self.tr("Unknown content type")
             if column_name == "Time":
                 return self._time_tooltip(flow)
 
@@ -359,7 +398,20 @@ class FlowTableModel(QAbstractTableModel):
             if end
             else "—"
         )
-        return f"开始：{start_text}\n结束：{end_text}\n耗时：{format_duration(cls._duration_ms(flow)) or '—'}"
+        # 标签单独取：lupdate 的 Python 解析器不往 f-string 里看，写成
+        # f"{translate(...)}: …" 这三条就一条都提不出来（实测填译文时才发现）。
+        translate = QCoreApplication.translate
+        started = translate("FlowTableModel", "Started")
+        ended = translate("FlowTableModel", "Ended")
+        elapsed = translate("FlowTableModel", "Elapsed")
+        duration_text = format_duration(cls._duration_ms(flow)) or "—"
+        return "\n".join(
+            (
+                f"{started}: {start_text}",
+                f"{ended}: {end_text}",
+                f"{elapsed}: {duration_text}",
+            )
+        )
 
     # ------------------------------------------------------------------
     # 数据变化处理（由 View 桥接信号驱动）
@@ -471,7 +523,9 @@ class FlowTableModel(QAbstractTableModel):
                     "req_time": flow.request.timestamp_start,
                     "req_timestamp_end": flow.request.timestamp_end,
                     "req_headers_size": len(str(flow.request.headers)),
-                    "Status Code": "等待中...",
+                    "Status Code": QCoreApplication.translate(
+                        "FlowTableModel", "Pending..."
+                    ),
                     "Keep Alive": keep_alive,
                     "Connection ID": flow.id,
                     "Connection Time": conn_time,
@@ -630,7 +684,7 @@ class FlowTableModel(QAbstractTableModel):
             try:
                 data["curl_command"] = FlowExporter.curl_command(flow)
             except Exception as e:  # noqa: BLE001
-                print(f"生成 cURL 命令失败: {e}")
+                print(f"curl command generation failed: {e}")
                 data["curl_command"] = f"Error generating curl command: {e}"
 
         return data

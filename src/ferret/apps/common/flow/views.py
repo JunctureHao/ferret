@@ -4,7 +4,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
 
-from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import (
+    QCoreApplication,
+    QModelIndex,
+    QPoint,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -51,6 +60,7 @@ from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.core.mitm import HTTPFlow, human
 from ferret.core.settings import CONFIG
+from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 FieldKey = str | Callable[[dict], str]
 
@@ -340,7 +350,7 @@ class FlowDataPanel(SimpleCardWidget):
         # 空
         self.empty_page = QWidget()
         self.empty_label = SubtitleLabel(self.empty_page)
-        self.empty_label.setText(self.tr("什么都没有"))
+        self.empty_label.setText(self.tr("Nothing to show"))
         self.empty_close_button = TransparentToolButton(self.empty_page)  # 空页面的 X
         self.empty_close_button.setIcon(FluentIcon.CLOSE)
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -388,8 +398,8 @@ class FlowDataPanel(SimpleCardWidget):
         )
         self.context_close_button.setFixedSize(32, 32)
         self.context_close_button.setIconSize(QSize(16, 16))
-        self.context_close_button.setToolTip(self.tr("关闭详情"))
-        self.context_close_button.setAccessibleName(self.tr("关闭详情"))
+        self.context_close_button.setToolTip(self.tr("Close details"))
+        self.context_close_button.setAccessibleName(self.tr("Close details"))
 
         self.__update_close_buttons()
 
@@ -481,7 +491,7 @@ class FlowDataPanel(SimpleCardWidget):
     def _update_context_bar(self, data: dict) -> None:
         method = str(data.get("Method", "—"))
         url = str(data.get("URL", "—"))
-        status = str(data.get("Status Code", "等待中"))
+        status = str(data.get("Status Code", self.tr("Pending")))
         duration = str(data.get("Duration", ""))
         self.context_method.setText(method)
         self.context_url.setText(url)
@@ -628,21 +638,21 @@ class FlowViewerPane(OrientationSplitter):
         self.table_stack.setCurrentWidget(self.empty_state)
         if total > 0:
             self.empty_state.set_text(
-                self.tr("没有匹配结果"),
-                self.tr("当前有 {} 个有效条件").format(filters),
+                self.tr("No matches"),
+                self.tr("{} active condition(s)").format(filters),
             )
         elif state in ("running", "starting"):
             self.empty_state.set_text(
-                self.tr("等待流量"),
+                self.tr("Waiting for traffic"),
                 str(self._capture_context["endpoint"]),
             )
         else:
             subtitle = (
-                self.tr("代理已停止")
+                self.tr("Proxy stopped")
                 if self._capture_mode
-                else self.tr("当前会话没有 HTTP 流量")
+                else self.tr("This session has no HTTP traffic")
             )
-            self.empty_state.set_text(self.tr("暂无流量"), subtitle)
+            self.empty_state.set_text(self.tr("No traffic yet"), subtitle)
 
 
 class FlowEmptyState(QWidget):
@@ -665,7 +675,7 @@ class FlowEmptyState(QWidget):
         layout.addWidget(self.title)
         layout.addWidget(self.subtitle)
         layout.addStretch(1)
-        self.set_text(self.tr("暂无流量"), self.tr("代理已停止"))
+        self.set_text(self.tr("No traffic yet"), self.tr("Proxy stopped"))
 
     def set_text(self, title: str, subtitle: str) -> None:
         self.title.setText(title)
@@ -697,7 +707,7 @@ class CookieWidget(QWidget):
 
         self.copy_button = TransparentToolButton(self)
         self.copy_button.setIcon(FluentIcon.COPY)
-        self.copy_button.setToolTip(self.tr("复制 Cookie"))
+        self.copy_button.setToolTip(self.tr("Copy cookies"))
         self.copy_button.installEventFilter(
             ToolTipFilter(self.copy_button, 1000, ToolTipPosition.TOP)
         )
@@ -751,12 +761,16 @@ class CookieWidget(QWidget):
     def __on_copy(self):
         """复制 Cookie 到剪贴板"""
         if not self.cookies:
-            show_warning(self.tr("提示"), self.tr("没有可复制的 Cookie"), self.window())
+            show_warning(
+                self.tr("Notice"), self.tr("No cookies to copy"), self.window()
+            )
             return
 
         cookie_str = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
         QApplication.clipboard().setText(cookie_str)
-        show_success(self.tr("成功"), self.tr("Cookie 已复制到剪贴板"), self.window())
+        show_success(
+            self.tr("Success"), self.tr("Cookies copied to clipboard"), self.window()
+        )
 
 
 class RequestPanel(TabPanel):
@@ -803,7 +817,7 @@ class RequestPanel(TabPanel):
 
     def __init_layout(self):
         """初始化布局结构"""
-        self.addTab("概览", self.overview, self.tr("概览"))
+        self.addTab("Overview", self.overview, self.tr("Overview"))
         self.addTab("Headers", self.header_card, "Headers")
         self.addTab("Params", self.params_widget, "Params")
         self.addTab("Cookies", self.cookie_card, "Cookies")
@@ -992,7 +1006,7 @@ class ResponsePanel(TabPanel):
                     self.raw_edit.set_text(text)
                     return
             except (AttributeError, ValueError, TypeError, RuntimeError) as e:
-                print(f"获取原始HTTP数据失败: {e}")
+                print(f"failed to read the raw HTTP payload: {e}")
 
         # 如果获取失败，使用手动构建的格式
         if not self.datas:
@@ -1081,129 +1095,178 @@ class Overview(SimpleCardWidget):
 class OverviewTree(TreeWidget):
     """总览树形控件 - 显示请求/响应的详细信息"""
 
+    # 字段标签在这里**只做标记、不求值**：类体和模块级一样在导入期跑完，而
+    # `core/application.py` 在顶层就 import 了 MainWindow —— 那时翻译器还没装，
+    # 求值出来的文案会永久冻结成英文。求值统一走 `self._label()`。
+    # 值那一侧是 lambda，调用时才跑，所以可以直接写 `QCoreApplication.translate`。
+
     # 基本信息字段
     FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
         (
-            "状态",
+            QT_TRANSLATE_NOOP("OverviewTree", "State"),
             lambda d: {
-                "request_headers": "等待中...",
-                "request": "请求已发送",
-                "response_headers": "已收到响应头",
-                "complete": "Completed",
-                "error": "Error",
-            }.get(d.get("state", ""), "未知"),
+                "request_headers": QCoreApplication.translate(
+                    "OverviewTree", "Pending..."
+                ),
+                "request": QCoreApplication.translate("OverviewTree", "Request sent"),
+                "response_headers": QCoreApplication.translate(
+                    "OverviewTree", "Response headers received"
+                ),
+                "complete": QCoreApplication.translate("OverviewTree", "Completed"),
+                "error": QCoreApplication.translate("OverviewTree", "Error"),
+            }.get(
+                d.get("state", ""),
+                QCoreApplication.translate("OverviewTree", "Unknown"),
+            ),
         ),
-        ("方法", "Method"),
-        ("协议", "Protocol"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Method"), "Method"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Protocol"), "Protocol"),
         ("Code", "Status Code"),
-        ("服务器地址", "Server Address"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Server address"), "Server Address"),
         ("Keep Alive", "Keep Alive"),
-        ("流", "id"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Flow"), "id"),
         ("Content Type", "Response Content-Type"),
-        ("代理协议", "Proxy Protocol"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Proxy protocol"), "Proxy Protocol"),
     ]
 
     # 连接信息
     CONN_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("ID", "Connection ID"),
-        ("时间", "Connection Time"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Time"), "Connection Time"),
     ]
     CONN_FRONT_FIELDS: ClassVar[list[tuple[str, str]]] = [
-        ("客户端 地址", "Front Client Address"),
-        ("客户端 端口", "Front Client Port"),
-        ("服务端 地址", "Front Server Address"),
-        ("服务端 端口", "Front Server Port"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Client address"), "Front Client Address"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Client port"), "Front Client Port"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Server address"), "Front Server Address"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Server port"), "Front Server Port"),
     ]
     CONN_BACK_FIELDS: ClassVar[list[tuple[str, str]]] = [
-        ("客户端 地址", "Back Client Address"),
-        ("客户端 端口", "Back Client Port"),
-        ("服务端 地址", "Back Server Address"),
-        ("服务端 端口", "Back Server Port"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Client address"), "Back Client Address"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Client port"), "Back Client Port"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Server address"), "Back Server Address"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Server port"), "Back Server Port"),
     ]
 
     # TLS 信息
     TLS_FIELDS: ClassVar[list[tuple[str, str]]] = [
-        ("版本", "TLS Version"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Version"), "TLS Version"),
         ("SNI", "TLS SNI"),
         ("ALPN", "TLS ALPN Offers"),
-        ("选择ALPN", "TLS ALPN Selected"),
-        ("加密算法列表", "TLS Cipher List"),
-        ("选择算法", "TLS Cipher"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "ALPN selected"), "TLS ALPN Selected"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Cipher list"), "TLS Cipher List"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Cipher selected"), "TLS Cipher"),
     ]
 
     # 证书信息 - Subject
     CERT_SUBJECT_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("Common Name", "Subject Common Name"),
-        ("国家", "Subject Country"),
-        ("省（州）", "Subject State"),
-        ("地区", "Subject Locality"),
-        ("组织", "Subject Organization"),
-        ("单位", "Subject Organizational Unit"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Country"), "Subject Country"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "State or province"), "Subject State"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Locality"), "Subject Locality"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Organization"), "Subject Organization"),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "Organizational unit"),
+            "Subject Organizational Unit",
+        ),
     ]
 
     # 证书信息 - 签发者
     CERT_ISSUER_FIELDS: ClassVar[list[tuple[str, str]]] = [
         ("Common Name", "Issuer Common Name"),
-        ("国家", "Issuer Country"),
-        ("省（州）", "Issuer State"),
-        ("地区", "Issuer Locality"),
-        ("组织", "Issuer Organization"),
-        ("单位", "Issuer Organizational Unit"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Country"), "Issuer Country"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "State or province"), "Issuer State"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Locality"), "Issuer Locality"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Organization"), "Issuer Organization"),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "Organizational unit"),
+            "Issuer Organizational Unit",
+        ),
     ]
 
     # 证书详细信息
     CERT_DETAIL_FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
-        ("开始时间", "Not Before"),
-        ("截止时间", "Not After"),
-        ("指纹", "Fingerprint SHA1"),
-        ("序列号", "Serial Number Hex"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Not before"), "Not Before"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Not after"), "Not After"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Fingerprint"), "Fingerprint SHA1"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Serial number"), "Serial Number Hex"),
     ]
 
     # 时间信息
     TIME_FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
-        ("请求开始", lambda d: _format_time(d.get("req_time"))),
-        ("请求结束", lambda d: _format_time(d.get("req_timestamp_end"))),
         (
-            "请求时长",
+            QT_TRANSLATE_NOOP("OverviewTree", "Request start"),
+            lambda d: _format_time(d.get("req_time")),
+        ),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "Request end"),
+            lambda d: _format_time(d.get("req_timestamp_end")),
+        ),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "Request duration"),
             lambda d: (
                 f"{d.get('req_duration', 0):.1f} ms"
                 if d.get("req_duration") is not None
                 else "-"
             ),
         ),
-        ("响应开始", lambda d: _format_time(d.get("res_timestamp_start"))),
-        ("响应结束", lambda d: _format_time(d.get("res_time"))),
         (
-            "响应时长",
+            QT_TRANSLATE_NOOP("OverviewTree", "Response start"),
+            lambda d: _format_time(d.get("res_timestamp_start")),
+        ),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "Response end"),
+            lambda d: _format_time(d.get("res_time")),
+        ),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "Response duration"),
             lambda d: (
                 f"{d.get('res_duration', 0):.1f} ms"
                 if d.get("res_duration") is not None
                 else "-"
             ),
         ),
-        ("总时长", "Duration"),
+        (QT_TRANSLATE_NOOP("OverviewTree", "Total duration"), "Duration"),
     ]
 
     # 大小信息
     SIZE_FIELDS: ClassVar[list[tuple[str, FieldKey]]] = [
         (
-            "请求",
+            QT_TRANSLATE_NOOP("OverviewTree", "Request"),
             lambda d: human.pretty_size(
                 d.get("req_size", 0) + d.get("req_headers_size", 0)
             ),
         ),
-        ("- 请求头", lambda d: human.pretty_size(d.get("req_headers_size", 0))),
-        ("- 请求体", lambda d: human.pretty_size(d.get("req_size", 0))),
         (
-            "响应",
+            QT_TRANSLATE_NOOP("OverviewTree", "- Request headers"),
+            lambda d: human.pretty_size(d.get("req_headers_size", 0)),
+        ),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "- Request body"),
+            lambda d: human.pretty_size(d.get("req_size", 0)),
+        ),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "Response"),
             lambda d: human.pretty_size(
                 d.get("res_size", 0) + d.get("res_headers_size", 0)
             ),
         ),
-        ("- 响应头", lambda d: human.pretty_size(d.get("res_headers_size", 0))),
-        ("- 响应体", lambda d: human.pretty_size(d.get("res_size", 0))),
-        ("总计", lambda d: human.pretty_size(d.get("total_size", 0))),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "- Response headers"),
+            lambda d: human.pretty_size(d.get("res_headers_size", 0)),
+        ),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "- Response body"),
+            lambda d: human.pretty_size(d.get("res_size", 0)),
+        ),
+        (
+            QT_TRANSLATE_NOOP("OverviewTree", "Total"),
+            lambda d: human.pretty_size(d.get("total_size", 0)),
+        ),
     ]
+
+    def _label(self, marked: str) -> str:
+        """把表里的 QT_TRANSLATE_NOOP 标记求值成当前语言的文案。"""
+        return QCoreApplication.translate("OverviewTree", marked)
 
     def __init__(self, parent: QWidget):
         """初始化总览树形控件
@@ -1240,7 +1303,7 @@ class OverviewTree(TreeWidget):
                 continue
 
             item = QTreeWidgetItem(self)
-            item.setText(0, label)
+            item.setText(0, self._label(label))
             item.setText(1, str(value))
             item.setTextAlignment(
                 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1253,7 +1316,7 @@ class OverviewTree(TreeWidget):
         has_conn = any(data.get(k) for _, k in self.CONN_FIELDS)
         if has_conn:
             conn_parent = QTreeWidgetItem(self)
-            conn_parent.setText(0, self.tr("连接"))
+            conn_parent.setText(0, self.tr("Connection"))
 
             bold_font = QFont()
             bold_font.setBold(True)
@@ -1265,7 +1328,7 @@ class OverviewTree(TreeWidget):
                 if value in (None, "", "N/A", "-"):
                     continue
                 item = QTreeWidgetItem(conn_parent)
-                item.setText(0, label)
+                item.setText(0, self._label(label))
                 item.setText(1, str(value))
                 item.setTextAlignment(
                     0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1282,12 +1345,12 @@ class OverviewTree(TreeWidget):
             ]
             if front_items:
                 front_parent = QTreeWidgetItem(conn_parent)
-                front_parent.setText(0, self.tr("前端"))
+                front_parent.setText(0, self.tr("Frontend"))
                 front_parent.setFont(0, bold_font)
 
                 for label, value in front_items:
                     item = QTreeWidgetItem(front_parent)
-                    item.setText(0, label)
+                    item.setText(0, self._label(label))
                     item.setText(1, str(value))
                     item.setTextAlignment(
                         0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1304,12 +1367,12 @@ class OverviewTree(TreeWidget):
             ]
             if back_items:
                 back_parent = QTreeWidgetItem(conn_parent)
-                back_parent.setText(0, self.tr("后端"))
+                back_parent.setText(0, self.tr("Backend"))
                 back_parent.setFont(0, bold_font)
 
                 for label, value in back_items:
                     item = QTreeWidgetItem(back_parent)
-                    item.setText(0, label)
+                    item.setText(0, self._label(label))
                     item.setText(1, str(value))
                     item.setTextAlignment(
                         0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1338,13 +1401,13 @@ class OverviewTree(TreeWidget):
                 if isinstance(value, list):
                     # 列表类字段：如 ALPN Offers、Cipher List
                     count_item = QTreeWidgetItem(tls_parent)
-                    count_item.setText(0, label)
-                    count_item.setText(1, f"{len(value)}项")
+                    count_item.setText(0, self._label(label))
+                    count_item.setText(1, self.tr("{} item(s)").format(len(value)))
                     count_item.setFont(0, bold_font)
 
                     for i, entry in enumerate(value):
                         sub_item = QTreeWidgetItem(count_item)
-                        sub_item.setText(0, f"  - 算法{i + 1}")
+                        sub_item.setText(0, "  - " + self.tr("Cipher {}").format(i + 1))
                         sub_item.setText(1, str(entry))
                         sub_item.setTextAlignment(
                             0,
@@ -1357,7 +1420,7 @@ class OverviewTree(TreeWidget):
                 else:
                     # 普通字段
                     item = QTreeWidgetItem(tls_parent)
-                    item.setText(0, label)
+                    item.setText(0, self._label(label))
                     item.setText(1, str(value))
                     item.setTextAlignment(
                         0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1375,7 +1438,7 @@ class OverviewTree(TreeWidget):
         )
         if has_cert:
             cert_parent = QTreeWidgetItem(self)
-            cert_parent.setText(0, self.tr("服务端证书"))
+            cert_parent.setText(0, self.tr("Server certificate"))
 
             bold_font = QFont()
             bold_font.setBold(True)
@@ -1392,7 +1455,7 @@ class OverviewTree(TreeWidget):
             for label, key in self.CERT_SUBJECT_FIELDS:
                 value = data.get(key, "")
                 item = QTreeWidgetItem(subject_parent)
-                item.setText(0, f"- {label}")
+                item.setText(0, f"- {self._label(label)}")
                 item.setText(1, str(value) if value else "-")
                 item.setTextAlignment(
                     0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1403,13 +1466,13 @@ class OverviewTree(TreeWidget):
 
             # ── 签发者信息 ──
             issuer_parent = QTreeWidgetItem(cert_parent)
-            issuer_parent.setText(0, "签发者")
+            issuer_parent.setText(0, self.tr("Issuer"))
             issuer_parent.setFont(0, underline_font)
 
             for label, key in self.CERT_ISSUER_FIELDS:
                 value = data.get(key, "")
                 item = QTreeWidgetItem(issuer_parent)
-                item.setText(0, f"- {label}")
+                item.setText(0, f"- {self._label(label)}")
                 item.setText(1, str(value) if value else "-")
                 item.setTextAlignment(
                     0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1427,7 +1490,7 @@ class OverviewTree(TreeWidget):
                 if value in (None, "", "N/A", "-"):
                     continue
                 item = QTreeWidgetItem(cert_parent)
-                item.setText(0, label)
+                item.setText(0, self._label(label))
                 item.setText(1, str(value))
                 item.setTextAlignment(
                     0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1451,7 +1514,7 @@ class OverviewTree(TreeWidget):
         )
         if has_time:
             time_parent = QTreeWidgetItem(self)
-            time_parent.setText(0, self.tr("时间"))
+            time_parent.setText(0, self.tr("Timing"))
 
             bold_font = QFont()
             bold_font.setBold(True)
@@ -1467,7 +1530,7 @@ class OverviewTree(TreeWidget):
                     continue
 
                 item = QTreeWidgetItem(time_parent)
-                item.setText(0, label)
+                item.setText(0, self._label(label))
                 item.setText(1, str(value))
                 item.setTextAlignment(
                     0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1489,7 +1552,7 @@ class OverviewTree(TreeWidget):
         )
         if has_size:
             size_parent = QTreeWidgetItem(self)
-            size_parent.setText(0, self.tr("大小"))
+            size_parent.setText(0, self.tr("Size"))
 
             bold_font = QFont()
             bold_font.setBold(True)
@@ -1505,7 +1568,7 @@ class OverviewTree(TreeWidget):
                     continue
 
                 item = QTreeWidgetItem(size_parent)
-                item.setText(0, label)
+                item.setText(0, self._label(label))
                 item.setText(1, str(value))
                 item.setTextAlignment(
                     0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -1562,21 +1625,21 @@ class FlowContextMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.client_replay_action = BaseAction(
-            parent=self, icon=FluentIcon.SYNC, text=self.tr("重发")
+            parent=self, icon=FluentIcon.SYNC, text=self.tr("Replay")
         )
         self.replay_from_file_action = BaseAction(
-            parent=self, icon=FluentIcon.FOLDER, text=self.tr("从文件回放…")
+            parent=self, icon=FluentIcon.FOLDER, text=self.tr("Replay from file...")
         )
         self.delete_action = BaseAction(
             parent=self,
             icon=FluentIcon.DELETE,
-            text=self.tr("删除"),
+            text=self.tr("Delete"),
             shortcut=QKeySequence.StandardKey.Delete,
         )
         self.block_host_action = BaseAction(
             parent=self,
             icon=FluentIcon.CANCEL_MEDIUM,
-            text=self.tr("屏蔽此主机"),
+            text=self.tr("Block this host"),
         )
         self.export_menu = FlowExportMenu(self, self.controller)
         self.view_menu = FlowSubViewMenu(self)
@@ -1605,9 +1668,9 @@ class FlowContextMenu(RoundMenu):
         """根据当前选中数量刷新重发动作文案：单选=重发，多选=重发 N 条。"""
         count = len(self.flows)
         if count <= 1:
-            self.client_replay_action.setText(self.tr("重发"))
+            self.client_replay_action.setText(self.tr("Replay"))
         else:
-            self.client_replay_action.setText(self.tr("重发 {} 条").format(count))
+            self.client_replay_action.setText(self.tr("Replay {} flows").format(count))
 
     @Slot()
     def __on_delete_triggered(self):
@@ -1627,7 +1690,7 @@ class FlowContextMenu(RoundMenu):
         msg = TextCopyDialog(url, "URL", self.main_window)
         if msg.exec():
             show_success(
-                self.tr("成功"), self.tr("URL 已复制到剪贴板"), self.main_window
+                self.tr("Success"), self.tr("URL copied to clipboard"), self.main_window
             )
 
     @Slot()
@@ -1648,7 +1711,7 @@ class FlowContextMenu(RoundMenu):
             if flow_id:
                 self.controller.replay_flow(flow_id)
         except (ValueError, RuntimeError) as exc:
-            show_warning(self.tr("回放失败"), str(exc), self.main_window)
+            show_warning(self.tr("Replay failed"), str(exc), self.main_window)
 
 
 class FlowExportMenu(RoundMenu):
@@ -1667,41 +1730,41 @@ class FlowExportMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.setIcon(FluentIcon.SAVE)
-        self.setTitle(self.tr("导出"))
+        self.setTitle(self.tr("Export"))
 
         self.curl_action = BaseAction(
             parent=self,
             icon=FluentIcon.COPY,
-            text=self.tr("复制 cURL"),
+            text=self.tr("Copy as cURL"),
             shortcut=QKeySequence("Ctrl+Shift+C"),
         )
         self.httpie_action = BaseAction(
             parent=self,
             icon=FluentIcon.CODE,
-            text=self.tr("复制 HTTPie"),
+            text=self.tr("Copy as HTTPie"),
         )
         self.raw_request_action = BaseAction(
             parent=self,
             icon=FluentIcon.DOCUMENT,
-            text=self.tr("复制原始请求"),
+            text=self.tr("Copy raw request"),
         )
         self.raw_response_action = BaseAction(
             parent=self,
             icon=FluentIcon.DOCUMENT,
-            text=self.tr("复制原始响应"),
+            text=self.tr("Copy raw response"),
         )
         self.raw_flow_action = BaseAction(
             parent=self,
             icon=FluentIcon.DOCUMENT,
-            text=self.tr("复制原始流量"),
+            text=self.tr("Copy raw flow"),
         )
         self.har_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("导出为 HAR"),
+            text=self.tr("Export as HAR"),
         )
         self.save_flows_action = BaseAction(
-            parent=self, icon=FluentIcon.SAVE, text=self.tr("导出为 FLOW")
+            parent=self, icon=FluentIcon.SAVE, text=self.tr("Export as FLOW")
         )
 
     def __init_action(self):
@@ -1736,11 +1799,13 @@ class FlowExportMenu(RoundMenu):
         """和重发一致：两个文件导出都作用于整个选区，把条数写进文案避免歧义。"""
         count = len(self.context_menu.flows)
         if count <= 1:
-            self.har_action.setText(self.tr("导出为 HAR"))
-            self.save_flows_action.setText(self.tr("导出为 FLOW"))
+            self.har_action.setText(self.tr("Export as HAR"))
+            self.save_flows_action.setText(self.tr("Export as FLOW"))
         else:
-            self.har_action.setText(self.tr("导出 {} 条为 HAR").format(count))
-            self.save_flows_action.setText(self.tr("导出 {} 条为 FLOW").format(count))
+            self.har_action.setText(self.tr("Export {} flows as HAR").format(count))
+            self.save_flows_action.setText(
+                self.tr("Export {} flows as FLOW").format(count)
+            )
 
     def __flow_id(self) -> str:
         """从上下文行数据取出 flow id"""
@@ -1751,8 +1816,10 @@ class FlowExportMenu(RoundMenu):
         flow_id = self.__flow_id()
         if not flow_id or not self.controller:
             show_warning(
-                self.tr("警告"),
-                self.tr("导出失败：请求尚未完成或控制器不可用"),
+                self.tr("Warning"),
+                self.tr(
+                    "Export failed: the request is unfinished or the controller is unavailable"
+                ),
                 self.main_window,
             )
             return
@@ -1767,16 +1834,19 @@ class FlowExportMenu(RoundMenu):
 
         if not text:
             show_warning(
-                self.tr("警告"),
-                self.tr("%s 命令尚未生成，请等待请求完成") % label,
+                self.tr("Warning"),
+                self.tr(
+                    "The %s command is not ready yet, wait for the request to finish"
+                )
+                % label,
                 self.main_window,
             )
             return
 
         QApplication.clipboard().setText(text)
         show_success(
-            self.tr("成功"),
-            self.tr("%s 已复制到剪贴板") % label,
+            self.tr("Success"),
+            self.tr("%s copied to clipboard") % label,
             self.main_window,
         )
 
@@ -1785,26 +1855,28 @@ class FlowExportMenu(RoundMenu):
         flow_id = self.__flow_id()
         if not flow_id or not self.controller:
             show_warning(
-                self.tr("警告"),
-                self.tr("导出失败：请求尚未完成或控制器不可用"),
+                self.tr("Warning"),
+                self.tr(
+                    "Export failed: the request is unfinished or the controller is unavailable"
+                ),
                 self.main_window,
             )
             return
 
         if kind == "raw_request":
             data = self.controller.get_raw_request(flow_id)
-            label = self.tr("原始请求")
+            label = self.tr("Raw request")
         elif kind == "raw_response":
             data = self.controller.get_raw_response(flow_id)
-            label = self.tr("原始响应")
+            label = self.tr("Raw response")
         else:
             data = self.controller.get_raw_flow(flow_id)
-            label = self.tr("原始流量")
+            label = self.tr("Raw flow")
 
         if not data:
             show_warning(
-                self.tr("警告"),
-                self.tr("%s 尚未生成，请等待请求完成") % label,
+                self.tr("Warning"),
+                self.tr("%s is not ready yet, wait for the request to finish") % label,
                 self.main_window,
             )
             return
@@ -1817,8 +1889,8 @@ class FlowExportMenu(RoundMenu):
 
         QApplication.clipboard().setText(text)
         show_success(
-            self.tr("成功"),
-            self.tr("%s 已复制到剪贴板") % label,
+            self.tr("Success"),
+            self.tr("%s copied to clipboard") % label,
             self.main_window,
         )
 
@@ -1831,24 +1903,28 @@ class FlowExportMenu(RoundMenu):
         页和只读会话页（无 master）走同一条路径。
         """
         if not self.controller:
-            show_warning(self.tr("警告"), self.tr("控制器不可用"), self.main_window)
+            show_warning(
+                self.tr("Warning"), self.tr("Controller unavailable"), self.main_window
+            )
             return
 
         flows = list(self.context_menu.flows)
         if not flows:
             show_warning(
-                self.tr("警告"), self.tr("请先选中要导出的流量"), self.main_window
+                self.tr("Warning"),
+                self.tr("Select the flows you want to export first"),
+                self.main_window,
             )
             return
 
         if kind == "har":
-            title = self.tr("导出 HAR")
+            title = self.tr("Export HAR")
             suffix = ".har"
-            name_filter = self.tr("HAR 文件 (*.har)")
+            name_filter = self.tr("HAR files (*.har)")
         else:
-            title = self.tr("导出 Flow")
+            title = self.tr("Export Flow")
             suffix = ".flow"
-            name_filter = self.tr("Flow 文件 (*.flow)")
+            name_filter = self.tr("Flow files (*.flow)")
 
         path, _ = QFileDialog.getSaveFileName(
             self.main_window,
@@ -1869,12 +1945,12 @@ class FlowExportMenu(RoundMenu):
             else:
                 self.controller.save_flows(flows, path)
         except Exception as exc:  # noqa: BLE001
-            show_error(self.tr("导出失败"), str(exc), self.main_window)
+            show_error(self.tr("Export failed"), str(exc), self.main_window)
             return
 
         show_success(
-            self.tr("成功"),
-            self.tr("已导出 {} 条流量到 {}").format(len(flows), Path(path).name),
+            self.tr("Success"),
+            self.tr("Exported {} flow(s) to {}").format(len(flows), Path(path).name),
             self.main_window,
         )
 
@@ -1908,7 +1984,7 @@ class FlowSubViewMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.setIcon(FluentIcon.VIEW)
-        self.setTitle(self.tr("查看"))
+        self.setTitle(self.tr("View"))
         self.url_action = BaseAction(
             parent=self,
             icon=FluentIcon.LINK,

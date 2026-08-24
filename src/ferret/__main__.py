@@ -46,15 +46,18 @@
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.proxyauth
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.cut
 # nuitka-project: --nofollow-import-to=flask
-# nuitka-project: --nofollow-import-to=werkzeug
 # nuitka-project: --nofollow-import-to=jinja2
 # nuitka-project: --nofollow-import-to=asgiref
 # nuitka-project: --nofollow-import-to=click
 # nuitka-project: --nofollow-import-to=blinker
 # nuitka-project: --nofollow-import-to=itsdangerous
-# nuitka-project: --nofollow-import-to=markupsafe
 # nuitka-project: --nofollow-import-to=ldap3
 # nuitka-project: --nofollow-import-to=bcrypt
+# werkzeug（连带它 import 的 markupsafe）不能排除：重定向本地文件用的原生
+# maplocal addon 在模块顶层就 `from werkzeug.security import safe_join`，而
+# `werkzeug/__init__.py` 又会拉起 serving/test/wrappers 整包（约 1.7 MB 源码）。
+# 那个 safe_join 是防路径穿越的关卡，自己照抄一份省不下多少体积、却要自己担
+# 安全责任 —— 依 AGENTS.md「原生优先」，宁可让产物大一点。
 # pyperclip 被 mitmproxy.addons.export 导入，但只用于 Export.clip（ferret 不调用），由桩顶替
 # nuitka-project: --nofollow-import-to=pyperclip
 # nuitka-project: --nofollow-import-to=zstandard.backend_cffi

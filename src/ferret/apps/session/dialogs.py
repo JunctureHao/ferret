@@ -39,12 +39,12 @@ class SessionNameDialog(MessageBoxBase):
         self.hint_label = CaptionLabel(self)
         if self._flow_count is not None:
             self.hint_label.setText(
-                self.tr("当前包含 {} 条 HTTP 流量").format(self._flow_count)
+                self.tr("Holds {} HTTP flow(s)").format(self._flow_count)
             )
         else:
             self.hint_label.setText("")
 
-        self.yesButton.setText(self.tr("保存"))
+        self.yesButton.setText(self.tr("Save"))
         self.yesButton.setEnabled(False)
         self._validate_name()
 
@@ -80,14 +80,18 @@ class SessionDeleteDialog(MessageBoxBase):
 
     def __init_widget(self, session_name: str):
         self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr('删除"{}"？').format(session_name))
+        self.title_label.setText(self.tr('Delete "{}"?').format(session_name))
 
         self.desc_label = BodyLabel(self)
-        self.desc_label.setText(self.tr("该操作会永久删除本地 Flow 文件，无法撤销。"))
+        self.desc_label.setText(
+            self.tr(
+                "This permanently deletes the local flow file and cannot be undone."
+            )
+        )
         self.desc_label.setWordWrap(True)
 
-        self.yesButton.setText(self.tr("删除"))
-        self.cancelButton.setText(self.tr("取消"))
+        self.yesButton.setText(self.tr("Delete"))
+        self.cancelButton.setText(self.tr("Cancel"))
 
     def __init_layout(self):
         layout = QVBoxLayout()

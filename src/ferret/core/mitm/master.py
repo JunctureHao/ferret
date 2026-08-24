@@ -17,8 +17,11 @@ from ferret.core.mitm.bindings import (
     Core,
     DisableH2C,
     DnsResolver,
+    MapLocal,
     MapRemote,
     Master,
+    ModifyBody,
+    ModifyHeaders,
     NextLayer,
     Options,
     Proxyserver,
@@ -27,6 +30,7 @@ from ferret.core.mitm.bindings import (
     StripDnsHttpsRecords,
     View,
 )
+from ferret.core.mitm.intercept import FerretIntercept, InterceptState
 
 
 class FerretMaster(Master):
@@ -45,6 +49,11 @@ class FerretMaster(Master):
         self.client_playback = ClientPlayback()
         self.gateway = GatewayState()
         self.map_remote = MapRemote()
+        self.map_local = MapLocal()
+        self.modify_body = ModifyBody()
+        self.modify_headers = ModifyHeaders()
+        self.intercept_state = InterceptState()
+        self.intercept = FerretIntercept(self.intercept_state)
         self.save = Save()
 
         self.addons.add(
@@ -64,16 +73,25 @@ class FerretMaster(Master):
             # ignore_hosts 选项上，没有代码。
             GatewayL4Addon(self.gateway),
             NextLayer(),
-            # 位置对齐原生 default_addons()（next_layer → mapremote → …→ save →
-            # tlsconfig）。同时保证它早于 View.request：流量表第一次上屏拿到的
-            # 就已经是重写后的 URL，不会先闪一下原地址。
+            # 四个重写 addon 的相对次序对齐原生 default_addons()
+            # （next_layer → mapremote → maplocal → modifybody → modifyheaders
+            # → save → tlsconfig）。同时保证它们早于 View.request：流量表第一次
+            # 上屏拿到的就已经是重写后的 URL/报文，不会先闪一下原始值。
             self.map_remote,
+            self.map_local,
+            self.modify_body,
+            self.modify_headers,
             FerretTlsConfig(),
-            # 必须紧挨在 View 前面：绕行/仅允许靠 AddonHalt 截断这一次派发，从这里
-            # 往后（View / ReadFile / Save / LogAddon / UiBridgeAddon）一个都收不到，
-            # 前面的 addon 则照常跑完。原生 BlockList 因此也从链上撤掉了 —— 它在
-            # 网关**之前**，高优先级的绕行规则否决不了它，屏蔽（出）改由网关自己回响应。
+            # 必须排在 View 之前：绕行/仅允许靠 AddonHalt 截断这一次派发，从这里
+            # 往后（Intercept / View / ReadFile / Save / LogAddon / UiBridgeAddon）
+            # 一个都收不到，前面的 addon 则照常跑完。原生 BlockList 因此也从链上撤掉
+            # 了 —— 它在网关**之前**，高优先级的绕行规则否决不了它，屏蔽（出）改由
+            # 网关自己回响应。
             GatewayL7Addon(self.gateway),
+            # 必须在网关**之后**：绕行/仅允许命中时 GatewayL7Addon 抛 AddonHalt
+            # 截断派发，断点因此收不到这条流量 —— 用户明确说了不管的流量，不该
+            # 被断点拦下来。位置对齐原生 console master（intercept → view）。
+            self.intercept,
             self.view,
             self.readfile,
             self.save,

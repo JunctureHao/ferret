@@ -18,24 +18,28 @@ class RegenerateCertDialog(MessageBoxBase):
 
     def __init_widget(self):
         self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr("重新生成 CA 证书？"))
+        self.title_label.setText(self.tr("Regenerate the CA certificate?"))
 
         self.desc_label = BodyLabel(self)
         self.desc_label.setText(
-            self.tr("会删除现有的私钥与证书并生成一套全新的，操作无法撤销。")
+            self.tr(
+                "This deletes the existing private key and certificate and generates a "
+                "brand new pair. It cannot be undone."
+            )
         )
         self.desc_label.setWordWrap(True)
 
         self.hint_label = CaptionLabel(self)
         self.hint_label.setText(
             self.tr(
-                "生成后需要重新安装到系统信任库；其他已导入证书的设备也要重新导入。"
+                "After generating, reinstall it into the system trust store; other devices "
+                "that imported the certificate have to import it again."
             )
         )
         self.hint_label.setWordWrap(True)
 
-        self.yesButton.setText(self.tr("重新生成"))
-        self.cancelButton.setText(self.tr("取消"))
+        self.yesButton.setText(self.tr("Regenerate"))
+        self.cancelButton.setText(self.tr("Cancel"))
 
     def __init_layout(self):
         layout = QVBoxLayout()

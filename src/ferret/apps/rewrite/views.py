@@ -32,11 +32,11 @@ from ferret.apps.rewrite.models import (
 
 
 class RewriteInterface(QWidget):
-    """重写规则页：命中的请求由 mitmproxy 原生 MapRemote addon 在发出前改写目标。
+    """重写规则页：六种重写类型都由 mitmproxy 原生 addon 执行。
 
-    页面按「多种重写能力」搭好了骨架（类型列与类型下拉都由 RewriteKind 生成），
-    但目前只落地 map_remote —— map_local / modify_headers / modify_body 还需要
-    文件选择器与代码编辑器，等编辑器可用后往 RewriteKind 加成员即可。
+    类型列与对话框的类型下拉都由 `RewriteKind` 生成，四个原生 addon
+    （MapRemote / MapLocal / ModifyHeaders / ModifyBody）分别承接重定向（远程）、
+    重定向（本地）、请求头/响应头、请求体/响应体。
     """
 
     def __init__(self, controller: RewriteController, parent=None):
@@ -62,7 +62,7 @@ class RewriteInterface(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setWordWrap(False)
-        widths = [60, 90, 100, 300, 300]
+        widths = [60, 110, 90, 250, 160, 240]
         header = self.table.horizontalHeader()
         header.setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -85,23 +85,23 @@ class RewriteInterface(QWidget):
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(6)
 
-        self.add_btn = PushButton(FluentIcon.ADD, self.tr("新增规则"), bar)
+        self.add_btn = PushButton(FluentIcon.ADD, self.tr("Add rule"), bar)
 
         self.search_edit = LineEdit(bar)
-        self.search_edit.setPlaceholderText(self.tr("搜索规则"))
+        self.search_edit.setPlaceholderText(self.tr("Search rules"))
         self.search_edit.setFixedHeight(32)
         self.search_edit.setClearButtonEnabled(True)
 
         self.edit_btn = TransparentToolButton(FluentIcon.EDIT, bar)
         self.edit_btn.setFixedSize(32, 32)
         self.edit_btn.setIconSize(QSize(18, 18))
-        self.edit_btn.setToolTip(self.tr("编辑") + " (F2)")
+        self.edit_btn.setToolTip(self.tr("Edit") + " (F2)")
         self.edit_btn.setEnabled(False)
 
         self.delete_btn = TransparentToolButton(FluentIcon.DELETE, bar)
         self.delete_btn.setFixedSize(32, 32)
         self.delete_btn.setIconSize(QSize(18, 18))
-        self.delete_btn.setToolTip(self.tr("删除"))
+        self.delete_btn.setToolTip(self.tr("Delete"))
         self.delete_btn.setEnabled(False)
 
         layout.addWidget(self.add_btn)
@@ -114,11 +114,14 @@ class RewriteInterface(QWidget):
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label = BodyLabel(self.tr("暂无重写规则"), page)
+        label = BodyLabel(self.tr("No rewrite rules yet"), page)
         hint = CaptionLabel(
-            self.tr("命中规则的请求会在发出前改写目标地址，Host 请求头随之更新"), page
+            self.tr(
+                "Rewrite request and response headers or bodies, or redirect a request to another address or a local file."
+            ),
+            page,
         )
-        add_btn = PushButton(FluentIcon.ADD, self.tr("新增规则"), page)
+        add_btn = PushButton(FluentIcon.ADD, self.tr("Add rule"), page)
         layout.addStretch(1)
         layout.addWidget(label, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint, 0, Qt.AlignmentFlag.AlignCenter)
@@ -190,7 +193,7 @@ class RewriteInterface(QWidget):
 
     @Slot(str)
     def _on_operation_succeeded(self, message: str):
-        show_success(self.tr("成功"), message, self.window())
+        show_success(self.tr("Success"), message, self.window())
 
     @Slot(str)
     def _on_search_changed(self, text: str):
@@ -199,7 +202,7 @@ class RewriteInterface(QWidget):
 
     @Slot()
     def _on_add(self):
-        dialog = RewriteRuleDialog(self.tr("新增重写规则"), parent=self.window())
+        dialog = RewriteRuleDialog(self.tr("New rewrite rule"), parent=self.window())
         if dialog.exec():
             self.controller.add_rule(dialog.get_rule())
 
@@ -216,7 +219,7 @@ class RewriteInterface(QWidget):
         if rule is None:
             return
         dialog = RewriteRuleDialog(
-            self.tr("编辑重写规则"), rule=rule, parent=self.window()
+            self.tr("Edit rewrite rule"), rule=rule, parent=self.window()
         )
         if dialog.exec():
             self.controller.update_rule(rows[0], dialog.get_rule())
@@ -237,7 +240,7 @@ class RewriteInterface(QWidget):
             row = rows[0]
             rule = self.controller.rule_at(row)
             edit_action = BaseAction(
-                icon=FluentIcon.EDIT, text=self.tr("编辑"), parent=menu
+                icon=FluentIcon.EDIT, text=self.tr("Edit"), parent=menu
             )
             edit_action.triggered.connect(self._on_edit)
             menu.addAction(edit_action)
@@ -245,30 +248,30 @@ class RewriteInterface(QWidget):
                 target = not rule.enabled
                 toggle_action = BaseAction(
                     icon=FluentIcon.VIEW if target else FluentIcon.HIDE,
-                    text=self.tr("启用") if target else self.tr("停用"),
+                    text=self.tr("Enable") if target else self.tr("Disable"),
                     parent=menu,
                 )
                 toggle_action.triggered.connect(
                     lambda: self.controller.set_enabled(row, target)
                 )
                 menu.addAction(toggle_action)
-            # 顺序即生效顺序：原生 MapRemote 会对同一条 URL 逐条替换（不是命中即停），
+            # 顺序即生效顺序：四个原生 addon 都对同一条流量逐条作用（不是命中即停），
             # 所以上下移动是有语义的操作，不只是排版。
             total = len(self.controller.rules)
             up_action = BaseAction(
-                icon=FluentIcon.UP, text=self.tr("上移"), parent=menu
+                icon=FluentIcon.UP, text=self.tr("Move up"), parent=menu
             )
             up_action.setEnabled(row > 0)
             up_action.triggered.connect(lambda: self.controller.move_rule(row, -1))
             menu.addAction(up_action)
             down_action = BaseAction(
-                icon=FluentIcon.DOWN, text=self.tr("下移"), parent=menu
+                icon=FluentIcon.DOWN, text=self.tr("Move down"), parent=menu
             )
             down_action.setEnabled(row < total - 1)
             down_action.triggered.connect(lambda: self.controller.move_rule(row, 1))
             menu.addAction(down_action)
         delete_action = BaseAction(
-            icon=FluentIcon.DELETE, text=self.tr("删除"), parent=menu
+            icon=FluentIcon.DELETE, text=self.tr("Delete"), parent=menu
         )
         delete_action.triggered.connect(self._on_delete)
         menu.addAction(delete_action)

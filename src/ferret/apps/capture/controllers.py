@@ -74,6 +74,9 @@ class CaptureController(QObject):
         # 挂起/放行也当成一次更新：网关挂起发生在 `request`，而 `View` 没有这个钩子，
         # 不借道 flow_updated 那一行的「挂起中」永远不上屏。
         runtime.flow_suspended.connect(self.flow_updated)
+        # 断点同理：原生 `Intercept` 在 `request` / `response` 钩子里拦人，也不经过
+        # `View` 的任何信号，不转一手的话流量表看不出这条正被钉着。
+        runtime.flow_intercepted.connect(self.flow_updated)
         runtime.flow_removed.connect(self.flow_removed)
         runtime.view_refreshed.connect(self.view_refreshed)
         runtime.ready.connect(self._on_runtime_ready)
@@ -159,7 +162,7 @@ class CaptureController(QObject):
         self._set_capture_state(CaptureState.STOPPING)
         detach_ok = self._system_proxy.detach()
         if not detach_ok:
-            self._last_error = "恢复原系统代理失败"
+            self._last_error = self.tr("Failed to restore the original system proxy")
             self._set_capture_state(CaptureState.FAILED)
             self.captureStateChanged.emit(False)
             return
@@ -336,4 +339,4 @@ class CaptureController(QObject):
             CaptureState.STARTING,
             CaptureState.RUNNING,
         ):
-            self._on_runtime_failed("mitmproxy 内核已停止")
+            self._on_runtime_failed(self.tr("The mitmproxy core has stopped"))

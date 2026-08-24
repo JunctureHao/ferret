@@ -5,6 +5,7 @@ from typing import Any, ClassVar
 
 from PySide6.QtCore import (
     QAbstractTableModel,
+    QCoreApplication,
     QModelIndex,
     QObject,
     QPersistentModelIndex,
@@ -14,43 +15,183 @@ from PySide6.QtCore import (
     Signal,
 )
 
-from ferret.core.mitm import RewriteKind, RewriteLogic, RewriteRule
+from ferret.core.mitm import (
+    BODY_KINDS,
+    FILE_REPLACEMENT_PREFIX,
+    HEADER_KINDS,
+    MAP_KINDS,
+    WHOLE_BODY_PATTERN,
+    RewriteKind,
+    RewriteLogic,
+    RewriteRule,
+)
+from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 
-# 每个 RewriteKind 一条。将来接 map_local / modify_headers / modify_body 时，
-# 只要在这里补上对应文案，表格和对话框的下拉都会自动多出一项。
+# 每个 RewriteKind 一条，表格的类型列与对话框的类型下拉都由它生成 —— 再加一种
+# 重写类型时，`RewriteKind` 补成员、这里补文案，界面自动多出一项。
+# 文案表只存标记、不求值 —— 模块级求值赶在翻译器安装之前（`core/application.py`
+# 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在下面那几个函数里做
+# （见 `ferret.utils.i18n`）。
 KIND_LABELS: dict[RewriteKind, str] = {
-    RewriteKind.MAP_REMOTE: "重定向",
+    RewriteKind.MAP_REMOTE: QT_TRANSLATE_NOOP("RewriteKind", "Redirect (remote)"),
+    RewriteKind.MAP_LOCAL: QT_TRANSLATE_NOOP("RewriteKind", "Redirect (local)"),
+    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP(
+        "RewriteKind", "Request header"
+    ),
+    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP(
+        "RewriteKind", "Response header"
+    ),
+    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteKind", "Request body"),
+    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP("RewriteKind", "Response body"),
+}
+
+# 「目标」一栏在六种类型里指三样不同的东西，列头只能给个中性名字，具体含义靠这里
+# 的行内文案和对话框的动态标签讲清楚。
+TARGET_LABELS: dict[RewriteKind, str] = {
+    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP(
+        "RewriteFields", "Header name"
+    ),
+    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP(
+        "RewriteFields", "Header name"
+    ),
+    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteFields", "Body pattern"),
+    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP(
+        "RewriteFields", "Body pattern"
+    ),
+}
+
+REPLACEMENT_LABELS: dict[RewriteKind, str] = {
+    RewriteKind.MAP_REMOTE: QT_TRANSLATE_NOOP("RewriteFields", "Rewrite to"),
+    RewriteKind.MAP_LOCAL: QT_TRANSLATE_NOOP("RewriteFields", "Local file or folder"),
+    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP(
+        "RewriteFields", "Header value"
+    ),
+    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP(
+        "RewriteFields", "Header value"
+    ),
+    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteFields", "New content"),
+    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP("RewriteFields", "New content"),
 }
 
 # 与屏蔽页、抓包过滤条的措辞保持一致。
 LOGIC_LABELS: dict[RewriteLogic, str] = {
-    RewriteLogic.CONTAINS: "包含",
-    RewriteLogic.EQUALS: "等于",
-    RewriteLogic.REGEX: "正则表达式",
+    RewriteLogic.CONTAINS: QT_TRANSLATE_NOOP("RewriteLogic", "Contains"),
+    RewriteLogic.EQUALS: QT_TRANSLATE_NOOP("RewriteLogic", "Equals"),
+    RewriteLogic.REGEX: QT_TRANSLATE_NOOP("RewriteLogic", "Regex"),
 }
 
 
 def kind_label(kind: RewriteKind) -> str:
-    return KIND_LABELS.get(kind, str(kind))
+    return resolve_marker(KIND_LABELS, kind, "RewriteKind", str(kind))
 
 
 def logic_label(logic: RewriteLogic) -> str:
-    return LOGIC_LABELS.get(logic, str(logic))
+    return resolve_marker(LOGIC_LABELS, logic, "RewriteLogic", str(logic))
+
+
+def target_field_label(kind: RewriteKind) -> str:
+    """「目标」栏的标签。重定向两类用不上这一栏，落到中性名字上。"""
+    return resolve_marker(
+        TARGET_LABELS,
+        kind,
+        "RewriteFields",
+        QCoreApplication.translate("RewriteFields", "Target"),
+    )
+
+
+def replacement_field_label(kind: RewriteKind) -> str:
+    """「重写为」栏的标签。"""
+    return resolve_marker(
+        REPLACEMENT_LABELS,
+        kind,
+        "RewriteFields",
+        QCoreApplication.translate("RewriteFields", "Rewrite to"),
+    )
+
+
+def target_display(rule: RewriteRule) -> str:
+    """「目标」列的显示文本：头名 / 体正则；重定向两类用不上这一栏。
+
+    体正则整栏留空时显示原生会真的下发的那条整体匹配正则，而不是一片空白 ——
+    否则「整体替换」和「还没填」在表格里长得一模一样。
+    """
+    if rule.kind in HEADER_KINDS:
+        return rule.target.strip()
+    if rule.kind in BODY_KINDS:
+        return rule.target if rule.target.strip() else WHOLE_BODY_PATTERN
+    return ""
+
+
+def replacement_display(rule: RewriteRule) -> str:
+    """「重写为」列的显示文本，空值按各类型的实际语义写成人话。
+
+    头/体两类的空替换串是**合法且有意义**的：原生 `ModifyHeaders.run` 先 pop 同名头、
+    只在替换串非空时才 add 回去（空 = 删掉这个头）；`ModifyBody.run` 的
+    `re.sub` 把匹配段换成空串（空 = 清掉这段内容）。
+    """
+    if rule.replacement:
+        reads_file = rule.kind not in MAP_KINDS and rule.replacement.startswith(
+            FILE_REPLACEMENT_PREFIX
+        )
+        if reads_file:
+            # 原生 `ModifySpec.read_replacement` 会把 `@` 之后的部分当文件路径读取；
+            # 重定向两类没有这层语义，`@` 在它们那儿就是普通字符。
+            # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
+            return QCoreApplication.translate(
+                "RewriteRule", "Read from file {}"
+            ).format(rule.replacement[1:])
+        return rule.replacement
+    if rule.kind in HEADER_KINDS:
+        return QCoreApplication.translate("RewriteRule", "(remove this header)")
+    if rule.kind in BODY_KINDS:
+        return QCoreApplication.translate("RewriteRule", "(clear)")
+    return ""
 
 
 def rule_summary(rule: RewriteRule) -> str:
-    """一行描述这条规则实际交给 `re.sub` 的两个参数；不可用则返回原因。"""
+    """一行描述这条规则实际会做什么；填不全或写坏了则返回原因。
+
+    重定向两类走 `rule.template`（`re.sub` 的替换串），头/体两类刻意**不**走 ——
+    `template` 把空替换串一律判成「重写目标不能为空」，而那两类的空替换串是合法的
+    删除/清空语义（见 `replacement_display`）。
+    """
     try:
-        return f"{rule.subject}  →  {rule.template}"
+        subject = rule.subject
+        if rule.kind == RewriteKind.MAP_REMOTE:
+            return f"{subject}  →  {rule.template}"
+        if rule.kind == RewriteKind.MAP_LOCAL:
+            path = rule.replacement.strip()
+            if not path:
+                raise ValueError(
+                    QCoreApplication.translate(
+                        "RewriteRule", "The local file or folder cannot be empty."
+                    )
+                )
+            return f"{subject}  →  {path}"
+        if rule.kind in HEADER_KINDS and not rule.target.strip():
+            raise ValueError(
+                QCoreApplication.translate(
+                    "RewriteRule", "The header name cannot be empty."
+                )
+            )
     except ValueError as exc:
         return str(exc)
+    return f"{subject}  →  {target_display(rule)} = {replacement_display(rule)}"
 
 
 class RewriteRuleTableModel(QAbstractTableModel):
-    """规则列表。顺序即优先级：原生 MapRemote 会按 spec 顺序**逐条**改写同一个
-    URL（不是命中即停），所以行序是有语义的，不开排序。"""
+    """规则列表。顺序即优先级：四个原生 addon 都按 spec 顺序**逐条**作用于同一条
+    流量（不是命中即停），所以行序是有语义的，不开排序。"""
 
-    HEADERS: ClassVar[list[str]] = ["启用", "类型", "匹配方式", "原始 URL", "重写为"]
+    # 同理只做标记：类体也是导入期就求值的。求值在 `headerData()` 里做。
+    HEADERS: ClassVar[list[str]] = [
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Enabled"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Type"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Condition"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Match URL"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Target"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Rewrite to"),
+    ]
 
     enabled_toggled = Signal(int, bool)
 
@@ -78,7 +219,9 @@ class RewriteRuleTableModel(QAbstractTableModel):
             role == Qt.ItemDataRole.DisplayRole
             and orientation == Qt.Orientation.Horizontal
         ):
-            return self.HEADERS[section]
+            return QCoreApplication.translate(
+                "RewriteRuleTableModel", self.HEADERS[section]
+            )
         return None
 
     def rowCount(
@@ -119,7 +262,9 @@ class RewriteRuleTableModel(QAbstractTableModel):
             if col == 3:
                 return rule.value
             if col == 4:
-                return rule.replacement
+                return target_display(rule)
+            if col == 5:
+                return replacement_display(rule)
             return None
 
         if role == Qt.ItemDataRole.CheckStateRole and col == 0:
@@ -185,6 +330,7 @@ class RewriteRuleFilterProxyModel(QSortFilterProxyModel):
         haystack = " ".join(
             (
                 rule.value,
+                rule.target,
                 rule.replacement,
                 kind_label(rule.kind),
                 logic_label(rule.logic),

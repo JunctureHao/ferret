@@ -107,7 +107,6 @@ class SessionController(QObject):
         self._open_generation = 0
         self._tasks: set[FunctionTask] = set()
 
-
     def _set_task_active(self, active: bool) -> None:
         was_busy = self._active_tasks > 0
         self._active_tasks = max(0, self._active_tasks + (1 if active else -1))
@@ -135,7 +134,7 @@ class SessionController(QObject):
         def _on_failed(msg: str):
             if on_failure:
                 on_failure(msg)
-            self.operation_failed.emit("操作失败", msg)
+            self.operation_failed.emit(self.tr("Operation failed"), msg)
 
         def _on_finished():
             self._set_task_active(False)
@@ -153,7 +152,7 @@ class SessionController(QObject):
     def save_capture(self, name: str, flows: list[HTTPFlow]) -> None:
         def _on_created(meta: SessionMeta):
             self.session_created.emit(meta)
-            self.operation_succeeded.emit("会话已保存")
+            self.operation_succeeded.emit(self.tr("Session saved"))
 
         self._run(
             self._repo.create,
@@ -167,7 +166,7 @@ class SessionController(QObject):
     def import_session(self, path: Path) -> None:
         def _on_imported(meta: SessionMeta):
             self.session_created.emit(meta)
-            self.operation_succeeded.emit("会话已导入")
+            self.operation_succeeded.emit(self.tr("Session imported"))
 
         self._run(
             self._repo.import_file,
@@ -197,7 +196,7 @@ class SessionController(QObject):
     def rename_session(self, session_id: str, name: str) -> None:
         def _on_renamed(meta: SessionMeta):
             self.session_updated.emit(session_id, meta)
-            self.operation_succeeded.emit("会话已重命名")
+            self.operation_succeeded.emit(self.tr("Session renamed"))
 
         self._run(
             self._repo.rename,
@@ -210,7 +209,7 @@ class SessionController(QObject):
     def delete_session(self, session_id: str) -> None:
         def _on_deleted(_):
             self.session_deleted.emit(session_id)
-            self.operation_succeeded.emit("会话已删除")
+            self.operation_succeeded.emit(self.tr("Session deleted"))
 
         self._run(
             self._repo.delete,
@@ -225,6 +224,8 @@ class SessionController(QObject):
             self._repo.export,
             session_id,
             Path(path),
-            on_success=lambda _: self.operation_succeeded.emit("会话已导出"),
+            on_success=lambda _: self.operation_succeeded.emit(
+                self.tr("Session exported")
+            ),
             write=True,
         )

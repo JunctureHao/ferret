@@ -32,7 +32,7 @@ with redirect_stdout(io.StringIO()):
 
 from ferret.apps.window import MainWindow
 from ferret.core import resources_rc  # noqa: F401  注册资源（图标/i18n/qm）
-from ferret.core.log import init_logging
+from ferret.core.log import get_logger, init_logging
 from ferret.core.runtime import ApplicationRuntime
 from ferret.core.settings import (
     APP_NAME,
@@ -43,6 +43,8 @@ from ferret.core.settings import (
 
 # UI 字体族：必须**单族**且自带中文字形，理由见 Application._init_font。
 UI_FONT_FAMILY = "Microsoft YaHei"
+
+logger = get_logger(__name__)
 
 
 class Application:
@@ -149,8 +151,20 @@ class Application:
         return app
 
     def _init_i18n(self):
-        """加载 qfluentwidgets 翻译与自定义业务翻译。翻译器作为实例属性持有强引用，确保与同生命周期
-        避免被 GC 回收导致翻译失效。"""
+        """装 qfluentwidgets 的翻译，以及 ferret 自己的业务翻译目录。
+
+        **英文是源语言**：代码里每个 `tr()` / `QCoreApplication.translate()` 的字面量
+        本身就是英文，所以选英文时**不该有** `en_GB.qm`，也不装业务翻译器 —— 少一层查表，
+        `tr()` 直接返回源文本。其余语言才去 `:/i18n/<locale>.qm` 找目录（`zh_CN.qm` 由
+        `python -m ferret.utils.scripts` 编出来再 rcc 进 `core/resources_rc.py`）。
+
+        翻译器必须存成实例属性：Qt 只持弱引用，一被 GC 回收，界面立刻退回源文本。
+
+        这一步排在 `_create_window()` 之前，但**挡不住模块级求值** —— 本模块顶层就
+        `from ferret.apps.window import MainWindow`，所有 apps 模块在这里之前已经导入完毕。
+        模块级/类体求值出来的译文会永久冻结成英文，所以那些文案一律存 `QT_TRANSLATE_NOOP`
+        标记、到使用点才 `translate`（见 `ferret.utils.i18n`）。
+        """
         if self.app is None:
             raise RuntimeError("QApplication 尚未创建，无法安装翻译器")
 
@@ -161,14 +175,25 @@ class Application:
             else QLocale(lang_config)
         )
 
+        # FluentTranslator 是控件库自带的目录，两种语言都要装（它的源语言是英文，
+        # 但选英文时装上也无害，且它自己就带 en 分支）。
         fluent_translator = FluentTranslator(locale)
         self.app.installTranslator(fluent_translator)
         self.translators.append(fluent_translator)
+
+        if locale.language() == QLocale.Language.English:
+            return
 
         setting_translator = QTranslator()
         if setting_translator.load(f":/i18n/{locale.name()}.qm"):
             self.app.installTranslator(setting_translator)
             self.translators.append(setting_translator)
+        else:
+            # 目录没编进资源（漏跑 lrelease 或 rcc）。界面会整体退回英文源文本 ——
+            # 静默失效很难查，所以留一条日志。
+            logger.warning(
+                "翻译目录 :/i18n/%s.qm 加载失败，界面将显示英文源文本", locale.name()
+            )
 
     def _create_window(self):
         """创建并显示主窗口。"""

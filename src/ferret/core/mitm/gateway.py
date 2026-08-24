@@ -3,7 +3,9 @@
 Ferret 自研的部分只有「判定」：把用户规则编译成正则，再算出命中哪条策略。
 真正的动作全是原生的 —— 连接级绕行/仅允许是 ``ignore_hosts`` / ``allow_hosts``
 （`mitmproxy/addons/next_layer.py`），拦截是 ``Response.make`` / ``Flow.kill``，
-挂起是 ``Flow.intercept``。这里没有 Qt，也没有任何 UI 文案。
+挂起是 ``Flow.intercept``。只用 QtCore 的 `QCoreApplication.translate`、不碰控件：
+校验失败的消息会被 `apps/gateway` 原样显示出来，所以要过翻译目录（`from_dict` 那几条
+不译 —— 它们被 `rules_from_raw` 吞掉，从不上界面）。
 
 **匹配为什么不用 flowfilter**：``~d``（``FDomain``）匹配的是 ``request.host`` /
 ``request.pretty_host``，**不带端口**；而连接级的 ``next_layer._ignore_connection``
@@ -19,6 +21,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+
+from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm.bindings import status_codes
 from ferret.core.mitm.blocklist import BlockField
@@ -136,7 +140,9 @@ class GatewayRule:
         """
         value = self.value.strip()
         if not value:
-            raise ValueError("匹配值不能为空")
+            raise ValueError(
+                QCoreApplication.translate("GatewayRule", "Match value cannot be empty")
+            )
         if self.logic == GatewayLogic.REGEX:
             return value
         literal = re.escape(value)
@@ -160,7 +166,12 @@ class GatewayRule:
         try:
             return re.compile(self.pattern, re.IGNORECASE)
         except re.error as exc:
-            raise ValueError(f"无效的正则表达式：{exc}") from exc
+            # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
+            raise ValueError(
+                QCoreApplication.translate(
+                    "GatewayRule", "Invalid regular expression: {}"
+                ).format(exc)
+            ) from exc
 
     def validate(self) -> None:
         """Reject rules the two planes could not honour.
@@ -168,13 +179,26 @@ class GatewayRule:
         Raises:
             ValueError: 层与策略不匹配、L4 用了方法匹配、状态码越界或正则不合法。
         """
+        translate = QCoreApplication.translate
         if self.policy not in LAYER_POLICIES[self.layer]:
-            raise ValueError(f"{self.layer} 不支持策略 {self.policy}")
+            raise ValueError(
+                translate("GatewayRule", "{} does not support the {} policy").format(
+                    self.layer, self.policy
+                )
+            )
         if self.layer == GatewayLayer.L4 and self.field != GatewayField.HOST:
             # 连接还没有 HTTP 语义，拿不到方法。
-            raise ValueError("传输层规则只能按主机匹配")
+            raise ValueError(
+                translate(
+                    "GatewayRule", "Transport-layer rules can only match on the host"
+                )
+            )
         if self.policy in _NEEDS_STATUS and not 100 <= self.status_code <= 599:
-            raise ValueError(f"无效的 HTTP 状态码：{self.status_code}")
+            raise ValueError(
+                translate("GatewayRule", "Invalid HTTP status code: {}").format(
+                    self.status_code
+                )
+            )
         self.compile()
 
     def to_dict(self) -> dict[str, Any]:

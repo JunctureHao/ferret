@@ -7,8 +7,10 @@ application.
 
 from ferret.core.mitm import escape_literal, parse_filter, quote_value
 
+#: 键是 `FilterRow.get_condition()` 送出的取值，不是下拉框上的文案 —— 文案会随语言变，
+#: 拿它当键筛选会在切到英文时静默失配（见 `apps.common.filter.FILTER_FIELDS`）。
 _FIELD_TO_OP: dict[str, str] = {
-    "全部": "u",
+    "all": "u",
     "URL": "u",
     "Method": "m",
     "Header": "h",
@@ -17,22 +19,22 @@ _FIELD_TO_OP: dict[str, str] = {
 
 
 def _condition_to_expr(condition: dict) -> str | None:
-    field = condition.get("field", "全部")
-    logic = condition.get("logic", "包含")
+    field = condition.get("field", "all")
+    logic = condition.get("logic", "contains")
     value = (condition.get("value") or "").strip()
     if not value:
         return None
 
     operator = _FIELD_TO_OP.get(field, "u")
-    if logic == "正则表达式":
+    if logic == "regex":
         regex = value
-    elif logic == "等于":
+    elif logic == "equals":
         regex = f"^{escape_literal(value)}$"
     else:
         regex = escape_literal(value)
 
     expression = f"~{operator} {quote_value(regex)}"
-    return f"!{expression}" if logic == "不包含" else expression
+    return f"!{expression}" if logic == "excludes" else expression
 
 
 def build_filter_expression(conditions: list[dict] | None) -> str:

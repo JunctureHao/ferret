@@ -74,6 +74,8 @@ class SettingsInterface(ScrollArea):
             icon=FluentIcon.LANGUAGE,
             title=self.tr("Language"),
             content=self.tr("Set your preferred language for UI"),
+            # 语言名一律用**该语言自己的写法**，所以这两条不进翻译目录 —— 看不懂当前
+            # 界面语言的人，也得能在这里认出自己的语言（Windows 设置同样这么做）。
             texts=["简体中文", "English"],
             parent=self.personalization_group,
         )
@@ -92,9 +94,9 @@ class SettingsInterface(ScrollArea):
         self.layout_card = ComboBoxSettingCard(
             configItem=CONFIG.layout,
             icon=FluentIcon.LAYOUT,
-            title=self.tr("布局"),
-            content=self.tr("切换表格信息中详细面板布局"),
-            texts=[self.tr("水平"), self.tr("垂直")],
+            title=self.tr("Layout"),
+            content=self.tr("Where the detail panel sits next to the flow table"),
+            texts=[self.tr("Horizontal"), self.tr("Vertical")],
             parent=self.main_panel_group,
         )
 
@@ -129,7 +131,6 @@ class SettingsInterface(ScrollArea):
 
         self.main_panel_group.addSettingCard(self.minimize_to_tray_card)
         self.main_panel_group.addSettingCard(self.layout_card)
-
 
         self.expand_layout.setSpacing(28)
         self.expand_layout.setContentsMargins(36, 10, 36, 0)

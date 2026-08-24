@@ -133,28 +133,28 @@ class SessionListPage(QWidget):
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(6)
 
-        self.import_btn = PushButton(FluentIcon.DOWNLOAD, self.tr("导入"), bar)
+        self.import_btn = PushButton(FluentIcon.DOWNLOAD, self.tr("Import"), bar)
 
         self.refresh_btn = TransparentToolButton(FluentIcon.SYNC, bar)
         self.refresh_btn.setFixedSize(32, 32)
         self.refresh_btn.setIconSize(QSize(18, 18))
-        self.refresh_btn.setToolTip(self.tr("刷新"))
+        self.refresh_btn.setToolTip(self.tr("Refresh"))
 
         self.search_edit = LineEdit(bar)
-        self.search_edit.setPlaceholderText(self.tr("搜索会话"))
+        self.search_edit.setPlaceholderText(self.tr("Search sessions"))
         self.search_edit.setFixedHeight(32)
         self.search_edit.setClearButtonEnabled(True)
 
         self.rename_btn = TransparentToolButton(FluentIcon.EDIT, bar)
         self.rename_btn.setFixedSize(32, 32)
         self.rename_btn.setIconSize(QSize(18, 18))
-        self.rename_btn.setToolTip(self.tr("重命名") + " (F2)")
+        self.rename_btn.setToolTip(self.tr("Rename") + " (F2)")
         self.rename_btn.setEnabled(False)
 
         self.delete_btn = TransparentToolButton(FluentIcon.DELETE, bar)
         self.delete_btn.setFixedSize(32, 32)
         self.delete_btn.setIconSize(QSize(18, 18))
-        self.delete_btn.setToolTip(self.tr("删除"))
+        self.delete_btn.setToolTip(self.tr("Delete"))
         self.delete_btn.setEnabled(False)
 
         layout.addWidget(self.import_btn)
@@ -168,8 +168,8 @@ class SessionListPage(QWidget):
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label = BodyLabel(self.tr("暂无保存的会话"), page)
-        import_btn = PushButton(FluentIcon.DOWNLOAD, self.tr("导入 Flow"), page)
+        label = BodyLabel(self.tr("No saved sessions yet"), page)
+        import_btn = PushButton(FluentIcon.DOWNLOAD, self.tr("Import flows"), page)
         layout.addStretch(1)
         layout.addWidget(label, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(import_btn, 0, Qt.AlignmentFlag.AlignCenter)
@@ -240,7 +240,7 @@ class SessionListPage(QWidget):
 
     @Slot(str)
     def _on_operation_succeeded(self, message: str):
-        show_success(self.tr("成功"), message, self)
+        show_success(self.tr("Success"), message, self)
 
     @Slot(str)
     def _on_search_changed(self, text: str):
@@ -253,7 +253,7 @@ class SessionListPage(QWidget):
     @Slot()
     def _on_import(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, self.tr("导入 Flow 文件"), "", self.tr("Flow 文件 (*.flow)")
+            self, self.tr("Import a flow file"), "", self.tr("Flow files (*.flow)")
         )
         if path:
             self.controller.import_session(Path(path))
@@ -282,7 +282,7 @@ class SessionListPage(QWidget):
             return
         old_id = meta.session_id
         dlg = SessionNameDialog(
-            self.tr("重命名会话"),
+            self.tr("Rename session"),
             default_name=meta.name,
             flow_count=meta.flow_count,
             parent=self.window(),
@@ -309,7 +309,7 @@ class SessionListPage(QWidget):
         if len(metas) == 1:
             names = metas[0].name
         else:
-            names = self.tr("选中 {} 个会话").format(len(metas))
+            names = self.tr("{} sessions selected").format(len(metas))
 
         dlg = SessionDeleteDialog(names, self.window())
         if dlg.exec():
@@ -327,19 +327,23 @@ class SessionListPage(QWidget):
             return
 
         menu = RoundMenu(parent=self)
-        menu.addAction(self._make_action("打开", self._open_selected))
-        menu.addAction(self._make_action("重命名", self._on_rename))
+        menu.addAction(self._make_action(self.tr("Open"), self._open_selected))
+        menu.addAction(self._make_action(self.tr("Rename"), self._on_rename))
         menu.addAction(
-            self._make_action("导出 Flow", lambda: self._export_session(meta))
+            self._make_action(
+                self.tr("Export flows"), lambda: self._export_session(meta)
+            )
         )
         menu.addAction(
             self._make_action(
-                self.tr("在文件管理器中显示"),
+                self.tr("Show in File Explorer"),
                 lambda: self._show_in_explorer(meta),
             )
         )
         menu.addSeparator()
-        menu.addAction(self._make_action("删除", self._on_delete, FluentIcon.DELETE))
+        menu.addAction(
+            self._make_action(self.tr("Delete"), self._on_delete, FluentIcon.DELETE)
+        )
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def _make_action(self, text, callback, icon=None):
@@ -350,9 +354,9 @@ class SessionListPage(QWidget):
     def _export_session(self, meta: SessionMeta):
         path, _ = QFileDialog.getSaveFileName(
             self.window(),
-            self.tr("导出会话"),
+            self.tr("Export session"),
             f"{meta.name}.flow",
-            self.tr("Flow 文件 (*.flow)"),
+            self.tr("Flow files (*.flow)"),
         )
         if path:
             self.controller.export_session(meta.session_id, Path(path))
@@ -396,15 +400,15 @@ class SessionViewerPage(QWidget):
         self.back_btn = TransparentToolButton(FluentIcon.RETURN, self)
         self.back_btn.setFixedSize(32, 32)
         self.back_btn.setIconSize(QSize(18, 18))
-        self.back_btn.setToolTip(self.tr("返回列表"))
+        self.back_btn.setToolTip(self.tr("Back to the list"))
 
         self.name_label = BodyLabel(self)
-        self.readonly_badge = BodyLabel(self.tr("只读"), self)
+        self.readonly_badge = BodyLabel(self.tr("Read-only"), self)
 
         self.export_btn = TransparentToolButton(FluentIcon.SAVE, self)
         self.export_btn.setFixedSize(32, 32)
         self.export_btn.setIconSize(QSize(18, 18))
-        self.export_btn.setToolTip(self.tr("导出会话"))
+        self.export_btn.setToolTip(self.tr("Export session"))
 
         self.splitter = FlowViewerPane(
             parent=self,
@@ -438,7 +442,9 @@ class SessionViewerPage(QWidget):
     def load(self, meta: SessionMeta, vc: SessionViewController):
         self.vc = vc
         self._meta = meta
-        self.name_label.setText(f"{meta.name}  ·  {meta.flow_count} 条  ·  ")
+        # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
+        flows = self.tr("{} flow(s)").format(meta.flow_count)
+        self.name_label.setText(f"{meta.name}  ·  {flows}  ·  ")
 
         self.splitter.set_controller(vc)
         self.table.set_view(vc.view)
@@ -456,9 +462,9 @@ class SessionViewerPage(QWidget):
             return
         path, _ = QFileDialog.getSaveFileName(
             self.window(),
-            self.tr("导出会话"),
+            self.tr("Export session"),
             f"{self._meta.name}.flow",
-            self.tr("Flow 文件 (*.flow)"),
+            self.tr("Flow files (*.flow)"),
         )
         if path:
             self.controller.export_session(self._meta.session_id, Path(path))
