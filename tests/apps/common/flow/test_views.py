@@ -148,6 +148,21 @@ class FlowViewerPaneTests(unittest.TestCase):
         self.assertEqual(self.viewer.panel.context_duration.text(), "128 ms")
 
 
+class MenuReExportTests(unittest.TestCase):
+    """三个菜单搬去了 `menus.py`，但两个挂载点照旧从 `views` 导入。
+
+    `views.py` 里那两行 ``# noqa: F401`` 看上去像死代码，删了不会报错 ——
+    只会在右键菜单弹不出来的时候才发现。这条把三个名字都钉住。
+    """
+
+    def test_views_still_exposes_the_three_menus(self) -> None:
+        from ferret.apps.common.flow import menus, views
+
+        for name in ("FlowContextMenu", "FlowExportMenu", "FlowSubViewMenu"):
+            with self.subTest(name=name):
+                self.assertIs(getattr(views, name), getattr(menus, name))
+
+
 class FlowContextMenuTests(unittest.TestCase):
     """Replay menu entry visibility and multi-select dispatch."""
 
