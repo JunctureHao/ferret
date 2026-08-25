@@ -90,7 +90,7 @@ class FlowDataTable(TableView):
         self.scrollDelagate.verticalSmoothScroll.setDynamicEngineEnabled(False)
 
         self.verticalHeader().hide()
-        widths = [54, 74, 420, 78, 96, 82, 86]
+        widths = [80, 80, 420, 65, 100, 80, 80]
         h_header = self.horizontalHeader()
         h_header.setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
