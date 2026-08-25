@@ -91,10 +91,25 @@ uv run python -m ferret.utils.scripts
 | onboarding / onboardingapp | Web 引导页       | 🟡   |
 | termlog                    | 终端日志         | 🟡   |
 | command_history            | 命令历史         | 🟡   |
-| comment                    | 流量备注         | 🟡   |
+| comment                    | 流量备注         | ✅   |
 | eventstore                 | 事件存储         | 🟡   |
 | browser                    | 打开浏览器       | 🟡   |
 | script                     | 加载 Python 脚本 | 🟡   |
 | keepserving                | 保持运行         | 🟡   |
 | errorcheck                 | 错误检查         | 🟡   |
-| server_side_events         | SSE 支持         | 🟡   |
+| server_side_events         | SSE 不支持的告警 | 🟡   |
+
+`comment` 的原生 addon 不装（§3 红线：不给 master 追加命令行 addon），备注能力由 GUI
+自己实现 —— 右键菜单和详情面板都能改，两处共用 `apps/common/dialog.py::CommentDialog`。
+`server_side_events` 内容只有一条告警（提醒 mitmproxy 不支持 SSE），装了也不改变行为。
+
+## 协议支持（mitmproxy 侧不是 addon，是代理层）
+
+| 协议            | 功能                              | 状态 |
+| --------------- | --------------------------------- | ---- |
+| WebSocket       | 帧收发 + 详情页「消息」逐帧展示   | ✅   |
+| SSE             | 详情页「消息」按事件分行展示      | ✅   |
+| SSE（边收边显） | 事件随推送实时进表                | ❌   |
+
+SSE 那条缺口不是界面偷懒：响应体一律缓冲（`stream_large_bodies` 默认关），事件表读的是
+**已结束**的响应，端点不收尾就一直看不到。详见 `AGENTS.md` §6。

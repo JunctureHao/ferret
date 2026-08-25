@@ -64,9 +64,23 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 实际装载 addon（`core/mitm/master.py` 为准）：Core、Block、StripDnsHttpsRecords、AntiCache(关)、AntiComp(关)、ClientPlayback、DisableH2C、Proxyserver、DnsResolver、GatewayL4Addon、NextLayer、MapRemote、MapLocal、ModifyBody、ModifyHeaders、FerretTlsConfig、GatewayL7Addon、FerretIntercept、View、ReadFile、Save、LogAddon。BlockList 已撤（网关取代，见 `master.py` 注释）。
 
-已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR/curl/httpie/raw 导出、CA 证书页、系统代理开关、会话管理、屏蔽 blocklist、代理来源限制 block、网关（L4/L7 策略）、重写六类（mapremote/maplocal/modifyheaders×2/modifybody×2）、断点 intercept（命中即在请求期与响应期各停一次，规则不选阶段；改请求或响应→放行/丢弃/伪造响应/撤销）。
+已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR/curl/httpie/raw 导出、CA 证书页、系统代理开关、会话管理、屏蔽 blocklist、代理来源限制 block、网关（L4/L7 策略）、重写六类（mapremote/maplocal/modifyheaders×2/modifybody×2）、断点 intercept（命中即在请求期与响应期各停一次，规则不选阶段；改请求或响应→放行/丢弃/伪造响应/撤销）、WebSocket 逐帧展示、SSE 事件分行展示、流量标记与备注。
 
-缺口：serverplayback、stickycookie/stickyauth、流量备注 `flow.comment`。
+缺口：serverplayback、stickycookie/stickyauth、SSE 实时推送（见下）。
+
+WebSocket：帧不走 addon，走 `mitmproxy.proxy.layers.websocket`（`layers/__init__.py`
+顶层就 import 它，连带 `wsproto`），经 `UiBridgeAddon` 的 `websocket_start` /
+`websocket_message` / `websocket_end` 三个钩子转成 Qt 信号实时到界面，详情页「消息」
+逐帧展示。信号只送 `flow_id` + 值对象，界面再回头问一趟 `websocket_frames()` ——
+一条行情连接上千帧，跟着选中一起搬过界不划算。显示上限 `WS_FRAME_LIMIT`（界面策略，
+`ws_frames()` 本身恒返回全部）。
+
+SSE：响应体一律缓冲 —— `stream_large_bodies` 默认 `None`（`proxyserver` 声明的），
+ferret 不设它，也不碰 `flow.response.stream`。所以事件表读的是**已结束**的响应体，
+端点不收尾就一直看不到，这正是原生 `ServerSideEvents` addon（内容只有一条告警，
+ferret 没装）在说的 mitmproxy#4469。将来要做实时推送，`stream_large_bodies` 必须配
+`store_streamed_bodies`：只开前者的话 body 压根不入库，事件表反而更空。解析在
+`utils/sse.py`（纯函数、零依赖），不在 `core/mitm/`。
 
 ⚠️ `README.md` 的「内置 Addon 对照」表已过期，以 `master.py` 为准。
 
@@ -74,7 +88,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - 瘦身项统一维护在 `src/ferret/__main__.py` 的 `# nuitka-project:` 注释；打包 `nuitka .\src\ferret\`（目录，非单文件）。
 - `bindings._STUBBED_MODULES` 现有 5 桩：`mitmproxy.addons.{onboarding,onboardingapp,proxyauth,cut}` + `pyperclip`，须在 mitmproxy 导入前完成。`maplocal` 已解桩（重写页的「重定向（本地）」要用它），别再加回去。
-- 接新 mitmproxy addon / 第三方依赖时，先确认是否会被 Nuitka 误裁，必要时加 `--include-package` 或移除对应 `--nofollow`。勿裁 `pyasn1`(aioquic 硬链)、`ruamel.yaml`、`mitmproxy_rs.contentviews`、aioquic/pylsqpack。
+- 接新 mitmproxy addon / 第三方依赖时，先确认是否会被 Nuitka 误裁，必要时加 `--include-package` 或移除对应 `--nofollow`。勿裁 `pyasn1`(aioquic 硬链)、`ruamel.yaml`、`mitmproxy_rs.contentviews`、aioquic/pylsqpack、`wsproto`(WebSocket 层顶层 import，帧展示要用)。
 - 打包后冒烟：exe 能起、GUI 不崩、mitmproxy master 正常 listen。
 
 ## 8. i18n（英文源 + `zh_CN.qm`）
