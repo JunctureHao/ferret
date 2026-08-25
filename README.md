@@ -103,7 +103,7 @@ uv run python -m ferret.utils.scripts
 自己实现 —— 右键菜单和详情面板都能改，两处共用 `apps/common/dialog.py::CommentDialog`。
 `server_side_events` 内容只有一条告警（提醒 mitmproxy 不支持 SSE），装了也不改变行为。
 
-## 协议支持（mitmproxy 侧不是 addon，是代理层）
+# 协议支持（不是 addon，在代理层）
 
 | 协议            | 功能                              | 状态 |
 | --------------- | --------------------------------- | ---- |
