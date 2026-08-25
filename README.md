@@ -57,13 +57,13 @@ uv run python -m ferret.utils.scripts
 | mapremote               | 远程 URL 映射重写         | ✅   |
 | stickycookie            | 固化 Cookie               | ❌   |
 | stickyauth              | 固化认证                  | ❌   |
-| anticache               | 去除缓存头强制走源站      | ❌   |
-| anticomp                | 去除压缩头看明文          | ❌   |
+| anticache               | 去除缓存头强制走源站      | ✅   |
+| anticomp                | 去除压缩头看明文          | ✅   |
 | block                   | 代理访问控制（按来源 IP） | ✅   |
 | blocklist               | 屏蔽匹配的请求            | ✅   |
 | cut                     | 截断大 body               | ❌   |
-| disable_h2c             | 禁用 h2c 升级             | ❌   |
-| strip_dns_https_records | 剥离 DNS HTTPS 记录       | ❌   |
+| disable_h2c             | 禁用 h2c 升级             |✅   |
+| strip_dns_https_records | 剥离 DNS HTTPS 记录       | ✅   |
 | update_alt_svc          | 更新 alt-svc              | ❌   |
 
 ## 重放 / 导入导出类
@@ -74,7 +74,7 @@ uv run python -m ferret.utils.scripts
 | readfile       | 读取 .flow 文件重放       | ❌   |
 | savehar        | 导出 HAR                  | ❌   |
 | dumper         | 流式 dump 到文件          | ❌   |
-| export         | mitmproxy 自带导出命令    | ❌   |
+| export         | mitmproxy 自带导出命令    | ✅   |
 | asgiapp        | 内嵌 ASGI 应用            | ❌   |
 
 ## 认证 / 代理链
