@@ -53,15 +53,17 @@
 # nuitka-project: --nofollow-import-to=itsdangerous
 # nuitka-project: --nofollow-import-to=ldap3
 # nuitka-project: --nofollow-import-to=bcrypt
-# werkzeug（连带它 import 的 markupsafe）不能排除：重定向本地文件用的原生
-# maplocal addon 在模块顶层就 `from werkzeug.security import safe_join`，而
-# `werkzeug/__init__.py` 又会拉起 serving/test/wrappers 整包（约 1.7 MB 源码）。
-# 那个 safe_join 是防路径穿越的关卡，自己照抄一份省不下多少体积、却要自己担
-# 安全责任 —— 依 AGENTS.md「原生优先」，宁可让产物大一点。
-# pyperclip 被 mitmproxy.addons.export 导入，但只用于 Export.clip（ferret 不调用），由桩顶替
 # nuitka-project: --nofollow-import-to=pyperclip
 # nuitka-project: --nofollow-import-to=zstandard.backend_cffi
 # nuitka-project: --noinclude-dlls=*zstandard*_cffi*
+# # nuitka-project: --nofollow-import-to=urwid
+# nuitka-project: --nofollow-import-to=wcwidth
+# nuitka-project: --nofollow-import-to=tornado
+# nuitka-project: --nofollow-import-to=win32evtlog
+# nuitka-project: --nofollow-import-to=win32evtlogutil
+# nuitka-project: --nofollow-import-to=_wmi
+# nuitka-project: --nofollow-import-to=werkzeug.debug
+# nuitka-project: --nofollow-import-to=concurrent.futures.process
 
 from ferret.core.application import Application
 
