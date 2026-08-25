@@ -62,6 +62,9 @@
 # nuitka-project: --nofollow-import-to=pyperclip
 # nuitka-project: --nofollow-import-to=zstandard.backend_cffi
 # nuitka-project: --noinclude-dlls=*zstandard*_cffi*
+# # nuitka-project: --nofollow-import-to=urwid
+# nuitka-project: --nofollow-import-to=wcwidth
+# nuitka-project: --nofollow-import-to=tornado
 
 from ferret.core.application import Application
 
