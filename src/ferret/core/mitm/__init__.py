@@ -33,7 +33,7 @@ from ferret.core.mitm.detail import (
     wire_size,
 )
 from ferret.core.mitm.export import FlowExporter
-from ferret.core.mitm.facade import MitmFacade
+from ferret.core.mitm.facade import MARKER_DEFAULT, MitmFacade
 from ferret.core.mitm.filters import escape_literal, quote_value
 from ferret.core.mitm.gateway import (
     GATEWAY_METADATA_KEY,
@@ -107,6 +107,7 @@ __all__ = [
     "INTERCEPT_OPTIONS",
     "LAYER_POLICIES",
     "MAP_KINDS",
+    "MARKER_DEFAULT",
     "REWRITE_OPTIONS",
     "SUSPEND_POLICIES",
     "WHOLE_BODY_PATTERN",

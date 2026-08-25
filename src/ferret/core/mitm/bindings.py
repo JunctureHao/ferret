@@ -68,7 +68,7 @@ from mitmproxy.net.http.http1.assemble import (
 )
 from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
-from mitmproxy.utils import human
+from mitmproxy.utils import emoji, human
 from mitmproxy.websocket import WebSocketData, WebSocketMessage
 from wsproto.frame_protocol import Opcode
 
@@ -126,6 +126,7 @@ __all__ = [
     "certs",
     "connection",
     "contentviews",
+    "emoji",
     "export_module",
     "http_url",
     "human",

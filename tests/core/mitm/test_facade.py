@@ -14,9 +14,17 @@
 
 import unittest
 
+from mitmproxy import flowfilter
 from mitmproxy.test import tflow
+from mitmproxy.utils import emoji
 
-from ferret.core.mitm import MitmFacade, MitmRuntime, View, WsClose
+from ferret.core.mitm import (
+    MARKER_DEFAULT,
+    MitmFacade,
+    MitmRuntime,
+    View,
+    WsClose,
+)
 from ferret.core.mitm.addons import GatewayState
 from ferret.core.mitm.intercept import InterceptState
 
@@ -244,3 +252,72 @@ class WebsocketReadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MarkTests(unittest.TestCase):
+    """标记写回。取值本身是个跨工具的约定，所以钉在这一层而不是界面层。
+
+    `flow.marked` 存的是 emoji 短码，原生 `flow.mark` 命令会照 `emoji.emoji` 验一遍
+    再赋值。自造一个字符串塞进去，本进程内看着没事，存进 `.flow` 之后 mitmproxy
+    console / web 那边渲染出来就是个兜底符号 —— 而互通是保留原生格式的全部意义。
+    """
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+        self.flow = tflow.tflow(resp=True)
+        self.runtime.view.add([self.flow])
+
+    def test_marking_writes_the_same_value_the_native_command_writes(self) -> None:
+        self.facade.set_flow_marked(self.flow.id, MARKER_DEFAULT)
+        self.assertEqual(self.flow.marked, MARKER_DEFAULT)
+        # 这是原生认得的取值，不是我们自己编的一个记号。
+        self.assertIn(self.flow.marked, emoji.emoji)
+
+    def test_the_native_marked_filter_matches_afterwards(self) -> None:
+        """界面上「只看已标记」将来要靠 `~marked`，它认的是「非空」。"""
+        matcher = flowfilter.parse("~marked")
+        assert matcher is not None
+        self.assertFalse(matcher(self.flow))
+        self.facade.set_flow_marked(self.flow.id, MARKER_DEFAULT)
+        self.assertTrue(matcher(self.flow))
+
+    def test_an_empty_string_clears_the_mark(self) -> None:
+        self.flow.marked = MARKER_DEFAULT
+        self.facade.set_flow_marked(self.flow.id, "")
+        self.assertEqual(self.flow.marked, "")
+
+    def test_an_unknown_shortcode_is_refused_instead_of_stored(self) -> None:
+        with self.assertRaises(ValueError):
+            self.facade.set_flow_marked(self.flow.id, "definitely-not-emoji")
+        self.assertEqual(self.flow.marked, "")
+
+    def test_the_table_is_told_to_redraw(self) -> None:
+        """标记要在表格上看得见，而 `View` 不会自己发现 flow 被改了。"""
+        updated: list[str] = []
+
+        # 收信人得有个活着的名字接着：`mitmproxy.utils.signals` 只留弱引用，就地挂一个
+        # lambda 会当场被回收，于是断言永远是「没收到」，看着像功能压根没做。
+        def receive(flow) -> None:
+            updated.append(flow.id)
+
+        self.runtime.view.sig_view_update.connect(receive)
+        self.facade.set_flow_marked(self.flow.id, MARKER_DEFAULT)
+        self.assertEqual(updated, [self.flow.id])
+
+    def test_a_flow_that_is_gone_reports_it_rather_than_passing_silently(self) -> None:
+        with self.assertRaises(ValueError):
+            self.facade.set_flow_marked("nope", MARKER_DEFAULT)
+
+    def test_marking_needs_a_running_kernel(self) -> None:
+        """会话页那批流量是从 `.flow` 回来的死对象 —— 界面按能力门控，这里兜底。"""
+        facade = MitmFacade(MitmRuntime())
+        facade.view.add([self.flow])
+        with self.assertRaises(RuntimeError):
+            facade.set_flow_marked(self.flow.id, MARKER_DEFAULT)
+
+    def test_marking_does_not_release_a_held_flow(self) -> None:
+        """断点停住的流量上标一下不等于放它走。"""
+        self.flow.intercept()
+        self.facade.set_flow_marked(self.flow.id, MARKER_DEFAULT)
+        self.assertTrue(self.flow.intercepted)

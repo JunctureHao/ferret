@@ -366,3 +366,6 @@ class CaptureController(QObject):
 
     def set_flow_comment(self, flow_id: str, comment: str) -> None:
         self._mitm.set_flow_comment(flow_id, comment)
+
+    def set_flow_marked(self, flow_id: str, marked: str) -> None:
+        self._mitm.set_flow_marked(flow_id, marked)

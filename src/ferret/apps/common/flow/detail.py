@@ -49,6 +49,7 @@ from qfluentwidgets import (
     TreeWidget,
 )
 
+from ferret.apps.common.dialog import CommentDialog
 from ferret.apps.common.edit import (
     ItemDualPanel,
     JsonDualPanel,
@@ -65,11 +66,11 @@ from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     FlowViewCapabilities,
 )
-from ferret.apps.common.icon import BaseAction
+from ferret.apps.common.icon import BaseAction, BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
 from ferret.core.log import get_logger
-from ferret.core.mitm import WsClose, WsFrame, human
+from ferret.core.mitm import MARKER_DEFAULT, WsClose, WsFrame, human
 
 log = get_logger("flow.detail")
 
@@ -638,6 +639,27 @@ class FlowDataPanel(SimpleCardWidget):
         )
         if self.capabilities.can_replay:
             self.command_bar.addAction(self.replay_action)
+        # 标记与备注同样按能力门控：两者都要改**活** flow，而会话页那批流量是从
+        # `.flow` 文件回来的死对象（`MitmFacade._mutate` 内核没跑就抛）。
+        #
+        # `setCheckable(True)` 就够了 —— `CommandButton` 本身是
+        # `TransparentToggleToolButton` 的子类，会把 action 的
+        # `isCheckable()` / `isChecked()` 照搬过去，不用自己往 bar 里塞裸控件。
+        #
+        # 哨兵位要先于 action 就位，见 `__set_mark_checked`：它分开「代码在同步勾选
+        # 态」和「人点了按钮」。
+        self.__syncing_mark = False
+        self.mark_action = BaseAction(
+            icon=BaseIcon.BOOKMARK_ADD, text=self.tr("Mark"), parent=self
+        )
+        self.mark_action.setCheckable(True)
+        self.comment_action = BaseAction(
+            icon=FluentIcon.EDIT, text=self.tr("Comment"), parent=self
+        )
+        if self.capabilities.can_mark:
+            self.command_bar.addAction(self.mark_action)
+        if self.capabilities.can_comment:
+            self.command_bar.addAction(self.comment_action)
         # 导出**刻意不放**在这里：`FlowExportMenu` 是绑在 `FlowContextMenu` 的选中
         # 上下文上的（多选导出、HAR 落盘都读它的 `flows`），右键菜单里那一份已经够，
         # 搬到这里等于把选区语义复制一遍。
@@ -746,6 +768,8 @@ class FlowDataPanel(SimpleCardWidget):
         self.copy_url_action.triggered.connect(self.__on_copy_url)
         self.copy_curl_action.triggered.connect(self.__on_copy_curl)
         self.replay_action.triggered.connect(self.__on_replay)
+        self.mark_action.toggled.connect(self.__on_mark_toggled)
+        self.comment_action.triggered.connect(self.__on_comment)
         self.__connect_controller(self.controller)
 
     def __connect_controller(self, controller, connect: bool = True) -> None:
@@ -870,6 +894,72 @@ class FlowDataPanel(SimpleCardWidget):
         except (AttributeError, ValueError, RuntimeError) as exc:
             show_warning(self.tr("Replay failed"), str(exc), self.window())
 
+    # —— 标记与备注 ——
+
+    @Slot(bool)
+    def __on_mark_toggled(self, checked: bool) -> None:
+        """切标记。写回失败要把按钮弹回去 —— 否则界面说「标了」而 flow 上没有。"""
+        if self.__syncing_mark:
+            return
+        flow_id = self.datas.get("id", "")
+        if not self.controller or not flow_id:
+            self.__set_mark_checked(bool(self.datas.get("marked")))
+            return
+        marked = MARKER_DEFAULT if checked else ""
+        try:
+            self.controller.set_flow_marked(flow_id, marked)
+        except (AttributeError, ValueError, RuntimeError) as exc:
+            show_warning(self.tr("Failed to mark"), str(exc), self.window())
+            self.__set_mark_checked(bool(self.datas.get("marked")))
+            return
+        self.__store("marked", marked)
+
+    @Slot()
+    def __on_comment(self) -> None:
+        """编辑备注。
+
+        复用右键菜单那只 `CommentDialog` 而不是另开一个气泡：同一件事在两处长成两个
+        样子（模态框 / 浮出层、两份占位文案、两种保存反馈）本身就是毛病，何况对话框
+        那一份已经在用了。"""
+        flow_id = self.datas.get("id", "")
+        if not self.controller or not flow_id:
+            return
+        dialog = CommentDialog(str(self.datas.get("comment") or ""), self.window())
+        if not dialog.exec():
+            return
+        comment = dialog.comment()
+        try:
+            self.controller.set_flow_comment(flow_id, comment)
+        except (AttributeError, ValueError, RuntimeError) as exc:
+            show_warning(self.tr("Failed to save comment"), str(exc), self.window())
+            return
+        show_success(self.tr("Success"), self.tr("Comment saved"), self.window())
+        self.__store("comment", comment)
+
+    def __store(self, key: str, value: str) -> None:
+        """写回成功后就地更新缓存的详情并只重画概览卡片。
+
+        刻意不走整个 `set_data`：那会连消息页一起重建，把 WS 帧表的选中行和滚动位置
+        清掉 —— 帧还在一秒几十条地进来，改个标记就把人看的位置弄丢说不过去。
+        重新问一趟 `flow_detail` 也没必要，改的就是这一个字段。"""
+        self.datas[key] = value
+        self.overview.set_data(self.datas)
+
+    def __set_mark_checked(self, checked: bool) -> None:
+        """摆按钮的勾选态，且不触发写回。
+
+        `toggled` 对 `setChecked` 和真人点击一样会发 —— 不拦一道，光是切换选中的流量
+        就会把「上一条的标记」写到刚选中的那条上去。
+
+        用一个哨兵位而不是 `blockSignals`：`CommandButton.setAction` 是靠
+        `action.toggled` / `action.changed` 把勾选态搬到按钮上的，掐掉 action 的信号
+        等于让按钮画的还是上一条流量的样子。"""
+        self.__syncing_mark = True
+        try:
+            self.mark_action.setChecked(checked)
+        finally:
+            self.__syncing_mark = False
+
     # —— WebSocket 实时 ——
 
     def __is_current(self, flow_id: str) -> bool:
@@ -966,7 +1056,12 @@ class FlowDataPanel(SimpleCardWidget):
         )
         self.copy_url_action.setEnabled(bool(data.get("URL")))
         self.copy_curl_action.setEnabled(bool(data.get("curl_command")))
-        self.replay_action.setEnabled(bool(self.controller and data.get("id")))
+        # 重放 / 标记 / 备注都得有个活控制器加一条认得的 flow 才谈得上。
+        editable = bool(self.controller and data.get("id"))
+        self.replay_action.setEnabled(editable)
+        self.mark_action.setEnabled(editable)
+        self.comment_action.setEnabled(editable)
+        self.__set_mark_checked(bool(data.get("marked")))
         self.stack.setCurrentIndex(1)
 
     def __set_messages(self, data: dict) -> None:

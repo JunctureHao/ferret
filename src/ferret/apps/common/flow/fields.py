@@ -219,6 +219,18 @@ def _pairs(value: object) -> str:
     return str(value)
 
 
+def _marker(value: object) -> str:
+    """`flow.marked` → 面向人的一句话。
+
+    原生存的是 emoji 短码（`MARKER_DEFAULT` 是 ``:default:``），直接铺在卡片上是一串
+    没人认得的记号。界面上标记只有「有 / 没有」两种状态，所以有值就是「已标记」，
+    短码本身没有信息量。空值这一行本来就不会出现（`field_value` 跳空值）。
+    """
+    if not value:
+        return "-"
+    return QCoreApplication.translate("FlowFields", "Marked")
+
+
 def _count(key: str) -> Callable[[dict], object]:
     """某个字典/列表键的条目数；空的返回 `None`，整行不出现。
 
@@ -707,7 +719,7 @@ SECTIONS: tuple[Section, ...] = (
             Field(QT_TRANSLATE_NOOP("FlowFields", "Intercepted"), "Intercepted"),
             Field(QT_TRANSLATE_NOOP("FlowFields", "Modified"), "Modified"),
             Field(QT_TRANSLATE_NOOP("FlowFields", "Replay"), "is_replay"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Marked"), "marked"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "Marked"), "marked", fmt=_marker),
             Field(QT_TRANSLATE_NOOP("FlowFields", "Comment"), "comment"),
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "Metadata"), "Flow Metadata", fmt=_pairs

@@ -16,12 +16,15 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import json
+from unittest.mock import patch
 
 from mitmproxy.test import tflow
 from PySide6.QtWidgets import QApplication, QWidget
-from qfluentwidgets import InfoLevel
+from qfluentwidgets import CommandButton, InfoLevel
 
+from ferret.apps.common import dialog
 from ferret.apps.common.edit import Language
+from ferret.apps.common.flow import detail
 from ferret.apps.common.flow.detail import (
     _STATE_BYTES_PREVIEW,
     FlowDataPanel,
@@ -30,8 +33,11 @@ from ferret.apps.common.flow.detail import (
     state_json,
     status_level,
 )
-from ferret.apps.common.flow.protocols import READONLY_CAPABILITIES
-from ferret.core.mitm import build_flow_detail
+from ferret.apps.common.flow.protocols import (
+    CAPTURE_CAPABILITIES,
+    READONLY_CAPABILITIES,
+)
+from ferret.core.mitm import MARKER_DEFAULT, build_flow_detail
 
 
 class EncodeStateTests(unittest.TestCase):
@@ -397,3 +403,206 @@ class MessagePaneTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _MarkStub:
+    """只认标记和备注两件事的控制器替身。会话页那侧刻意也是这么缺的。"""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+        self.fail = fail
+
+    def set_flow_marked(self, flow_id: str, marked: str) -> None:
+        if self.fail:
+            raise RuntimeError("kernel is not running")
+        self.calls.append(("mark", flow_id, marked))
+
+    def set_flow_comment(self, flow_id: str, comment: str) -> None:
+        if self.fail:
+            raise RuntimeError("kernel is not running")
+        self.calls.append(("comment", flow_id, comment))
+
+    # 「原始状态」页在每次 `set_data` 时都要问一趟，缺了只是往日志里刷两行 ——
+    # 但那两行会把这个类的失败输出淹掉。
+    def get_raw_request(self, flow_id: str) -> bytes:
+        return b""
+
+    def get_raw_response(self, flow_id: str) -> bytes:
+        return b""
+
+
+class MarkAndCommentTests(unittest.TestCase):
+    """CommandBar 上的标记与备注。
+
+    这两个动作都要改**活** flow，所以除了「点了有没有写回」，更要紧的是「没点的时候
+    绝对不写」—— 切换选中行会把上一条的状态同步到按钮上，一个没拦住的 `toggled`
+    就等于把上一条的标记盖到刚选中的那条流量上。
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.controller = _MarkStub()
+        self.panel = FlowDataPanel(
+            self.host,
+            self.controller,
+            CAPTURE_CAPABILITIES,
+        )
+        self.flow = tflow.tflow(resp=True)
+        self.panel.set_data(build_flow_detail(self.flow))
+
+    def tearDown(self) -> None:
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def _mark_button(self) -> CommandButton:
+        return next(
+            button
+            for button in self.panel.command_bar.findChildren(CommandButton)
+            if button.action() is self.panel.mark_action
+        )
+
+    def test_both_actions_are_gated_by_capabilities(self) -> None:
+        """会话页那批流量是从 `.flow` 回来的死对象，写回无处可去。"""
+        readonly = FlowDataPanel(self.host, None, READONLY_CAPABILITIES)
+        actions = readonly.command_bar.actions()
+        self.assertNotIn(readonly.mark_action, actions)
+        self.assertNotIn(readonly.comment_action, actions)
+
+        actions = self.panel.command_bar.actions()
+        self.assertIn(self.panel.mark_action, actions)
+        self.assertIn(self.panel.comment_action, actions)
+
+    def test_the_mark_action_renders_as_a_toggle_on_its_own(self) -> None:
+        """`CommandButton` 是 `TransparentToggleToolButton` 的子类，照搬 action 的
+        `isCheckable()` —— 所以往 bar 里塞一个裸控件是多余的一步。"""
+        self.assertTrue(self.panel.mark_action.isCheckable())
+        self.assertTrue(self._mark_button().isCheckable())
+
+    def test_toggling_writes_the_marker_mitmproxy_itself_writes(self) -> None:
+        self.panel.mark_action.setChecked(True)
+        self.assertEqual(
+            self.controller.calls, [("mark", self.flow.id, MARKER_DEFAULT)]
+        )
+
+    def test_untoggling_clears_it(self) -> None:
+        self.panel.mark_action.setChecked(True)
+        self.panel.mark_action.setChecked(False)
+        self.assertEqual(self.controller.calls[-1], ("mark", self.flow.id, ""))
+
+    def test_selecting_a_marked_flow_ticks_the_toggle(self) -> None:
+        marked = tflow.tflow(resp=True)
+        marked.marked = MARKER_DEFAULT
+        self.panel.set_data(build_flow_detail(marked))
+        self.assertTrue(self.panel.mark_action.isChecked())
+
+        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.assertFalse(self.panel.mark_action.isChecked())
+
+    def test_selecting_a_flow_never_writes_anything(self) -> None:
+        """这一条是整个功能里最容易错的地方：同步勾选态也会发 `toggled`。"""
+        marked = tflow.tflow(resp=True)
+        marked.marked = MARKER_DEFAULT
+        self.panel.set_data(build_flow_detail(marked))
+        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.assertEqual(self.controller.calls, [])
+
+    def test_the_button_still_follows_the_action_while_syncing(self) -> None:
+        """所以拦的是我们自己的槽，而不是 action 的信号 ——
+        `CommandButton.setAction` 正是靠 `action.toggled` 搬勾选态的，掐掉它，按钮就
+        一直画着上一条流量的样子。"""
+        marked = tflow.tflow(resp=True)
+        marked.marked = MARKER_DEFAULT
+        self.panel.set_data(build_flow_detail(marked))
+        self.assertTrue(self._mark_button().isChecked())
+
+    def test_a_failed_write_rolls_the_toggle_back(self) -> None:
+        """否则界面说「标了」而 flow 上没有 —— 这条流量以后也不会再被重画。"""
+        panel = FlowDataPanel(
+            self.host,
+            _MarkStub(fail=True),
+            CAPTURE_CAPABILITIES,
+        )
+        panel.set_data(build_flow_detail(self.flow))
+        panel.mark_action.setChecked(True)
+        self.assertFalse(panel.mark_action.isChecked())
+
+    def test_both_actions_go_dead_without_a_flow_to_write_to(self) -> None:
+        panel = FlowDataPanel(self.host, None, CAPTURE_CAPABILITIES)
+        panel.set_data(build_flow_detail(self.flow))
+        self.assertFalse(panel.mark_action.isEnabled())
+        self.assertFalse(panel.comment_action.isEnabled())
+
+        self.assertTrue(self.panel.mark_action.isEnabled())
+        self.assertTrue(self.panel.comment_action.isEnabled())
+
+    def test_the_comment_dialog_is_the_one_the_context_menu_uses(self) -> None:
+        """同一件事在两处长成两个样子本身就是毛病。"""
+        with patch.object(detail, "CommentDialog") as factory:
+            factory.return_value.exec.return_value = True
+            factory.return_value.comment.return_value = "登录接口"
+            self.panel.comment_action.trigger()
+
+        self.assertIs(detail.CommentDialog, dialog.CommentDialog)
+        self.assertEqual(factory.call_args.args[0], "")
+        self.assertEqual(self.controller.calls, [("comment", self.flow.id, "登录接口")])
+
+    def test_the_dialog_opens_on_the_note_that_is_already_there(self) -> None:
+        self.flow.comment = "旧备注"
+        self.panel.set_data(build_flow_detail(self.flow))
+        with patch.object(detail, "CommentDialog") as factory:
+            factory.return_value.exec.return_value = False
+            self.panel.comment_action.trigger()
+
+        self.assertEqual(factory.call_args.args[0], "旧备注")
+
+    def test_cancelling_writes_nothing(self) -> None:
+        with patch.object(detail, "CommentDialog") as factory:
+            factory.return_value.exec.return_value = False
+            self.panel.comment_action.trigger()
+
+        self.assertEqual(self.controller.calls, [])
+
+    def test_clearing_the_box_and_saving_deletes_the_note(self) -> None:
+        """空串是一个有意的取值，不是「没填」。"""
+        self.flow.comment = "旧备注"
+        self.panel.set_data(build_flow_detail(self.flow))
+        with patch.object(detail, "CommentDialog") as factory:
+            factory.return_value.exec.return_value = True
+            factory.return_value.comment.return_value = ""
+            self.panel.comment_action.trigger()
+
+        self.assertEqual(self.controller.calls, [("comment", self.flow.id, "")])
+
+    def test_a_write_back_refreshes_the_overview_card_only(self) -> None:
+        """整个 `set_data` 会连消息页一起重建，把 WS 帧表的选中和滚动位置清掉 ——
+        而帧还在一秒几十条地进来。"""
+        with (
+            patch.object(self.panel.overview, "set_data") as overview,
+            patch.object(self.panel.messages, "set_data") as messages,
+            patch.object(detail, "CommentDialog") as factory,
+        ):
+            factory.return_value.exec.return_value = True
+            factory.return_value.comment.return_value = "看这条"
+            self.panel.comment_action.trigger()
+
+        overview.assert_called_once()
+        messages.assert_not_called()
+        self.assertEqual(overview.call_args.args[0]["comment"], "看这条")
+
+    def test_a_failed_comment_write_leaves_the_cached_detail_alone(self) -> None:
+        panel = FlowDataPanel(
+            self.host,
+            _MarkStub(fail=True),
+            CAPTURE_CAPABILITIES,
+        )
+        panel.set_data(build_flow_detail(self.flow))
+        with patch.object(detail, "CommentDialog") as factory:
+            factory.return_value.exec.return_value = True
+            factory.return_value.comment.return_value = "写不进去"
+            panel.comment_action.trigger()
+
+        self.assertEqual(panel.datas.get("comment"), "")

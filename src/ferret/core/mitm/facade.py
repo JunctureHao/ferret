@@ -8,7 +8,7 @@ from typing import Any
 
 from PySide6.QtCore import QCoreApplication
 
-from ferret.core.mitm.bindings import HTTPFlow, View
+from ferret.core.mitm.bindings import HTTPFlow, View, emoji
 from ferret.core.mitm.detail import build_flow_detail
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.gateway import GatewayRule
@@ -36,6 +36,12 @@ from ferret.core.settings import get_sessions_dir
 # （`core/application.py` 顶层就 import 了主窗口），译文会永久冻结成英文。
 def _not_running() -> str:
     return QCoreApplication.translate("MitmFacade", "The mitmproxy core is not running")
+
+
+# 「已标记」写进 `flow.marked` 的值。和原生 `flow.mark.toggle` 用的是同一个
+# （`mitmproxy/addons/core.py`），所以存进 `.flow` 文件之后 mitmproxy console / web
+# 那边也认得，渲染成一个实心圆点；换成自造的字符串只会在别处显示成兜底符号。
+MARKER_DEFAULT = ":default:"
 
 
 def _snapshot(flow: HTTPFlow) -> HTTPFlow:
@@ -231,6 +237,28 @@ class MitmFacade:
 
         def assign(flow) -> None:
             flow.comment = comment
+
+        self._mutate(flow_id, assign, release=False)
+
+    def set_flow_marked(self, flow_id: str, marked: str) -> None:
+        """Set (or clear, with ``""``) the marker on a held flow.
+
+        照原生 `flow.mark` 命令验一遍取值：`flow.marked` 本身是个自由字符串，写什么
+        都能存进 `.flow` 文件，但只有 `emoji.emoji` 表里的短码在 mitmproxy console /
+        web 那边渲染得出东西，别的一律落到兜底符号。界面只会送 `MARKER_DEFAULT` 或
+        空串，验的是「以后别的调用方」。
+
+        Raises:
+            ValueError: 标记值不是空串也不是认得的 emoji 短码。
+        """
+        if marked and marked not in emoji.emoji:
+            raise ValueError(
+                QCoreApplication.translate("MitmFacade", "Unknown marker value: %s")
+                % marked
+            )
+
+        def assign(flow) -> None:
+            flow.marked = marked
 
         self._mutate(flow_id, assign, release=False)
 

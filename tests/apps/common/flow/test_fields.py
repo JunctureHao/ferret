@@ -32,6 +32,7 @@ from ferret.apps.common.flow.fields import (
     section_rows,
     section_title,
 )
+from ferret.core.mitm import MARKER_DEFAULT
 
 
 def find_field(label: str) -> Field:
@@ -152,6 +153,18 @@ class LabelTests(unittest.TestCase):
         self.assertEqual(field_value(state, {"state": "complete"}), "Completed")
         self.assertEqual(field_value(state, {"state": "nonsense"}), "Unknown")
         self.assertEqual(field_value(state, {}), "Unknown")
+
+    def test_the_marker_row_reads_as_a_state_not_as_an_emoji_shortcode(self) -> None:
+        """`flow.marked` 存的是 `:default:` 这样的短码，铺在卡片上没人认得。
+
+        界面上标记只有「有 / 没有」两种，短码本身没有信息量。"""
+        marked = find_field("Marked")
+        self.assertEqual(field_value(marked, {"marked": MARKER_DEFAULT}), "Marked")
+        self.assertEqual(field_value(marked, {"marked": ":skull:"}), "Marked")
+        # 没标记就整行不出现，而不是显示一个「没标记」—— 九成流量都没标记，
+        # 每张卡片上挂一行「没标记」是纯噪音。
+        self.assertIsNone(field_value(marked, {"marked": ""}))
+        self.assertIsNone(field_value(marked, {}))
 
 
 class FormatTimeTests(unittest.TestCase):

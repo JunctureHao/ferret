@@ -8,9 +8,11 @@ class FlowViewController(Protocol):
     """Read-only Flow view controller protocol.
 
     Replay-capable controllers (CaptureController) additionally implement
-    ``replay_flow``/``replay_flows``/``load_replay_file``, but those are NOT
+    ``replay_flow``/``replay_flows``/``load_replay_file`` and
+    ``set_flow_comment``/``set_flow_marked``, but those are NOT
     part of this protocol — they are
-    gated at the UI layer by ``FlowViewCapabilities.can_replay`` so that
+    gated at the UI layer by ``FlowViewCapabilities.can_replay`` /
+    ``can_comment`` / ``can_mark`` so that
     read-only controllers (SessionViewController) don't need stubs.
     """
 
@@ -40,6 +42,11 @@ class FlowViewCapabilities:
     can_open_url: bool = True
     can_export: bool = True
     can_block: bool = False
+    # 标记 / 备注要在**活** flow 上改（`MitmFacade._mutate` 只在 mitm 线程上跑，
+    # 内核没在跑就抛）。会话页那批流量是从 `.flow` 文件回来的死对象，写回无处可去，
+    # 所以这两项默认关，和 `can_replay` 同一个道理。
+    can_comment: bool = False
+    can_mark: bool = False
 
 
 CAPTURE_CAPABILITIES = FlowViewCapabilities(
@@ -49,6 +56,8 @@ CAPTURE_CAPABILITIES = FlowViewCapabilities(
     can_open_url=True,
     can_export=True,
     can_block=True,
+    can_comment=True,
+    can_mark=True,
 )
 
 READONLY_CAPABILITIES = FlowViewCapabilities(
@@ -58,4 +67,6 @@ READONLY_CAPABILITIES = FlowViewCapabilities(
     can_open_url=True,
     can_export=True,
     can_block=False,
+    can_comment=False,
+    can_mark=False,
 )
