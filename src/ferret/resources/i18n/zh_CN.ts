@@ -1081,7 +1081,6 @@
     <message>
         <location filename="../../apps/common/flow/fields.py" line="272"/>
         <source>Request sent</source>
-        <extracomment>视作“没有值”的取值结果，和搬过来之前的判断逐字一致。 标签列压暗到约 62% 不透明度。和 `edit/theme.py::EditorPalette._mono` 同一套办法 —— 暗色叠半透明白、亮色叠半透明黑，底图（卡片色、主题色）换了也不会突然对不上。 `setTextColor(light, dark)` 两套一起给，主题切换由 `FluentLabelBase` 自己重贴。 标签列的最小宽度。窄到一定程度值那侧就没有换行的余地了，这一列先保住。 `state` 键 → 状态文案标记。求值在 `_state()` 里。 只有这三条：`infer_state()` 只会返回 ``request`` / ``complete`` / ``error``。 早先还挂着 ``request_headers`` / ``response_headers`` 两条，配的是产出侧同样 永远进不去的两条分支 —— 两边一起清掉了。</extracomment>
         <translation>请求已发送</translation>
     </message>
     <message>
@@ -1103,7 +1102,6 @@
     <message>
         <location filename="../../apps/common/flow/fields.py" line="305"/>
         <source>Client address</source>
-        <extracomment>连接的「前端」「后端」两个小节共用的字段，只差 ``Front`` / ``Back`` 键前缀。 `Via` / `Address` 只有后端产出（前端那侧 `Client.address` 是 `peername` 的废弃 别名，产出侧刻意没写），前端渲染时这两行自然缺席 —— 一张表管两侧。</extracomment>
         <translation>客户端 地址</translation>
     </message>
     <message>
@@ -1150,7 +1148,6 @@
     <message>
         <location filename="../../apps/common/flow/fields.py" line="319"/>
         <source>Country</source>
-        <extracomment>证书的「主体」「签发者」两个小节共用的六项，只差 ``Subject`` / ``Issuer`` 键前缀。</extracomment>
         <translation>国家</translation>
     </message>
     <message>
@@ -1176,7 +1173,6 @@
     <message>
         <location filename="../../apps/common/flow/fields.py" line="460"/>
         <source>Summary</source>
-        <extracomment>值是列表、需要 `_join` 拍平的那两项。 整组是否露面的判断依据，逐字沿用搬过来之前的键集合。 大小组的四种口径，每侧三个键加一个合计： * ``*_headers_size`` —— 头部字节，走 `assemble_*_head()` 拿真实线格式； * ``*_wire_size`` —— 报文体的**线上**字节（压缩后），和表格 Size 列同源； * ``*_decoded_size`` —— 报文体**解压后**的字节，只在和线上不一样时才显示； * ``*_total_size`` / ``total_size`` —— 头部 + 线上，也就是这条报文实际占的字节。 改造前只有 ``req_size`` / ``res_size`` 一个含混的「大小」（量的是解压后）， 却和头部字节加在一起当合计，于是同一条 gzip 响应在表格和详情里能差好几倍。 概览的完整规格：声明顺序就是渲染顺序，一个顶层分组一张卡。</extracomment>
         <translation>概要</translation>
     </message>
     <message>
@@ -1223,7 +1219,6 @@
     <message>
         <location filename="../../apps/common/flow/fields.py" line="328"/>
         <source>Version</source>
-        <extracomment>TLS 两张卡共用的六项，只差 ``TLS`` / ``Client TLS`` 键前缀。</extracomment>
         <translation>版本</translation>
     </message>
     <message>
@@ -2311,7 +2306,6 @@
         <location filename="../../apps/intercept/views.py" line="117"/>
         <location filename="../../apps/intercept/views.py" line="180"/>
         <source>Add rule</source>
-        <extracomment>用户点「拦截队列」，要求把断点窗口叫到前台。由 `MainWindow` 牵线到 `InterceptWindow.pop_up()`，这一页不必认识那个窗口（沿用主窗口牵线的先例）。</extracomment>
         <translation>新增规则</translation>
     </message>
     <message>
@@ -2517,7 +2511,6 @@
     <message>
         <location filename="../../apps/intercept/window.py" line="140"/>
         <source>Request</source>
-        <extracomment>队列从空变成非空、窗口刚刚自己弹出来时发一次，带上队列条数。 托盘提醒交给 `MainWindow` 去发：边沿判定只在这里做一次，两处各判一次必然对不齐。</extracomment>
         <translation>请求</translation>
     </message>
     <message>

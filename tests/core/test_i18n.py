@@ -8,7 +8,8 @@ source。这个文件是为了让下一次同类事故变成一条红色断言�
 三层各挡一件事：
 
 * `CatalogTests` —— 代码里的字面量与 `zh_CN.ts` **双向**对齐（漏译 + 化石），外加
-  `<location>` 必须指向真实文件（重构完忘跑 lupdate 的现场）；
+  `<location>` 必须指向真实文件（重构完忘跑 lupdate 的现场）、`#:` 注释不许漏成
+  译者说明；
 * `CompiledCatalogTests` —— `.ts` 里每一条都能从 `:/i18n/zh_CN.qm` 原样读回来，专抓
   「改了 ts 但没跑 lrelease / rcc」；
 * `ExtractableTests` —— 写法本身得是 lupdate 认的形式（f-string、`tr(变量)` 提取不到）。
@@ -156,6 +157,26 @@ class CatalogTests(unittest.TestCase):
                         (TS_PATH.parent / filename).resolve().is_file(),
                         f"{filename} 不存在，请重跑 lupdate",
                     )
+
+    def test_no_entry_carries_an_implementation_note(self) -> None:
+        """`#:` 开头的注释会被 lupdate 当成下一个 `tr()` 的 `<extracomment>`。
+
+        Sphinx 用 `#:` 给模块级常量写文档，而 lupdate 把它读成「给译者的说明」，于是
+        讲状态码语义色、键前缀、大小口径的整段实现说明，会贴到源码里紧随其后的那条
+        UI 文案上（`Copy cookies`、`Nothing to show`、`#` 都中过）。译者看到的是一段
+        与那个词毫无关系的中文，而代码、ruff、ty、其余 i18n 断言全绿。
+
+        这一条已经修了三次（`filter.py`、`detail.py`、`fields.py` 各一次），所以钉成
+        断言：**目录里不该有任何 `<extracomment>`** —— 本项目从不刻意给译者留说明，
+        出现一条就说明某个 `#:` 又漏进来了。改成普通 `#` 即可（没有 `tr()` 的文件里
+        `#:` 是安全的）。
+        """
+        leaked = [
+            (ctx, msg.findtext("source"), (msg.findtext("extracomment") or "")[:40])
+            for ctx, msg in self.entries
+            if msg.find("extracomment") is not None
+        ]
+        self.assertEqual(leaked, [], "有 `#:` 注释漏成了译者说明，请改成普通 `#`")
 
 
 class CompiledCatalogTests(unittest.TestCase):

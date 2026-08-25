@@ -47,8 +47,8 @@ class InterceptInterface(QWidget):
     时选了「保持挂起并隐藏」之后，它是唯一能把那些还钉着客户端的流量找回来的路。
     """
 
-    #: 用户点「拦截队列」，要求把断点窗口叫到前台。由 `MainWindow` 牵线到
-    #: `InterceptWindow.pop_up()`，这一页不必认识那个窗口（沿用主窗口牵线的先例）。
+    # 用户点「拦截队列」，要求把断点窗口叫到前台。由 `MainWindow` 牵线到
+    # `InterceptWindow.pop_up()`，这一页不必认识那个窗口（沿用主窗口牵线的先例）。
     queue_requested = Signal()
 
     def __init__(self, controller: InterceptController, parent=None):

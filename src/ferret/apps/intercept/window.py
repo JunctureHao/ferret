@@ -86,8 +86,8 @@ class InterceptWindow(FluentWidget):
     这两条判的都是 `flow.response is None`，和规则写了什么无关 —— 规则不选阶段。
     """
 
-    #: 队列从空变成非空、窗口刚刚自己弹出来时发一次，带上队列条数。
-    #: 托盘提醒交给 `MainWindow` 去发：边沿判定只在这里做一次，两处各判一次必然对不齐。
+    # 队列从空变成非空、窗口刚刚自己弹出来时发一次，带上队列条数。
+    # 托盘提醒交给 `MainWindow` 去发：边沿判定只在这里做一次，两处各判一次必然对不齐。
     attention_requested = Signal(int)
 
     def __init__(self, controller: InterceptController) -> None:
