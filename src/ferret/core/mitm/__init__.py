@@ -3,11 +3,14 @@
 from ferret.core.mitm.bindings import (
     Flow,
     HTTPFlow,
+    Opcode,
     Options,
     ReplayHandler,
     Request,
     Response,
     View,
+    WebSocketData,
+    WebSocketMessage,
     human,
     parse_filter,
 )
@@ -80,6 +83,15 @@ from ferret.core.mitm.rewrite import (
     rewrite_rules_to_config,
 )
 from ferret.core.mitm.runtime import MitmRuntime, MitmRuntimeState
+from ferret.core.mitm.wsframe import (
+    WS_FRAME_LIMIT,
+    WsClose,
+    WsFrame,
+    latest_frame,
+    opcode_name,
+    ws_close,
+    ws_frames,
+)
 
 __all__ = [
     "BODY_KINDS",
@@ -98,6 +110,7 @@ __all__ = [
     "REWRITE_OPTIONS",
     "SUSPEND_POLICIES",
     "WHOLE_BODY_PATTERN",
+    "WS_FRAME_LIMIT",
     "CaInfo",
     "CaptureMaster",
     "CertExportFormat",
@@ -121,6 +134,7 @@ __all__ = [
     "MitmFacade",
     "MitmRuntime",
     "MitmRuntimeState",
+    "Opcode",
     "Options",
     "ReplayHandler",
     "Request",
@@ -133,6 +147,10 @@ __all__ = [
     "SystemCertificateService",
     "TrustState",
     "View",
+    "WebSocketData",
+    "WebSocketMessage",
+    "WsClose",
+    "WsFrame",
     "build_flow_detail",
     "escape_literal",
     "escape_template",
@@ -147,10 +165,14 @@ __all__ = [
     "intercept_option_updates",
     "intercept_rules_from_config",
     "intercept_rules_to_config",
+    "latest_frame",
+    "opcode_name",
     "parse_filter",
     "quote_value",
     "rewrite_option_updates",
     "rewrite_rules_from_config",
     "rewrite_rules_to_config",
     "wire_size",
+    "ws_close",
+    "ws_frames",
 ]

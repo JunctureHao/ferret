@@ -16,13 +16,20 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
-#: 过滤字段的**取值**（不是界面文案）。`get_condition()` 送出去的就是这些，
-#: `apps/capture/services.py` 拿它映射 flowfilter 操作符。取值与文案必须分开：
-#: 早先两者是同一个中文串，翻译一开下游就会静默失配、筛选整条失效。
-FILTER_FIELDS = ("all", "URL", "Method", "Header", "Body")
+# 过滤字段的**取值**（不是界面文案）。`get_condition()` 送出去的就是这些，
+# `apps/capture/services.py` 拿它映射 flowfilter 操作符。取值与文案必须分开：
+# 早先两者是同一个中文串，翻译一开下游就会静默失配、筛选整条失效。
+FILTER_FIELDS = ("all", "URL", "Method", "Header", "Body", "WebSocket")
 
-#: 过滤逻辑的取值，理由同上。顺序即下拉框顺序，索引 0 是默认项。
+# 不吃值的字段。原生 `~websocket`（`flowfilter.FWebSocket`）问的是「这条流量是不是
+# WS」，压根不带参数，所以这一类字段只能问 是 / 不是，输入框整个用不上。
+FILTER_FLAG_FIELDS = frozenset({"WebSocket"})
+
+# 过滤逻辑的取值，理由同上。顺序即下拉框顺序，索引 0 是默认项。
 FILTER_LOGICS = ("contains", "excludes", "regex", "equals")
+
+# `FILTER_FLAG_FIELDS` 那类字段专用的逻辑集，选中时整组换掉上面那四个。
+FILTER_FLAG_LOGICS = ("is", "is not")
 
 
 class FilterRow(QWidget):
@@ -49,6 +56,8 @@ class FilterRow(QWidget):
             "Method": "Method",
             "Header": "Header",
             "Body": "Body",
+            # 协议名，和 URL / Method 一样不译。
+            "WebSocket": "WebSocket",
         }
         self.field_box = ComboBox(self)
         self.field_box.setMinimumWidth(96)
@@ -56,24 +65,30 @@ class FilterRow(QWidget):
         for field in FILTER_FIELDS:
             self.field_box.addItem(field_labels[field], userData=field)
 
-        logic_labels = {
+        # 存下来给 `_sync_field_mode` 复用。刻意留在方法里现算、不提到模块级：模块级
+        # 会在 import 时求值，那会儿翻译器还没装上（AGENTS.md §5）。
+        self._logic_labels = {
             "contains": self.tr("Contains"),
             "excludes": self.tr("Excludes"),
             "regex": self.tr("Regex"),
             "equals": self.tr("Equals"),
+            "is": self.tr("Is"),
+            "is not": self.tr("Is not"),
         }
         self.logic_box = ComboBox(self)
         self.logic_box.setMinimumWidth(104)
         self.logic_box.setMaximumWidth(140)
         for logic in FILTER_LOGICS:
-            self.logic_box.addItem(logic_labels[logic], userData=logic)
+            self.logic_box.addItem(self._logic_labels[logic], userData=logic)
 
+        self._value_placeholder = self.tr("Search content...")
+        self._flag_placeholder = self.tr("No value needed")
         self.value_input = LineEdit(self)
         self.value_input.setMinimumWidth(160)
         self.value_input.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.value_input.setPlaceholderText(self.tr("Search content..."))
+        self.value_input.setPlaceholderText(self._value_placeholder)
 
         self.remove_btn = TransparentToolButton(FluentIcon.REMOVE_FROM, self)
         self.add_btn = TransparentToolButton(FluentIcon.ADD_TO, self)
@@ -104,20 +119,51 @@ class FilterRow(QWidget):
         self.add_btn.clicked.connect(self.addRequested.emit)
 
         self.check_box.stateChanged.connect(lambda _: self.filterChanged.emit())
-        self.field_box.currentIndexChanged.connect(lambda _: self.filterChanged.emit())
+        self.field_box.currentIndexChanged.connect(self._on_field_changed)
         self.logic_box.currentIndexChanged.connect(lambda _: self.filterChanged.emit())
         self.value_input.textChanged.connect(lambda _: self.filterChanged.emit())
+
+    @Slot(int)
+    def _on_field_changed(self, _index: int) -> None:
+        self._sync_field_mode()
+        self.filterChanged.emit()
+
+    def _sync_field_mode(self) -> None:
+        """把逻辑下拉框和输入框调成当前字段该有的样子。
+
+        标志字段（见 :data:`FILTER_FLAG_FIELDS`）没有值可填，所以输入框禁掉、逻辑
+        换成 是 / 不是。留一个能打字但下游根本不读的输入框，比禁掉更让人困惑。
+        """
+        is_flag = self.field_box.currentData() in FILTER_FLAG_FIELDS
+        logics = FILTER_FLAG_LOGICS if is_flag else FILTER_LOGICS
+
+        # 只在逻辑集真的换了时候重建：字段在同一类里换（URL → Body）不该把用户选好的
+        # 「排除」偷偷打回「包含」。
+        if tuple(item.userData for item in self.logic_box.items) != logics:
+            blocked = self.logic_box.blockSignals(True)
+            self.logic_box.clear()
+            for logic in logics:
+                self.logic_box.addItem(self._logic_labels[logic], userData=logic)
+            self.logic_box.setCurrentIndex(0)
+            self.logic_box.blockSignals(blocked)
+
+        self.value_input.setEnabled(not is_flag)
+        self.value_input.setPlaceholderText(
+            self._flag_placeholder if is_flag else self._value_placeholder
+        )
 
     def get_condition(self) -> dict | None:
         """返回当前行的过滤条件，未启用或无值则返回 None"""
         if not self.check_box.isChecked():
             return None
+        field = self.field_box.currentData()
         text = self.value_input.text().strip()
-        if not text:
+        # 标志字段本来就无值，拿「文本为空」判无效会让它永远生效不了。
+        if not text and field not in FILTER_FLAG_FIELDS:
             return None
         # 送取值、不送界面文案 —— 见 FILTER_FIELDS 上面那段。
         return {
-            "field": self.field_box.currentData(),
+            "field": field,
             "logic": self.logic_box.currentData(),
             "value": text,
         }
@@ -127,6 +173,9 @@ class FilterRow(QWidget):
         blocked = self.blockSignals(True)
         self.check_box.setChecked(True)
         self.field_box.setCurrentIndex(0)
+        # 字段本来就在 0 时上一行不会触发 `_on_field_changed`，逻辑集可能还停在标志
+        # 那一组，所以这里补一次；`_sync_field_mode` 是幂等的。
+        self._sync_field_mode()
         self.logic_box.setCurrentIndex(0)
         self.value_input.clear()
         self.blockSignals(blocked)

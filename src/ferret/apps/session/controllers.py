@@ -18,8 +18,12 @@ from ferret.core.mitm import (
     FlowFile,
     HTTPFlow,
     View,
+    WsClose,
+    WsFrame,
     build_flow_detail,
     parse_filter,
+    ws_close,
+    ws_frames,
 )
 
 
@@ -55,6 +59,18 @@ class SessionViewController(QObject):
         """会话页的流量是从文件读回来的，没有 mitm 线程也就没有活 flow —— 直接构建。"""
         flow = self.get_flow(flow_id)
         return build_flow_detail(flow) if flow else {}
+
+    def websocket_frames(self, flow_id: str) -> list[WsFrame]:
+        """会话页没有 mitm 线程，`flow.websocket` 直接读 —— 文件里的 flow 是死的。
+
+        只读页刻意不接那三个实时信号：这批流量早就结束了，没有「新帧到达」这件事。
+        """
+        flow = self.get_flow(flow_id)
+        return ws_frames(flow.websocket) if flow else []
+
+    def websocket_close(self, flow_id: str) -> WsClose:
+        flow = self.get_flow(flow_id)
+        return ws_close(flow.websocket) if flow else WsClose()
 
     def get_raw_request(self, flow_id: str) -> bytes:
         flow = self.get_flow(flow_id)

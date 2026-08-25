@@ -16,7 +16,7 @@ import unittest
 
 from mitmproxy.test import tflow
 
-from ferret.core.mitm import MitmFacade, MitmRuntime, View
+from ferret.core.mitm import MitmFacade, MitmRuntime, View, WsClose
 from ferret.core.mitm.addons import GatewayState
 from ferret.core.mitm.intercept import InterceptState
 
@@ -165,6 +165,81 @@ class FlowDetailTests(unittest.TestCase):
         facade = MitmFacade(MitmRuntime())
         facade.view.add([self.flow])
         self.assertEqual(facade.flow_detail(self.flow.id)["id"], self.flow.id)
+
+
+class WebsocketReadTests(unittest.TestCase):
+    """取帧刻意**不**走 `_snapshot()`，所以得单独钉一遍它守住了什么。
+
+    `flow.copy()` 会把每条消息连内容一起深拷一遍 —— 上千帧的行情连接白拷一份，还是
+    为了马上丢掉。这里换成在 mitm 线程上就地摘成值对象，代价是「跨线程该守的」不再由
+    `copy()` 顺带保证，只能由测试盯着：出来的东西不带 flow 引用、原 flow 之后被改也
+    不影响已经交出去的帧。
+    """
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+        # 原生工厂的 `close_reason` 默认是空串（会盖掉 `twebsocket()` 里那个值），
+        # 这里显式给一个，好让关闭原因这条路真的被走到。
+        self.flow = tflow.twebsocketflow(close_reason="Close Reason")
+        self.runtime.view.add([self.flow])
+
+    def test_frames_come_back_in_order(self) -> None:
+        frames = self.facade.websocket_frames(self.flow.id)
+        self.assertEqual([f.index for f in frames], [0, 1, 2])
+        self.assertEqual(frames[-1].content, b"it's me")
+
+    def test_the_frames_are_read_through_the_runtime(self) -> None:
+        """内核跑着时必须借 mitm 线程读 —— Qt 线程不许碰活 flow（AGENTS.md §3）。"""
+        calls: list[str] = []
+        inner = self.runtime.call
+
+        def spy(callback, *, timeout: float = 5.0):
+            calls.append("call")
+            return inner(callback, timeout=timeout)
+
+        self.runtime.call = spy  # type: ignore
+        self.facade.websocket_frames(self.flow.id)
+        self.facade.websocket_close(self.flow.id)
+        self.assertEqual(calls, ["call", "call"])
+
+    def test_frames_do_not_track_later_edits(self) -> None:
+        """不走 `copy()` 换来的那条保证，在这里兑现。"""
+        frames = self.facade.websocket_frames(self.flow.id)
+        assert self.flow.websocket is not None
+        self.flow.websocket.messages[-1].content = b"tampered"
+        self.assertEqual(frames[-1].content, b"it's me")
+
+    def test_close_info_comes_back_whole(self) -> None:
+        info = self.facade.websocket_close(self.flow.id)
+        self.assertEqual(info.close_code, 1000)
+        self.assertEqual(info.close_reason, "Close Reason")
+        self.assertTrue(info.is_closed)
+
+    def test_a_plain_http_flow_has_no_frames(self) -> None:
+        """`~http` 底座下两种流量同列，选中普通请求时消息页得干净地空着。"""
+        plain = tflow.tflow(resp=True)
+        self.runtime.view.add([plain])
+        self.assertEqual(self.facade.websocket_frames(plain.id), [])
+        self.assertFalse(self.facade.websocket_close(plain.id).is_closed)
+
+    def test_an_unknown_id_yields_nothing(self) -> None:
+        """选中行和内核删流量会抢在一起，和 `flow_detail` 同一个道理。"""
+        self.assertEqual(self.facade.websocket_frames("nope"), [])
+        self.assertEqual(self.facade.websocket_close("nope"), WsClose())
+
+    def test_a_non_http_flow_yields_nothing(self) -> None:
+        tcp = tflow.ttcpflow()
+        self.runtime.view.add([tcp])
+        self.assertEqual(self.facade.websocket_frames(tcp.id), [])
+        self.assertEqual(self.facade.websocket_close(tcp.id), WsClose())
+
+    def test_a_stopped_kernel_still_answers(self) -> None:
+        """会话页那条路：flow 是从文件读回来的，本来就没有 mitm 线程。"""
+        facade = MitmFacade(MitmRuntime())
+        facade.view.add([self.flow])
+        self.assertEqual(len(facade.websocket_frames(self.flow.id)), 3)
+        self.assertEqual(facade.websocket_close(self.flow.id).close_code, 1000)
 
 
 if __name__ == "__main__":

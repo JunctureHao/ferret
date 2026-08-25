@@ -69,6 +69,8 @@ from mitmproxy.net.http.http1.assemble import (
 from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
 from mitmproxy.utils import human
+from mitmproxy.websocket import WebSocketData, WebSocketMessage
+from wsproto.frame_protocol import Opcode
 
 tlsconfig_module: Any = _tlsconfig_module
 
@@ -104,6 +106,7 @@ __all__ = [
     "ModifyBody",
     "ModifyHeaders",
     "NextLayer",
+    "Opcode",
     "Options",
     "OptionsError",
     "Proxyserver",
@@ -116,6 +119,8 @@ __all__ = [
     "StripDnsHttpsRecords",
     "TlsConfig",
     "View",
+    "WebSocketData",
+    "WebSocketMessage",
     "assemble_request_head",
     "assemble_response_head",
     "certs",

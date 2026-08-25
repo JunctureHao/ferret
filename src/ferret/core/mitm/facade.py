@@ -23,6 +23,7 @@ from ferret.core.mitm.intercept import (
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.rewrite import RewriteRule
 from ferret.core.mitm.runtime import MitmRuntime
+from ferret.core.mitm.wsframe import WsClose, WsFrame, ws_close, ws_frames
 from ferret.core.network import LOOPBACK_HOST, detect_lan_address
 
 # 改个名，免得和下面同名的 MitmFacade.is_lan_exposed 属性看混。
@@ -338,6 +339,39 @@ class MitmFacade:
             return build_flow_detail(flow) if isinstance(flow, HTTPFlow) else {}
 
         return self.runtime.call(build) if self.runtime.is_running else build()
+
+    # —— WebSocket ——
+
+    def websocket_frames(self, flow_id: str) -> list[WsFrame]:
+        """Every frame captured on that flow so far; 不是 WS 流量就是空表。
+
+        刻意**不**走 `_snapshot()`：那个是给「界面要留着一整条 flow」的路径用的
+        （`all_http_flows` / `intercepted_flows`），而这里要的只是帧。`flow.copy()`
+        会把每条消息连内容一起深拷一遍 —— 上千帧的行情连接白拷一份，还是为了马上
+        丢掉。`ws_frames` 在 mitm 线程里就地摘成值对象，跨线程该守的（不带 flow
+        引用、`bytes` 不可变）一条不少，见 `wsframe.py` 的模块 docstring。
+
+        内核没跑时直接读：会话页那条路是从文件读回来的 flow，本来就没有 mitm 线程。
+        """
+
+        def collect() -> list[WsFrame]:
+            flow = self.view.get_by_id(flow_id)
+            if not isinstance(flow, HTTPFlow):
+                return []
+            return ws_frames(flow.websocket)
+
+        return self.runtime.call(collect) if self.runtime.is_running else collect()
+
+    def websocket_close(self, flow_id: str) -> WsClose:
+        """Why that connection ended; 还没关（或不是 WS）时字段全是 ``None``。"""
+
+        def collect() -> WsClose:
+            flow = self.view.get_by_id(flow_id)
+            if not isinstance(flow, HTTPFlow):
+                return WsClose()
+            return ws_close(flow.websocket)
+
+        return self.runtime.call(collect) if self.runtime.is_running else collect()
 
     def total_count(self) -> int:
         count = lambda: sum(

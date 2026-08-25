@@ -13,7 +13,13 @@ from typing import Any
 from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
 
 from ferret.core.log import get_logger
-from ferret.core.mitm.bindings import Options, OptionsError, View, parse_filter
+from ferret.core.mitm.bindings import (
+    HTTPFlow,
+    Options,
+    OptionsError,
+    View,
+    parse_filter,
+)
 from ferret.core.mitm.gateway import (
     GatewayRule,
     GatewayRuleSet,
@@ -22,6 +28,7 @@ from ferret.core.mitm.gateway import (
 from ferret.core.mitm.intercept import InterceptRule, intercept_option_updates
 from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.rewrite import RewriteRule, rewrite_option_updates
+from ferret.core.mitm.wsframe import latest_frame, ws_close
 from ferret.core.network import LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
 
@@ -37,7 +44,14 @@ class MitmRuntimeState(StrEnum):
 
 
 class UiBridgeAddon:
-    """Forward the native View signals across the runtime boundary."""
+    """Forward the native View signals and the websocket hooks across the boundary.
+
+    View 的信号只是转发；websocket 那三个钩子是这里**自己**实现的 addon 钩子 ——
+    `View` 一个 websocket 钩子都没有（它只有 `requestheaders` / `error` / `response` /
+    `tcp_*` / `udp_*` / `update`），所以帧到达这件事没有任何原生信号可借。这与本类
+    已经带着 `flow_suspended` / `flow_intercepted` 两个 ferret 自有信号是同一类问题：
+    缺钩子的事件只能自己补一次 emit。
+    """
 
     def __init__(
         self,
@@ -68,6 +82,31 @@ class UiBridgeAddon:
                 )
             )
         self._bridge._master_running.emit(self._generation)
+
+    def websocket_start(self, flow: HTTPFlow) -> None:
+        """101 握手成功、可以收发帧了。"""
+        if not self._connected:
+            return
+        self._bridge.websocket_started.emit(flow.id)
+
+    def websocket_message(self, flow: HTTPFlow) -> None:
+        """一帧到达（约定：最新一帧在 ``flow.websocket.messages[-1]``）。
+
+        发的是 :class:`WsFrame` 值对象而不是 flow：钩子跑在 mitm 线程上，发 flow 过去
+        等于让 Qt 侧读活 flow（AGENTS.md §3 红线），而且 `WebSocketMessage.content`
+        此刻还是可改的 —— 当场取值才对得上「这一帧当时是什么」。
+        """
+        if not self._connected:
+            return
+        frame = latest_frame(flow.websocket)
+        if frame is not None:
+            self._bridge.websocket_frame.emit(flow.id, frame)
+
+    def websocket_end(self, flow: HTTPFlow) -> None:
+        """连接关了。关闭码 / 原因 / 谁关的 / 何时关，一并作为值对象发出去。"""
+        if not self._connected:
+            return
+        self._bridge.websocket_closed.emit(flow.id, ws_close(flow.websocket))
 
     def done(self) -> None:
         self.disconnect()
@@ -231,6 +270,10 @@ class MitmRuntime(QObject):
     view_refreshed = Signal()
     flow_suspended = Signal(object)
     flow_intercepted = Signal(object)
+    # flow_id + 值对象。用 str 而不是整条 flow：见 `UiBridgeAddon.websocket_message`。
+    websocket_started = Signal(str)
+    websocket_frame = Signal(str, object)
+    websocket_closed = Signal(str, object)
 
     _master_created = Signal(int, object)
     _master_running = Signal(int)

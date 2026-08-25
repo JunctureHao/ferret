@@ -16,6 +16,8 @@ from ferret.core.mitm import (
     MitmRuntime,
     MitmRuntimeState,
     View,
+    WsClose,
+    WsFrame,
 )
 from ferret.core.settings import CONFIG
 from ferret.core.system_proxy import SystemProxyService
@@ -41,6 +43,12 @@ class CaptureController(QObject):
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
     master_ready = Signal(object)
+
+    # WebSocket 三件事，载荷是 `(flow_id, 值对象)`。原样从 runtime 转过来，理由见
+    # `UiBridgeAddon.websocket_message`：钩子在 mitm 线程上跑，过界的只能是值对象。
+    websocket_started = Signal(str)
+    websocket_frame = Signal(str, object)
+    websocket_closed = Signal(str, object)
 
     captureStateChanged = Signal(bool)
     proxy_started = Signal()
@@ -80,6 +88,11 @@ class CaptureController(QObject):
         runtime.flow_intercepted.connect(self.flow_updated)
         runtime.flow_removed.connect(self.flow_removed)
         runtime.view_refreshed.connect(self.view_refreshed)
+        # 帧不借道 flow_updated：一条行情连接每秒几十帧，整行重绘纯属浪费，而消息页
+        # 要的是「新到的这一帧」而不是「这条流量变了」。
+        runtime.websocket_started.connect(self.websocket_started)
+        runtime.websocket_frame.connect(self.websocket_frame)
+        runtime.websocket_closed.connect(self.websocket_closed)
         runtime.ready.connect(self._on_runtime_ready)
         runtime.failed.connect(self._on_runtime_failed)
         runtime.stopped.connect(self._on_runtime_stopped)
@@ -238,6 +251,12 @@ class CaptureController(QObject):
 
     def flow_detail(self, flow_id: str) -> dict[str, Any]:
         return self._mitm.flow_detail(flow_id)
+
+    def websocket_frames(self, flow_id: str) -> list[WsFrame]:
+        return self._mitm.websocket_frames(flow_id)
+
+    def websocket_close(self, flow_id: str) -> WsClose:
+        return self._mitm.websocket_close(flow_id)
 
     def total_count(self) -> int:
         return self._mitm.total_count()

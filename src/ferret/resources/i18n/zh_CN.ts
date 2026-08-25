@@ -140,12 +140,12 @@
 <context>
     <name>CaptureController</name>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="166"/>
+        <location filename="../../apps/capture/controllers.py" line="179"/>
         <source>Failed to restore the original system proxy</source>
         <translation>恢复原系统代理失败</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="346"/>
+        <location filename="../../apps/capture/controllers.py" line="365"/>
         <source>The mitmproxy core has stopped</source>
         <translation>mitmproxy 内核已停止</translation>
     </message>
@@ -708,43 +708,57 @@
 <context>
     <name>FilterRow</name>
     <message>
-        <location filename="../../apps/common/filter.py" line="47"/>
+        <location filename="../../apps/common/filter.py" line="54"/>
         <source>All</source>
-        <extracomment>过滤字段的**取值**（不是界面文案）。`get_condition()` 送出去的就是这些， `apps/capture/services.py` 拿它映射 flowfilter 操作符。取值与文案必须分开： 早先两者是同一个中文串，翻译一开下游就会静默失配、筛选整条失效。 过滤逻辑的取值，理由同上。顺序即下拉框顺序，索引 0 是默认项。</extracomment>
         <translation>全部</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="60"/>
+        <location filename="../../apps/common/filter.py" line="71"/>
         <source>Contains</source>
         <translation>包含</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="61"/>
+        <location filename="../../apps/common/filter.py" line="72"/>
         <source>Excludes</source>
         <translation>不包含</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="62"/>
+        <location filename="../../apps/common/filter.py" line="73"/>
         <source>Regex</source>
         <translation>正则表达式</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="63"/>
+        <location filename="../../apps/common/filter.py" line="74"/>
         <source>Equals</source>
         <translation>等于</translation>
     </message>
     <message>
+        <location filename="../../apps/common/filter.py" line="75"/>
+        <source>Is</source>
+        <translation>是</translation>
+    </message>
+    <message>
         <location filename="../../apps/common/filter.py" line="76"/>
+        <source>Is not</source>
+        <translation>不是</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/filter.py" line="84"/>
         <source>Search content...</source>
         <translation>搜索内容...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="81"/>
+        <location filename="../../apps/common/filter.py" line="85"/>
+        <source>No value needed</source>
+        <translation>无需填值</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/filter.py" line="96"/>
         <source>Remove condition</source>
         <translation>删除条件</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="82"/>
+        <location filename="../../apps/common/filter.py" line="97"/>
         <source>Add condition</source>
         <translation>添加条件</translation>
     </message>
@@ -2758,38 +2772,38 @@
 <context>
     <name>MitmFacade</name>
     <message>
-        <location filename="../../core/mitm/facade.py" line="37"/>
+        <location filename="../../core/mitm/facade.py" line="38"/>
         <source>The mitmproxy core is not running</source>
         <translation>mitmproxy 内核未运行</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="278"/>
+        <location filename="../../core/mitm/facade.py" line="279"/>
         <source>That flow is no longer in the list</source>
         <translation>这条流量已不在列表中</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="427"/>
+        <location filename="../../core/mitm/facade.py" line="461"/>
         <source>That flow could not be found</source>
         <translation>找不到指定的 Flow</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="434"/>
+        <location filename="../../core/mitm/facade.py" line="468"/>
         <source>There is no flow to resend</source>
         <translation>没有可重发的 Flow</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="439"/>
-        <location filename="../../core/mitm/facade.py" line="470"/>
+        <location filename="../../core/mitm/facade.py" line="473"/>
+        <location filename="../../core/mitm/facade.py" line="504"/>
         <source>The mitmproxy core is not running, so nothing can be replayed</source>
         <translation>mitmproxy 内核未运行，无法回放</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="457"/>
+        <location filename="../../core/mitm/facade.py" line="491"/>
         <source>There is nothing left to replay</source>
         <translation>无可回放的 Flow</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="484"/>
+        <location filename="../../core/mitm/facade.py" line="518"/>
         <source>The mitmproxy core is not running, so the file cannot be read</source>
         <translation>mitmproxy 内核未运行，无法读取文件</translation>
     </message>
@@ -2797,27 +2811,27 @@
 <context>
     <name>MitmRuntime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="66"/>
+        <location filename="../../core/mitm/runtime.py" line="80"/>
         <source>The proxy could not start listening on its port</source>
         <translation>代理端口监听失败</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="203"/>
+        <location filename="../../core/mitm/runtime.py" line="242"/>
         <source>Port {} is already in use</source>
         <translation>端口 {} 已被占用</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="335"/>
+        <location filename="../../core/mitm/runtime.py" line="378"/>
         <source>The mitmproxy core did not stop in time, so it cannot restart</source>
         <translation>mitmproxy 内核停止超时，无法重启</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="528"/>
+        <location filename="../../core/mitm/runtime.py" line="571"/>
         <source>The mitmproxy core is not running</source>
         <translation>mitmproxy 内核未运行</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="551"/>
+        <location filename="../../core/mitm/runtime.py" line="594"/>
         <source>The mitmproxy task timed out</source>
         <translation>mitmproxy 任务执行超时</translation>
     </message>
@@ -2825,29 +2839,29 @@
 <context>
     <name>MultiFilterManager</name>
     <message>
-        <location filename="../../apps/common/filter.py" line="154"/>
+        <location filename="../../apps/common/filter.py" line="203"/>
         <source>Clear all</source>
         <translation>清除全部</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="156"/>
+        <location filename="../../apps/common/filter.py" line="205"/>
         <source>Collapse</source>
         <translation>收起</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="157"/>
-        <location filename="../../apps/common/filter.py" line="159"/>
+        <location filename="../../apps/common/filter.py" line="206"/>
+        <location filename="../../apps/common/filter.py" line="208"/>
         <source>Clear every filter condition</source>
         <translation>清除全部筛选条件</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="158"/>
-        <location filename="../../apps/common/filter.py" line="160"/>
+        <location filename="../../apps/common/filter.py" line="207"/>
+        <location filename="../../apps/common/filter.py" line="209"/>
         <source>Collapse the filter panel</source>
         <translation>收起筛选面板</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="285"/>
+        <location filename="../../apps/common/filter.py" line="334"/>
         <source>{} active condition(s)</source>
         <translation>{} 个有效条件</translation>
     </message>
@@ -3465,32 +3479,32 @@
 <context>
     <name>SessionController</name>
     <message>
-        <location filename="../../apps/session/controllers.py" line="143"/>
+        <location filename="../../apps/session/controllers.py" line="159"/>
         <source>Operation failed</source>
         <translation>操作失败</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="161"/>
+        <location filename="../../apps/session/controllers.py" line="177"/>
         <source>Session saved</source>
         <translation>会话已保存</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="175"/>
+        <location filename="../../apps/session/controllers.py" line="191"/>
         <source>Session imported</source>
         <translation>会话已导入</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="205"/>
+        <location filename="../../apps/session/controllers.py" line="221"/>
         <source>Session renamed</source>
         <translation>会话已重命名</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="218"/>
+        <location filename="../../apps/session/controllers.py" line="234"/>
         <source>Session deleted</source>
         <translation>会话已删除</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="234"/>
+        <location filename="../../apps/session/controllers.py" line="250"/>
         <source>Session exported</source>
         <translation>会话已导出</translation>
     </message>
