@@ -44,6 +44,33 @@ class TabPanel(QWidget):
         if self.stacked.count() == 1:
             self.pivot.setCurrentItem(route_key)
 
+    def setTabVisible(self, route_key: str, visible: bool):
+        """隐藏/显示一整条标签。
+
+        给“多数流量用不上”的页（Query / Form / Cookies / Trailers）用的：
+        没内容时标签直接不出现，而不是点进去看见一片空白。
+
+        不走 `Pivot.removeWidget`：那个会把导航项 `deleteLater` 掉，下一条流量
+        又有内容时得重建一遍、还得记住原来插在第几位。隐藏就够 ——
+        `QHBoxLayout` 不给隐藏控件留位置。
+        """
+        item = self.pivot.items.get(route_key)
+        if item is None:
+            return
+        item.setVisible(visible)
+        if not visible and self.pivot.currentRouteKey() == route_key:
+            self.setCurrentTab(self.__first_visible_tab())
+
+    def isTabVisible(self, route_key: str) -> bool:
+        """标签是不是还在。
+
+        用 `isHidden()` 而不是 `isVisible()`：后者连祖先一起算，面板本身还没
+        显示出来时每一项都是“不可见”的，会把“标签被藏了”和“还没显示”
+        混成同一个答案。
+        """
+        item = self.pivot.items.get(route_key)
+        return item is not None and not item.isHidden()
+
     def setTabFontSize(self, size: int):
         self._tab_font_size = size
         self.pivot.setItemFontSize(size)
@@ -52,6 +79,13 @@ class TabPanel(QWidget):
         self.pivot.setCurrentItem(route_key)
 
     # ── 内部方法 ──────────────────────────────
+
+    def __first_visible_tab(self) -> str:
+        """第一个没被隐藏的标签 —— 当前标签被藏起来时落到这里。"""
+        for route_key in self.pivot.items:
+            if self.isTabVisible(route_key):
+                return route_key
+        return self.pivot.currentRouteKey() or ""
 
     def __init_widget(self):
         self.pivot = Pivot(self)

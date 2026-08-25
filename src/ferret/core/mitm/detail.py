@@ -130,6 +130,58 @@ def tls_fields(conn, prefix: str) -> dict[str, Any]:
     }
 
 
+def _via_spec(via) -> str:
+    """上游代理 spec → 可读字符串。
+
+    `server_spec.ServerSpec` 是 ``tuple[scheme, (host, port)]`` 的**类型别名**，
+    不是 NamedTuple —— 写 `via.scheme` 会直接 `AttributeError`。所以这里按元组解，
+    形状不对就退回 `str()`，绝不让一个上游配置把详情面板整个搞崩。
+    """
+    try:
+        scheme, (host, port) = via
+        return f"{scheme}://{host}:{port}"
+    except (TypeError, ValueError):
+        return str(via)
+
+
+def connection_fields(conn, prefix: str) -> dict[str, Any]:
+    """一侧连接的状态与时间戳。前端连接用 ``Front``，后端用 ``Back``。
+
+    和 `tls_fields` 分开是因为这些字段和 TLS 无关：连接状态、传输协议、连接出错
+    原因、以及三个握手/结束时刻。它们历来一个都没产出 —— 「这条连接现在还开着吗」
+    「走的是 TCP 还是 UDP」「连接是什么时候断的」在界面上完全看不到。
+
+    时间戳原样产出**裸浮点**，格式化留给 `fields.py` 的 `fmt=format_time`：
+    那边同一个函数管着所有时刻字段，`None` / `0` 也在那一层统一按「没有」处理。
+
+    `timestamp_tcp_setup` / `via` / `address` 只在服务端连接上有，用 `getattr`
+    统一取 —— 一个函数管两侧，比两个近乎一样的函数好维护。
+    """
+    state = getattr(conn, "state", None)
+    fields: dict[str, Any] = {
+        f"{prefix} Connection State": getattr(state, "name", "").lower(),
+        f"{prefix} Transport Protocol": conn.transport_protocol or "",
+        f"{prefix} TLS Handshake": conn.timestamp_tls_setup,
+        f"{prefix} Connection End": conn.timestamp_end,
+    }
+    tcp_setup = getattr(conn, "timestamp_tcp_setup", None)
+    if tcp_setup:
+        fields[f"{prefix} TCP Handshake"] = tcp_setup
+    if conn.error:
+        fields[f"{prefix} Connection Error"] = conn.error
+    # `via` / `address` 只读服务端：`Client.address` 在 mitmproxy 12 是 `peername`
+    # 的**废弃别名**，一读就抛 DeprecationWarning，而且值和 `Front Client Address`
+    # 完全重复。`via` 是「有没有上游代理」，只有 `Server` 有，正好当判据。
+    if hasattr(conn, "via"):
+        if conn.via:
+            fields[f"{prefix} Via"] = _via_spec(conn.via)
+        # 服务端的 `address` 是**请求的**目标（可能是域名），`peername` 是解析后的
+        # ip:port —— 两个是不同的东西，走 CDN 或改了 host 时差别就出来了。
+        if conn.address:
+            fields[f"{prefix} Address"] = f"{conn.address[0]}:{conn.address[1]}"
+    return fields
+
+
 def certificate_fields(conn) -> dict[str, Any]:
     """服务端证书链 → 详情面板的证书字段；拿不到证书就一个键都不产出。
 
@@ -272,11 +324,19 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
     }
     if client_conn is not None:
         fields["Connection ID"] = client_conn.id
+        fields.update(connection_fields(client_conn, "Front"))
         fields.update(tls_fields(client_conn, "Client TLS"))
         if client_conn.mitmcert is not None:
             fields["Client Mitm Certificate"] = client_conn.mitmcert.cn or ""
         if client_conn.proxy_mode is not None:
             fields["Client Proxy Mode"] = client_conn.proxy_mode.full_spec
+    # urlencoded 表单单独产出一份：`Request Params` 是 URL 上的查询串，表单在 body 里，
+    # 两个都被叫做「参数」但来源完全不同，混在一页里看根本分不清哪个是哪个。
+    # multipart 刻意不产出 —— 它的键和值都是 `bytes`，值还可能是整个上传文件，
+    # 而 Body 页的 Multipart Form 视图本来就把它排得更清楚。
+    form = flatten_multi(request.urlencoded_form.items(multi=True))
+    if form:
+        fields["Request Form"] = form
     if request.trailers:
         fields["Request Trailers"] = flatten_multi(request.trailers.items(multi=True))
     return fields
@@ -322,6 +382,8 @@ def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
         "Response HTTP Version": response.http_version,
         "Response Body": body,
         "Response Content-Type": response.headers.get("Content-Type", "-"),
+        # 「线上 3.1 KB / 解压后 12 KB」旁边总得说清是谁压的，否则那两个数字看着像 bug。
+        "Response Content-Encoding": response.headers.get("Content-Encoding", ""),
         "Response Body Text": body_info["text"],
         "Response Body Pretty": body_info["pretty"],
         "Response Body View": body_info["view"],
@@ -346,6 +408,7 @@ def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
     }
     if server_conn is not None:
         fields["Back Connection ID"] = server_conn.id
+        fields.update(connection_fields(server_conn, "Back"))
         fields.update(tls_fields(server_conn, "TLS"))
         fields.update(certificate_fields(server_conn))
     if response.trailers:
@@ -376,6 +439,7 @@ def build_flow_detail(flow: HTTPFlow) -> dict[str, Any]:
     ``response_headers`` 分支永远进不去。
     """
     state = infer_state(flow)
+    raw_state = flow.get_state()
     data: dict[str, Any] = {
         "id": flow.id,
         "state": state,
@@ -383,8 +447,16 @@ def build_flow_detail(flow: HTTPFlow) -> dict[str, Any]:
         "marked": flow.marked,
         "is_replay": flow.is_replay or "",
         "live": "true" if flow.live else "false",
+        # 「流量元数据」卡要的几项。`version` 只在原生状态里有（`Flow` 上没有同名
+        # 属性），所以从 `raw_state` 读；`modified()` 是**方法**不是属性。
+        "Flow Type": flow.type,
+        "Flow Version": raw_state.get("version"),
+        "Flow Created": flow.timestamp_created,
+        "Intercepted": "true" if flow.intercepted else "false",
+        "Modified": "true" if flow.modified() else "false",
+        "Flow Metadata": dict(flow.metadata),
         # 完整性兜底：以后新增的 flow 字段不改一行代码就已经在这棵子树里。
-        "raw_state": flow.get_state(),
+        "raw_state": raw_state,
     }
     data.update(request_fields(flow))
 
@@ -399,6 +471,8 @@ def build_flow_detail(flow: HTTPFlow) -> dict[str, Any]:
     if state == "error":
         data["Status Code"] = "Error"
         data["Error Message"] = flow.error.msg if flow.error else "Unknown"
+        if flow.error is not None:
+            data["Error Time"] = flow.error.timestamp
 
     if state == "complete":
         try:

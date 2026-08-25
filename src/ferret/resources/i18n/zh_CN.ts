@@ -679,27 +679,28 @@
 <context>
     <name>CookieWidget</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="718"/>
+        <location filename="../../apps/common/flow/detail.py" line="202"/>
         <source>Copy cookies</source>
+        <extracomment>`bytes` 值在「原始状态」页的预览长度。够看出协议头是什么，又不会把整份 JSON 撑成几 MB —— 完整报文在请求/响应两页的 Body 与 Raw 里本来就有。 状态码档位 → `InfoBadge` 的语义等级。 改造前这里是一张五个十六进制色值的表加一句内联样式表，主题一换就对不上（那五个 色值是照亮色主题挑的），而且和 Fluent 自己的语义色系统各说各话。`InfoLevel` 这五档正好一一对应：3xx 用 `ATTENTION`（主题色），未完成/不认识的用 `INFOAMTION`（中性灰）。</extracomment>
         <translation>复制 Cookie</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="773"/>
+        <location filename="../../apps/common/flow/detail.py" line="257"/>
         <source>Notice</source>
         <translation>提示</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="773"/>
+        <location filename="../../apps/common/flow/detail.py" line="257"/>
         <source>No cookies to copy</source>
         <translation>没有可复制的 Cookie</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="780"/>
+        <location filename="../../apps/common/flow/detail.py" line="264"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="780"/>
+        <location filename="../../apps/common/flow/detail.py" line="264"/>
         <source>Cookies copied to clipboard</source>
         <translation>Cookie 已复制到剪贴板</translation>
     </message>
@@ -811,18 +812,79 @@
 <context>
     <name>FlowDataPanel</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="361"/>
+        <location filename="../../apps/common/flow/detail.py" line="567"/>
         <source>Nothing to show</source>
+        <extracomment>详情字典的键前缀：``Request`` 或 ``Response``。 空内容时隐藏的标签页 route key，子类各自声明。 页面顺序。route key 同时是 `set_page_visible` 的参数。</extracomment>
         <translation>什么都没有</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="409"/>
-        <location filename="../../apps/common/flow/views.py" line="410"/>
+        <location filename="../../apps/common/flow/detail.py" line="583"/>
+        <source>Overview</source>
+        <translation>概览</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="584"/>
+        <source>Request</source>
+        <translation>请求</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="585"/>
+        <source>Response</source>
+        <translation>响应</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="586"/>
+        <source>Raw state</source>
+        <translation>原始状态</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="595"/>
+        <source>Copy URL</source>
+        <translation>复制 URL</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="598"/>
+        <source>Copy cURL</source>
+        <translation>复制 cURL</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="604"/>
+        <source>Replay</source>
+        <translation>重发</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="655"/>
+        <location filename="../../apps/common/flow/detail.py" line="656"/>
         <source>Close details</source>
         <translation>关闭详情</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="502"/>
+        <location filename="../../apps/common/flow/detail.py" line="788"/>
+        <source>Nothing to copy</source>
+        <translation>没有可复制的内容</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="789"/>
+        <source>%s is not ready yet</source>
+        <translation>%s 还没有准备好</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="795"/>
+        <source>Success</source>
+        <translation>成功</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="796"/>
+        <source>%s copied to clipboard</source>
+        <translation>%s 已复制到剪贴板</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="809"/>
+        <source>Replay failed</source>
+        <translation>重发失败</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="843"/>
         <source>Pending</source>
         <translation>等待中</translation>
     </message>
@@ -830,7 +892,7 @@
 <context>
     <name>FlowDetail</name>
     <message>
-        <location filename="../../core/mitm/detail.py" line="255"/>
+        <location filename="../../core/mitm/detail.py" line="307"/>
         <source>Pending...</source>
         <translation>等待中...</translation>
     </message>
@@ -838,12 +900,12 @@
 <context>
     <name>FlowEmptyState</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="686"/>
+        <location filename="../../apps/common/flow/views.py" line="447"/>
         <source>No traffic yet</source>
         <translation>暂无流量</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="686"/>
+        <location filename="../../apps/common/flow/views.py" line="447"/>
         <source>Proxy stopped</source>
         <translation>代理已停止</translation>
     </message>
@@ -1000,257 +1062,473 @@
 <context>
     <name>FlowFields</name>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="166"/>
+        <location filename="../../apps/common/flow/fields.py" line="272"/>
         <source>Request sent</source>
-        <extracomment>视作“没有值”的取值结果，和搬过来之前的判断逐字一致。 `state` 键 → 状态文案标记。求值在 `_state()` 里。 只有这三条：`infer_state()` 只会返回 ``request`` / ``complete`` / ``error``。 早先还挂着 ``request_headers`` / ``response_headers`` 两条，配的是产出侧同样 永远进不去的两条分支 —— 两边一起清掉了。</extracomment>
+        <extracomment>视作“没有值”的取值结果，和搬过来之前的判断逐字一致。 标签列压暗到约 62% 不透明度。和 `edit/theme.py::EditorPalette._mono` 同一套办法 —— 暗色叠半透明白、亮色叠半透明黑，底图（卡片色、主题色）换了也不会突然对不上。 `setTextColor(light, dark)` 两套一起给，主题切换由 `FluentLabelBase` 自己重贴。 标签列的最小宽度。窄到一定程度值那侧就没有换行的余地了，这一列先保住。 `state` 键 → 状态文案标记。求值在 `_state()` 里。 只有这三条：`infer_state()` 只会返回 ``request`` / ``complete`` / ``error``。 早先还挂着 ``request_headers`` / ``response_headers`` 两条，配的是产出侧同样 永远进不去的两条分支 —— 两边一起清掉了。</extracomment>
         <translation>请求已发送</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="167"/>
+        <location filename="../../apps/common/flow/fields.py" line="273"/>
         <source>Completed</source>
         <translation>已完成</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="168"/>
+        <location filename="../../apps/common/flow/fields.py" line="274"/>
+        <location filename="../../apps/common/flow/fields.py" line="687"/>
         <source>Error</source>
         <translation>错误</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="178"/>
+        <location filename="../../apps/common/flow/fields.py" line="284"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="184"/>
+        <location filename="../../apps/common/flow/fields.py" line="305"/>
         <source>Client address</source>
-        <extracomment>连接的「前端」「后端」两个小节共用的四项，只差 ``Front`` / ``Back`` 键前缀。</extracomment>
+        <extracomment>连接的「前端」「后端」两个小节共用的字段，只差 ``Front`` / ``Back`` 键前缀。 `Via` / `Address` 只有后端产出（前端那侧 `Client.address` 是 `peername` 的废弃 别名，产出侧刻意没写），前端渲染时这两行自然缺席 —— 一张表管两侧。</extracomment>
         <translation>客户端 地址</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="185"/>
+        <location filename="../../apps/common/flow/fields.py" line="306"/>
         <source>Client port</source>
         <translation>客户端 端口</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="186"/>
-        <location filename="../../apps/common/flow/fields.py" line="303"/>
+        <location filename="../../apps/common/flow/fields.py" line="307"/>
+        <location filename="../../apps/common/flow/fields.py" line="471"/>
         <source>Server address</source>
         <translation>服务器地址</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="187"/>
+        <location filename="../../apps/common/flow/fields.py" line="308"/>
         <source>Server port</source>
         <translation>服务端 端口</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="193"/>
+        <location filename="../../apps/common/flow/fields.py" line="309"/>
+        <source>Requested address</source>
+        <translation>请求地址</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="310"/>
+        <source>Upstream proxy</source>
+        <translation>上游代理</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="311"/>
+        <source>Connection state</source>
+        <translation>连接状态</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="312"/>
+        <source>Transport</source>
+        <translation>传输协议</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="313"/>
+        <source>Connection error</source>
+        <translation>连接错误</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="319"/>
         <source>Country</source>
         <extracomment>证书的「主体」「签发者」两个小节共用的六项，只差 ``Subject`` / ``Issuer`` 键前缀。</extracomment>
         <translation>国家</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="194"/>
+        <location filename="../../apps/common/flow/fields.py" line="320"/>
         <source>State or province</source>
         <translation>省（州）</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="195"/>
+        <location filename="../../apps/common/flow/fields.py" line="321"/>
         <source>Locality</source>
         <translation>地区</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="196"/>
+        <location filename="../../apps/common/flow/fields.py" line="322"/>
         <source>Organization</source>
         <translation>组织</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="197"/>
+        <location filename="../../apps/common/flow/fields.py" line="323"/>
         <source>Organizational unit</source>
         <translation>单位</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="299"/>
+        <location filename="../../apps/common/flow/fields.py" line="460"/>
+        <source>Summary</source>
+        <extracomment>值是列表、需要 `_join` 拍平的那两项。 整组是否露面的判断依据，逐字沿用搬过来之前的键集合。 大小组的四种口径，每侧三个键加一个合计： * ``*_headers_size`` —— 头部字节，走 `assemble_*_head()` 拿真实线格式； * ``*_wire_size`` —— 报文体的**线上**字节（压缩后），和表格 Size 列同源； * ``*_decoded_size`` —— 报文体**解压后**的字节，只在和线上不一样时才显示； * ``*_total_size`` / ``total_size`` —— 头部 + 线上，也就是这条报文实际占的字节。 改造前只有 ``req_size`` / ``res_size`` 一个含混的「大小」（量的是解压后）， 却和头部字节加在一起当合计，于是同一条 gzip 响应在表格和详情里能差好几倍。 概览的完整规格：声明顺序就是渲染顺序，一个顶层分组一张卡。</extracomment>
+        <translation>概要</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="463"/>
         <source>State</source>
-        <extracomment>整组是否露面的判断依据，逐字沿用搬过来之前的键集合。 大小组的四种口径，每侧三个键加一个合计： * ``*_headers_size`` —— 头部字节，走 `assemble_*_head()` 拿真实线格式； * ``*_wire_size`` —— 报文体的**线上**字节（压缩后），和表格 Size 列同源； * ``*_decoded_size`` —— 报文体**解压后**的字节，只在和线上不一样时才显示； * ``*_total_size`` / ``total_size`` —— 头部 + 线上，也就是这条报文实际占的字节。 改造前只有 ``req_size`` / ``res_size`` 一个含混的「大小」（量的是解压后）， 却和头部字节加在一起当合计，于是同一条 gzip 响应在表格和详情里能差好几倍。 概览的完整规格：声明顺序就是渲染顺序。</extracomment>
         <translation>状态</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="300"/>
+        <location filename="../../apps/common/flow/fields.py" line="464"/>
         <source>Method</source>
         <translation>方法</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="301"/>
+        <location filename="../../apps/common/flow/fields.py" line="467"/>
         <source>Protocol</source>
         <translation>协议</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="305"/>
-        <source>Flow</source>
-        <translation>流</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/fields.py" line="307"/>
+        <location filename="../../apps/common/flow/fields.py" line="470"/>
         <source>Proxy protocol</source>
         <translation>代理协议</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="311"/>
+        <location filename="../../apps/common/flow/fields.py" line="620"/>
         <source>Connection</source>
         <translation>连接</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="315"/>
+        <location filename="../../apps/common/flow/fields.py" line="625"/>
+        <location filename="../../apps/common/flow/fields.py" line="693"/>
         <source>Time</source>
         <translation>时间</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="316"/>
+        <location filename="../../apps/common/flow/fields.py" line="628"/>
         <source>Frontend</source>
         <translation>前端</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="317"/>
+        <location filename="../../apps/common/flow/fields.py" line="631"/>
         <source>Backend</source>
         <translation>后端</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="324"/>
+        <location filename="../../apps/common/flow/fields.py" line="328"/>
         <source>Version</source>
+        <extracomment>TLS 两张卡共用的六项，只差 ``TLS`` / ``Client TLS`` 键前缀。</extracomment>
         <translation>版本</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="328"/>
+        <location filename="../../apps/common/flow/fields.py" line="331"/>
         <source>ALPN selected</source>
         <translation>选择ALPN</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="331"/>
+        <location filename="../../apps/common/flow/fields.py" line="332"/>
         <source>Cipher list</source>
         <translation>加密算法列表</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="335"/>
+        <location filename="../../apps/common/flow/fields.py" line="333"/>
         <source>Cipher selected</source>
         <translation>选择算法</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="339"/>
+        <location filename="../../apps/common/flow/fields.py" line="478"/>
+        <source>Scheme</source>
+        <translation>协议方案</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="479"/>
+        <source>Host</source>
+        <translation>主机</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="480"/>
+        <source>Authority</source>
+        <translation>主机与端口</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="481"/>
+        <source>Path</source>
+        <translation>路径</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="482"/>
+        <location filename="../../apps/common/flow/fields.py" line="502"/>
+        <source>HTTP version</source>
+        <translation>HTTP 版本</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="485"/>
+        <source>Query parameters</source>
+        <translation>查询参数</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="489"/>
+        <source>Cookies</source>
+        <translation>Cookie</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="500"/>
+        <source>Reason</source>
+        <translation>状态描述</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="506"/>
+        <source>Content encoding</source>
+        <translation>内容编码</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="517"/>
+        <source>Flow created</source>
+        <translation>流量创建</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="522"/>
+        <source>Client TLS handshake</source>
+        <translation>客户端 TLS 握手</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="542"/>
+        <source>TCP handshake</source>
+        <translation>TCP 握手</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="547"/>
+        <source>Server TLS handshake</source>
+        <translation>服务端 TLS 握手</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="568"/>
+        <source>Client connection end</source>
+        <translation>客户端连接结束</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="573"/>
+        <source>Server connection end</source>
+        <translation>服务端连接结束</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="626"/>
+        <source>Proxy mode</source>
+        <translation>代理模式</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="635"/>
+        <source>TLS · server</source>
+        <translation>TLS · 服务端</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="637"/>
+        <source>TLS · client</source>
+        <translation>TLS · 客户端</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="644"/>
+        <source>Mitm certificate</source>
+        <translation>中间人证书</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="650"/>
         <source>Server certificate</source>
         <translation>服务端证书</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="343"/>
+        <location filename="../../apps/common/flow/fields.py" line="656"/>
         <source>Issuer</source>
         <translation>签发者</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="344"/>
+        <location filename="../../apps/common/flow/fields.py" line="657"/>
         <source>Not before</source>
         <translation>开始时间</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="345"/>
+        <location filename="../../apps/common/flow/fields.py" line="658"/>
         <source>Not after</source>
         <translation>截止时间</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="347"/>
+        <location filename="../../apps/common/flow/fields.py" line="659"/>
+        <source>Expired</source>
+        <translation>已过期</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="660"/>
+        <source>Is CA</source>
+        <translation>是否 CA</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="661"/>
+        <source>Public key</source>
+        <translation>公钥</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="663"/>
+        <source>Alt names</source>
+        <translation>备用名称</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="668"/>
+        <source>Chain depth</source>
+        <translation>证书链层数</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="672"/>
+        <source>Chain</source>
+        <translation>证书链</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="675"/>
         <source>Fingerprint</source>
         <translation>指纹</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="352"/>
+        <location filename="../../apps/common/flow/fields.py" line="680"/>
         <source>Serial number</source>
         <translation>序列号</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="359"/>
+        <location filename="../../apps/common/flow/fields.py" line="691"/>
+        <source>Message</source>
+        <translation>错误信息</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="698"/>
+        <source>Flow metadata</source>
+        <translation>流量元数据</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="704"/>
+        <source>Type</source>
+        <translation>类型</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="705"/>
+        <source>State version</source>
+        <translation>状态版本</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="706"/>
+        <source>Live</source>
+        <translation>存活</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="707"/>
+        <source>Intercepted</source>
+        <translation>已拦截</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="708"/>
+        <source>Modified</source>
+        <translation>已修改</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="709"/>
+        <source>Replay</source>
+        <translation>重放</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="710"/>
+        <source>Marked</source>
+        <translation>标记</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="711"/>
+        <source>Comment</source>
+        <translation>备注</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="713"/>
+        <source>Metadata</source>
+        <translation>元数据</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="753"/>
+        <source>Copy this group</source>
+        <translation>复制本组</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/fields.py" line="512"/>
         <source>Timing</source>
         <translation>时间</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="363"/>
+        <location filename="../../apps/common/flow/fields.py" line="527"/>
         <source>Request start</source>
         <translation>请求开始</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="368"/>
+        <location filename="../../apps/common/flow/fields.py" line="532"/>
         <source>Request end</source>
         <translation>请求结束</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="373"/>
+        <location filename="../../apps/common/flow/fields.py" line="537"/>
         <source>Request duration</source>
         <translation>请求时长</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="378"/>
+        <location filename="../../apps/common/flow/fields.py" line="552"/>
         <source>Response start</source>
         <translation>响应开始</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="383"/>
+        <location filename="../../apps/common/flow/fields.py" line="557"/>
         <source>Response end</source>
         <translation>响应结束</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="388"/>
+        <location filename="../../apps/common/flow/fields.py" line="562"/>
         <source>Response duration</source>
         <translation>响应时长</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="392"/>
+        <location filename="../../apps/common/flow/fields.py" line="566"/>
         <source>Total duration</source>
         <translation>总时长</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="396"/>
+        <location filename="../../apps/common/flow/fields.py" line="580"/>
         <source>Size</source>
         <translation>大小</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="400"/>
+        <location filename="../../apps/common/flow/fields.py" line="475"/>
+        <location filename="../../apps/common/flow/fields.py" line="585"/>
         <source>Request</source>
         <translation>请求</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="404"/>
+        <location filename="../../apps/common/flow/fields.py" line="589"/>
         <source>- Request headers</source>
         <translation>- 请求头</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="408"/>
+        <location filename="../../apps/common/flow/fields.py" line="593"/>
         <source>- Request body on the wire</source>
         <translation>- 请求体（线上）</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="412"/>
+        <location filename="../../apps/common/flow/fields.py" line="597"/>
         <source>- Request body decoded</source>
         <translation>- 请求体（解压后）</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="424"/>
+        <location filename="../../apps/common/flow/fields.py" line="609"/>
         <source>- Response body on the wire</source>
         <translation>- 响应体（线上）</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="428"/>
+        <location filename="../../apps/common/flow/fields.py" line="613"/>
         <source>- Response body decoded</source>
         <translation>- 响应体（解压后）</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="416"/>
+        <location filename="../../apps/common/flow/fields.py" line="495"/>
+        <location filename="../../apps/common/flow/fields.py" line="601"/>
         <source>Response</source>
         <translation>响应</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="420"/>
+        <location filename="../../apps/common/flow/fields.py" line="605"/>
         <source>- Response headers</source>
         <translation>- 响应头</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/fields.py" line="431"/>
+        <location filename="../../apps/common/flow/fields.py" line="616"/>
         <source>Total</source>
         <translation>总计</translation>
     </message>
@@ -1359,32 +1637,32 @@
 <context>
     <name>FlowViewerPane</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="649"/>
+        <location filename="../../apps/common/flow/views.py" line="410"/>
         <source>No matches</source>
         <translation>没有匹配结果</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="650"/>
+        <location filename="../../apps/common/flow/views.py" line="411"/>
         <source>{} active condition(s)</source>
         <translation>当前有 {} 个有效条件</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="654"/>
+        <location filename="../../apps/common/flow/views.py" line="415"/>
         <source>Waiting for traffic</source>
         <translation>等待流量</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="659"/>
+        <location filename="../../apps/common/flow/views.py" line="420"/>
         <source>Proxy stopped</source>
         <translation>代理已停止</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="661"/>
+        <location filename="../../apps/common/flow/views.py" line="422"/>
         <source>This session has no HTTP traffic</source>
         <translation>当前会话没有 HTTP 流量</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="663"/>
+        <location filename="../../apps/common/flow/views.py" line="424"/>
         <source>No traffic yet</source>
         <translation>暂无流量</translation>
     </message>
@@ -2701,14 +2979,6 @@
         <location filename="../../apps/intercept/editors.py" line="143"/>
         <source>URL</source>
         <translation>URL</translation>
-    </message>
-</context>
-<context>
-    <name>RequestPanel</name>
-    <message>
-        <location filename="../../apps/common/flow/views.py" line="828"/>
-        <source>Overview</source>
-        <translation>概览</translation>
     </message>
 </context>
 <context>

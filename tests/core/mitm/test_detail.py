@@ -11,11 +11,13 @@
 import gzip
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 
 from cryptography import x509
 from mitmproxy import certs
 from mitmproxy.http import Headers
+from mitmproxy.net import server_spec
 from mitmproxy.test import tflow
 
 from ferret.core.mitm import (
@@ -122,6 +124,57 @@ class ConnectionFieldTests(unittest.TestCase):
         self.assertEqual(data["Back Connection ID"], flow.server_conn.id)
         self.assertNotEqual(data["Connection ID"], flow.id)
 
+    def test_both_connections_report_their_state_and_handshake_times(self) -> None:
+        """连接状态、传输协议、三个握手/结束时刻历来一个都没产出。"""
+        flow = tflow.tflow(resp=True)
+        data = build_flow_detail(flow)
+
+        self.assertEqual(
+            data["Front Connection State"], flow.client_conn.state.name.lower()
+        )
+        self.assertEqual(
+            data["Back Connection State"], flow.server_conn.state.name.lower()
+        )
+        self.assertEqual(data["Front Transport Protocol"], "tcp")
+        # 时间戳产出裸浮点，格式化是 `fields.py` 那一层的事。
+        self.assertEqual(
+            data["Front TLS Handshake"], flow.client_conn.timestamp_tls_setup
+        )
+        self.assertEqual(data["Back Connection End"], flow.server_conn.timestamp_end)
+        # TCP 建连只有服务端一侧有。
+        self.assertEqual(
+            data["Back TCP Handshake"], flow.server_conn.timestamp_tcp_setup
+        )
+        self.assertNotIn("Front TCP Handshake", data)
+
+    def test_the_upstream_spec_is_formatted_without_touching_named_fields(self) -> None:
+        """`ServerSpec` 是 ``tuple[scheme, (host, port)]`` 的别名，没有 `.scheme`。"""
+        flow = tflow.tflow(resp=True)
+        flow.server_conn.via = server_spec.parse(
+            "http://1.2.3.4:8080", default_scheme="http"
+        )
+        data = build_flow_detail(flow)
+
+        self.assertEqual(data["Back Via"], "http://1.2.3.4:8080")
+
+    def test_no_key_is_produced_from_the_deprecated_client_address_alias(self) -> None:
+        """`Client.address` 是 `peername` 的废弃别名 —— 读一下就抛警告，值还重复。
+
+        `Back Address` 是另一码事：服务端的 `address` 是**请求的**目标，
+        `peername` 是解析后的地址，走 CDN 时两者不同。
+        """
+        flow = tflow.tflow(resp=True)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            data = build_flow_detail(flow)
+
+        self.assertNotIn("Front Address", data)
+        self.assertEqual(data["Back Address"], "address:22")
+        self.assertEqual(
+            [w for w in caught if "Client.address" in str(w.message)],
+            [],
+        )
+
 
 class MessageFieldTests(unittest.TestCase):
     def test_response_cookies_keep_their_attributes_and_duplicates(self) -> None:
@@ -136,6 +189,35 @@ class MessageFieldTests(unittest.TestCase):
         self.assertEqual([c["value"] for c in cookies], ["1", "2"])
         self.assertEqual(cookies[0]["attrs"], {"Path": "/", "HttpOnly": ""})
         self.assertEqual(cookies[1]["attrs"], {"Path": "/admin"})
+
+    def test_an_urlencoded_form_body_is_produced_apart_from_the_query_string(
+        self,
+    ) -> None:
+        """两个都被叫「参数」，一个在 URL 上一个在 body 里 —— 混一页就分不清了。"""
+        flow = tflow.tflow(resp=True)
+        self.assertNotIn("Request Form", build_flow_detail(flow))
+
+        flow.request.headers["Content-Type"] = "application/x-www-form-urlencoded"
+        flow.request.content = b"user=jun&tag=a&tag=b"
+        data = build_flow_detail(flow)
+
+        # 同名键按 ", " 合并，和头部/查询串一个口径。
+        self.assertEqual(data["Request Form"], {"user": "jun", "tag": "a, b"})
+
+    def test_a_multipart_body_stays_out_of_the_form_key(self) -> None:
+        """multipart 的键值是 `bytes`，值还可能是整个上传文件 —— 归 Body 页管。"""
+        flow = tflow.tflow(resp=True)
+        flow.request.headers["Content-Type"] = "multipart/form-data; boundary=ferret"
+        flow.request.content = (
+            b"--ferret\r\n"
+            b'Content-Disposition: form-data; name="user"\r\n\r\n'
+            b"jun\r\n"
+            b"--ferret--\r\n"
+        )
+
+        # 解析得出来（不是空表单），但刻意不产出这个键。
+        self.assertTrue(flow.request.multipart_form)
+        self.assertNotIn("Request Form", build_flow_detail(flow))
 
     def test_trailers_show_up_only_when_the_message_has_them(self) -> None:
         flow = tflow.tflow(resp=True)
@@ -264,6 +346,38 @@ class DetailShapeTests(unittest.TestCase):
         self.assertEqual(data["Status Code"], "Error")
         assert flow.error is not None
         self.assertEqual(data["Error Message"], flow.error.msg)
+        self.assertEqual(data["Error Time"], flow.error.timestamp)
+
+    def test_the_flow_metadata_group_is_produced_from_the_flow_itself(self) -> None:
+        """`version` 只在原生状态里有，`modified()` 是方法不是属性 —— 两个都容易写错。"""
+        flow = tflow.tflow(resp=True)
+        flow.metadata["proxyserver"] = "regular"
+        data = build_flow_detail(flow)
+
+        self.assertEqual(data["Flow Type"], "http")
+        self.assertEqual(data["Flow Version"], flow.get_state()["version"])
+        self.assertEqual(data["Flow Created"], flow.timestamp_created)
+        self.assertEqual(data["Intercepted"], "false")
+        self.assertEqual(data["Modified"], "false")
+        self.assertEqual(data["Flow Metadata"], {"proxyserver": "regular"})
+
+        flow.request.headers["x-added"] = "1"
+        self.assertEqual(build_flow_detail(flow)["Modified"], "false")
+        # `modified()` 比的是 `flow.backup()` 存下的那份状态 —— 没备份过就永远是
+        # false，改多少字段都一样。断点写回那条路径上 mitmproxy 会先 `backup()`。
+        flow.backup()
+        flow.request.headers["x-added"] = "2"
+        self.assertEqual(build_flow_detail(flow)["Modified"], "true")
+
+    def test_the_response_reports_who_compressed_the_body(self) -> None:
+        """「线上 3.1 KB / 解压后 12 KB」旁边得说清是谁压的，否则看着像 bug。"""
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        self.assertEqual(build_flow_detail(flow)["Response Content-Encoding"], "")
+
+        flow.response.headers["Content-Encoding"] = "gzip"
+        flow.response.raw_content = gzip.compress(b"x" * 64)
+        self.assertEqual(build_flow_detail(flow)["Response Content-Encoding"], "gzip")
 
     def test_a_completed_flow_carries_its_curl_command(self) -> None:
         flow = tflow.tflow(resp=True)

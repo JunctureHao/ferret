@@ -1,11 +1,12 @@
 """字段声明表的守卫：规格表是数据，渲染只剩一层循环 —— 两边都得钉住。
 
 原来「哪些行会出现」藏在 `OverviewTree.set_data` 那 290 行里，搬进 `fields.SECTIONS`
-之后它是纯数据了，所以这里按语义分两层测：
+之后它是纯数据了，所以这里按语义分三层测：
 
 * `field_value` / `section_title` / `format_time` 是纯函数 —— 空值、`fmt`、缺键容错；
-* `OverviewTree` 只剩「一组标签和值怎么变成树节点」—— 空组不留标题、`when` 说不显示就
-  整组不显示、次级小节的 ``- `` 前缀。
+* `section_rows` 是「一个分组 + 一份数据 → 已求值的行」，也是纯函数 —— 空组不留标题、
+  `when` 说不显示就整组不显示、次级小节没内容连小标题一起不出现；
+* `FieldCard` / `OverviewPane` 只剩「一串 Row 怎么摆进网格」与折叠。
 
 翻译器**故意不装**，和 `tests/core/test_i18n.py` 同一个理由：unittest 一个进程跑完所有
 用例，装上去会污染别处断言英文文案的用例。`translate()` 查不到就原样返回源文本，正好用来
@@ -17,18 +18,20 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QTreeWidgetItem, QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from ferret.apps.common.flow.fields import (
     SECTIONS,
     Field,
+    FieldCard,
+    OverviewPane,
     Section,
     field_label,
     field_value,
     format_time,
+    section_rows,
     section_title,
 )
-from ferret.apps.common.flow.views import OverviewTree
 
 
 def find_field(label: str) -> Field:
@@ -159,8 +162,79 @@ class FormatTimeTests(unittest.TestCase):
         self.assertNotEqual(format_time(1756000000.0), "-")
 
 
-class OverviewTreeTests(unittest.TestCase):
-    """渲染这一侧：只验节点结构，字段内容归上面几个用例管。"""
+class SectionRowsTests(unittest.TestCase):
+    """规格 → 行。纯函数，不起窗口 —— 「哪些行会出现」的规则全在这一层。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        # `section_title` / `field_label` 走 `QCoreApplication.translate`，静态方法
+        # 本来就不依赖实例；起一个是为了和其它用例共享同一个进程状态。
+        cls.app = QApplication.instance() or QApplication([])
+
+    def flatten(self, section: Section, data: dict) -> list[tuple[str, str, bool]]:
+        return [
+            (row.label, row.value, row.heading) for row in section_rows(section, data)
+        ]
+
+    def test_an_empty_dict_only_yields_what_it_can_answer(self) -> None:
+        summary = find_section("Summary")
+        self.assertEqual(self.flatten(summary, {}), [("State", "Unknown", False)])
+
+    def test_a_group_with_nothing_to_show_yields_no_rows_at_all(self) -> None:
+        """整组空就返回空表 —— 卡片那侧据此整张隐藏，标题不会孤零零留着。"""
+        for title in ("TLS · server", "Connection", "Timing"):
+            with self.subTest(title=title):
+                self.assertEqual(
+                    section_rows(find_section(title), {"Method": "GET"}), []
+                )
+
+    def test_a_group_appears_once_its_condition_holds(self) -> None:
+        rows = self.flatten(find_section("TLS · server"), {"TLS Version": "TLSv1.3"})
+        self.assertIn(("Version", "TLSv1.3", False), rows)
+
+    def test_a_groups_condition_outranks_its_own_fields(self) -> None:
+        """连接组只看 ID/时间 —— 光有前后端地址时整组不露面，和搬过来之前一致。"""
+        connection = find_section("Connection")
+        self.assertEqual(
+            section_rows(connection, {"Front Client Address": "127.0.0.1"}), []
+        )
+
+    def test_a_subgroup_becomes_a_heading_row_followed_by_its_own_rows(self) -> None:
+        """次级小节不另开一张卡：一行跨两列的小标题，后面跟自己的行。"""
+        rows = self.flatten(
+            find_section("Server certificate"),
+            {"Subject Common Name": "example.com", "Not Before": "2026-01-01"},
+        )
+        self.assertIn(("Subject", "", True), rows)
+        self.assertIn(("Common Name", "example.com", False), rows)
+        self.assertIn(("Not before", "2026-01-01", False), rows)
+        # 小标题行永远没有值。
+        self.assertEqual([row for row in rows if row[2] and row[1]], [])
+
+    def test_a_subgroup_without_content_drops_its_heading_too(self) -> None:
+        """证书组曾经渲染出 12 行字面 ``-``，看着像「读到证书但每项都空」。
+
+        那是 `always=True` 加 models 不产出这六项凑出来的假象。现在缺哪项少哪行 ——
+        只有有效期的证书就只显示有效期，不再凭空多出主体和签发者两个小节。
+        """
+        rows = self.flatten(
+            find_section("Server certificate"), {"Not Before": "2026-01-01"}
+        )
+        self.assertIn(("Not before", "2026-01-01", False), rows)
+        self.assertNotIn(("Subject", "", True), rows)
+        self.assertNotIn(("Issuer", "", True), rows)
+        self.assertEqual([row for row in rows if row[1] == "-"], [])
+
+    def test_top_level_fields_keep_their_own_group(self) -> None:
+        """空标题的分组照旧把字段原样交回 —— 卡片标题为空，行还在。"""
+        summary = find_section("Summary")
+        rows = self.flatten(summary, {"Method": "GET", "Status Code": 200})
+        self.assertIn(("Method", "GET", False), rows)
+        self.assertIn(("Code", "200", False), rows)
+
+
+class FieldCardTests(unittest.TestCase):
+    """渲染这一侧：网格里摆了几个控件、折叠状态、整组复制。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -168,102 +242,115 @@ class OverviewTreeTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.host = QWidget()
-        self.tree = OverviewTree(self.host)
 
     def tearDown(self) -> None:
         self.host.deleteLater()
         self.app.processEvents()
 
-    def top(self, index: int) -> QTreeWidgetItem:
-        """`topLevelItem` 的返回值是 Optional，取出来先钉住再断言。"""
-        item = self.tree.topLevelItem(index)
-        assert item is not None, f"没有第 {index} 个顶层节点"
-        return item
+    def card(self, title: str) -> FieldCard:
+        return FieldCard(find_section(title), self.host)
 
-    def child(self, item: QTreeWidgetItem, index: int) -> QTreeWidgetItem:
-        """`child` 同上。"""
-        found = item.child(index)
-        assert found is not None, f"{item.text(0)!r} 没有第 {index} 个子节点"
-        return found
+    def test_a_card_with_nothing_to_show_hides_itself(self) -> None:
+        card = self.card("TLS · server")
+        card.set_data({"Method": "GET"})
+        self.assertEqual(card.rows(), [])
+        self.assertTrue(card.isHidden())
 
-    def rows(self) -> list[tuple[int, str, str]]:
-        """整棵树拍平成 ``(缩进, 标签, 值)``。"""
-        out: list[tuple[int, str, str]] = []
+        card.set_data({"TLS Version": "TLSv1.3"})
+        self.assertFalse(card.isHidden())
 
-        def walk(item, depth: int) -> None:
-            out.append((depth, item.text(0), item.text(1)))
-            for index in range(item.childCount()):
-                walk(item.child(index), depth + 1)
+    def test_set_data_rebuilds_the_grid_instead_of_appending(self) -> None:
+        card = self.card("Summary")
+        card.set_data({"Method": "GET"})
+        first = card.grid.count()
+        card.set_data({"Method": "POST"})
+        self.assertEqual(card.grid.count(), first)
+        self.assertIn(("Method", "POST"), [(r.label, r.value) for r in card.rows()])
 
-        for index in range(self.tree.topLevelItemCount()):
-            walk(self.tree.topLevelItem(index), 0)
-        return out
+    def test_a_heading_row_spans_both_columns(self) -> None:
+        card = self.card("Server certificate")
+        card.set_data({"Subject Common Name": "example.com"})
+        rows = card.rows()
+        self.assertTrue([row for row in rows if row.heading])
+        for index, row in enumerate(rows):
+            with self.subTest(label=row.label):
+                # 跨两列的控件占着两个格子，两边取回的是同一个；
+                # 普通行左右两格是标签和值两个不同控件。
+                left = card.grid.itemAtPosition(index, 0)
+                right = card.grid.itemAtPosition(index, 1)
+                assert left is not None and right is not None
+                spans = left.widget() is right.widget()
+                self.assertEqual(spans, row.heading)
 
-    def titles(self) -> list[str]:
-        return [
-            self.top(index).text(0) for index in range(self.tree.topLevelItemCount())
-        ]
+    def test_every_card_can_collapse_not_just_the_ones_declared_collapsed(self) -> None:
+        """只有部分卡能点等于让人去记哪几张能点 —— 折叠给每张卡，`collapsed` 只定初始态。"""
+        card = self.card("Summary")
+        self.assertTrue(card.is_expanded())
+        card.toggle()
+        self.assertFalse(card.is_expanded())
+        self.assertFalse(card.view.isVisibleTo(card))
+        card.toggle()
+        self.assertTrue(card.is_expanded())
 
-    def test_an_empty_dict_renders_only_what_it_can_answer(self) -> None:
-        self.tree.set_data({})
-        self.assertEqual(self.rows(), [(0, "State", "Unknown")])
+    def test_collapsed_state_does_not_depend_on_the_panel_being_shown(self) -> None:
+        """`isVisible()` 连祖先一起算 —— 面板还没 show 时不能被当成「卡是收起的」。"""
+        card = self.card("Summary")
+        self.assertFalse(card.isVisible())
+        self.assertTrue(card.is_expanded())
 
-    def test_set_data_clears_the_previous_flow(self) -> None:
-        self.tree.set_data({"Method": "GET"})
-        self.tree.set_data({"Method": "POST"})
-        self.assertEqual(self.rows().count((0, "Method", "POST")), 1)
-        self.assertNotIn((0, "Method", "GET"), self.rows())
+    def test_a_collapsed_section_starts_folded(self) -> None:
+        card = FieldCard(Section(title="X", fields=(Field("L", "k"),), collapsed=True))
+        self.assertFalse(card.is_expanded())
+        card.deleteLater()
 
-    def test_top_level_fields_stay_flat(self) -> None:
-        """空标题的分组把字段原样交回上一层，不能多出一个分组节点。"""
-        self.tree.set_data({"Method": "GET", "Status Code": 200})
-        self.assertIn((0, "Method", "GET"), self.rows())
-        self.assertIn((0, "Code", "200"), self.rows())
-
-    def test_a_group_with_nothing_to_show_leaves_no_title_behind(self) -> None:
-        self.tree.set_data({"Method": "GET"})
-        self.assertNotIn("TLS", self.titles())
-        self.assertNotIn("Connection", self.titles())
-        self.assertNotIn("Timing", self.titles())
-
-    def test_a_group_appears_once_its_condition_holds(self) -> None:
-        self.tree.set_data({"TLS Version": "TLSv1.3"})
-        self.assertIn("TLS", self.titles())
-        self.assertIn((1, "Version", "TLSv1.3"), self.rows())
-
-    def test_a_groups_condition_outranks_its_own_fields(self) -> None:
-        """连接组只看 ID/时间 —— 光有前后端地址时整组不露面，和搬过来之前一致。"""
-        self.tree.set_data({"Front Client Address": "127.0.0.1"})
-        self.assertNotIn("Connection", self.titles())
-
-    def test_a_subgroup_nests_under_its_parent_with_a_dash_prefix(self) -> None:
-        self.tree.set_data(
+    def test_copying_a_group_writes_label_colon_value_per_line(self) -> None:
+        card = self.card("Server certificate")
+        card.set_data(
             {"Subject Common Name": "example.com", "Not Before": "2026-01-01"}
         )
-        rows = self.rows()
-        self.assertIn((0, "Server certificate", ""), rows)
-        self.assertIn((1, "Subject", ""), rows)
-        self.assertIn((2, "- Common Name", "example.com"), rows)
-        self.assertIn((1, "Not before", "2026-01-01"), rows)
+        card.copy_to_clipboard()
+        text = QApplication.clipboard().text()
+        self.assertIn("Common Name: example.com", text)
+        # 小标题行只出标题，不带冒号。
+        self.assertIn("\nSubject\n", f"\n{text}\n")
 
-    def test_certificate_subgroups_no_longer_pad_themselves_with_dashes(self) -> None:
-        """证书组曾经渲染出 12 行字面 ``-``，看着像「读到证书但每项都空」。
 
-        那是 `always=True` 加 models 不产出这六项凑出来的假象。现在缺哪项少哪行 ——
-        只有有效期的证书就只显示有效期，不再凭空多出主体和签发者两个小节。
-        """
-        self.tree.set_data({"Not Before": "2026-01-01"})
-        rows = self.rows()
-        self.assertIn((1, "Not before", "2026-01-01"), rows)
-        self.assertNotIn((1, "Subject", ""), rows)
-        self.assertNotIn((1, "Issuer", ""), rows)
-        self.assertEqual([row for row in rows if row[2] == "-"], [])
+class OverviewPaneTests(unittest.TestCase):
+    """一整页：一个顶层分组一张卡，空组的卡不显示。"""
 
-    def test_group_titles_are_bold_and_subgroup_titles_underlined(self) -> None:
-        self.tree.set_data({"Subject Common Name": "example.com"})
-        certificate = self.top(self.titles().index("Server certificate"))
-        self.assertTrue(certificate.font(0).bold())
-        self.assertTrue(self.child(certificate, 0).font(0).underline())
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.pane = OverviewPane(self.host)
+
+    def tearDown(self) -> None:
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def test_one_card_per_top_level_section(self) -> None:
+        self.assertEqual(len(self.pane.cards), len(SECTIONS))
+        self.assertEqual(
+            [card.section for card in self.pane.cards],
+            list(SECTIONS),
+        )
+
+    def test_an_empty_dict_leaves_only_the_cards_that_can_answer(self) -> None:
+        self.pane.set_data({})
+        titles = [card.section.title for card in self.pane.visible_cards()]
+        self.assertEqual(titles, ["Summary"])
+
+    def test_set_data_replaces_the_previous_flow(self) -> None:
+        self.pane.set_data({"TLS Version": "TLSv1.3"})
+        self.assertIn(
+            "TLS · server", [c.section.title for c in self.pane.visible_cards()]
+        )
+        self.pane.set_data({"Method": "GET"})
+        self.assertNotIn(
+            "TLS · server", [c.section.title for c in self.pane.visible_cards()]
+        )
 
 
 if __name__ == "__main__":
