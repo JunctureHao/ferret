@@ -172,7 +172,7 @@ class FlowTableModel(QAbstractTableModel):
                     return row + 1
                 if column_name == "Method":
                     return type(flow).__name__.replace("Flow", "").upper()
-                return "—"
+                return ""
             return None
 
         if role == Qt.ItemDataRole.DisplayRole:
