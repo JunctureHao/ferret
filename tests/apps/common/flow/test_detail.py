@@ -1,4 +1,4 @@
-"""详情面板：一层导航、四页、原始状态的 JSON 化。
+"""详情面板：一层导航、五页、原始状态的 JSON 化。
 
 分两层：
 
@@ -178,12 +178,19 @@ class FlowDataPanelTests(unittest.TestCase):
         self.app.processEvents()
 
     def test_one_nav_item_per_page(self) -> None:
-        """两排十个标签压成一排四个 —— 概览也不再挂在「请求」那半边。"""
+        """两排十个标签压成一排五个 —— 概览也不再挂在「请求」那半边。"""
         self.assertEqual(
-            list(self.panel.nav.items), ["Overview", "Request", "Response", "RawState"]
+            list(self.panel.nav.items),
+            ["Overview", "Request", "Response", "Messages", "RawState"],
         )
-        self.assertEqual(self.panel.pages.count(), 4)
+        self.assertEqual(self.panel.pages.count(), 5)
         self.assertEqual(self.panel.nav.currentRouteKey(), "Overview")
+
+    def test_a_plain_http_flow_hides_the_messages_page(self) -> None:
+        """九成流量既不是 WS 也不是 SSE，那一页整条不该出现。"""
+        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.assertTrue(self.panel.nav.items["Messages"].isHidden())
+        self.assertTrue(self.panel.message_badge.isHidden())
 
     def test_the_empty_page_shows_until_there_is_data(self) -> None:
         self.assertEqual(self.panel.stack.currentIndex(), 0)

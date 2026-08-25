@@ -5,8 +5,11 @@
 一条流量的整体信息（状态、时序、连接、证书）却要从「请求」里找。而且外层分割器
 每次开合都要把内层重算成 50:50，两层分割器互相牵扯。
 
-现在导航只有一层：概览 / 请求 / 响应 / 原始状态（消息页下一期补），请求与响应各自
-的细分退到页内的次级 Pivot。内层分割器整个消失，那套 50:50 重算跟着删掉。
+现在导航只有一层：概览 / 请求 / 响应 / 消息 / 原始状态，请求与响应各自的细分退到
+页内的次级 Pivot。内层分割器整个消失，那套 50:50 重算跟着删掉。
+
+「消息」页只对 WebSocket 与 SSE 流量出现（见 `messages.py`），其余一律整页隐藏 ——
+普通请求点进去只会看到一张空表。
 
 「原始状态」页是**完整性兜底**：概览只显示 `fields.SECTIONS` 列出来的字段，
 而这一页把 `Flow.get_state()` 整棵树原样摆出来 —— 以后 mitmproxy 加了新字段、
@@ -35,6 +38,7 @@ from qfluentwidgets import (
     CommandBar,
     FluentIcon,
     InfoBadge,
+    InfoBadgePosition,
     InfoLevel,
     SegmentedWidget,
     SimpleCardWidget,
@@ -52,6 +56,11 @@ from ferret.apps.common.edit import (
     ToolPlainTextEdit,
 )
 from ferret.apps.common.flow.fields import OverviewPane
+from ferret.apps.common.flow.messages import (
+    MessagesPane,
+    is_websocket,
+    looks_like_json,
+)
 from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     FlowViewCapabilities,
@@ -60,19 +69,19 @@ from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
 from ferret.core.log import get_logger
-from ferret.core.mitm import human
+from ferret.core.mitm import WsClose, WsFrame, human
 
 log = get_logger("flow.detail")
 
-#: `bytes` 值在「原始状态」页的预览长度。够看出协议头是什么，又不会把整份 JSON
-#: 撑成几 MB —— 完整报文在请求/响应两页的 Body 与 Raw 里本来就有。
+# `bytes` 值在「原始状态」页的预览长度。够看出协议头是什么，又不会把整份 JSON
+# 撑成几 MB —— 完整报文在请求/响应两页的 Body 与 Raw 里本来就有。
 _STATE_BYTES_PREVIEW = 64
 
-#: 状态码档位 → `InfoBadge` 的语义等级。
-#: 改造前这里是一张五个十六进制色值的表加一句内联样式表，主题一换就对不上（那五个
-#: 色值是照亮色主题挑的），而且和 Fluent 自己的语义色系统各说各话。`InfoLevel`
-#: 这五档正好一一对应：3xx 用 `ATTENTION`（主题色），未完成/不认识的用
-#: `INFOAMTION`（中性灰）。
+# 状态码档位 → `InfoBadge` 的语义等级。
+# 改造前这里是一张五个十六进制色值的表加一句内联样式表，主题一换就对不上（那五个
+# 色值是照亮色主题挑的），而且和 Fluent 自己的语义色系统各说各话。`InfoLevel`
+# 这五档正好一一对应：3xx 用 `ATTENTION`（主题色），未完成/不认识的用
+# `INFOAMTION`（中性灰）。
 _STATUS_LEVELS: tuple[tuple[int, InfoLevel], ...] = (
     (200, InfoLevel.SUCCESS),
     (300, InfoLevel.ATTENTION),
@@ -88,12 +97,14 @@ def _body_lang(syntax: str, text: str) -> Language:
     ferret 只有 http / json / xml 三套词法器，按最近的一档落位：
 
     - JSON 视图输出的是真 JSON（mitmproxy 把它归到 yaml），单独走 json 词法器，
-      顺带喂 ``JsonDualPanel`` 的树面板；
+      顺带喂 ``JsonDualPanel`` 的树面板。`{` / `[` 那一下嗅探借 `messages.py` 的
+      `looks_like_json` —— 消息页给帧和事件挑词法器时问的是同一个问题，两处各写
+      一遍迟早只改一边；
     - xml（XML/HTML、WBXML）走 xml；
     - 其余（yaml 的 ``key: value``、css、javascript、none、error）走 http，
       HTTP 词法器对 ``Key: Value`` 行有原生分支，不会整片标红。
     """
-    if syntax == "yaml" and text[:1] in ("{", "["):
+    if syntax == "yaml" and looks_like_json(text):
         return Language.JSON
     if syntax == "xml":
         return Language.XML
@@ -279,10 +290,10 @@ class MessagePane(TabPanel):
     Headers / Body / Raw 三页始终在：它们缺内容本身就是要看的信息。
     """
 
-    #: 详情字典的键前缀：``Request`` 或 ``Response``。
+    # 详情字典的键前缀：``Request`` 或 ``Response``。
     PREFIX = ""
 
-    #: 空内容时隐藏的标签页 route key，子类各自声明。
+    # 空内容时隐藏的标签页 route key，子类各自声明。
     OPTIONAL_TABS: tuple[str, ...] = ()
 
     def __init__(self, parent=None, controller=None):
@@ -534,8 +545,14 @@ class FlowDataPanel(SimpleCardWidget):
 
     collapseRequested = Signal()  # 请求折叠面板
 
-    #: 页面顺序。route key 同时是 `set_page_visible` 的参数。
-    PAGES: tuple[str, ...] = ("Overview", "Request", "Response", "RawState")
+    # 页面顺序。route key 同时是 `set_page_visible` 的参数。
+    PAGES: tuple[str, ...] = (
+        "Overview",
+        "Request",
+        "Response",
+        "Messages",
+        "RawState",
+    )
 
     def __init__(
         self,
@@ -573,6 +590,7 @@ class FlowDataPanel(SimpleCardWidget):
         self.overview = OverviewPane()
         self.req_panel = RequestPane(controller=self.controller)
         self.res_panel = ResponsePane(controller=self.controller)
+        self.messages = MessagesPane()
         self.raw_state_panel = RawStatePane()
 
         self.nav = SegmentedWidget(self)
@@ -583,8 +601,23 @@ class FlowDataPanel(SimpleCardWidget):
         self.__add_page("Overview", self.overview, self.tr("Overview"))
         self.__add_page("Request", self.req_panel, self.tr("Request"))
         self.__add_page("Response", self.res_panel, self.tr("Response"))
+        self.__add_page("Messages", self.messages, self.tr("Messages"))
         self.__add_page("RawState", self.raw_state_panel, self.tr("Raw state"))
         self.nav.setItemFontSize(12)
+        # 帧数/事件数挂在导航项右侧。`InfoBadge.make` 给的 manager 会跟着目标的
+        # Resize / Move 重新定位，但**不管**徽标自己变宽（数字从 9 涨到 1024 时），
+        # 所以 `__update_message_badge` 里 `setText` 之后要自己再 `position()` 一次。
+        #
+        # 位置取 `RIGHT` 而不是 `TOP_RIGHT`：后者把 y 放在 `-h/2`，而导航行是零边距
+        # 布局，徽标上半截会被裁掉。
+        self.message_badge = InfoBadge.make(
+            "",
+            parent=self.nav,
+            level=InfoLevel.ATTENTION,
+            target=self.nav.items["Messages"],
+            position=InfoBadgePosition.RIGHT,
+        )
+        self.message_badge.hide()
         # 导航信号还没接上（`__connect_signal_to_slot` 在后面），两边各自置一下。
         self.nav.setCurrentItem("Overview")
         self.pages.setCurrentWidget(self.overview)
@@ -713,6 +746,35 @@ class FlowDataPanel(SimpleCardWidget):
         self.copy_url_action.triggered.connect(self.__on_copy_url)
         self.copy_curl_action.triggered.connect(self.__on_copy_curl)
         self.replay_action.triggered.connect(self.__on_replay)
+        self.__connect_controller(self.controller)
+
+    def __connect_controller(self, controller, connect: bool = True) -> None:
+        """接上/断开 controller 的三条 websocket 信号。
+
+        用 `getattr` 探而不是直接 `controller.websocket_frame`：只读的
+        `SessionViewController` **刻意**一条都不提供（会话文件里的流量早就结束了，
+        没有「新帧到达」这件事），硬接会 `AttributeError`。
+        """
+        if controller is None:
+            return
+        slots = {
+            "websocket_started": self.__on_ws_started,
+            "websocket_frame": self.__on_ws_frame,
+            "websocket_closed": self.__on_ws_closed,
+        }
+        for name, slot in slots.items():
+            signal = getattr(controller, name, None)
+            if signal is None:
+                continue
+            if connect:
+                signal.connect(slot)
+            else:
+                # 换 controller 时旧的可能压根没接上（构造时 controller 是 None，
+                # 或者上一个是只读的）—— 没接过的 disconnect 会抛。
+                try:
+                    signal.disconnect(slot)
+                except (RuntimeError, TypeError):
+                    pass
 
     # —— 页面 ——
 
@@ -808,13 +870,82 @@ class FlowDataPanel(SimpleCardWidget):
         except (AttributeError, ValueError, RuntimeError) as exc:
             show_warning(self.tr("Replay failed"), str(exc), self.window())
 
+    # —— WebSocket 实时 ——
+
+    def __is_current(self, flow_id: str) -> bool:
+        """这条信号说的是不是面板上正显示的那一条。
+
+        信号是广播的：抓包时几十条 WS 连接同时在推帧，不过滤等于把所有连接的帧混进
+        同一张表。"""
+        return bool(flow_id) and flow_id == self.datas.get("id")
+
+    @Slot(str)
+    def __on_ws_started(self, flow_id: str) -> None:
+        """握手成功。选中时还是普通 HTTP 流量（消息页藏着）的那一条，从这里开始有帧。"""
+        if not self.__is_current(flow_id):
+            return
+        self.messages.show_websocket(self.__frames(flow_id), self.__close(flow_id))
+        self.__refresh_message_page()
+
+    @Slot(str, object)
+    def __on_ws_frame(self, flow_id: str, frame: WsFrame) -> None:
+        if not self.__is_current(flow_id):
+            return
+        self.messages.append_frame(frame)
+        self.__refresh_message_page()
+
+    @Slot(str, object)
+    def __on_ws_closed(self, flow_id: str, close: WsClose) -> None:
+        if not self.__is_current(flow_id):
+            return
+        self.messages.set_close(close)
+
+    def __frames(self, flow_id: str) -> list[WsFrame]:
+        """向 controller 要帧。跨线程那一步归门面，这里只兜异常。
+
+        取不到帧时给空表而不是让异常炸穿：一条流量的帧读不出来，不该连带把整个详情
+        面板打空。"""
+        if not self.controller or not flow_id:
+            return []
+        try:
+            return self.controller.websocket_frames(flow_id)
+        except (AttributeError, RuntimeError) as exc:
+            log.warning("读取 websocket 帧失败 flow_id=%s: %s", flow_id, exc)
+            return []
+
+    def __close(self, flow_id: str) -> WsClose:
+        if not self.controller or not flow_id:
+            return WsClose()
+        try:
+            return self.controller.websocket_close(flow_id)
+        except (AttributeError, RuntimeError) as exc:
+            log.warning("读取 websocket 关闭信息失败 flow_id=%s: %s", flow_id, exc)
+            return WsClose()
+
+    def __refresh_message_page(self) -> None:
+        """消息页的可见性与计数徽标 —— 换流量、新帧到达都要过这里。"""
+        self.set_page_visible("Messages", self.messages.applicable)
+        count = self.messages.count
+        if not self.messages.applicable or not count:
+            self.message_badge.hide()
+            return
+        self.message_badge.setText(str(count))
+        self.message_badge.adjustSize()
+        # `InfoBadgeManager` 只在目标 Resize / Move 时重定位，徽标自己变宽不算。
+        self.message_badge.move(self.message_badge.manager.position())
+        self.message_badge.show()
+
     # —— 数据 ——
 
     def set_controller(self, controller) -> None:
         """更新 Flow 查看控制器并同步到请求、响应面板。"""
+        if controller is self.controller:
+            return
+        self.__connect_controller(self.controller, connect=False)
         self.controller = controller
         self.req_panel.controller = controller
         self.res_panel.controller = controller
+        self.__connect_controller(controller)
 
     def set_data(self, data: dict):
         """有数据时调用，切换到详情页并填充
@@ -827,6 +958,7 @@ class FlowDataPanel(SimpleCardWidget):
         self.req_panel.set_data(data)
         self.res_panel.set_data(data)
         self.raw_state_panel.set_data(data)
+        self.__set_messages(data)
         self._update_context_bar(data)
         # 只抓到请求的流量没有响应可看 —— 那一页整条藏掉，别让人点进空白。
         self.set_page_visible(
@@ -836,6 +968,19 @@ class FlowDataPanel(SimpleCardWidget):
         self.copy_curl_action.setEnabled(bool(data.get("curl_command")))
         self.replay_action.setEnabled(bool(self.controller and data.get("id")))
         self.stack.setCurrentIndex(1)
+
+    def __set_messages(self, data: dict) -> None:
+        """填消息页。
+
+        帧要现取：详情字典是在 mitm 线程上一次性构建的（`core/mitm/detail.py`），
+        塞进去上千帧等于让每一条流量都背着一份帧列表过界，而九成流量压根不是 WS。
+        SSE 那一路相反 —— 事件全在已缓冲的响应体里，`MessagesPane` 自己解析就够。"""
+        flow_id = str(data.get("id") or "")
+        if is_websocket(data):
+            self.messages.set_data(data, self.__frames(flow_id), self.__close(flow_id))
+        else:
+            self.messages.set_data(data)
+        self.__refresh_message_page()
 
     def _update_context_bar(self, data: dict) -> None:
         method = str(data.get("Method", "—"))

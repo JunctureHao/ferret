@@ -679,28 +679,27 @@
 <context>
     <name>CookieWidget</name>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="202"/>
+        <location filename="../../apps/common/flow/detail.py" line="213"/>
         <source>Copy cookies</source>
-        <extracomment>`bytes` 值在「原始状态」页的预览长度。够看出协议头是什么，又不会把整份 JSON 撑成几 MB —— 完整报文在请求/响应两页的 Body 与 Raw 里本来就有。 状态码档位 → `InfoBadge` 的语义等级。 改造前这里是一张五个十六进制色值的表加一句内联样式表，主题一换就对不上（那五个 色值是照亮色主题挑的），而且和 Fluent 自己的语义色系统各说各话。`InfoLevel` 这五档正好一一对应：3xx 用 `ATTENTION`（主题色），未完成/不认识的用 `INFOAMTION`（中性灰）。</extracomment>
         <translation>复制 Cookie</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="257"/>
+        <location filename="../../apps/common/flow/detail.py" line="268"/>
         <source>Notice</source>
         <translation>提示</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="257"/>
+        <location filename="../../apps/common/flow/detail.py" line="268"/>
         <source>No cookies to copy</source>
         <translation>没有可复制的 Cookie</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="264"/>
+        <location filename="../../apps/common/flow/detail.py" line="275"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="264"/>
+        <location filename="../../apps/common/flow/detail.py" line="275"/>
         <source>Cookies copied to clipboard</source>
         <translation>Cookie 已复制到剪贴板</translation>
     </message>
@@ -826,79 +825,83 @@
 <context>
     <name>FlowDataPanel</name>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="567"/>
+        <location filename="../../apps/common/flow/detail.py" line="584"/>
         <source>Nothing to show</source>
-        <extracomment>详情字典的键前缀：``Request`` 或 ``Response``。 空内容时隐藏的标签页 route key，子类各自声明。 页面顺序。route key 同时是 `set_page_visible` 的参数。</extracomment>
         <translation>什么都没有</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="583"/>
+        <location filename="../../apps/common/flow/detail.py" line="601"/>
         <source>Overview</source>
         <translation>概览</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="584"/>
+        <location filename="../../apps/common/flow/detail.py" line="602"/>
         <source>Request</source>
         <translation>请求</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="585"/>
+        <location filename="../../apps/common/flow/detail.py" line="603"/>
         <source>Response</source>
         <translation>响应</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="586"/>
+        <location filename="../../apps/common/flow/detail.py" line="604"/>
+        <source>Messages</source>
+        <translation>消息</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/detail.py" line="605"/>
         <source>Raw state</source>
         <translation>原始状态</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="595"/>
+        <location filename="../../apps/common/flow/detail.py" line="628"/>
         <source>Copy URL</source>
         <translation>复制 URL</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="598"/>
+        <location filename="../../apps/common/flow/detail.py" line="631"/>
         <source>Copy cURL</source>
         <translation>复制 cURL</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="604"/>
+        <location filename="../../apps/common/flow/detail.py" line="637"/>
         <source>Replay</source>
         <translation>重发</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="655"/>
-        <location filename="../../apps/common/flow/detail.py" line="656"/>
+        <location filename="../../apps/common/flow/detail.py" line="688"/>
+        <location filename="../../apps/common/flow/detail.py" line="689"/>
         <source>Close details</source>
         <translation>关闭详情</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="788"/>
+        <location filename="../../apps/common/flow/detail.py" line="850"/>
         <source>Nothing to copy</source>
         <translation>没有可复制的内容</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="789"/>
+        <location filename="../../apps/common/flow/detail.py" line="851"/>
         <source>%s is not ready yet</source>
         <translation>%s 还没有准备好</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="795"/>
+        <location filename="../../apps/common/flow/detail.py" line="857"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="796"/>
+        <location filename="../../apps/common/flow/detail.py" line="858"/>
         <source>%s copied to clipboard</source>
         <translation>%s 已复制到剪贴板</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="809"/>
+        <location filename="../../apps/common/flow/detail.py" line="871"/>
         <source>Replay failed</source>
         <translation>重发失败</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="843"/>
+        <location filename="../../apps/common/flow/detail.py" line="988"/>
         <source>Pending</source>
         <translation>等待中</translation>
     </message>
@@ -2767,6 +2770,126 @@
         <location filename="../../apps/intercept/editors.py" line="18"/>
         <source>This content is not valid UTF-8 (an archive, an image, or a non-UTF-8 charset), so it is locked read-only; it goes out unchanged when released.</source>
         <translation>这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；放行时按原样发出。</translation>
+    </message>
+</context>
+<context>
+    <name>MessagesPane</name>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="195"/>
+        <location filename="../../apps/common/flow/messages.py" line="213"/>
+        <source>#</source>
+        <translation>#</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="196"/>
+        <source>Direction</source>
+        <translation>方向</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="197"/>
+        <source>Type</source>
+        <translation>类型</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="198"/>
+        <source>Time</source>
+        <translation>时间</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="199"/>
+        <location filename="../../apps/common/flow/messages.py" line="217"/>
+        <source>Size</source>
+        <translation>大小</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="200"/>
+        <source>Preview</source>
+        <translation>预览</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="214"/>
+        <source>Event</source>
+        <translation>事件</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="215"/>
+        <source>ID</source>
+        <translation>ID</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="216"/>
+        <source>Retry</source>
+        <translation>重连间隔</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="218"/>
+        <source>Data</source>
+        <translation>数据</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="349"/>
+        <source>This flow carries no messages</source>
+        <translation>这条流量没有消息</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="371"/>
+        <source>The response body was streamed, not buffered</source>
+        <translation>响应体以流式转发，未缓冲</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="432"/>
+        <source>Client → Server</source>
+        <translation>客户端 → 服务端</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="434"/>
+        <source>Server → Client</source>
+        <translation>服务端 → 客户端</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="442"/>
+        <source>dropped</source>
+        <translation>已丢弃</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="443"/>
+        <source>injected</source>
+        <translation>已注入</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="485"/>
+        <source>Showing the latest {} of {} frames</source>
+        <translation>仅显示最新 {} 帧，共 {} 帧</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="492"/>
+        <source>Showing the latest {} of {} events</source>
+        <translation>仅显示最新 {} 条事件，共 {} 条</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="506"/>
+        <source>Connection open</source>
+        <translation>连接保持中</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="508"/>
+        <source>Closed</source>
+        <translation>已关闭</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="510"/>
+        <source>Closed by client</source>
+        <translation>客户端关闭</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="512"/>
+        <source>Closed by server</source>
+        <translation>服务端关闭</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="537"/>
+        <source>Showing the first {} of {} bytes</source>
+        <translation>仅显示前 {} 字节，共 {} 字节</translation>
     </message>
 </context>
 <context>
