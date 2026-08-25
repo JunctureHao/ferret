@@ -255,18 +255,11 @@ class FlowTableModel(QAbstractTableModel):
             if column_name == "Time":
                 return self._time_tooltip(flow)
 
-        if role == Qt.ItemDataRole.ForegroundRole:
-            if column_name == "Method":
-                return self._semantic_color(self._method_kind(flow.request.method))
-            if column_name == "Status":
-                return self._semantic_color(self._status_kind(flow))
+        if role == Qt.ItemDataRole.ForegroundRole and column_name == "Status":
+            return self._semantic_color(self._status_kind(flow))
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            if column_name in ("#", "Status", "Size", "Time"):
-                return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            if column_name == "Method":
-                return int(Qt.AlignmentFlag.AlignCenter)
-
+            return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         return None
 
     @staticmethod
