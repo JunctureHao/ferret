@@ -402,9 +402,13 @@ class FlowViewerPane(OrientationSplitter):
 
         if shown > 0:
             self.table_stack.setCurrentWidget(self.table)
+            if not self.panel.isVisible():
+                self.panel.setVisible(True)
+                self.collapse_panel()
             return
 
         self.table_stack.setCurrentWidget(self.empty_state)
+        self.panel.setVisible(False)
         if total > 0:
             self.empty_state.set_text(
                 self.tr("No matches"),
