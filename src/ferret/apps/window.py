@@ -1,4 +1,4 @@
-from PySide6.QtCore import QRect, Slot
+from PySide6.QtCore import Slot
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 from qfluentwidgets import (
@@ -19,6 +19,7 @@ from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import CertificateInterface
 from ferret.apps.common.icon import BaseAction, BaseIcon
+from ferret.apps.common.window import center_window
 from ferret.apps.gateway.controllers import GatewayController
 from ferret.apps.gateway.views import GatewayInterface
 from ferret.apps.intercept.controllers import InterceptController
@@ -93,7 +94,7 @@ class MainWindow(FluentWindow):
         self.titleBar.buttonLayout.insertWidget(0, self.pin_button)
 
         self.navigationInterface.setExpandWidth(260)
-        self.__center_window()
+        center_window(self)
         self.__init_navigation()
         self.__connect_signal_to_slot()
 
@@ -163,12 +164,6 @@ class MainWindow(FluentWindow):
     def __on_capture_state_changed(self, state: object) -> None:
         if CaptureState(state) == CaptureState.STOPPED:
             self.session_controller.refresh()
-
-    def __center_window(self):
-        """窗口居中逻辑"""
-        desktop: QRect = QApplication.primaryScreen().availableGeometry()
-        w, h = desktop.width(), desktop.height()
-        self.move(w // 2 - self.width() // 2, h // 2 - self.height() // 2)
 
     @Slot()
     def __on_activated(self, reason: QSystemTrayIcon.ActivationReason):

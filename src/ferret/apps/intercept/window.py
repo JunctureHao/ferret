@@ -56,6 +56,7 @@ from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import BaseSplitter
+from ferret.apps.common.window import center_window
 from ferret.apps.intercept.controllers import InterceptController
 from ferret.apps.intercept.dialogs import HeldFlowsChoice, HeldFlowsCloseDialog
 from ferret.apps.intercept.editors import RequestEditor, ResponseEditor
@@ -109,8 +110,7 @@ class InterceptWindow(FluentWidget):
     def __init_widget(self):
         self.setObjectName("InterceptWindow")
         self.setWindowIcon(QIcon(":/icon"))
-        self.resize(1080, 700)
-        self.setMinimumSize(880, 520)
+        # self.resize(1080, 700)
         self._sync_title(0)
 
         self.flow_model = HeldFlowTableModel(self)
@@ -258,6 +258,9 @@ class InterceptWindow(FluentWidget):
 
     def pop_up(self) -> None:
         """把窗口摆到用户眼前。断点页的「拦截队列」入口也走这里。"""
+        if not self.isVisible():
+            self.setMinimumSize(1080, 700 + self.titleBar.height())
+            center_window(self)
         self.show()
         self.raise_()
         self.activateWindow()
