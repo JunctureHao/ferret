@@ -541,7 +541,7 @@ class RawStatePane(QWidget):
         return self.json_panel.plain_text()
 
 
-class FlowDataPanel(SimpleCardWidget):
+class FlowDataPanel(QWidget):
     """Flow 详情面板：头部一行上下文 + 一层导航 + 每页一屏。"""
 
     collapseRequested = Signal()  # 请求折叠面板
@@ -670,8 +670,6 @@ class FlowDataPanel(SimpleCardWidget):
         self.stack.addWidget(self.empty_page)  # index 0
         self.stack.addWidget(self.detail_page)  # index 1
 
-        self.setBorderRadius(0)  # ← 去掉圆角，与表格对齐
-
         self.context_bar = QWidget(self)
         self.context_bar.setFixedHeight(40)
         self.context_method = BodyLabel(self.context_bar)
@@ -694,6 +692,7 @@ class FlowDataPanel(SimpleCardWidget):
         self.context_status = InfoBadge(self.context_bar)
         self.context_status.setMinimumWidth(38)
         self.context_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.context_status.hide()
         self.context_duration = CaptionLabel(self.context_bar)
         self.context_duration.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -851,6 +850,7 @@ class FlowDataPanel(SimpleCardWidget):
     @Slot()
     def __update_close_buttons(self):
         """The outer context bar owns the single detail close affordance."""
+        self.empty_close_button.hide()
         self.req_panel.close_button.hide()
         self.res_panel.close_button.hide()
 
@@ -1089,5 +1089,6 @@ class FlowDataPanel(SimpleCardWidget):
         self.context_status.setText(status)
         self.context_status.setLevel(status_level(status))
         self.context_status.adjustSize()
+        self.context_status.show()
         self.context_duration.setText(duration)
         self.context_size.setText(human.pretty_size(total) if total else "")
