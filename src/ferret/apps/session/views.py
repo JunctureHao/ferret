@@ -313,8 +313,7 @@ class SessionListPage(QWidget):
 
         dlg = SessionDeleteDialog(names, self.window())
         if dlg.exec():
-            for m in metas:
-                self.controller.delete_session(m.session_id)
+            self.controller.delete_sessions([m.session_id for m in metas])
 
     @Slot(QPoint)
     def _on_context_menu(self, pos: QPoint):

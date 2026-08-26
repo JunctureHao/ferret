@@ -228,14 +228,20 @@ class SessionController(QObject):
             write=True,
         )
 
-    def delete_session(self, session_id: str) -> None:
+    def delete_sessions(self, session_ids: list[str]) -> None:
+        def _delete_all():
+            for sid in session_ids:
+                self._repo.delete(sid)
+
         def _on_deleted(_):
-            self.session_deleted.emit(session_id)
-            self.operation_succeeded.emit(self.tr("Session deleted"))
+            for sid in session_ids:
+                self.session_deleted.emit(sid)  # N 次（表格逐行删）
+            self.operation_succeeded.emit(  # 1 次（只弹一个框）
+                self.tr("Session deleted")
+            )
 
         self._run(
-            self._repo.delete,
-            session_id,
+            _delete_all,
             on_success=_on_deleted,
             on_failure=lambda _: self.refresh(),
             write=True,
