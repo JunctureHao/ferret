@@ -71,6 +71,59 @@
 # werkzeug 引用），不必单列。
 # nuitka-project: --nofollow-import-to=werkzeug
 # nuitka-project: --nofollow-import-to=concurrent.futures.process
+# pyparsing/core.py:2567 的 `from .diagram import ...` 在 create_diagram() 函数体里，
+# 外面就套着 except ImportError（提示 "pip install pyparsing[diagrams]"）。railroad 本来就
+# 没装，这条路运行期必然 ImportError 并被吞掉 —— Nuitka 却照样把 diagram.py 编了进去。
+# nuitka-project: --nofollow-import-to=pyparsing.diagram
+# ── 瘦身：standalone 默认「把没被排除的标准库全塞进 __bytecode.const」，下面这些在
+# 整个模块图里零引用者（report.xml 的 module_usages 反查，只有 Nuitka 记在 __main__
+# 名下的那条伪引用），实测跑完 ferret 全量 import + FerretMaster 装配后也不进
+# sys.modules。字节码 blob 基本不压缩（input 5,882,087 → blob 5,854,988），所以这里
+# 省下的 ~695 KiB 是 1:1 落到 exe 上的，比编译模块的 0.35 折算划算。
+# 刻意留着的两个：_sitebuiltins（site.py 启动时就加载）、_pylong（CPython 的 C 层在
+# 超大整数 ↔ 字符串转换时自己 import，静态图里看不见引用者）。
+# nuitka-project: --nofollow-import-to=_pyio
+# nuitka-project: --nofollow-import-to=pickletools
+# nuitka-project: --nofollow-import-to=configparser
+# nuitka-project: --nofollow-import-to=imaplib
+# nuitka-project: --nofollow-import-to=difflib
+# nuitka-project: --nofollow-import-to=pstats
+# nuitka-project: --nofollow-import-to=cgi
+# nuitka-project: --nofollow-import-to=tomllib
+# nuitka-project: --nofollow-import-to=trace
+# nuitka-project: --nofollow-import-to=modulefinder
+# nuitka-project: --nofollow-import-to=webbrowser
+# nuitka-project: --nofollow-import-to=symtable
+# nuitka-project: --nofollow-import-to=cgitb
+# nuitka-project: --nofollow-import-to=_osx_support
+# nuitka-project: --nofollow-import-to=fileinput
+# nuitka-project: --nofollow-import-to=poplib
+# nuitka-project: --nofollow-import-to=pkgutil
+# nuitka-project: --nofollow-import-to=cmd
+# nuitka-project: --nofollow-import-to=filecmp
+# nuitka-project: --nofollow-import-to=pyclbr
+# nuitka-project: --nofollow-import-to=xdrlib
+# nuitka-project: --nofollow-import-to=mailcap
+# nuitka-project: --nofollow-import-to=sndhdr
+# nuitka-project: --nofollow-import-to=timeit
+# nuitka-project: --nofollow-import-to=netrc
+# nuitka-project: --nofollow-import-to=code
+# nuitka-project: --nofollow-import-to=pipes
+# nuitka-project: --nofollow-import-to=uu
+# nuitka-project: --nofollow-import-to=graphlib
+# nuitka-project: --nofollow-import-to=imghdr
+# nuitka-project: --nofollow-import-to=rlcompleter
+# nuitka-project: --nofollow-import-to=chunk
+# nuitka-project: --nofollow-import-to=sched
+# nuitka-project: --nofollow-import-to=colorsys
+# nuitka-project: --nofollow-import-to=_aix_support
+# nuitka-project: --nofollow-import-to=__phello__
+# nuitka-project: --nofollow-import-to=__hello__
+# nuitka-project: --nofollow-import-to=sre_constants
+# nuitka-project: --nofollow-import-to=sre_compile
+# nuitka-project: --nofollow-import-to=sre_parse
+# nuitka-project: --noinclude-dlls=pythoncom*
+
 
 from ferret.core.application import Application
 
