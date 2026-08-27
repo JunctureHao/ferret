@@ -45,6 +45,10 @@
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.onboardingapp
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.proxyauth
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.cut
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.browser
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.command_history
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.comment
+# nuitka-project: --nofollow-import-to=mitmproxy.addons.termlog
 # nuitka-project: --nofollow-import-to=flask
 # nuitka-project: --nofollow-import-to=jinja2
 # nuitka-project: --nofollow-import-to=asgiref
@@ -62,7 +66,10 @@
 # nuitka-project: --nofollow-import-to=win32evtlog
 # nuitka-project: --nofollow-import-to=win32evtlogutil
 # nuitka-project: --nofollow-import-to=_wmi
-# nuitka-project: --nofollow-import-to=werkzeug.debug
+# mitmproxy 只在 maplocal.py 里用了 werkzeug 的 safe_join 一个函数，bindings.py 已经
+# 用等价实现顶掉。整包排掉的同时，colorama / markupsafe 也随之不可达（它们只有
+# werkzeug 引用），不必单列。
+# nuitka-project: --nofollow-import-to=werkzeug
 # nuitka-project: --nofollow-import-to=concurrent.futures.process
 
 from ferret.core.application import Application

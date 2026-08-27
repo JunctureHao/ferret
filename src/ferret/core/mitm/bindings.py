@@ -1,23 +1,95 @@
 """Centralized mitmproxy imports and packaging compatibility shims."""
 
+import os
+import posixpath
 import sys
 from types import ModuleType
 from typing import Any
 
-# 打包瘦身：这些模块 ferret 永不使用，却会被 mitmproxy.addons.__init__ 和
-# mitmproxy.addons.export 在导入期拉进来。用桩顶替以配合 __main__.py 的
-# --nofollow-import-to，必须在任何 mitmproxy 导入之前完成。
-# pyperclip 仅被 Export.clip / Cut.clip 使用，ferret 走自己的 Qt 剪贴板，两者都不调。
+# werkzeug 的目录穿越守卫，照搬 werkzeug/security.py:12-25,169-201（BSD-3-Clause,
+# © Pallets）。mitmproxy 整个包里只有 maplocal.py:9 一句 `from werkzeug.security import
+# safe_join`，却把 34 个 werkzeug 子模块（serving / test / formparser / datastructures /
+# wrappers 全在内）连同它独占的 colorama、markupsafe 一起拖进包里 —— 是目前构建里最大的
+# 一块纯废重。这是安全边界，所以只做等价搬运：不自己发挥，也不改写成 pathlib.resolve()
+# （那会碰文件系统，而 maplocal 送进来的候选路径本来就允许不存在）。
+# 升级 mitmproxy / werkzeug 之后要回头比对上游这个函数有没有变。
+_OS_ALT_SEPS: list[str] = [
+    sep for sep in (os.sep, os.altsep) if sep is not None and sep != "/"
+]
+# https://chrisdenton.github.io/omnipath/Special%20Dos%20Device%20Names.html
+_WINDOWS_DEVICE_FILES = {
+    "AUX",
+    "CON",
+    "CONIN$",
+    "CONOUT$",
+    *(f"COM{c}" for c in "123456789¹²³"),
+    *(f"LPT{c}" for c in "123456789¹²³"),
+    "NUL",
+    "PRN",
+}
+
+
+def _safe_join(directory: str, *pathnames: str) -> str | None:
+    """Join untrusted segments onto ``directory``; ``None`` 表示这条路径不安全."""
+    if not directory:
+        # 保证结果是 ./path：directory 为空时，第一段不可信路径不能升格成可信前缀。
+        directory = "."
+    parts = [directory]
+    for part in pathnames:
+        if not part:
+            continue
+        part = posixpath.normpath(part)
+        if (
+            os.path.isabs(part)
+            # ntpath.isabs 抓不到这一种。上游写成两句 startswith，这里并成元组形式
+            # 以过 ruff 的 PIE810，语义完全一致。
+            or part.startswith(("/", "../"))
+            or part == ".."
+            or any(sep in part for sep in _OS_ALT_SEPS)
+            or (
+                os.name == "nt"
+                and any(
+                    p.partition(".")[0].strip().upper() in _WINDOWS_DEVICE_FILES
+                    for p in part.split("/")
+                )
+            )
+        ):
+            return None
+        parts.append(part)
+    return posixpath.join(*parts)
+
+
+# 打包瘦身：这些模块 ferret 永不使用，却会被 mitmproxy.addons.__init__、
+# mitmproxy.addons.export 和 mitmproxy.master 在导入期拉进来。用桩顶替以配合
+# __main__.py 的 --nofollow-import-to，必须在任何 mitmproxy 导入之前完成。
+# - pyperclip 仅被 Export.clip / Cut.clip 使用，ferret 走自己的 Qt 剪贴板，两者都不调。
+# - browser / command_history / termlog 是 mitmproxy 自家命令行界面用的（拉浏览器、
+#   命令历史、终端日志），FerretMaster 明确 with_termlog=False。
+# - comment 里只有一条 `flow.comment` 控制台命令；comment 属性本身长在
+#   mitmproxy/flow.py 的 Flow 上，ferret 在 facade.py 里直接赋值，不经过这个 addon。
+# - werkzeug 见上面的 _safe_join。colorama / markupsafe 只有 werkzeug 引用，桩掉
+#   werkzeug 之后它们自然不可达，不必单独立桩。
+# 别顺手把 script 也桩了：脚本功能后面要做，留着。
 _STUBBED_MODULES: dict[str, dict[str, Any]] = {
+    "mitmproxy.addons.browser": {},
+    "mitmproxy.addons.command_history": {},
+    "mitmproxy.addons.comment": {},
     "mitmproxy.addons.onboarding": {},
     "mitmproxy.addons.onboardingapp": {"app": None},
     "mitmproxy.addons.proxyauth": {},
     "mitmproxy.addons.cut": {},
+    # mitmproxy/master.py:25 的类注解 `termlog.TermLog | None` 在导入期就求值（那个
+    # 文件没写 from __future__ import annotations），所以桩必须带上这个名字。
+    "mitmproxy.addons.termlog": {"TermLog": type("TermLog", (), {})},
     "pyperclip": {"copy": None, "PyperclipException": Exception},
+    "werkzeug": {},
+    "werkzeug.security": {"safe_join": _safe_join},
 }
 
 for _name, _attrs in _STUBBED_MODULES.items():
     _stub = ModuleType(_name)
+    # 让桩也算个包，werkzeug.security 才能作为 werkzeug 的子模块被 from-import 找到。
+    _stub.__path__ = []  # type: ignore[attr-defined]
     for _attr, _value in _attrs.items():
         setattr(_stub, _attr, _value)
     sys.modules.setdefault(_name, _stub)

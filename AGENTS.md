@@ -87,7 +87,11 @@ ferret 没装）在说的 mitmproxy#4469。将来要做实时推送，`stream_la
 ## 7. Nuitka 打包（发布/大改动前）
 
 - 瘦身项统一维护在 `src/ferret/__main__.py` 的 `# nuitka-project:` 注释；打包 `nuitka .\src\ferret\`（目录，非单文件）。
-- `bindings._STUBBED_MODULES` 现有 5 桩：`mitmproxy.addons.{onboarding,onboardingapp,proxyauth,cut}` + `pyperclip`，须在 mitmproxy 导入前完成。`maplocal` 已解桩（重写页的「重定向（本地）」要用它），别再加回去。
+- `bindings._STUBBED_MODULES` 现有 11 桩，须在 mitmproxy 导入前完成：
+  - `mitmproxy.addons.{onboarding,onboardingapp,proxyauth,cut}` + `pyperclip`（原有）。
+  - `mitmproxy.addons.{browser,command_history,comment,termlog}` —— 都是 mitmproxy 自家命令行界面用的。`termlog` 的桩**必须**带 `TermLog` 属性：`mitmproxy/master.py:25` 的类注解 `termlog.TermLog | None` 在导入期就求值。`comment` 只注册一条 `flow.comment` 控制台命令，`Flow.comment` 属性本身在 `mitmproxy/flow.py` 上，ferret 在 `facade.py` 直接赋值，不经过它。
+  - `werkzeug` + `werkzeug.security{safe_join}` —— mitmproxy 全包只有 `maplocal.py:9` 用了 `safe_join` 一个函数，却拖进 34 个 werkzeug 子模块加它独占的 colorama / markupsafe（约 7 MB obj / 3.2 MB exe）。`bindings._safe_join` 是照搬上游的等价实现（BSD-3, © Pallets）；这是**目录穿越安全边界**，升级 mitmproxy / werkzeug 后要比对上游 `werkzeug/security.py` 的 `safe_join` 有没有变，别自己发挥。colorama / markupsafe 只被 werkzeug 引用，不必单独立桩。
+  - `maplocal` 已解桩（重写页的「重定向（本地）」要用它），别再加回去。`script` 也别桩：脚本功能后续要做。
 - 接新 mitmproxy addon / 第三方依赖时，先确认是否会被 Nuitka 误裁，必要时加 `--include-package` 或移除对应 `--nofollow`。勿裁 `pyasn1`(aioquic 硬链)、`ruamel.yaml`、`mitmproxy_rs.contentviews`、aioquic/pylsqpack、`wsproto`(WebSocket 层顶层 import，帧展示要用)。
 - 打包后冒烟：exe 能起、GUI 不崩、mitmproxy master 正常 listen。
 
