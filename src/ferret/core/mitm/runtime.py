@@ -163,6 +163,9 @@ class _MitmThread(QThread):
         self._apply_block_options(master)
         self._apply_rewrite_rules(master)
         self._apply_intercept_rules(master)
+        # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
+        # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
+        master.compose.on_result = self.runtime.compose_result.emit
         self.master = master
         self.runtime._master_created.emit(self.generation, master)
         if self.stop_requested:
@@ -274,6 +277,8 @@ class MitmRuntime(QObject):
     websocket_started = Signal(str)
     websocket_frame = Signal(str, object)
     websocket_closed = Signal(str, object)
+    # 编辑页手工发送的落地结果：ComposeResult 值对象（见 core/mitm/compose.py）。
+    compose_result = Signal(object)
 
     _master_created = Signal(int, object)
     _master_running = Signal(int)

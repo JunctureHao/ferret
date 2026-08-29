@@ -26,6 +26,11 @@ from ferret.core.mitm.certificate import (
     TrustState,
     export_format,
 )
+from ferret.core.mitm.compose import (
+    COMPOSE_METADATA_KEY,
+    ComposeAddon,
+    ComposeResult,
+)
 from ferret.core.mitm.detail import (
     build_flow_detail,
     head_size,
@@ -96,6 +101,7 @@ from ferret.core.mitm.wsframe import (
 __all__ = [
     "BODY_KINDS",
     "CA_ARTIFACTS",
+    "COMPOSE_METADATA_KEY",
     "EXPORT_FORMATS",
     "FILE_REPLACEMENT_PREFIX",
     "GATEWAY_METADATA_KEY",
@@ -118,6 +124,8 @@ __all__ = [
     "CertificateCancelled",
     "CertificateError",
     "CertutilUnavailable",
+    "ComposeAddon",
+    "ComposeResult",
     "FerretMaster",
     "Flow",
     "FlowExporter",

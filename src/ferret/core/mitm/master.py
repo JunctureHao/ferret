@@ -30,6 +30,7 @@ from ferret.core.mitm.bindings import (
     StripDnsHttpsRecords,
     View,
 )
+from ferret.core.mitm.compose import ComposeAddon
 from ferret.core.mitm.intercept import FerretIntercept, InterceptState
 
 
@@ -54,6 +55,7 @@ class FerretMaster(Master):
         self.modify_headers = ModifyHeaders()
         self.intercept_state = InterceptState()
         self.intercept = FerretIntercept(self.intercept_state)
+        self.compose = ComposeAddon(self.view)
         self.save = Save()
 
         self.addons.add(
@@ -93,6 +95,9 @@ class FerretMaster(Master):
             # 被断点拦下来。位置对齐原生 console master（intercept → view）。
             self.intercept,
             self.view,
+            # 挂在 View 之后：摘除（record=False）要等 View 收录完再执行，靠
+            # `loop.call_soon` 排在当前一轮钩子派发之后，次序与链上位置无关。
+            self.compose,
             self.readfile,
             self.save,
             LogAddon(),

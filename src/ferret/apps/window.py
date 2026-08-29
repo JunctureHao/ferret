@@ -20,6 +20,8 @@ from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import CertificateInterface
 from ferret.apps.common.icon import BaseAction, BaseIcon
 from ferret.apps.common.window import center_window
+from ferret.apps.compose.controllers import ComposeController
+from ferret.apps.compose.views import ComposeInterface
 from ferret.apps.gateway.controllers import GatewayController
 from ferret.apps.gateway.views import GatewayInterface
 from ferret.apps.intercept.controllers import InterceptController
@@ -64,6 +66,10 @@ class MainWindow(FluentWindow):
         self.intercept_controller = InterceptController(self, mitm=self.runtime.mitm)
         self.intercept_interface = InterceptInterface(
             controller=self.intercept_controller, parent=self
+        )
+        self.compose_controller = ComposeController(self, mitm=self.runtime.mitm)
+        self.compose_interface = ComposeInterface(
+            controller=self.compose_controller, parent=self
         )
         # 断点窗口是独立顶层窗口，构造时不能给 Qt 父对象（`qframelesswindow` 的
         # `updateFrameless()` 不补 `Qt.Window`，给了父对象就退化成子控件），所以它的
@@ -115,6 +121,10 @@ class MainWindow(FluentWindow):
 
         self.addSubInterface(
             self.intercept_interface, BaseIcon.BUG, self.tr("Intercept")
+        )
+
+        self.addSubInterface(
+            self.compose_interface, FluentIcon.SEND, self.tr("Compose")
         )
 
         self.addSubInterface(

@@ -9,6 +9,7 @@ from typing import Any
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm.bindings import HTTPFlow, View, emoji
+from ferret.core.mitm.compose import COMPOSE_METADATA_KEY, build_compose_flow
 from ferret.core.mitm.detail import build_flow_detail
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.gateway import GatewayRule
@@ -524,6 +525,50 @@ class MitmFacade:
             master.client_playback.start_replay(replay_flows)
 
         self.runtime.call(enqueue)
+
+    def send_custom_request(
+        self,
+        method: str,
+        url: str,
+        headers: list[tuple[str, str]] | None = None,
+        content: bytes | str | None = None,
+        *,
+        record: bool = True,
+    ) -> str:
+        """编辑页「发送」：徒手造一条 flow 交给 `ClientPlayback` 发出，返回 flow id。
+
+        与 `replay_flows` 同一条路（重写 / 网关 / 断点规则照常命中）。`record`
+        决定是否留在流量列表：不留的那条由 `ComposeAddon` 在 View 收录后摘除。
+        响应 / 错误落地后经 `MitmRuntime.compose_result` 信号回报编辑页。
+        """
+        if not method.strip():
+            raise ValueError(
+                QCoreApplication.translate("MitmFacade", "The HTTP method is empty")
+            )
+        if not url.strip():
+            raise ValueError(
+                QCoreApplication.translate("MitmFacade", "The URL is empty")
+            )
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
+            raise RuntimeError(
+                QCoreApplication.translate(
+                    "MitmFacade",
+                    "The mitmproxy core is not running, so nothing can be sent",
+                )
+            )
+
+        def enqueue() -> str:
+            flow = build_compose_flow(method, url, headers, content)
+            flow.metadata[COMPOSE_METADATA_KEY] = "1"
+            flow.is_replay = "request"
+            master.compose.register(flow.id, keep=record)
+            # `start_replay` 自己会 backup / 清响应 / 入队；URL 不合法等构造错误
+            # 在这一步之前就已经抛出，登记表不会被弄脏。
+            master.client_playback.start_replay([flow])
+            return flow.id
+
+        return str(self.runtime.call(enqueue))
 
     def replay_file(self, path: Path | str) -> None:
         master = self.runtime.master
