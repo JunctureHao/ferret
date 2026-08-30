@@ -49,7 +49,7 @@ class SessionViewerPageTests(unittest.TestCase):
         self.app.processEvents()
         self.assertGreater(page.splitter.sizes()[1], 0)
 
-        page.panel.res_panel.close_button.click()
+        page.panel.res_pane.close_button.click()
         self.app.processEvents()
 
         self.assertEqual(page.splitter.sizes()[1], 0)

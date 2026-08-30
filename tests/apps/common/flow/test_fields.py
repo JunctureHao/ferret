@@ -316,6 +316,24 @@ class FieldCardTests(unittest.TestCase):
         self.assertFalse(card.is_expanded())
         card.deleteLater()
 
+    def test_clicking_the_header_row_toggles_the_group(self) -> None:
+        """组头整行可点 —— 箭头按钮只补一个视觉锚点，命中区域不能只有图标那么大。"""
+        card = self.card("Summary")
+        from PySide6.QtCore import QEvent, QPoint, Qt
+        from PySide6.QtGui import QMouseEvent
+
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPoint(8, 8),
+            QPoint(8, 8),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        before = card.is_expanded()
+        card.eventFilter(card.header, release)
+        self.assertEqual(card.is_expanded(), not before)
+
     def test_copying_a_group_writes_label_colon_value_per_line(self) -> None:
         card = self.card("Server certificate")
         card.set_data(

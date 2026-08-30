@@ -1,28 +1,28 @@
-"""详情面板：一层导航 + 卡片式全字段展示。
+"""详情面板：左右分栏（请求区 | 响应区），各一排扁平标签。
 
-改造前是「请求面板 | 响应面板」左右两块，各自一排 Pivot 标签，中间还夹一个内层
-分割器。两排标签加起来十条，窄面板下横向挤成一团；「概览」偏偏只挂在请求那半边 ——
-一条流量的整体信息（状态、时序、连接、证书）却要从「请求」里找。而且外层分割器
-每次开合都要把内层重算成 50:50，两层分割器互相牵扯。
+改造前是「一层导航：概览/请求/响应/消息/原始状态」+ 请求/响应页内的次级
+Pivot（Headers/Query/Form/…/Raw），两层导航点两次才到一份报文头。现在回到
+左右分栏：左栏是请求区（总览/原始/请求头/请求体/查询参数/Cookies/备注），
+右栏是响应区（原始/响应头/响应体/消息）。全局布局设置说的是「表格 vs 详情」
+的排布，内层分栏与它相反（`inverted=True`）才放得下：全局横向（详情窄而高）
+时内层上下排，全局纵向（详情宽而矮）时内层左右排，比例在切换时保持
+（`OrientationSplitter` 自己处理）。
 
-现在导航只有一层：概览 / 请求 / 响应 / 消息 / 原始状态，请求与响应各自的细分退到
-页内的次级 Pivot。内层分割器整个消失，那套 50:50 重算跟着删掉。
+「消息」栏只对 WebSocket 与 SSE 流量出现（见 `messages.py`），其余一律整条
+隐藏 —— 普通请求点进去只会看到一张空表。
 
-「消息」页只对 WebSocket 与 SSE 流量出现（见 `messages.py`），其余一律整页隐藏 ——
-普通请求点进去只会看到一张空表。
+没有响应的流量（只抓到请求）右栏整体隐藏；× 收起整个详情面板，横向时挂在
+右栏标签行右端、纵向时挂在上栏（请求区）标签行右端 —— 永远贴着离表格最远的
+那条边。
 
-「原始状态」页是**完整性兜底**：概览只显示 `fields.SECTIONS` 列出来的字段，
-而这一页把 `Flow.get_state()` 整棵树原样摆出来 —— 以后 mitmproxy 加了新字段、
-或者某个字段我们没想到要显示，在这里都还找得到。
+`ResponsePane` 除了做详情面板的右栏，还被 compose 页整个复用（那边的响应
+展示就是这一栏；没有 flow 可问，controller 为 None，Raw 走手工拼装的兜底）。
 
 这个模块只搬「详情」那一半；表格、外层分割器、空状态仍留在 `views.py`，而
 `views.py` 继续 re-export `FlowDataPanel`，两个挂载点的 import 不受影响。
 """
 
-import json
-from typing import Any
-
-from PySide6.QtCore import QSize, Qt, Signal, Slot
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -33,14 +33,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
-    BodyLabel,
-    CaptionLabel,
-    CommandBar,
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
     InfoLevel,
-    SegmentedWidget,
+    RoundMenu,
     SimpleCardWidget,
     SubtitleLabel,
     ToolTipFilter,
@@ -69,14 +66,12 @@ from ferret.apps.common.flow.protocols import (
 from ferret.apps.common.icon import BaseAction, BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
+from ferret.apps.common.splitter import OrientationSplitter
 from ferret.core.log import get_logger
-from ferret.core.mitm import MARKER_DEFAULT, WsClose, WsFrame, human
+from ferret.core.mitm import MARKER_DEFAULT, WsClose, WsFrame
+from ferret.core.settings import CONFIG
 
 log = get_logger("flow.detail")
-
-# `bytes` 值在「原始状态」页的预览长度。够看出协议头是什么，又不会把整份 JSON
-# 撑成几 MB —— 完整报文在请求/响应两页的 Body 与 Raw 里本来就有。
-_STATE_BYTES_PREVIEW = 64
 
 # 状态码档位 → `InfoBadge` 的语义等级。
 # 改造前这里是一张五个十六进制色值的表加一句内联样式表，主题一换就对不上（那五个
@@ -130,60 +125,72 @@ def status_level(status: str) -> InfoLevel:
     return level
 
 
-def _state_key(key: object) -> str:
-    """字典键 → JSON 能用的字符串。
+def _request_start_line(data: dict) -> str:
+    """Raw 页手工拼装时的请求行。"""
+    method = data.get("Method", "GET")
+    path = data.get("Path", "/")
+    version = data.get("HTTP Version", "HTTP/1.1")
+    return f"{method} {path} {version}"
 
-    JSON 的键只能是字符串，而原生状态里有 `bytes` 键。不能直接 `str()`：
-    那会把 ``b"host"`` 写成字面的 ``b'host'``，引号和前缀一并进 JSON。
+
+def _response_start_line(data: dict) -> str:
+    """Raw 页手工拼装时的状态行。"""
+    version = data.get("Response HTTP Version", "HTTP/1.1")
+    status = data.get("Status Code", 200)
+    reason = data.get("Reason", "OK")
+    return f"{version} {status} {reason}"
+
+
+def _fill_raw(
+    edit: ToolPlainTextEdit,
+    datas: dict | None,
+    prefix: str,
+    start_line: str,
+    controller,
+    getter: str,
+) -> None:
+    """线上原始报文；controller 给不出来就按详情字典手工拼一份。
+
+    Args:
+        edit: 目标编辑器
+        datas: 详情字典；为空且没有 controller 报文时不填
+        prefix: ``Request`` / ``Response``
+        start_line: 手工拼装时的首行：请求行或状态行
+        controller: flow 查看控制器；可为 None（compose 那一路就没有）
+        getter: controller 上取原始报文的方法名（`get_raw_request` /
+            `get_raw_response`）
     """
-    if isinstance(key, (bytes, bytearray)):
-        return bytes(key).decode("utf-8", errors="replace")
-    return str(key)
+    raw_data = None
+    flow_id = str((datas or {}).get("Flow ID") or "")
+    if controller and flow_id:
+        try:
+            raw_data = getattr(controller, getter)(flow_id)
+        except (AttributeError, ValueError, TypeError, RuntimeError) as e:
+            log.warning("failed to read the raw HTTP payload: %s", e)
+        if raw_data:
+            if isinstance(raw_data, bytes):
+                text = raw_data.decode("utf-8", errors="replace")
+            else:
+                text = str(raw_data)
+            edit.set_text(text)
+            return
 
-
-def _encode_state(value: object) -> Any:
-    """原生状态子树 → 可 JSON 序列化的等价结构。**保留嵌套，不打平。**
-
-    `Flow.get_state()` 里混着 `bytes`（body、ALPN、证书 DER）、`tuple`（地址对）
-    以及 mitmproxy 自己的对象，`json.dumps` 撞上任何一个就整份抛 `TypeError` ——
-    而这一页的意义正是「面板漏了什么这里都还在」，一个字段拖垮整页就白搭了。
-    所以未知类型统一降级成 ``{"__type__": …, "repr": …}``，绝不放过整棵树。
-
-    `bytes` 不原样转码：一个 body 可能几 MB，而这里要回答的是「这个字段大概装了
-    什么」。前 64 字节给两份 —— 十六进制和 hexdump 那样的可打印列，够认出协议头。
-    """
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, (bytes, bytearray)):
-        head = bytes(value[:_STATE_BYTES_PREVIEW])
-        return {
-            "__type__": "bytes",
-            "size": len(value),
-            "hex": head.hex(" "),
-            # 非可打印字节一律 "."，和 hexdump 的 ASCII 列一个规矩 —— 比
-            # `decode(errors="replace")` 满屏 U+FFFD 好认，也不用猜编码。
-            "text": "".join(chr(b) if 32 <= b < 127 else "." for b in head),
-        }
-    if isinstance(value, dict):
-        return {_state_key(key): _encode_state(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return [_encode_state(item) for item in value]
-    return {"__type__": type(value).__name__, "repr": repr(value)}
-
-
-def state_json(raw_state: object) -> str:
-    """原生状态 → 缩进过的 JSON 文本。
-
-    不排序键：`get_state()` 的顺序是 mitmproxy 自己的字段声明顺序，比字母序更好读。
-    ``ensure_ascii=False`` 保留中文 —— 备注字段就在里面。
-    """
-    if not raw_state:
-        return ""
-    try:
-        return json.dumps(_encode_state(raw_state), indent=2, ensure_ascii=False)
-    except (TypeError, ValueError) as e:  # pragma: no cover - 兜底的兜底
-        log.warning("failed to serialize the native flow state: %s", e)
-        return repr(raw_state)
+    if not datas:
+        return
+    raw_lines = [start_line]
+    headers = datas.get(f"{prefix} Headers", {})
+    raw_lines.extend(f"{key}: {value}" for key, value in headers.items())
+    # 空行分隔头部和 body
+    raw_lines.append("")
+    body = datas.get(f"{prefix} Body", b"")
+    if body:
+        if isinstance(body, bytes):
+            # 产出侧已用 `Message.get_text` 按 charset 解码好，直接消费。
+            # 切勿在这里再解一次：body 是解压后的内容，重跑解压会产乱码。
+            raw_lines.append(datas.get(f"{prefix} Body Text") or "")
+        else:
+            raw_lines.append(str(body))
+    edit.set_text("\n".join(raw_lines))
 
 
 class CookieWidget(QWidget):
@@ -277,283 +284,191 @@ class CookieWidget(QWidget):
         )
 
 
-class MessagePane(TabPanel):
-    """请求页与响应页的共同部分：Headers / Cookies / Body / Trailers / Raw。
+class BodyPane(QStackedWidget):
+    """报文体三态：文本/JSON 树双视图 | 表单键值（仅请求）| 空占位。
 
-    改造前 `RequestPanel` 和 `ResponsePanel` 各自抄了一份 `_fill_raw` /
-    `_fill_body` / `_set_body_tab_label`，逐字几乎相同 —— 改一处就必须记得改另一处
-    （实际上没记住：响应那侧的 controller 调用包了 try/except，请求那侧没包）。
-    两页真正的差别只有三处，做成三个钩子：详情字典的键前缀、controller 取原始报文
-    的方法、以及 Raw 的首行是请求行还是状态行。
-
-    「空的标签页不出现」也收在这里。Query / Form / Cookies / Trailers 四页缺内容
-    时整条标签隐藏，而不是点进去看见一片空白 —— 这几页多数流量都用不上。
-    Headers / Body / Raw 三页始终在：它们缺内容本身就是要看的信息。
+    改造前 body 为空的流量把 Body 标签也照常摆出来，点进去是一片编辑器空白；
+    现在给一张居中的「无任何数据」占位，读起来不用猜。urlencoded 表单是请求体的
+    一种格式：有解析结果时用键值表格呈现，不再像改造前那样单开一个 Form 标签。
     """
 
-    # 详情字典的键前缀：``Request`` 或 ``Response``。
-    PREFIX = ""
+    def __init__(self, allow_form: bool = False, parent=None):
+        super().__init__(parent)
+        self.json_panel = JsonDualPanel()
+        self.json_panel.set_read_only(True)
+        self.addWidget(self.json_panel)
 
-    # 空内容时隐藏的标签页 route key，子类各自声明。
-    OPTIONAL_TABS: tuple[str, ...] = ()
+        self.form_panel: ItemDualPanel | None = None
+        if allow_form:
+            self.form_panel = ItemDualPanel()
+            self.form_panel.set_read_only(True)
+            self.addWidget(self.form_panel)
+
+        self.empty_label = SubtitleLabel(self.tr("No data"))
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.addWidget(self.empty_label)
+
+    def set_data(self, data: dict, prefix: str) -> None:
+        """按详情字典切页：表单优先，其次报文体文本，最后空占位。"""
+        text = data.get(f"{prefix} Body Pretty")
+        if text is None:
+            text = data.get(f"{prefix} Body Text") or ""
+        if self.form_panel is not None:
+            form = data.get(f"{prefix} Form") or {}
+            if form:
+                self.form_panel.set_items(form)
+                self.setCurrentWidget(self.form_panel)
+                return
+        if text:
+            lang = _body_lang(data.get(f"{prefix} Body Syntax", "none"), str(text))
+            self.json_panel.set_text(str(text), lang=lang)
+            self.setCurrentWidget(self.json_panel)
+        else:
+            self.setCurrentWidget(self.empty_label)
+
+
+class CommentPane(QWidget):
+    """备注内联编辑页：直接编辑，脏了才亮保存。
+
+    改造前备注只有一个弹窗入口（CommandBar 的 Comment 按钮）；现在这页常驻
+    左栏，弹窗入口保留在「更多」菜单里 —— 两处共用一套写回（面板接到
+    `commentSaved` 后走同一个 `set_flow_comment`）。
+    """
+
+    commentSaved = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._saved_text = ""
+        self._syncing = False
+
+        self.edit = ToolPlainTextEdit()
+        self.save_button = TransparentToolButton(FluentIcon.SAVE)
+        self.save_button.setToolTip(self.tr("Save comment"))
+        self.save_button.setEnabled(False)
+        self.save_button.installEventFilter(
+            ToolTipFilter(self.save_button, 1000, ToolTipPosition.TOP)
+        )
+        self.edit.tool_layout.addWidget(self.save_button)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.edit)
+
+        self.edit.changed.connect(self.__on_changed)
+        self.save_button.clicked.connect(self.__on_save)
+
+    def set_data(self, data: dict) -> None:
+        """灌入当前流量的备注。程序化换文本不算编辑，哨兵拦住。"""
+        self.__load(str(data.get("comment") or ""))
+
+    def text(self) -> str:
+        return self.edit.text()
+
+    def mark_saved(self, comment: str) -> None:
+        """写回成功后由面板回填「已保存」基线，保存按钮随之熄灭。"""
+        self.__load(comment)
+
+    def set_read_only(self, read_only: bool) -> None:
+        self.edit.set_read_only(read_only)
+        if read_only:
+            self.save_button.setEnabled(False)
+
+    def __load(self, comment: str) -> None:
+        self._syncing = True
+        try:
+            self.edit.set_text(comment, lang=Language.TEXT)
+        finally:
+            self._syncing = False
+        self._saved_text = comment
+        self.__refresh()
+
+    def __on_changed(self) -> None:
+        if not self._syncing:
+            self.__refresh()
+
+    def __refresh(self) -> None:
+        self.save_button.setEnabled(
+            self.edit.isEnabled()
+            and not self.edit.is_read_only()
+            and self.edit.text() != self._saved_text
+        )
+
+    def __on_save(self) -> None:
+        self.commentSaved.emit(self.edit.text())
+
+
+class ResponsePane(TabPanel):
+    """响应栏：Raw / Headers(N) / Body。
+
+    详情面板的右栏，也被 compose 页整个复用 —— 那边没有 flow 可问，
+    controller 为 None，Raw 走详情字典手工拼装的兜底。
+
+    关闭按钮默认藏：compose 那路不需要 ×；详情面板里由 `FlowDataPanel` 按
+    分栏方向决定它显不显示。
+    """
+
+    PREFIX = "Response"
 
     def __init__(self, parent=None, controller=None):
         super().__init__(parent)
+        self.controller = controller
         self.datas: dict | None = None
-        self.controller = controller  # 保存 controller 引用
-
-        self._init_widget()
-        self._init_layout()
         self.setTabFontSize(12)
-        # 徽标插在弹簧之后、关闭按钮之前，所以永远贴着右侧动作区。
-        self.tab_layout.insertWidget(2, self.body_view_badge)
 
-    # —— 子类给出的三处差异 ——
-
-    def _raw_from_controller(self, controller, flow_id: str) -> bytes | str | None:
-        """从 controller 取线上原始报文；子类各自指向请求或响应那一路。
-
-        controller 由 `_fill_raw` 校完非空再传进来，钩子里不必再判一次。
-        """
-        raise NotImplementedError
-
-    def _raw_start_line(self) -> str:
-        """Raw 页手工拼装时的首行：请求行或状态行。"""
-        raise NotImplementedError
-
-    # —— 组件 ——
-
-    def _init_widget(self):
-        """初始化界面组件
-
-        注意：所有通过 addTab 加入 stacked 的子组件，不要传 parent=self，
-        否则 addTab 内部 QStackedWidget.addWidget() 会触发二次 reparenting，
-        导致内部工具栏/行号区几何偏移（左上角错位）。
-        """
         self.header_card = ItemDualPanel()
         self.header_card.set_read_only(True)
 
-        self.body_card = JsonDualPanel()
-        self.body_card.set_read_only(True)
-
-        self.trailers_widget = ItemDualPanel()
-        self.trailers_widget.set_read_only(True)
+        self.body_pane = BodyPane(allow_form=False)
 
         self.raw_edit = ToolPlainTextEdit()
         self.raw_edit.set_read_only(True)
 
-        self.cookie_widget = CookieWidget()
-        self.cookie_card = SimpleCardWidget()
-        self.cookie_card.setBorderRadius(0)
-        cookie_layout = QVBoxLayout(self.cookie_card)
-        cookie_layout.setContentsMargins(0, 0, 0, 0)
-        cookie_layout.addWidget(self.cookie_widget)
+        self.addTab("Raw", self.raw_edit, self.tr("Raw"))
+        self.addTab("Headers", self.header_card, self.tr("Headers"))
+        self.addTab("Body", self.body_pane, self.tr("Body"))
 
-        # contentview 的视图名（JSON / gRPC / Multipart Form …）。改造前是把它拼进
-        # Body 标签的文字里再 `adjustSize()`，标签宽度跟着每条流量跳；挪成右侧一枚
-        # 徽标之后标签栏宽度稳定，视图名也不再和标签文案抢位置。
+        # contentview 的视图名（JSON / gRPC / Multipart Form …）。改造前是把它
+        # 拼进 Body 标签的文字里再 `adjustSize()`，标签宽度跟着每条流量跳；挪成
+        # 右侧一枚徽标之后标签栏宽度稳定，视图名也不再和标签文案抢位置。
+        # 徽标插在弹簧之后、动作区之前，所以永远贴着右侧动作区。
         self.body_view_badge = InfoBadge(self)
         self.body_view_badge.setLevel(InfoLevel.INFOAMTION)
         self.body_view_badge.hide()
+        self.tab_layout.insertWidget(2, self.body_view_badge)
 
-    def _init_layout(self):
-        """子类按自己的顺序 addTab。"""
-        raise NotImplementedError
+        self.close_button.hide()
 
-    # —— 数据 ——
-
-    def set_data(self, data: dict):
-        """填充数据
-
-        Args:
-            data: 数据字典（已由 mitmproxy 阶段预解析结构化字段）
-        """
+    def set_data(self, data: dict) -> None:
+        """填充数据（详情字典，mitm 阶段已预解析结构化字段）。"""
         self.datas = data
-        prefix = self.PREFIX
-
-        self.header_card.set_items(data.get(f"{prefix} Headers", {}))
-
-        cookies = data.get(f"{prefix} Cookies", {})
-        self.cookie_widget.set_cookies(cookies)
-
-        trailers = data.get(f"{prefix} Trailers", {})
-        self.trailers_widget.set_items(trailers)
-
-        self._set_body_view(data.get(f"{prefix} Body View", ""))
-        self._fill_body(data)
-        self._fill_raw(data.get(f"{prefix} Body", b""), data.get("Flow ID", ""))
-
-        self.setTabVisible("Cookies", bool(cookies))
-        self.setTabVisible("Trailers", bool(trailers))
-
-    def _fill_body(self, data: dict):
-        """填充报文体（消费 mitmproxy 阶段预解析字段，不再重复解码/格式化）
-
-        Args:
-            data: 完整数据字典，含 ``… Body Pretty`` / ``… Body Text``
-        """
-        text = data.get(f"{self.PREFIX} Body Pretty")
-        if text is None:
-            text = data.get(f"{self.PREFIX} Body Text") or ""
-        lang = _body_lang(data.get(f"{self.PREFIX} Body Syntax", "none"), text)
-        self.body_card.set_text(text, lang=lang)
-
-    def _fill_raw(self, body, flow_id: str = ""):
-        """线上原始报文；controller 给不出来就按详情字典手工拼一份
-
-        Args:
-            body: 报文体
-            flow_id: 流 ID
-        """
-        if self.controller and flow_id:
-            raw_data = None
-            try:
-                raw_data = self._raw_from_controller(self.controller, flow_id)
-            except (AttributeError, ValueError, TypeError, RuntimeError) as e:
-                log.warning("failed to read the raw HTTP payload: %s", e)
-            if raw_data:
-                if isinstance(raw_data, bytes):
-                    text = raw_data.decode("utf-8", errors="replace")
-                else:
-                    text = str(raw_data)
-                self.raw_edit.set_text(text)
-                return
-
-        if not self.datas:
-            return
-        raw_lines = [self._raw_start_line()]
-        headers = self.datas.get(f"{self.PREFIX} Headers", {})
-        raw_lines.extend(f"{key}: {value}" for key, value in headers.items())
-        # 空行分隔头部和 body
-        raw_lines.append("")
-        if body:
-            if isinstance(body, bytes):
-                # 产出侧已用 `Message.get_text` 按 charset 解码好，直接消费。
-                # 切勿在这里再解一次：body 是解压后的内容，重跑解压会产乱码。
-                raw_lines.append(self.datas.get(f"{self.PREFIX} Body Text") or "")
-            else:
-                raw_lines.append(str(body))
-        self.raw_edit.set_text("\n".join(raw_lines))
+        headers = data.get("Response Headers", {})
+        self.header_card.set_items(headers)
+        self.body_pane.set_data(data, self.PREFIX)
+        self._set_body_view(data.get("Response Body View", ""))
+        _fill_raw(
+            self.raw_edit,
+            data,
+            self.PREFIX,
+            _response_start_line(data),
+            self.controller,
+            "get_raw_response",
+        )
+        self.setTabText(
+            "Headers", self.tr("Headers ({count})").format(count=len(headers))
+        )
 
     def _set_body_view(self, view: str) -> None:
-        """Body 页右侧那枚视图名徽标；没有视图名就不显示。"""
+        """Body 标签行右侧那枚视图名徽标；没有视图名就不显示。"""
         self.body_view_badge.setText(str(view))
         self.body_view_badge.setVisible(bool(view))
         self.body_view_badge.adjustSize()
 
 
-class RequestPane(MessagePane):
-    """请求页：Headers / Query / Form / Cookies / Body / Trailers / Raw。
-
-    `Query` 是 URL 上的查询串，`Form` 是 body 里的 urlencoded 表单 —— 两者改造前
-    合在一个叫 `Params` 的标签里，看不出手上这份到底来自哪。
-    """
-
-    PREFIX = "Request"
-
-    def _init_widget(self):
-        super()._init_widget()
-        self.query_widget = ItemDualPanel()
-        self.query_widget.set_read_only(True)
-        self.form_widget = ItemDualPanel()
-        self.form_widget.set_read_only(True)
-
-    def _init_layout(self):
-        self.addTab("Headers", self.header_card, "Headers")
-        self.addTab("Query", self.query_widget, "Query")
-        self.addTab("Form", self.form_widget, "Form")
-        self.addTab("Cookies", self.cookie_card, "Cookies")
-        self.addTab("Body", self.body_card, "Body")
-        self.addTab("Trailers", self.trailers_widget, "Trailers")
-        self.addTab("Raw", self.raw_edit, "Raw")
-
-    def set_data(self, data: dict):
-        super().set_data(data)
-        query = data.get("Request Params", {})
-        self.query_widget.set_items(query)
-        self.setTabVisible("Query", bool(query))
-
-        form = data.get("Request Form", {})
-        self.form_widget.set_items(form)
-        self.setTabVisible("Form", bool(form))
-
-    def _raw_from_controller(self, controller, flow_id: str) -> bytes | str | None:
-        return controller.get_raw_request(flow_id)
-
-    def _raw_start_line(self) -> str:
-        data = self.datas or {}
-        method = data.get("Method", "GET")
-        path = data.get("Path", "/")
-        version = data.get("HTTP Version", "HTTP/1.1")
-        return f"{method} {path} {version}"
-
-
-class ResponsePane(MessagePane):
-    """响应页：Headers / Cookies / Body / Trailers / Raw。"""
-
-    PREFIX = "Response"
-
-    def _init_layout(self):
-        self.addTab("Headers", self.header_card, "Headers")
-        self.addTab("Cookies", self.cookie_card, "Cookies")
-        self.addTab("Body", self.body_card, "Body")
-        self.addTab("Trailers", self.trailers_widget, "Trailers")
-        self.addTab("Raw", self.raw_edit, "Raw")
-
-    def _raw_from_controller(self, controller, flow_id: str) -> bytes | str | None:
-        # `get_raw_response` 给的是「状态行 + 头 + 空行 + body」的完整报文，
-        # 直接按文本解码即可，不要走 body 解码器。
-        return controller.get_raw_response(flow_id)
-
-    def _raw_start_line(self) -> str:
-        data = self.datas or {}
-        version = data.get("Response HTTP Version", "HTTP/1.1")
-        status = data.get("Status Code", 200)
-        reason = data.get("Reason", "OK")
-        return f"{version} {status} {reason}"
-
-
-class RawStatePane(QWidget):
-    """原始状态页：`Flow.get_state()` 整棵树，JSON 化之后交给现成的 JSON 面板。
-
-    这一页是**完整性兜底**，所以不筛选、不打平：概览的卡片只显示
-    `fields.SECTIONS` 列出来的字段，而以后 mitmproxy 加了新字段、或者某个字段我们
-    没想到要显示，在这里都还找得到。
-
-    复用 `JsonDualPanel` 而不是新写一个树：它的「文本 / 树」双视图正好是这一页要的
-    两种读法，AGENTS.md 也记着编辑器不再新增。
-    """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.json_panel = JsonDualPanel()
-        self.json_panel.set_read_only(True)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self.json_panel)
-
-    def set_data(self, data: dict) -> None:
-        self.json_panel.set_text(state_json(data.get("raw_state")), lang=Language.JSON)
-
-    def text(self) -> str:
-        return self.json_panel.plain_text()
-
-
 class FlowDataPanel(QWidget):
-    """Flow 详情面板：头部一行上下文 + 一层导航 + 每页一屏。"""
+    """Flow 详情面板：左请求区 | 右响应区，方向跟随全局布局。"""
 
     collapseRequested = Signal()  # 请求折叠面板
-
-    # 页面顺序。route key 同时是 `set_page_visible` 的参数。
-    PAGES: tuple[str, ...] = (
-        "Overview",
-        "Request",
-        "Response",
-        "Messages",
-        "RawState",
-    )
 
     def __init__(
         self,
@@ -565,15 +480,19 @@ class FlowDataPanel(QWidget):
         self.controller = controller  # 保存 controller 引用
         self.capabilities = capabilities or CAPTURE_CAPABILITIES
         self.datas: dict = {}
+        self._split_normalized = False
+        # 哨兵位要先于动作就位，见 `__set_mark_checked`：它分开「代码在同步勾选
+        # 态」和「人点了按钮」。
+        self.__syncing_mark = False
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
 
     def minimumSizeHint(self) -> QSize:
-        """Keep the outer 50/50 split usable despite the header and nav rows.
+        """Keep the outer 50/50 split usable despite the two panes.
 
-        比改造前宽（220 → 280）、比改造前矮（220 → 200）：横向要放得下一行
-        ``[GET] url (200)`` 加导航，纵向反倒因为内层分割器消失省下一块。
+        数值沿用改造前（280x200）：返回一个偏小的 hint，外层分割器收起面板时
+        才能压到 0 —— 真实下限由内层布局自己兜着。
         """
         return QSize(280, 200)
 
@@ -587,68 +506,79 @@ class FlowDataPanel(QWidget):
         self.empty_close_button.setIcon(FluentIcon.CLOSE)
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # 有数据
-        self.overview = OverviewPane()
-        self.req_panel = RequestPane(controller=self.controller)
-        self.res_panel = ResponsePane(controller=self.controller)
-        self.messages = MessagesPane()
-        self.raw_state_panel = RawStatePane()
+        # —— 左栏（请求 + flow 级信息）——
+        self.req_tabs = TabPanel()
+        self.req_tabs.setTabFontSize(12)
 
-        self.nav = SegmentedWidget(self)
-        self.pages = QStackedWidget(self)
-        # route key → 页面。不用 `pages.findChild(QWidget, key)` 取：`findChild` 是递归的，
-        # 而请求/响应页内部的每个标签页也都带 objectName，重名只是暂时没发生。
-        self._pages: dict[str, QWidget] = {}
-        self.__add_page("Overview", self.overview, self.tr("Overview"))
-        self.__add_page("Request", self.req_panel, self.tr("Request"))
-        self.__add_page("Response", self.res_panel, self.tr("Response"))
-        self.__add_page("Messages", self.messages, self.tr("Messages"))
-        self.__add_page("RawState", self.raw_state_panel, self.tr("Raw state"))
-        self.nav.setItemFontSize(12)
-        # 帧数/事件数挂在导航项右侧。`InfoBadge.make` 给的 manager 会跟着目标的
-        # Resize / Move 重新定位，但**不管**徽标自己变宽（数字从 9 涨到 1024 时），
-        # 所以 `__update_message_badge` 里 `setText` 之后要自己再 `position()` 一次。
-        #
-        # 位置取 `RIGHT` 而不是 `TOP_RIGHT`：后者把 y 放在 `-h/2`，而导航行是零边距
-        # 布局，徽标上半截会被裁掉。
+        self.overview = OverviewPane()
+
+        self.req_raw = ToolPlainTextEdit()
+        self.req_raw.set_read_only(True)
+
+        self.req_headers = ItemDualPanel()
+        self.req_headers.set_read_only(True)
+
+        self.req_body = BodyPane(allow_form=True)
+
+        self.query_widget = ItemDualPanel()
+        self.query_widget.set_read_only(True)
+
+        self.cookie_widget = CookieWidget()
+        self.cookie_card = SimpleCardWidget()
+        self.cookie_card.setBorderRadius(0)
+        cookie_layout = QVBoxLayout(self.cookie_card)
+        cookie_layout.setContentsMargins(0, 0, 0, 0)
+        cookie_layout.addWidget(self.cookie_widget)
+
+        self.comment_pane = CommentPane()
+
+        self.req_tabs.addTab("Overview", self.overview, self.tr("Overview"))
+        self.req_tabs.addTab("Raw", self.req_raw, self.tr("Raw"))
+        self.req_tabs.addTab("Headers", self.req_headers, self.tr("Headers"))
+        self.req_tabs.addTab("Body", self.req_body, self.tr("Body"))
+        self.req_tabs.addTab("Query", self.query_widget, self.tr("Query"))
+        self.req_tabs.addTab("Cookies", self.cookie_card, self.tr("Cookies"))
+        self.req_tabs.addTab("Comment", self.comment_pane, self.tr("Comment"))
+
+        # 请求体视图名徽标 + 「…」动作菜单，插在弹簧之后、动作区之前，
+        # 与右栏的徽标/× 同一条边。
+        self.req_body_badge = InfoBadge(self.req_tabs)
+        self.req_body_badge.setLevel(InfoLevel.INFOAMTION)
+        self.req_body_badge.hide()
+        self.req_tabs.tab_layout.insertWidget(2, self.req_body_badge)
+        self.more_button = TransparentToolButton(FluentIcon.MORE, self.req_tabs)
+        self.more_button.setToolTip(self.tr("More actions"))
+        self.req_tabs.tab_layout.insertWidget(3, self.more_button)
+
+        # —— 右栏（响应区）：「消息」由本面板追加 ——
+        self.res_pane = ResponsePane(controller=self.controller)
+        self.messages = MessagesPane()
+        self.res_pane.addTab("Messages", self.messages, self.tr("Messages"))
+        self.res_pane.setTabVisible("Messages", False)
+        # 帧数/事件数挂在「消息」标签右侧。`InfoBadge.make` 给的 manager 会跟着
+        # 目标的 Resize / Move 重新定位，但**不管**徽标自己变宽（数字从 9 涨到
+        # 1024 时），所以 `__refresh_message_page` 里 `setText` 之后要自己再
+        # `position()` 一次。位置取 `RIGHT` 而不是 `TOP_RIGHT`：后者把 y 放在
+        # `-h/2`，而标签行是零边距布局，徽标上半截会被裁掉。
         self.message_badge = InfoBadge.make(
             "",
-            parent=self.nav,
+            parent=self.res_pane.pivot,
             level=InfoLevel.ATTENTION,
-            target=self.nav.items["Messages"],
+            target=self.res_pane.pivot.items["Messages"],
             position=InfoBadgePosition.RIGHT,
         )
         self.message_badge.hide()
-        # 导航信号还没接上（`__connect_signal_to_slot` 在后面），两边各自置一下。
-        self.nav.setCurrentItem("Overview")
-        self.pages.setCurrentWidget(self.overview)
 
-        self.command_bar = CommandBar(self)
-        self.command_bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        # 「…」菜单动作。备注弹窗保留（内联编辑页承担日常编辑，两处共用写回）；
+        # 重放/标记都得改**活** flow，会话页那批流量是从 `.flow` 文件回来的死对象
+        # （`MitmFacade._mutate` 内核没跑就抛），动作按能力门控。cURL/raw/HAR
+        # 那套导出是右键菜单 `FlowExportMenu` 的领地，这里不重复。
         self.copy_url_action = BaseAction(
             icon=FluentIcon.LINK, text=self.tr("Copy URL"), parent=self
         )
-        self.copy_curl_action = BaseAction(
-            icon=FluentIcon.COMMAND_PROMPT, text=self.tr("Copy cURL"), parent=self
-        )
-        self.command_bar.addActions([self.copy_url_action, self.copy_curl_action])
-        # 重放按能力门控，和右键菜单同一个判据 —— 会话页是只读的，
-        # `SessionViewController` 根本没有 `replay_flow`。
         self.replay_action = BaseAction(
             icon=FluentIcon.SYNC, text=self.tr("Replay"), parent=self
         )
-        if self.capabilities.can_replay:
-            self.command_bar.addAction(self.replay_action)
-        # 标记与备注同样按能力门控：两者都要改**活** flow，而会话页那批流量是从
-        # `.flow` 文件回来的死对象（`MitmFacade._mutate` 内核没跑就抛）。
-        #
-        # `setCheckable(True)` 就够了 —— `CommandButton` 本身是
-        # `TransparentToggleToolButton` 的子类，会把 action 的
-        # `isCheckable()` / `isChecked()` 照搬过去，不用自己往 bar 里塞裸控件。
-        #
-        # 哨兵位要先于 action 就位，见 `__set_mark_checked`：它分开「代码在同步勾选
-        # 态」和「人点了按钮」。
-        self.__syncing_mark = False
         self.mark_action = BaseAction(
             icon=BaseIcon.BOOKMARK_ADD, text=self.tr("Mark"), parent=self
         )
@@ -656,92 +586,37 @@ class FlowDataPanel(QWidget):
         self.comment_action = BaseAction(
             icon=FluentIcon.EDIT, text=self.tr("Comment"), parent=self
         )
-        if self.capabilities.can_mark:
-            self.command_bar.addAction(self.mark_action)
-        if self.capabilities.can_comment:
-            self.command_bar.addAction(self.comment_action)
-        # 导出**刻意不放**在这里：`FlowExportMenu` 是绑在 `FlowContextMenu` 的选中
-        # 上下文上的（多选导出、HAR 落盘都读它的 `flows`），右键菜单里那一份已经够，
-        # 搬到这里等于把选区语义复制一遍。
 
         self.detail_page = QWidget()
+        # inverted=True：全局布局说的是「表格 vs 详情」的排布，内层分栏与它
+        # 相反才放得下 —— 全局横向（表格|详情左右排，详情窄而高）时内层上下排；
+        # 全局纵向（表格在上、详情在下，详情宽而矮）时内层左右排。
+        self.splitter = OrientationSplitter(inverted=True, parent=self.detail_page)
+        self.splitter.addWidget(self.req_tabs)
+        self.splitter.addWidget(self.res_pane)
+        # 两栏初始 50/50：QSplitter 默认按子控件的 sizeHint / 最小提示分初始位，
+        # 左栏七条标签的 Pivot 提示宽度比半栏还宽，直接把等分顶歪。Ignored 策略
+        # 让分割条完全按 `setSizes` 分配 —— 首次可见与右栏重现时都从对半开始，
+        # 用户拖出的比例此后自然保留。
+        for pane in (self.req_tabs, self.res_pane):
+            pane.setMinimumSize(0, 0)
+            pane.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
 
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.empty_page)  # index 0
         self.stack.addWidget(self.detail_page)  # index 1
-
-        self.context_bar = QWidget(self)
-        self.context_bar.setFixedHeight(40)
-        self.context_method = BodyLabel(self.context_bar)
-        method_font = self.context_method.font()
-        method_font.setBold(True)
-        self.context_method.setFont(method_font)
-        self.context_url = BodyLabel(self.context_bar)
-        self.context_url.setMinimumWidth(0)
-        self.context_url.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
-        self.context_url.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        # `InfoBadge` 是 `QLabel` 的子类，`setText`/`text()` 照常可用 —— 换掉的只是
-        # 「谁决定这块的颜色」：从一句内联样式表换成 Fluent 的 level 语义。
-        # 刻意用默认 level 构造再 `setLevel`：`InfoBadge.__init__` 先把 `self.level`
-        # 置成 `INFOAMTION` 再调 `setLevel`，而 `setLevel` 相等就直接返回 ——
-        # 构造时传 `INFOAMTION` 会让样式属性一次都没设上。
-        self.context_status = InfoBadge(self.context_bar)
-        self.context_status.setMinimumWidth(38)
-        self.context_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.context_status.hide()
-        self.context_duration = CaptionLabel(self.context_bar)
-        self.context_duration.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        self.context_size = CaptionLabel(self.context_bar)
-        self.context_size.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        self.context_close_button = TransparentToolButton(
-            FluentIcon.CLOSE, self.context_bar
-        )
-        self.context_close_button.setFixedSize(32, 32)
-        self.context_close_button.setIconSize(QSize(16, 16))
-        self.context_close_button.setToolTip(self.tr("Close details"))
-        self.context_close_button.setAccessibleName(self.tr("Close details"))
-
-        self.__update_close_buttons()
 
     def __init_layout(self):
         """初始化布局结构"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self.context_bar)
         layout.addWidget(self.stack)
 
-        context_layout = QHBoxLayout(self.context_bar)
-        context_layout.setContentsMargins(10, 4, 8, 4)
-        context_layout.setSpacing(8)
-        context_layout.addWidget(self.context_method)
-        context_layout.addWidget(self.context_url, 1)
-        context_layout.addWidget(self.context_status)
-        context_layout.addWidget(self.context_duration)
-        context_layout.addWidget(self.context_size)
-        context_layout.addWidget(self.context_close_button)
-
-        # 导航和动作共用一行：详情面板常常只有两百来像素高，再给命令栏单开一行等于
-        # 拿掉半屏内容。窄到放不下时 `CommandBar` 自己会把按钮收进「更多」。
         detail_layout = QVBoxLayout(self.detail_page)
-        detail_layout.setContentsMargins(8, 4, 8, 0)
-        detail_layout.setSpacing(4)
-        nav_layout = QHBoxLayout()
-        nav_layout.setContentsMargins(0, 0, 0, 0)
-        nav_layout.setSpacing(8)
-        nav_layout.addWidget(self.nav, 0)
-        nav_layout.addStretch(1)
-        nav_layout.addWidget(self.command_bar, 0)
-        detail_layout.addLayout(nav_layout)
-        detail_layout.addWidget(self.pages, 1)
+        detail_layout.setContentsMargins(8, 4, 8, 8)
+        detail_layout.setSpacing(0)
+        detail_layout.addWidget(self.splitter)
 
         # 空页面布局：顶部右侧 X + 中间文字
         empty_layout = QVBoxLayout(self.empty_page)
@@ -759,16 +634,18 @@ class FlowDataPanel(QWidget):
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
-        self.req_panel.close_button.clicked.connect(self.__collapse_panel)
-        self.res_panel.close_button.clicked.connect(self.__collapse_panel)
         self.empty_close_button.clicked.connect(self.__collapse_panel)
-        self.context_close_button.clicked.connect(self.__collapse_panel)
-        self.nav.currentItemChanged.connect(self.__on_nav_changed)
+        self.req_tabs.close_button.clicked.connect(self.__collapse_panel)
+        self.res_pane.close_button.clicked.connect(self.__collapse_panel)
+        self.more_button.clicked.connect(self.__on_more)
         self.copy_url_action.triggered.connect(self.__on_copy_url)
-        self.copy_curl_action.triggered.connect(self.__on_copy_curl)
         self.replay_action.triggered.connect(self.__on_replay)
         self.mark_action.toggled.connect(self.__on_mark_toggled)
         self.comment_action.triggered.connect(self.__on_comment)
+        self.comment_pane.commentSaved.connect(self.__on_comment_saved)
+        # 分栏方向由 `OrientationSplitter` 自己跟配置走；它先连的槽先跑，
+        # 这里读到的是换完之后的方向。
+        CONFIG.layout.valueChanged.connect(self._on_layout_changed)
         self.__connect_controller(self.controller)
 
     def __connect_controller(self, controller, connect: bool = True) -> None:
@@ -799,73 +676,80 @@ class FlowDataPanel(QWidget):
                 except (RuntimeError, TypeError):
                     pass
 
-    # —— 页面 ——
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # 内层分栏的初始 50/50 不能指望构造期：QSplitter 初始分位只认两侧
+        # sizeHint 的比例，而左栏七条标签的 Pivot 宽得离谱。首次可见的下一拍
+        # 按真实宽度平分一次（与 compose 页、flow 页 `_apply_equal_sizes`
+        # 同一模式），之后用户拖过就不再打扰。
+        if not self._split_normalized:
+            self._split_normalized = True
+            QTimer.singleShot(0, self.splitter.set_equal_sizes)
 
-    def __add_page(self, route_key: str, widget: QWidget, text: str) -> None:
-        widget.setObjectName(route_key)
-        self._pages[route_key] = widget
-        self.pages.addWidget(widget)
-        self.nav.addItem(routeKey=route_key, text=text)
-
-    @Slot(str)
-    def __on_nav_changed(self, route_key: str) -> None:
-        """导航项→堆叠页。
-
-        不用 `addItem(onClick=...)`：那个只接到按钮的 `clicked`，只有真被点才走，
-        `setCurrentItem()` 这种代码里的切页（初始选中、当前页被隐藏后回退）
-        就什么也不会发生。`currentItemChanged` 两种路径都走。
-        """
-        page = self._pages.get(route_key)
-        if page is not None:
-            self.pages.setCurrentWidget(page)
-
-    def set_page_visible(self, route_key: str, visible: bool) -> None:
-        """隐藏/显示一整页（消息页这类「没有就不该出现」的）。
-
-        不走 `Pivot.removeWidget`：那个会把导航项 `deleteLater` 掉，下一条流量又有
-        内容时得重新建一遍还得记住原来插在第几位。隐藏就够了 —— `QHBoxLayout`
-        不给隐藏控件留位置。
-        """
-        item = self.nav.items.get(route_key)
-        if item is None:
-            return
-        item.setVisible(visible)
-        if not visible and self.nav.currentRouteKey() == route_key:
-            self.nav.setCurrentItem(self.__first_visible_page())
-
-    def __first_visible_page(self) -> str:
-        """第一个没被隐藏的页 —— 当前页被藏起来时落到这里。
-
-        用 `isHidden()` 而不是 `isVisible()`：后者连祖先一起算，面板还没显示出来时
-        每一项都是不可见的。
-        """
-        for route_key in self.PAGES:
-            item = self.nav.items.get(route_key)
-            if item is not None and not item.isHidden():
-                return route_key
-        return self.PAGES[0]
-
-    # —— 槽 ——
+    # —— 分栏 ——
 
     @Slot()
-    def __update_close_buttons(self):
-        """The outer context bar owns the single detail close affordance."""
-        self.empty_close_button.hide()
-        self.req_panel.close_button.hide()
-        self.res_panel.close_button.hide()
+    def _on_layout_changed(self) -> None:
+        self.__sync_close_host()
+
+    def __sync_close_host(self) -> None:
+        """× 跟着分栏方向换宿主：横向挂右栏，纵向挂上栏（请求区）。
+
+        右栏收起（没有响应的流量）时只剩一栏，× 落回请求区，保证随时可点。
+        """
+        horizontal = self.splitter.orientation() == Qt.Orientation.Horizontal
+        on_response = horizontal and not self.res_pane.isHidden()
+        self.res_pane.close_button.setVisible(on_response)
+        self.req_tabs.close_button.setVisible(not on_response)
+
+    def __sync_response_pane(self, data: dict) -> None:
+        """没有响应可看的流量右栏整体收起 —— 不是藏一条标签，是整个半栏。
+
+        用 `setVisible` 而不是 `BaseSplitter.collapse(1)`：collapse 之后分割条
+        还能拖着展开，露出来的却是半栏空白；隐藏连分割条一起收掉。重新一起
+        出现时按 50/50 平分起步，用户之后拖出的比例自然保留。
+        """
+        visible = data.get("res_headers_size") is not None
+        if visible == (not self.res_pane.isHidden()):
+            return
+        if visible:
+            self.res_pane.setVisible(True)
+            self.splitter.set_equal_sizes()
+        else:
+            self.res_pane.setVisible(False)
+        self.__sync_close_host()
+
+    # —— 槽 ——
 
     @Slot()
     def __collapse_panel(self):
         """折叠面板"""
         self.collapseRequested.emit()
 
+    def _more_actions(self) -> list[BaseAction]:
+        """「…」菜单里该出现的动作，按能力门控。独立成方法供测试钉住门控。"""
+        actions = [self.copy_url_action]
+        if self.capabilities.can_replay:
+            actions.append(self.replay_action)
+        if self.capabilities.can_mark:
+            actions.append(self.mark_action)
+        if self.capabilities.can_comment:
+            actions.append(self.comment_action)
+        return actions
+
+    @Slot()
+    def __on_more(self) -> None:
+        """「…」动作菜单：复制 / 重放 / 标记 / 备注弹窗。"""
+        menu = RoundMenu(parent=self)
+        for action in self._more_actions():
+            menu.addAction(action)
+        menu.exec(
+            self.more_button.mapToGlobal(QPoint(0, self.more_button.height()))
+        )
+
     @Slot()
     def __on_copy_url(self) -> None:
         self.__copy(self.datas.get("URL", ""), "URL")
-
-    @Slot()
-    def __on_copy_curl(self) -> None:
-        self.__copy(self.datas.get("curl_command", ""), "cURL")
 
     def __copy(self, text: str, label: str) -> None:
         """复制到剪贴板；没内容就说清是「还没有」而不是静默无反应。"""
@@ -916,18 +800,31 @@ class FlowDataPanel(QWidget):
 
     @Slot()
     def __on_comment(self) -> None:
-        """编辑备注。
+        """弹窗编辑备注（「…」菜单入口；内联编辑页是日常入口）。
 
-        复用右键菜单那只 `CommentDialog` 而不是另开一个气泡：同一件事在两处长成两个
-        样子（模态框 / 浮出层、两份占位文案、两种保存反馈）本身就是毛病，何况对话框
-        那一份已经在用了。"""
+        复用右键菜单那只 `CommentDialog` 而不是另开一个气泡：同一件事在两处长成
+        两个样子本身就是毛病，何况对话框那一份已经在用了。"""
         flow_id = self.datas.get("id", "")
         if not self.controller or not flow_id:
             return
         dialog = CommentDialog(str(self.datas.get("comment") or ""), self.window())
         if not dialog.exec():
             return
-        comment = dialog.comment()
+        self.__write_comment(dialog.comment())
+
+    @Slot(str)
+    def __on_comment_saved(self, comment: str) -> None:
+        """内联编辑页的保存。没有可写的 flow 时把编辑页拉回已存基线。"""
+        flow_id = self.datas.get("id", "")
+        if not self.controller or not flow_id:
+            self.comment_pane.mark_saved(str(self.datas.get("comment") or ""))
+            return
+        self.__write_comment(comment)
+
+    def __write_comment(self, comment: str) -> None:
+        flow_id = self.datas.get("id", "")
+        if not self.controller or not flow_id:
+            return
         try:
             self.controller.set_flow_comment(flow_id, comment)
         except (AttributeError, ValueError, RuntimeError) as exc:
@@ -935,6 +832,7 @@ class FlowDataPanel(QWidget):
             return
         show_success(self.tr("Success"), self.tr("Comment saved"), self.window())
         self.__store("comment", comment)
+        self.comment_pane.mark_saved(comment)
 
     def __store(self, key: str, value: str) -> None:
         """写回成功后就地更新缓存的详情并只重画概览卡片。
@@ -948,12 +846,12 @@ class FlowDataPanel(QWidget):
     def __set_mark_checked(self, checked: bool) -> None:
         """摆按钮的勾选态，且不触发写回。
 
-        `toggled` 对 `setChecked` 和真人点击一样会发 —— 不拦一道，光是切换选中的流量
-        就会把「上一条的标记」写到刚选中的那条上去。
+        `toggled` 对 `setChecked` 和真人点击一样会发 —— 不拦一道，光是切换选中的
+        流量就会把「上一条的标记」写到刚选中的那条上去。
 
-        用一个哨兵位而不是 `blockSignals`：`CommandButton.setAction` 是靠
-        `action.toggled` / `action.changed` 把勾选态搬到按钮上的，掐掉 action 的信号
-        等于让按钮画的还是上一条流量的样子。"""
+        用一个哨兵位而不是 `blockSignals`：菜单动作的勾选态还要被 Fluento 的
+        action→控件同步链路照搬，掐掉 action 的信号等于让控件一直画着上一条
+        流量的样子。"""
         self.__syncing_mark = True
         try:
             self.mark_action.setChecked(checked)
@@ -971,7 +869,7 @@ class FlowDataPanel(QWidget):
 
     @Slot(str)
     def __on_ws_started(self, flow_id: str) -> None:
-        """握手成功。选中时还是普通 HTTP 流量（消息页藏着）的那一条，从这里开始有帧。"""
+        """握手成功。选中时还是普通 HTTP 流量（消息栏藏着）的那一条，从这里开始有帧。"""
         if not self.__is_current(flow_id):
             return
         self.messages.show_websocket(self.__frames(flow_id), self.__close(flow_id))
@@ -1012,9 +910,22 @@ class FlowDataPanel(QWidget):
             log.warning("读取 websocket 关闭信息失败 flow_id=%s: %s", flow_id, exc)
             return WsClose()
 
+    def __set_messages(self, data: dict) -> None:
+        """填消息栏。
+
+        帧要现取：详情字典是在 mitm 线程上一次性构建的（`core/mitm/detail.py`），
+        塞进去上千帧等于让每一条流量都背着一份帧列表过界，而九成流量压根不是 WS。
+        SSE 那一路相反 —— 事件全在已缓冲的响应体里，`MessagesPane` 自己解析就够。"""
+        flow_id = str(data.get("id") or "")
+        if is_websocket(data):
+            self.messages.set_data(data, self.__frames(flow_id), self.__close(flow_id))
+        else:
+            self.messages.set_data(data)
+        self.__refresh_message_page()
+
     def __refresh_message_page(self) -> None:
-        """消息页的可见性与计数徽标 —— 换流量、新帧到达都要过这里。"""
-        self.set_page_visible("Messages", self.messages.applicable)
+        """消息栏的可见性与计数徽标 —— 换流量、新帧到达都要过这里。"""
+        self.res_pane.setTabVisible("Messages", self.messages.applicable)
         count = self.messages.count
         if not self.messages.applicable or not count:
             self.message_badge.hide()
@@ -1028,13 +939,12 @@ class FlowDataPanel(QWidget):
     # —— 数据 ——
 
     def set_controller(self, controller) -> None:
-        """更新 Flow 查看控制器并同步到请求、响应面板。"""
+        """更新 Flow 查看控制器并同步到响应栏。"""
         if controller is self.controller:
             return
         self.__connect_controller(self.controller, connect=False)
         self.controller = controller
-        self.req_panel.controller = controller
-        self.res_panel.controller = controller
+        self.res_pane.controller = controller
         self.__connect_controller(controller)
 
     def set_data(self, data: dict):
@@ -1045,50 +955,56 @@ class FlowDataPanel(QWidget):
         """
         self.datas = data
         self.overview.set_data(data)
-        self.req_panel.set_data(data)
-        self.res_panel.set_data(data)
-        self.raw_state_panel.set_data(data)
-        self.__set_messages(data)
-        self._update_context_bar(data)
-        # 只抓到请求的流量没有响应可看 —— 那一页整条藏掉，别让人点进空白。
-        self.set_page_visible(
-            "Response", bool(data.get("res_headers_size") is not None)
+
+        # 左栏：请求 + flow 级信息
+        headers = data.get("Request Headers", {})
+        self.req_headers.set_items(headers)
+        self.req_body.set_data(data, "Request")
+        self.req_body_badge.setText(str(data.get("Request Body View", "")))
+        self.req_body_badge.setVisible(bool(data.get("Request Body View", "")))
+        self.req_body_badge.adjustSize()
+        _fill_raw(
+            self.req_raw,
+            data,
+            "Request",
+            _request_start_line(data),
+            self.controller,
+            "get_raw_request",
         )
-        self.copy_url_action.setEnabled(bool(data.get("URL")))
-        self.copy_curl_action.setEnabled(bool(data.get("curl_command")))
-        # 重放 / 标记 / 备注都得有个活控制器加一条认得的 flow 才谈得上。
+        query = data.get("Request Params", {})
+        self.query_widget.set_items(query)
+        cookies = data.get("Request Cookies", {})
+        self.cookie_widget.set_cookies(cookies)
+        self.req_tabs.setTabText(
+            "Headers", self.tr("Headers ({count})").format(count=len(headers))
+        )
+        self.req_tabs.setTabText(
+            "Query", self.tr("Query ({count})").format(count=len(query))
+        )
+        self.req_tabs.setTabText(
+            "Cookies", self.tr("Cookies ({count})").format(count=len(cookies))
+        )
+        self.req_tabs.setTabVisible("Query", bool(query))
+        self.req_tabs.setTabVisible("Cookies", bool(cookies))
+
+        # 右栏：响应 + 消息
+        self.res_pane.set_data(data)
+        self.__set_messages(data)
+
+        # 备注
+        self.comment_pane.set_data(data)
         editable = bool(self.controller and data.get("id"))
+        self.comment_pane.set_read_only(
+            not (self.capabilities.can_comment and editable)
+        )
+
+        # 「…」动作的可用性跟着这条流量走。
+        self.copy_url_action.setEnabled(bool(data.get("URL")))
         self.replay_action.setEnabled(editable)
         self.mark_action.setEnabled(editable)
         self.comment_action.setEnabled(editable)
         self.__set_mark_checked(bool(data.get("marked")))
+
+        self.__sync_response_pane(data)
+        self.__sync_close_host()
         self.stack.setCurrentIndex(1)
-
-    def __set_messages(self, data: dict) -> None:
-        """填消息页。
-
-        帧要现取：详情字典是在 mitm 线程上一次性构建的（`core/mitm/detail.py`），
-        塞进去上千帧等于让每一条流量都背着一份帧列表过界，而九成流量压根不是 WS。
-        SSE 那一路相反 —— 事件全在已缓冲的响应体里，`MessagesPane` 自己解析就够。"""
-        flow_id = str(data.get("id") or "")
-        if is_websocket(data):
-            self.messages.set_data(data, self.__frames(flow_id), self.__close(flow_id))
-        else:
-            self.messages.set_data(data)
-        self.__refresh_message_page()
-
-    def _update_context_bar(self, data: dict) -> None:
-        method = str(data.get("Method", "—"))
-        url = str(data.get("URL", "—"))
-        status = str(data.get("Status Code", self.tr("Pending")))
-        duration = str(data.get("Duration", ""))
-        total = int(data.get("total_size") or 0)
-        self.context_method.setText(method)
-        self.context_url.setText(url)
-        self.context_url.setToolTip(url)
-        self.context_status.setText(status)
-        self.context_status.setLevel(status_level(status))
-        self.context_status.adjustSize()
-        self.context_status.show()
-        self.context_duration.setText(duration)
-        self.context_size.setText(human.pretty_size(total) if total else "")

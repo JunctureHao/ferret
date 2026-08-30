@@ -1,12 +1,13 @@
-"""详情面板：一层导航、五页、原始状态的 JSON 化。
+"""详情面板：左右分栏（请求区 | 响应区）的结构与数据流。
 
-分两层：
+分四层：
 
-* `_encode_state` / `state_json` 是纯函数 —— 「原始状态」页的完整性兜底全靠它，
-  `bytes`、`tuple`、mitmproxy 自己的对象撞上 `json.dumps` 都不能让整页塌掉；
-* `FlowDataPanel` 只验结构：导航几页、哪页在什么时候藏起来、头部那一行读了什么。
+* `FlowDataPanel` 验结构：左右两栏各几条标签、哪条在什么时候藏起来、响应栏
+  什么时候整个收起、× 挂在哪一栏；
+* 左栏/右栏的内容：Raw 的兜底拼装、body 三态、头数徽标；
+* `CommentPane`：脏了才亮保存、程序化灌文本不算编辑；
+* 标记与备注写回：「没点的时候绝对不写」比「点了有没有写回」更要紧。
 
-字段内容归 `test_fields.py`，产出侧归 `tests/core/mitm/test_detail.py`。
 翻译器**故意不装**，理由同 `test_fields.py`。
 """
 
@@ -15,22 +16,20 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import json
 from unittest.mock import patch
 
 from mitmproxy.test import tflow
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
-from qfluentwidgets import CommandButton, InfoLevel
+from qfluentwidgets import InfoLevel
 
 from ferret.apps.common import dialog
 from ferret.apps.common.edit import Language
 from ferret.apps.common.flow import detail
 from ferret.apps.common.flow.detail import (
-    _STATE_BYTES_PREVIEW,
     FlowDataPanel,
+    ResponsePane,
     _body_lang,
-    _encode_state,
-    state_json,
     status_level,
 )
 from ferret.apps.common.flow.protocols import (
@@ -38,90 +37,6 @@ from ferret.apps.common.flow.protocols import (
     READONLY_CAPABILITIES,
 )
 from ferret.core.mitm import MARKER_DEFAULT, build_flow_detail
-
-
-class EncodeStateTests(unittest.TestCase):
-    """`Flow.get_state()` → 可序列化的等价结构。保留嵌套，绝不打平。"""
-
-    def test_native_scalars_pass_straight_through(self) -> None:
-        for value in (None, True, False, 0, 21, 1.5, "http"):
-            with self.subTest(value=value):
-                self.assertEqual(_encode_state(value), value)
-
-    def test_bytes_become_a_tagged_preview_not_a_transcoded_blob(self) -> None:
-        """一个 body 可能几 MB，这一页要回答的是「这个字段大概装了什么」。"""
-        encoded = _encode_state(b"GET / HTTP/1.1\r\n")
-
-        self.assertEqual(encoded["__type__"], "bytes")
-        self.assertEqual(encoded["size"], 16)
-        self.assertEqual(encoded["hex"], b"GET / HTTP/1.1\r\n".hex(" "))
-        # 非可打印字节一律 "."，和 hexdump 的 ASCII 列一个规矩。
-        self.assertEqual(encoded["text"], "GET / HTTP/1.1..")
-
-    def test_a_long_bytes_value_reports_its_full_size_but_a_clipped_preview(
-        self,
-    ) -> None:
-        encoded = _encode_state(b"x" * 4096)
-
-        self.assertEqual(encoded["size"], 4096)
-        self.assertEqual(len(encoded["text"]), _STATE_BYTES_PREVIEW)
-        self.assertEqual(encoded["hex"].count(" "), _STATE_BYTES_PREVIEW - 1)
-
-    def test_a_bytearray_is_treated_like_bytes(self) -> None:
-        self.assertEqual(_encode_state(bytearray(b"ab"))["__type__"], "bytes")
-
-    def test_tuples_and_sets_become_arrays(self) -> None:
-        """地址对是 `tuple`，`json.dumps` 会把它变成数组 —— 这里提前对齐。"""
-        self.assertEqual(_encode_state(("127.0.0.1", 8080)), ["127.0.0.1", 8080])
-        self.assertEqual(_encode_state(frozenset({1})), [1])
-
-    def test_dict_keys_are_stringified_because_json_has_no_other_kind(self) -> None:
-        self.assertEqual(_encode_state({b"k": 1, 2: "v"}), {"k": 1, "2": "v"})
-
-    def test_nesting_is_preserved_all_the_way_down(self) -> None:
-        raw = {"conn": {"alpn": b"h2", "peer": ("1.2.3.4", 443), "tls": None}}
-        encoded = _encode_state(raw)
-
-        self.assertEqual(encoded["conn"]["alpn"]["__type__"], "bytes")
-        self.assertEqual(encoded["conn"]["peer"], ["1.2.3.4", 443])
-        self.assertIsNone(encoded["conn"]["tls"])
-
-    def test_an_unknown_object_degrades_instead_of_sinking_the_whole_tree(self) -> None:
-        """一个字段拖垮整页就白搭了 —— 这一页的意义正是「面板漏了什么这里都还在」。"""
-
-        class Odd:
-            def __repr__(self) -> str:
-                return "<odd>"
-
-        encoded = _encode_state({"a": 1, "weird": Odd()})
-
-        self.assertEqual(encoded["a"], 1)
-        self.assertEqual(encoded["weird"], {"__type__": "Odd", "repr": "<odd>"})
-
-
-class StateJsonTests(unittest.TestCase):
-    def test_an_empty_state_renders_nothing_rather_than_the_word_null(self) -> None:
-        self.assertEqual(state_json(None), "")
-        self.assertEqual(state_json({}), "")
-
-    def test_a_real_flow_state_round_trips_through_json(self) -> None:
-        flow = tflow.tflow(resp=True)
-        text = state_json(flow.get_state())
-        parsed = json.loads(text)
-
-        self.assertEqual(parsed["type"], "http")
-        for key in ("client_conn", "server_conn", "request", "response"):
-            self.assertIn(key, parsed)
-
-    def test_declaration_order_is_kept_instead_of_sorted_alphabetically(self) -> None:
-        """`get_state()` 的顺序是 mitmproxy 自己的字段声明顺序，比字母序好读。"""
-        text = state_json({"version": 21, "type": "http", "id": "x"})
-        self.assertLess(text.index('"version"'), text.index('"type"'))
-        self.assertLess(text.index('"type"'), text.index('"id"'))
-
-    def test_chinese_stays_readable(self) -> None:
-        """备注就在原始状态里，`ensure_ascii` 一开就成了一串 \\u。"""
-        self.assertIn("看一下这条", state_json({"comment": "看一下这条"}))
 
 
 class BodyLangTests(unittest.TestCase):
@@ -169,7 +84,7 @@ class StatusLevelTests(unittest.TestCase):
 
 
 class FlowDataPanelTests(unittest.TestCase):
-    """结构这一侧：导航几页、什么时候藏、头部读了什么。"""
+    """结构这一侧：两栏各几条标签、什么时候藏、× 挂在哪一栏。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -183,19 +98,22 @@ class FlowDataPanelTests(unittest.TestCase):
         self.host.deleteLater()
         self.app.processEvents()
 
-    def test_one_nav_item_per_page(self) -> None:
-        """两排十个标签压成一排五个 —— 概览也不再挂在「请求」那半边。"""
+    def test_two_columns_of_flat_tabs(self) -> None:
+        """左右两栏各一排扁平标签，导航只有一层。"""
         self.assertEqual(
-            list(self.panel.nav.items),
-            ["Overview", "Request", "Response", "Messages", "RawState"],
+            list(self.panel.req_tabs.pivot.items),
+            ["Overview", "Raw", "Headers", "Body", "Query", "Cookies", "Comment"],
         )
-        self.assertEqual(self.panel.pages.count(), 5)
-        self.assertEqual(self.panel.nav.currentRouteKey(), "Overview")
+        self.assertEqual(
+            list(self.panel.res_pane.pivot.items),
+            ["Raw", "Headers", "Body", "Messages"],
+        )
+        self.assertEqual(self.panel.req_tabs.pivot.currentRouteKey(), "Overview")
 
-    def test_a_plain_http_flow_hides_the_messages_page(self) -> None:
-        """九成流量既不是 WS 也不是 SSE，那一页整条不该出现。"""
+    def test_a_plain_http_flow_hides_the_messages_tab(self) -> None:
+        """九成流量既不是 WS 也不是 SSE，那一条标签不该出现。"""
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
-        self.assertTrue(self.panel.nav.items["Messages"].isHidden())
+        self.assertTrue(self.panel.res_pane.isTabVisible("Messages") is False)
         self.assertTrue(self.panel.message_badge.isHidden())
 
     def test_the_empty_page_shows_until_there_is_data(self) -> None:
@@ -203,80 +121,98 @@ class FlowDataPanelTests(unittest.TestCase):
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
         self.assertEqual(self.panel.stack.currentIndex(), 1)
 
-    def test_the_header_reads_the_four_things_worth_a_glance(self) -> None:
-        flow = tflow.tflow(resp=True)
-        self.panel.set_data(build_flow_detail(flow))
-
-        self.assertEqual(self.panel.context_method.text(), "GET")
-        self.assertEqual(self.panel.context_url.text(), flow.request.pretty_url)
-        self.assertEqual(self.panel.context_status.text(), "200")
-        self.assertEqual(self.panel.context_status.level, InfoLevel.SUCCESS)
-        self.assertTrue(self.panel.context_size.text())
-
-    def test_a_four_key_dict_does_not_blow_up_the_header(self) -> None:
-        """表格双击传过来的可能只有几个键，缺键一律当「没有」。"""
-        self.panel.set_data({"Method": "POST", "URL": "https://x/y"})
-
-        self.assertEqual(self.panel.context_method.text(), "POST")
-        self.assertEqual(self.panel.context_status.text(), "Pending")
-        self.assertEqual(self.panel.context_size.text(), "")
-
-    def test_a_request_only_flow_hides_the_response_page(self) -> None:
-        """没有响应可看就整页藏掉，别让人点进空白。"""
+    def test_a_request_only_flow_collapses_the_response_pane(self) -> None:
+        """没有响应可看就整个半栏收起，别让人拖出一栏空白。"""
+        self.panel.resize(800, 600)
+        self.panel.show()
+        self.app.processEvents()  # 首次 show 的下一拍才会平分内层分栏
         self.panel.set_data(build_flow_detail(tflow.tflow()))
-        self.assertTrue(self.panel.nav.items["Response"].isHidden())
+        self.assertTrue(self.panel.res_pane.isHidden())
 
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
-        self.assertFalse(self.panel.nav.items["Response"].isHidden())
+        self.assertFalse(self.panel.res_pane.isHidden())
+        # 右栏重新出现时按 50/50 平分起步（用户之后拖出的比例自然保留）。
+        # QSplitter 会把每栏钳到最小尺寸提示上，等分允许几像素的漂移。
+        first, second = self.panel.splitter.sizes()
+        self.assertGreater(second, 0)
+        self.assertAlmostEqual(second / (first + second), 0.5, delta=0.02)
 
-    def test_hiding_the_current_page_falls_back_to_the_first_visible_one(self) -> None:
-        self.panel.nav.setCurrentItem("Response")
-        self.panel.set_page_visible("Response", False)
-        self.assertEqual(self.panel.nav.currentRouteKey(), "Overview")
-        self.assertEqual(self.panel.pages.currentWidget().objectName(), "Overview")
+    def test_the_headers_tab_label_carries_the_count(self) -> None:
+        data = build_flow_detail(tflow.tflow(resp=True))
+        self.panel.set_data(data)
+        label = self.panel.req_tabs.pivot.items["Headers"].text()
+        self.assertIn(str(len(data["Request Headers"])), label)
 
-    def test_the_raw_state_page_carries_the_whole_native_tree(self) -> None:
-        """完整性兜底：概览只显示 SECTIONS 列出来的，这一页什么都还在。"""
-        flow = tflow.tflow(resp=True)
-        self.panel.set_data(build_flow_detail(flow))
-        parsed = json.loads(self.panel.raw_state_panel.text())
-
-        self.assertEqual(parsed, _encode_state(flow.get_state()))
-
-    def test_the_copy_actions_go_dead_when_there_is_nothing_to_copy(self) -> None:
-        self.panel.set_data(build_flow_detail(tflow.tflow()))
-        self.assertTrue(self.panel.copy_url_action.isEnabled())
-        # 只抓到请求的流量还没有 curl 命令。
-        self.assertFalse(self.panel.copy_curl_action.isEnabled())
-
+    def test_a_request_only_flow_moves_the_close_button_back(self) -> None:
+        """横向分栏时 × 归右栏；右栏收起后 × 落回请求区，保证随时可点。"""
+        self.panel.splitter.setOrientation(Qt.Orientation.Horizontal)
+        self.panel._on_layout_changed()
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
-        self.assertTrue(self.panel.copy_curl_action.isEnabled())
+        self.assertFalse(self.panel.res_pane.close_button.isHidden())
+        self.assertTrue(self.panel.req_tabs.close_button.isHidden())
 
-    def test_replay_is_gated_by_capabilities_not_by_hope(self) -> None:
-        """会话页是只读的，`SessionViewController` 根本没有 `replay_flow`。"""
-        readonly = FlowDataPanel(self.host, None, READONLY_CAPABILITIES)
-        self.assertNotIn(readonly.replay_action, readonly.command_bar.actions())
-        self.assertIn(self.panel.replay_action, self.panel.command_bar.actions())
+        self.panel.set_data(build_flow_detail(tflow.tflow()))
+        self.assertTrue(self.panel.res_pane.close_button.isHidden())
+        self.assertFalse(self.panel.req_tabs.close_button.isHidden())
 
-    def test_the_inner_close_buttons_stay_wired_but_out_of_sight(self) -> None:
-        """外层那一个 X 是唯一的折叠入口，但两个内层按钮仍连着同一个槽。"""
+    def test_the_inner_split_is_inverted_against_the_global_layout(self) -> None:
+        """全局布局说的是「表格 vs 详情」的排布；内层分栏与它相反才放得下：
+        全局横向（详情窄而高）→ 内层上下排，全局纵向（详情宽而矮）→ 内层左右排。"""
+        self.assertTrue(self.panel.splitter.inverted)
+
+    def test_the_close_button_follows_the_split_orientation(self) -> None:
+        """纵向分栏时上栏是请求区，× 挂请求区标签行。"""
+        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.panel.splitter.setOrientation(Qt.Orientation.Vertical)
+        self.panel._on_layout_changed()
+        self.assertFalse(self.panel.req_tabs.close_button.isHidden())
+        self.assertTrue(self.panel.res_pane.close_button.isHidden())
+
+        self.panel.splitter.setOrientation(Qt.Orientation.Horizontal)
+        self.panel._on_layout_changed()
+        self.assertFalse(self.panel.res_pane.close_button.isHidden())
+
+    def test_every_close_button_wires_to_collapse_requested(self) -> None:
         seen: list[int] = []
         self.panel.collapseRequested.connect(lambda: seen.append(1))
-
-        self.assertTrue(self.panel.req_panel.close_button.isHidden())
-        self.assertTrue(self.panel.res_panel.close_button.isHidden())
         for button in (
-            self.panel.req_panel.close_button,
-            self.panel.res_panel.close_button,
             self.panel.empty_close_button,
-            self.panel.context_close_button,
+            self.panel.req_tabs.close_button,
+            self.panel.res_pane.close_button,
         ):
             button.click()
-        self.assertEqual(len(seen), 4)
+        self.assertEqual(len(seen), 3)
+
+    def test_the_more_menu_is_gated_by_capabilities(self) -> None:
+        """会话页是只读的：重放/标记/备注弹窗一律不出现，复制两样保留。"""
+        readonly = FlowDataPanel(self.host, None, READONLY_CAPABILITIES)
+        readonly_names = [a.text() for a in readonly._more_actions()]
+        self.assertNotIn("Replay", readonly_names)
+        self.assertNotIn("Mark", readonly_names)
+        self.assertNotIn("Comment", readonly_names)
+        self.assertIn("Copy URL", readonly_names)
+
+        names = [a.text() for a in self.panel._more_actions()]
+        for expected in ("Replay", "Mark", "Comment"):
+            self.assertIn(expected, names)
+
+    def test_the_copy_action_goes_dead_when_there_is_nothing_to_copy(self) -> None:
+        self.panel.set_data(build_flow_detail(tflow.tflow()))
+        self.assertTrue(self.panel.copy_url_action.isEnabled())
+
+    def test_the_query_and_cookies_tabs_carry_counts(self) -> None:
+        """与 请求头(N) 同一语言：条数直接挂在标签上，不用回概览看。"""
+        flow = tflow.tflow(resp=True)
+        flow.request.path = "/path?a=1&b=2"
+        flow.request.headers["Cookie"] = "a=1; b=2"
+        self.panel.set_data(build_flow_detail(flow))
+
+        self.assertIn("2", self.panel.req_tabs.pivot.items["Query"].text())
+        self.assertIn("2", self.panel.req_tabs.pivot.items["Cookies"].text())
 
 
-class MessagePaneTests(unittest.TestCase):
-    """请求/响应两页：标签集合、空标签隐藏、Raw 的兜底拼装。"""
+class LeftColumnTests(unittest.TestCase):
+    """左栏内容：Raw 的兜底拼装、body 三态、查询参数与 Cookies 的显隐。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -290,85 +226,77 @@ class MessagePaneTests(unittest.TestCase):
         self.host.deleteLater()
         self.app.processEvents()
 
-    def test_the_request_page_splits_query_from_form(self) -> None:
-        """两个都被叫「参数」，一个在 URL 上一个在 body 里 —— 原来混在一个标签里。"""
-        self.assertEqual(
-            list(self.panel.req_panel.pivot.items),
-            ["Headers", "Query", "Form", "Cookies", "Body", "Trailers", "Raw"],
-        )
-        self.assertEqual(
-            list(self.panel.res_panel.pivot.items),
-            ["Headers", "Cookies", "Body", "Trailers", "Raw"],
+    def test_an_empty_body_shows_the_placeholder_not_a_blank_editor(self) -> None:
+        flow = tflow.tflow(resp=True)
+        flow.request.content = b""
+        self.panel.set_data(build_flow_detail(flow))
+        self.assertIs(
+            self.panel.req_body.currentWidget(), self.panel.req_body.empty_label
         )
 
-    def test_tabs_with_nothing_in_them_disappear(self) -> None:
+    def test_a_json_body_lands_on_the_dual_view(self) -> None:
         flow = tflow.tflow(resp=True)
-        self.panel.set_data(build_flow_detail(flow))
-        req = self.panel.req_panel
-
-        self.assertFalse(req.isTabVisible("Query"))
-        self.assertFalse(req.isTabVisible("Form"))
-        self.assertFalse(req.isTabVisible("Trailers"))
-        # 这三页缺内容本身就是要看的信息，永远在。
-        for route_key in ("Headers", "Body", "Raw"):
-            with self.subTest(route_key=route_key):
-                self.assertTrue(req.isTabVisible(route_key))
-
-    def test_a_form_body_brings_its_tab_back(self) -> None:
-        flow = tflow.tflow(resp=True)
-        flow.request.headers["Content-Type"] = "application/x-www-form-urlencoded"
-        flow.request.content = b"user=jun&tag=a&tag=b"
+        flow.request.headers["Content-Type"] = "application/json"
+        flow.request.content = b'{"a": 1}'
         self.panel.set_data(build_flow_detail(flow))
 
-        self.assertTrue(self.panel.req_panel.isTabVisible("Form"))
-        self.assertFalse(self.panel.req_panel.isTabVisible("Query"))
-
-    def test_a_query_string_brings_its_tab_back(self) -> None:
-        flow = tflow.tflow(resp=True)
-        flow.request.path = "/path?a=1&a=2"
-        self.panel.set_data(build_flow_detail(flow))
-
-        self.assertTrue(self.panel.req_panel.isTabVisible("Query"))
-
-    def test_the_body_view_name_moved_out_of_the_tab_label(self) -> None:
-        """原来是拼进 Body 标签的文字里再 adjustSize，标签宽度跟着每条流量跳。"""
-        flow = tflow.tflow(resp=True)
-        assert flow.response is not None
-        flow.response.headers["Content-Type"] = "application/json"
-        flow.response.content = b'{"a": 1}'
-        self.panel.set_data(build_flow_detail(flow))
-
-        badge = self.panel.res_panel.body_view_badge
-        self.assertEqual(badge.text(), "JSON")
-        item = self.panel.res_panel.pivot.items["Body"]
-        self.assertEqual(item.text(), "Body")
+        self.assertIs(
+            self.panel.req_body.currentWidget(), self.panel.req_body.json_panel
+        )
+        self.assertTrue(self.panel.req_body_badge.isVisibleTo(self.panel))
+        self.assertEqual(self.panel.req_body_badge.text(), "JSON")
 
     def test_a_bodyless_message_shows_no_view_badge(self) -> None:
         flow = tflow.tflow()
         flow.request.content = b""
         self.panel.set_data(build_flow_detail(flow))
-        self.assertFalse(self.panel.req_panel.body_view_badge.isVisibleTo(self.panel))
+        self.assertFalse(self.panel.req_body_badge.isVisibleTo(self.panel))
+
+    def test_a_form_body_is_a_view_of_the_body_not_its_own_tab(self) -> None:
+        """urlencoded 表单是请求体的一种格式：键值表格顶进 Body 页。"""
+        flow = tflow.tflow(resp=True)
+        flow.request.headers["Content-Type"] = "application/x-www-form-urlencoded"
+        flow.request.content = b"user=jun&tag=a&tag=b"
+        self.panel.set_data(build_flow_detail(flow))
+
+        self.assertIsNotNone(self.panel.req_body.form_panel)
+        assert self.panel.req_body.form_panel is not None
+        self.assertIs(
+            self.panel.req_body.currentWidget(), self.panel.req_body.form_panel
+        )
+        self.assertNotIn("Form", list(self.panel.req_tabs.pivot.items))
+
+    def test_a_query_string_brings_its_tab_back(self) -> None:
+        flow = tflow.tflow(resp=True)
+        flow.request.path = "/path?a=1&a=2"
+        self.panel.set_data(build_flow_detail(flow))
+        self.assertTrue(self.panel.req_tabs.isTabVisible("Query"))
+
+    def test_tabs_with_nothing_in_them_disappear(self) -> None:
+        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.assertFalse(self.panel.req_tabs.isTabVisible("Query"))
+        # 这条流量没有 cookie，标签整条藏掉。
+        self.assertFalse(self.panel.req_tabs.isTabVisible("Cookies"))
+        # 备注页常驻：内联编辑是日常入口。
+        self.assertTrue(self.panel.req_tabs.isTabVisible("Comment"))
 
     def test_the_raw_page_is_assembled_from_the_detail_dict_without_a_controller(
         self,
     ) -> None:
         """没有 controller 时按详情字典手工拼「起始行 + 头 + 空行 + body」。"""
-        flow = tflow.tflow(resp=True)
-        self.panel.set_data(build_flow_detail(flow))
+        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
 
-        raw = self.panel.req_panel.raw_edit.text()
+        raw = self.panel.req_raw.text()
         self.assertTrue(raw.startswith("GET /path HTTP/1.1"))
         self.assertIn("header: qvalue", raw)
-        res_raw = self.panel.res_panel.raw_edit.text()
+        res_raw = self.panel.res_pane.raw_edit.text()
         self.assertTrue(res_raw.startswith("HTTP/1.1 200 OK"))
 
     def test_a_broken_controller_does_not_take_the_raw_page_down(self) -> None:
-        """改造前只有响应那一路包了 try/except，请求那一路裸调。
-
-        用 `assertLogs` 而不是任由 warning 冒到根 logger：整套用例同进程跑，前面
-        造过 `Master` 的用例会在根 logger 上留下 mitmproxy 的 `LegacyLogEvents`，
-        它指着一个已经关掉的 event loop —— 冒上去就成了 `RuntimeError`。
-        顺手把「出错要留一行日志」也一起钉住。
+        """用 `assertLogs` 而不是任由 warning 冒到根 logger：整套用例同进程跑，
+        前面造过 `Master` 的用例会在根 logger 上留下 mitmproxy 的
+        `LegacyLogEvents`，它指着一个已经关掉的 event loop —— 冒上去就成了
+        `RuntimeError`。顺手把「出错要留一行日志」也一起钉住。
         """
 
         class Broken:
@@ -383,8 +311,8 @@ class MessagePaneTests(unittest.TestCase):
             self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
 
         self.assertEqual(len(caught.output), 2)
-        self.assertTrue(self.panel.req_panel.raw_edit.text().startswith("GET /path"))
-        self.assertTrue(self.panel.res_panel.raw_edit.text().startswith("HTTP/1.1 200"))
+        self.assertTrue(self.panel.req_raw.text().startswith("GET /path"))
+        self.assertTrue(self.panel.res_pane.raw_edit.text().startswith("HTTP/1.1 200"))
 
     def test_a_working_controller_wins_over_the_hand_assembled_fallback(self) -> None:
         class Wire:
@@ -397,12 +325,81 @@ class MessagePaneTests(unittest.TestCase):
         self.panel.set_controller(Wire())
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
 
-        self.assertIn("/wire", self.panel.req_panel.raw_edit.text())
-        self.assertIn("418", self.panel.res_panel.raw_edit.text())
+        self.assertIn("/wire", self.panel.req_raw.text())
+        self.assertIn("418", self.panel.res_pane.raw_edit.text())
 
 
-if __name__ == "__main__":
-    unittest.main()
+class ResponsePaneTests(unittest.TestCase):
+    """响应栏单独复用的那一份（compose 页）：标签集合与头数徽标。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_tab_set_without_cookies_or_trailers(self) -> None:
+        """响应侧不放 Cookies，Trailers 也不做（数据键还在字典里）。"""
+        pane = ResponsePane()
+        self.assertEqual(
+            list(pane.pivot.items),
+            ["Raw", "Headers", "Body"],
+        )
+        pane.deleteLater()
+
+    def test_the_headers_tab_label_carries_the_count(self) -> None:
+        pane = ResponsePane()
+        data = build_flow_detail(tflow.tflow(resp=True))
+        pane.set_data(data)
+        self.assertIn(str(len(data["Response Headers"])), pane.pivot.items["Headers"].text())
+        pane.deleteLater()
+
+    def test_raw_falls_back_to_the_detail_dict_without_a_controller(self) -> None:
+        pane = ResponsePane()
+        pane.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.assertTrue(pane.raw_edit.text().startswith("HTTP/1.1 200 OK"))
+        pane.deleteLater()
+
+
+class CommentPaneTests(unittest.TestCase):
+    """备注内联编辑页：脏了才亮保存，程序化灌文本不算编辑。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.pane = detail.CommentPane()
+        self.pane.setParent(self.host)
+
+    def tearDown(self) -> None:
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def test_loading_a_note_does_not_light_the_save_button(self) -> None:
+        self.pane.set_data({"comment": "旧备注"})
+        self.assertFalse(self.pane.save_button.isEnabled())
+
+    def test_editing_lights_it_and_mark_saved_extinguishes_it(self) -> None:
+        self.pane.set_data({"comment": ""})
+        self.pane.edit.code_widget.setPlainText("新备注")
+        self.assertTrue(self.pane.save_button.isEnabled())
+
+        self.pane.mark_saved("新备注")
+        self.assertFalse(self.pane.save_button.isEnabled())
+
+    def test_saving_emits_the_text(self) -> None:
+        seen: list[str] = []
+        self.pane.commentSaved.connect(seen.append)
+        self.pane.set_data({"comment": ""})
+        self.pane.edit.code_widget.setPlainText("看这条")
+        self.pane.save_button.click()
+        self.assertEqual(seen, ["看这条"])
+
+    def test_read_only_mode_never_lights_the_save_button(self) -> None:
+        self.pane.set_read_only(True)
+        self.pane.set_data({"comment": ""})
+        self.pane.edit.code_widget.setPlainText("改不动")
+        self.assertFalse(self.pane.save_button.isEnabled())
 
 
 class _MarkStub:
@@ -422,8 +419,6 @@ class _MarkStub:
             raise RuntimeError("kernel is not running")
         self.calls.append(("comment", flow_id, comment))
 
-    # 「原始状态」页在每次 `set_data` 时都要问一趟，缺了只是往日志里刷两行 ——
-    # 但那两行会把这个类的失败输出淹掉。
     def get_raw_request(self, flow_id: str) -> bytes:
         return b""
 
@@ -432,10 +427,10 @@ class _MarkStub:
 
 
 class MarkAndCommentTests(unittest.TestCase):
-    """CommandBar 上的标记与备注。
+    """「…」菜单上的标记与备注弹窗，加内联编辑页的写回。
 
-    这两个动作都要改**活** flow，所以除了「点了有没有写回」，更要紧的是「没点的时候
-    绝对不写」—— 切换选中行会把上一条的状态同步到按钮上，一个没拦住的 `toggled`
+    这些动作都要改**活** flow，所以除了「点了有没有写回」，更要紧的是「没点的时候
+    绝对不写」—— 切换选中行会把上一条的状态同步到动作上，一个没拦住的 `toggled`
     就等于把上一条的标记盖到刚选中的那条流量上。
     """
 
@@ -458,29 +453,8 @@ class MarkAndCommentTests(unittest.TestCase):
         self.host.deleteLater()
         self.app.processEvents()
 
-    def _mark_button(self) -> CommandButton:
-        return next(
-            button
-            for button in self.panel.command_bar.findChildren(CommandButton)
-            if button.action() is self.panel.mark_action
-        )
-
-    def test_both_actions_are_gated_by_capabilities(self) -> None:
-        """会话页那批流量是从 `.flow` 回来的死对象，写回无处可去。"""
-        readonly = FlowDataPanel(self.host, None, READONLY_CAPABILITIES)
-        actions = readonly.command_bar.actions()
-        self.assertNotIn(readonly.mark_action, actions)
-        self.assertNotIn(readonly.comment_action, actions)
-
-        actions = self.panel.command_bar.actions()
-        self.assertIn(self.panel.mark_action, actions)
-        self.assertIn(self.panel.comment_action, actions)
-
-    def test_the_mark_action_renders_as_a_toggle_on_its_own(self) -> None:
-        """`CommandButton` 是 `TransparentToggleToolButton` 的子类，照搬 action 的
-        `isCheckable()` —— 所以往 bar 里塞一个裸控件是多余的一步。"""
+    def test_the_mark_action_renders_as_a_toggle(self) -> None:
         self.assertTrue(self.panel.mark_action.isCheckable())
-        self.assertTrue(self._mark_button().isCheckable())
 
     def test_toggling_writes_the_marker_mitmproxy_itself_writes(self) -> None:
         self.panel.mark_action.setChecked(True)
@@ -509,15 +483,6 @@ class MarkAndCommentTests(unittest.TestCase):
         self.panel.set_data(build_flow_detail(marked))
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
         self.assertEqual(self.controller.calls, [])
-
-    def test_the_button_still_follows_the_action_while_syncing(self) -> None:
-        """所以拦的是我们自己的槽，而不是 action 的信号 ——
-        `CommandButton.setAction` 正是靠 `action.toggled` 搬勾选态的，掐掉它，按钮就
-        一直画着上一条流量的样子。"""
-        marked = tflow.tflow(resp=True)
-        marked.marked = MARKER_DEFAULT
-        self.panel.set_data(build_flow_detail(marked))
-        self.assertTrue(self._mark_button().isChecked())
 
     def test_a_failed_write_rolls_the_toggle_back(self) -> None:
         """否则界面说「标了」而 flow 上没有 —— 这条流量以后也不会再被重画。"""
@@ -577,6 +542,19 @@ class MarkAndCommentTests(unittest.TestCase):
 
         self.assertEqual(self.controller.calls, [("comment", self.flow.id, "")])
 
+    def test_the_inline_editor_writes_back_through_the_same_channel(self) -> None:
+        seen: list[list] = []
+
+        with patch.object(self.panel.overview, "set_data") as overview:
+            self.panel.comment_pane.set_data({"comment": ""})
+            self.panel.comment_pane.edit.code_widget.setPlainText("内联写回")
+            self.panel.comment_pane.save_button.click()
+            self.app.processEvents()
+            seen.append(self.controller.calls)
+
+        overview.assert_called_once()
+        self.assertEqual(seen, [[("comment", self.flow.id, "内联写回")]])
+
     def test_a_write_back_refreshes_the_overview_card_only(self) -> None:
         """整个 `set_data` 会连消息页一起重建，把 WS 帧表的选中和滚动位置清掉 ——
         而帧还在一秒几十条地进来。"""
@@ -606,3 +584,7 @@ class MarkAndCommentTests(unittest.TestCase):
             panel.comment_action.trigger()
 
         self.assertEqual(panel.datas.get("comment"), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

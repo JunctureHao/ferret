@@ -6,9 +6,10 @@
 循环，加字段不用再碰渲染代码。
 
 上一期抽出规格表时渲染还是那棵树；这一期树整个退役，换成 `OverviewPane` 的单列
-卡片流。中间那一层 `section_rows()` 是**纯函数**：分组 + 数据字典 → 已求值的
-`Row` 列表。「整组没东西就整张卡不显示」「`when` 说不显示就整组不露面」这两条规则
-因此不用起窗口就能测，`FieldCard` 那侧只剩「一串 Row 怎么摆进 QGridLayout」。
+平铺分组流（组头 + 键值网格，无卡片底框）。中间那一层 `section_rows()` 是**纯函数**
+：分组 + 数据字典 → 已求值的 `Row` 列表。「整组没东西就整段不显示」「`when` 说不
+显示就整组不露面」这两条规则因此不用起窗口就能测，`FieldCard` 那侧只剩「一串 Row
+怎么摆进 QGridLayout」。
 
 字段标签在这里**只做标记、不求值**：类体和模块级一样在导入期跑完，而
 `core/application.py` 在顶层就 import 了 MainWindow —— 那时翻译器还没装，
@@ -27,16 +28,15 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import QGridLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     FluentIcon,
-    HeaderCardWidget,
-    IconWidget,
     SingleDirectionScrollArea,
+    StrongBodyLabel,
     TransparentToolButton,
 )
 
@@ -79,20 +79,18 @@ class Field:
 
 @dataclass(frozen=True, slots=True)
 class Section:
-    """一个分组，也就是概览里的一张卡片。
+    """一个分组，也就是概览里的一段。
 
     Args:
-        title: 分组标题的标记。卡片必须有标题，空串只在嵌套小节里还有意义。
+        title: 分组标题的标记。分组必须有标题，空串只在嵌套小节里还有意义。
         fields: 组内条目，按声明顺序渲染；嵌一个 `Section` 就是一个次级小节，
-            渲染成卡片内跨两列的小标题行，不会另开一张卡。
-        icon: 卡片标题左边的图标。
+            渲染成组内跨两列的小标题行，不会另开一段。
         when: 整组的显示条件，`None` 表示只要组内有可见字段就显示。
-        collapsed: 默认折叠（冷门分组）。折叠与否只是**初始状态**，每张卡都能收。
+        collapsed: 默认折叠（冷门分组）。折叠与否只是**初始状态**，每组都能收。
     """
 
     title: str
     fields: tuple["Field | Section", ...]
-    icon: FluentIcon | None = None
     when: Callable[[dict], bool] | None = None
     collapsed: bool = False
 
@@ -229,20 +227,6 @@ def _marker(value: object) -> str:
     if not value:
         return "-"
     return QCoreApplication.translate("FlowFields", "Marked")
-
-
-def _count(key: str) -> Callable[[dict], object]:
-    """某个字典/列表键的条目数；空的返回 `None`，整行不出现。
-
-    不能直接写 `len()`：`field_value` 把 ``0`` 当**真值**（时序与大小两组靠这条），
-    于是没有查询参数的请求会多出一行「Query parameters: 0」纯噪音。
-    """
-
-    def read(data: dict) -> object:
-        items = data.get(key)
-        return len(items) if items else None
-
-    return read
 
 
 def _size_of(*keys: str) -> Callable[[dict], object]:
@@ -456,7 +440,6 @@ def _tls_section(title: str, prefix: str, keys: tuple[str, ...]) -> Section:
     """
     return Section(
         title=title,
-        icon=FluentIcon.VPN,
         collapsed=True,
         when=_any_value(*keys),
         fields=tuple(
@@ -470,7 +453,6 @@ def _tls_section(title: str, prefix: str, keys: tuple[str, ...]) -> Section:
 SECTIONS: tuple[Section, ...] = (
     Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "Summary"),
-        icon=FluentIcon.INFO,
         fields=(
             Field(QT_TRANSLATE_NOOP("FlowFields", "State"), _state),
             Field(QT_TRANSLATE_NOOP("FlowFields", "Method"), "Method"),
@@ -478,51 +460,17 @@ SECTIONS: tuple[Section, ...] = (
             Field("Code", _code_with_reason),
             Field(QT_TRANSLATE_NOOP("FlowFields", "Protocol"), "Protocol"),
             Field("Content Type", "Response Content-Type"),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "Content encoding"),
+                "Response Content-Encoding",
+            ),
             Field("Keep Alive", "Keep Alive"),
             Field(QT_TRANSLATE_NOOP("FlowFields", "Proxy protocol"), "Proxy Protocol"),
             Field(QT_TRANSLATE_NOOP("FlowFields", "Server address"), "Server Address"),
         ),
     ),
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Request"),
-        icon=FluentIcon.SEND,
-        fields=(
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Scheme"), "Scheme"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Host"), "Host"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Authority"), "Authority"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Path"), "Path"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "HTTP version"), "HTTP Version"),
-            Field("Content Type", "Request Content-Type"),
-            Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Query parameters"),
-                _count("Request Params"),
-            ),
-            Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Cookies"), _count("Request Cookies")
-            ),
-            Field("curl", "curl_command", mono=True),
-        ),
-    ),
-    Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Response"),
-        icon=FluentIcon.CLOUD,
-        when=_any_present("res_headers_size"),
-        fields=(
-            Field("Code", "Status Code"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Reason"), "Reason"),
-            Field(
-                QT_TRANSLATE_NOOP("FlowFields", "HTTP version"), "Response HTTP Version"
-            ),
-            Field("Content Type", "Response Content-Type"),
-            Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Content encoding"),
-                "Response Content-Encoding",
-            ),
-        ),
-    ),
-    Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "Timing"),
-        icon=FluentIcon.STOP_WATCH,
         when=_any_present(*_TIME_KEYS),
         fields=(
             Field(
@@ -590,7 +538,6 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "Size"),
-        icon=FluentIcon.FIT_PAGE,
         when=_any_present(*_SIZE_KEYS),
         fields=(
             Field(
@@ -630,7 +577,6 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "Connection"),
-        icon=FluentIcon.CONNECT,
         collapsed=True,
         when=_any_value("Connection ID", "Connection Time"),
         fields=(
@@ -647,7 +593,6 @@ SECTIONS: tuple[Section, ...] = (
     _tls_section(QT_TRANSLATE_NOOP("FlowFields", "TLS · server"), "TLS", _TLS_KEYS),
     Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "TLS · client"),
-        icon=FluentIcon.VPN,
         collapsed=True,
         when=_any_value(*_CLIENT_TLS_KEYS, "Client Mitm Certificate"),
         fields=(
@@ -660,7 +605,6 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "Server certificate"),
-        icon=FluentIcon.CERTIFICATE,
         collapsed=True,
         when=_any_value(*_CERT_KEYS),
         fields=(
@@ -697,7 +641,6 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "Error"),
-        icon=FluentIcon.CANCEL,
         when=_any_value("Error Message"),
         fields=(
             Field(QT_TRANSLATE_NOOP("FlowFields", "Message"), "Error Message"),
@@ -708,7 +651,6 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "Flow metadata"),
-        icon=FluentIcon.TAG,
         collapsed=True,
         when=_any_value("Flow ID"),
         fields=(
@@ -729,18 +671,22 @@ SECTIONS: tuple[Section, ...] = (
 )
 
 
-class FieldCard(HeaderCardWidget):
-    """一个分组一张卡：标题栏（图标 + 标题 + 整组复制 + 折叠）+ 两列网格。
+class FieldCard(QWidget):
+    """一个分组一段：组头（标题 + 整组复制 + 折叠，整行可点）+ 两列网格。
 
-    **刻意没用 `SimpleExpandGroupSettingCard` 做折叠组**（规划里原本这么写的）。
-    那个卡自己按 ``viewLayout.sizeHint().height()`` 调 `setFixedHeight`，而
-    `QGridLayout.sizeHint()` 不问 height-for-width —— 值那一列是必须换行的
-    `BodyLabel`，窄面板下真实高度远超 sizeHint，卡片会把内容裁掉。这里改成标题栏
-    上一个 chevron 直接 `view.setVisible()`，高度还是交给布局自己算。顺带也避免了
-    同一列滚动区里出现两种形状的卡。
+    **刻意不用卡片底框**（`HeaderCardWidget` / `SimpleCardWidget` 那套）：概览一屏
+    十来个分组，每段再套一圈圆角底色就成了卡片墙，扫读时视线要在框与框之间跳。
+    现在只剩「加粗标题 + 键值行」，组与组之间靠间距分界。
 
-    折叠能力给**每张**卡，不只给 `collapsed=True` 的那几张：只有部分卡能点等于让
-    用户去记哪几张能点。`collapsed` 只决定初始状态。
+    也**刻意没用 `SimpleExpandGroupSettingCard` 做折叠组**。那个卡自己按
+    ``viewLayout.sizeHint().height()`` 调 `setFixedHeight`，而 `QGridLayout.sizeHint()`
+    不问 height-for-width —— 值那一列是必须换行的 `BodyLabel`，窄面板下真实高度
+    远超 sizeHint，内容会被裁掉。这里折叠直接 `view.setVisible()`，高度交给布局
+    自己算。
+
+    折叠能力给**每一段**，不只给 `collapsed=True` 的那几段：只有部分能点等于让
+    用户去记哪几段能点。`collapsed` 只决定初始状态。整行（不只箭头）都可点 ——
+    组头是这一段唯一的操作区，命中区域太小等于没有。
 
     `set_data` 每次重建网格而不是复用控件池：详情面板只在换选中行时更新，一次几十
     行的重建量级可以忽略，而混着跨列 span 的控件池极易对错格子。
@@ -752,24 +698,28 @@ class FieldCard(HeaderCardWidget):
         self._rows: list[Row] = []
         self._expanded = True
 
-        if section.icon is not None:
-            self.icon_widget = IconWidget(section.icon, self)
-            self.icon_widget.setFixedSize(16, 16)
-            self.headerLayout.insertWidget(0, self.icon_widget)
-            self.headerLayout.insertSpacing(1, 8)
-        self.setTitle(section_title(section))
+        self.header = QWidget(self)
+        self.header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.header.installEventFilter(self)
+        header_layout = QHBoxLayout(self.header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)
+        self.title_label = StrongBodyLabel(section_title(section), self.header)
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch(1)
 
-        self.headerLayout.addStretch(1)
-        self.copy_button = TransparentToolButton(FluentIcon.COPY, self)
+        self.copy_button = TransparentToolButton(FluentIcon.COPY, self.header)
         self.copy_button.setToolTip(
             QCoreApplication.translate("FlowFields", "Copy this group")
         )
         self.copy_button.clicked.connect(self.copy_to_clipboard)
-        self.headerLayout.addWidget(self.copy_button)
+        header_layout.addWidget(self.copy_button)
 
-        self.toggle_button = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
+        self.toggle_button = TransparentToolButton(
+            FluentIcon.CHEVRON_DOWN_MED, self.header
+        )
         self.toggle_button.clicked.connect(self.toggle)
-        self.headerLayout.addWidget(self.toggle_button)
+        header_layout.addWidget(self.toggle_button)
 
         self.grid = QGridLayout()
         self.grid.setContentsMargins(0, 0, 0, 0)
@@ -777,25 +727,44 @@ class FieldCard(HeaderCardWidget):
         self.grid.setVerticalSpacing(6)
         self.grid.setColumnMinimumWidth(0, _LABEL_COLUMN_WIDTH)
         self.grid.setColumnStretch(1, 1)
-        self.viewLayout.setContentsMargins(24, 16, 24, 16)
-        self.viewLayout.addLayout(self.grid)
+
+        self.view = QWidget(self)
+        view_layout = QVBoxLayout(self.view)
+        view_layout.setContentsMargins(0, 6, 0, 0)
+        view_layout.addLayout(self.grid)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.header)
+        layout.addWidget(self.view)
 
         self.set_expanded(not section.collapsed)
 
     # —— 折叠 ——
 
+    def eventFilter(self, watched, event) -> bool:
+        """组头整行可点：左键按下即折叠，箭头按钮只补一个视觉锚点。"""
+        if (
+            watched is self.header
+            and event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self.toggle()
+            return True
+        return super().eventFilter(watched, event)
+
     def is_expanded(self) -> bool:
         """折叠状态。**不读 `view.isVisible()`** —— 那个在整棵树 `show()` 之前
-        对每张卡都是 `False`（Qt 的 `isVisible` 连祖先一起算），会把「卡是收起的」
+        对每一段都是 `False`（Qt 的 `isVisible` 连祖先一起算），会把「段是收起的」
         和「面板还没显示」混成同一个答案。状态自己存一份，和显示时机无关。
         """
         return self._expanded
 
     def set_expanded(self, expanded: bool) -> None:
-        """展开/收起正文。分割线跟着走，否则收起后剩一条悬空的横线。"""
+        """展开/收起正文。"""
         self._expanded = expanded
         self.view.setVisible(expanded)
-        self.separator.setVisible(expanded)
         self.toggle_button.setIcon(
             FluentIcon.CHEVRON_DOWN_MED if expanded else FluentIcon.CHEVRON_RIGHT_MED
         )
@@ -810,7 +779,7 @@ class FieldCard(HeaderCardWidget):
         return list(self._rows)
 
     def set_data(self, data: dict) -> None:
-        """按数据重建网格；整组没东西可显示就整张卡隐藏。"""
+        """按数据重建网格；整组没东西可显示就整段隐藏。"""
         self._rows = section_rows(self.section, data)
         self.__clear()
         for index, row in enumerate(self._rows):
@@ -869,10 +838,12 @@ class FieldCard(HeaderCardWidget):
 
 
 class OverviewPane(SingleDirectionScrollArea):
-    """概览页：`SECTIONS` 一个顶层分组一张卡，单列纵向滚动。
+    """概览页：`SECTIONS` 一个顶层分组一段，单列纵向滚动。
 
     单列（而不是自适应多列）是刻意的：详情面板本来就窄，两列摆下来每列都不够值
     换行，反而更难读。窄的时候读的是「这条流量怎么了」，一列从上往下扫最快。
+
+    无卡片底框：段与段只靠 8px 间距分界（平铺风格见 `FieldCard`）。
     """
 
     def __init__(
@@ -887,8 +858,8 @@ class OverviewPane(SingleDirectionScrollArea):
 
         self.container = QWidget(self)
         layout = QVBoxLayout(self.container)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 8, 12, 12)
+        layout.setSpacing(8)
         self.cards = [FieldCard(section, self.container) for section in sections]
         for card in self.cards:
             layout.addWidget(card)
@@ -902,5 +873,5 @@ class OverviewPane(SingleDirectionScrollArea):
             card.set_data(data)
 
     def visible_cards(self) -> list[FieldCard]:
-        """当前有内容的卡。测试按这个断言「空组整张卡不显示」。"""
+        """当前有内容的段。测试按这个断言「空组整段不显示」。"""
         return [card for card in self.cards if card.rows()]

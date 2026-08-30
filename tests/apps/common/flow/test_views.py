@@ -129,7 +129,8 @@ class FlowViewerPaneTests(unittest.TestCase):
                 header.ResizeMode.Interactive,
             )
 
-    def test_detail_header_keeps_current_flow_context(self) -> None:
+    def test_detail_panel_consumes_the_row_data(self) -> None:
+        """双击行 → 详情字典进面板并切到详情页（顶部上下文条已随改造移除）。"""
         data = {
             "Method": "GET",
             "URL": "https://api.example.com/v1/users",
@@ -139,13 +140,8 @@ class FlowViewerPaneTests(unittest.TestCase):
         self.viewer.table.row_double_clicked.emit(data)
         self.app.processEvents()
 
-        self.assertEqual(self.viewer.panel.context_method.text(), "GET")
-        self.assertEqual(
-            self.viewer.panel.context_url.text(),
-            "https://api.example.com/v1/users",
-        )
-        self.assertEqual(self.viewer.panel.context_status.text(), "200")
-        self.assertEqual(self.viewer.panel.context_duration.text(), "128 ms")
+        self.assertEqual(self.viewer.panel.datas, data)
+        self.assertEqual(self.viewer.panel.stack.currentIndex(), 1)
 
 
 class MenuReExportTests(unittest.TestCase):
