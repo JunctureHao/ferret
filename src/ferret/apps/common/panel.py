@@ -71,6 +71,10 @@ class TabPanel(QWidget):
         item = self.pivot.items.get(route_key)
         return item is not None and not item.isHidden()
 
+    def setTabText(self, route_key: str, text: str):
+        """动态改一条标签的文字(如「请求头 (14)」的计数)。"""
+        self.pivot.setItemText(route_key, text)
+
     def setTabFontSize(self, size: int):
         self._tab_font_size = size
         self.pivot.setItemFontSize(size)

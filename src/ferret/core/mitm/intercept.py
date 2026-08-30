@@ -59,17 +59,20 @@ INTERCEPT_LIMIT = 128
 
 
 class InterceptPhase(StrEnum):
-    """一条**已被拦下**的流量此刻停在哪。注意：不是规则的选项。
+    """断点规则选在哪个阶段拦，也用来标注队列里一条流量停在哪。
 
-    规则不选阶段。原生 `Intercept` 的 `request` 和 `response` 两个钩子共用同一个
-    过滤器（`mitmproxy/addons/intercept.py` 的 `should_intercept`），表达式里不加
-    阶段选择器就是两边都拦 —— 命中的流量在请求发出前停一次、响应回来后再停一次。
-    让用户去选「只拦请求」反而是给原生语义打补丁，还会让人写完规则却漏掉半程。
+    用途一（规则选阶段）：原生 `Intercept` 的 `request` 和 `response` 两个钩子
+    共用同一个过滤器（`mitmproxy/addons/intercept.py` 的 `should_intercept`），
+    阶段由表达式里的原生选择器决定 —— 不加阶段选择器（``BOTH``，默认）就是
+    请求期、响应期各拦一次；带 ``~q``（``REQUEST``）只拦请求期，带 ``~s``
+    （``RESPONSE``）只拦响应期。
 
-    所以这个枚举只回答「手上这条现在停在哪」，判据是 ``flow.response is None``
-    —— 和原生 ``~q``（Match request with no response）/ ``~s`` 同一套语义。
+    用途二（标注停在哪）：队列里一条已被拦下的流量此刻停在哪，只用
+    ``REQUEST`` / ``RESPONSE``，判据是 ``flow.response is None`` —— 和原生
+    ``~q``（Match request with no response）/ ``~s`` 同一套语义。
     """
 
+    BOTH = "both"
     REQUEST = "request"
     RESPONSE = "response"
 
@@ -90,6 +93,14 @@ _FIELD_SELECTORS: dict[InterceptField, str] = {
     InterceptField.URL: "~u",
     InterceptField.HOST: "~d",
     InterceptField.METHOD: "~m",
+}
+
+# 规则阶段的对应选择器（BOTH 不带，两个钩子都拦）：
+#   ~q → request with no response（请求期）
+#   ~s → response present（响应期）
+_PHASE_SELECTORS: dict[InterceptPhase, str] = {
+    InterceptPhase.REQUEST: "~q",
+    InterceptPhase.RESPONSE: "~s",
 }
 
 # 需要忽略大小写的字段。原生这三个选择器一个都没带 re.IGNORECASE，而主机名按 DNS
@@ -117,6 +128,7 @@ class InterceptRule:
     logic: InterceptLogic = InterceptLogic.CONTAINS
     value: str = ""
     enabled: bool = True
+    phase: InterceptPhase = InterceptPhase.BOTH
 
     @property
     def pattern(self) -> str:
@@ -147,8 +159,11 @@ class InterceptRule:
     def expression(self) -> str:
         """This rule as a **parenthesized** flowfilter sub-expression.
 
-        刻意不带阶段选择器（没有 ``~q`` / ``~s``）：原生 addon 的两个钩子共用这一个
-        过滤器，不筛阶段就是请求期、响应期各拦一次，理由见 :class:`InterceptPhase`。
+        阶段选择器不在这一层追加：flowfilter 的括号只包得住**一个** term，
+        ``(~u "x" ~q)`` 直接是语法错误（实测）。带阶段的规则先出字段选择器，
+        到 `intercept_expression` 按 phase 分组后，再用显式 ``&`` 挂 ``~q`` / ``~s``
+        —— 并列（隐式 AND）的优先级比 ``|`` 低，挂选择器会把整串段都攥住，
+        细节见那一头的 docstring。
 
         括号则是留给多条规则用 ``|`` 连起来的时候。flowfilter 的文法是
         ``OneOrMore(infixNotation(...))``，并列即隐式 AND，而 ``|`` 只是 infixNotation
@@ -187,20 +202,22 @@ class InterceptRule:
             "logic": str(self.logic),
             "value": self.value,
             "enabled": self.enabled,
+            "phase": str(self.phase),
         }
 
     @classmethod
     def from_dict(cls, raw: Any) -> "InterceptRule":
         """Rebuild a rule from persisted data; raises on anything unusable.
 
-        只读认识的键，别的一概不看 —— 老版本存下来的 ``"phase"``（那时规则要选拦
-        请求还是拦响应）就这么自然作废，不需要迁移代码。
+        老数据没有 ``"phase"`` 键时默认 ``BOTH``，与旧行为（两边都拦）一致，
+        不需要迁移代码。
         """
         if not isinstance(raw, dict):
             raise TypeError("规则必须是对象")
         try:
             field = InterceptField(str(raw.get("field", InterceptField.URL)))
             logic = InterceptLogic(str(raw.get("logic", InterceptLogic.CONTAINS)))
+            phase = InterceptPhase(str(raw.get("phase", InterceptPhase.BOTH)))
         except ValueError as exc:
             raise ValueError(f"未知的规则字段：{exc}") from exc
         return cls(
@@ -208,6 +225,7 @@ class InterceptRule:
             logic=logic,
             value=str(raw.get("value", "")),
             enabled=bool(raw.get("enabled", True)),
+            phase=phase,
         )
 
 
@@ -218,19 +236,39 @@ def _is_active(rule: InterceptRule) -> bool:
 def intercept_expression(rules: Iterable[InterceptRule]) -> str | None:
     """Compile the rules into one flowfilter expression; ``None`` 表示一条都不拦。
 
+    按 phase 分组拼：同阶段的规则用 `` | `` 连成一段，带阶段的段用显式 ``&``
+    挂 ``~q`` / ``~s``，各段之间再用 `` | `` 连接。**不能**用并列（隐式 AND）挂
+    选择器：flowfilter 里并列的优先级比 ``|`` 低，``A | B ~q`` 解析成
+    ``FAnd(FOr(A, B), ~q)`` —— 段还没 OR 起来就被选择器整个攥住，多个段时语义
+    必错；``&`` 的优先级与 ``|`` 同层且更高，``A | B & ~q`` 才是
+    ``FOr(A, FAnd(B, ~q))``。括号包不住两个 term（见 `InterceptRule.expression`），
+    多条规则的段先括起来再交 ``&``。
+
     Raises:
         ValueError: 任何一条启用的规则不合法（编译在这里发生，运行期钩子不编译）。
     """
-    terms: list[str] = []
+    groups: dict[InterceptPhase, list[str]] = {}
     for rule in rules:
         if not _is_active(rule):
             continue
         rule.validate()  # 单条先过一遍原生解析器，坏规则不会留到运行期
-        terms.append(rule.expression)
-    if not terms:
+        groups.setdefault(rule.phase, []).append(rule.expression)
+    if not groups:
         return None
-    expression = " | ".join(terms)
-    if len(terms) > 1:
+    segments: list[str] = []
+    combined = False
+    for phase in InterceptPhase:
+        terms = groups.get(phase)
+        if not terms:
+            continue
+        segment = terms[0] if len(terms) == 1 else f"({' | '.join(terms)})"
+        combined = combined or len(terms) > 1 or bool(segments)
+        selector = _PHASE_SELECTORS.get(phase)
+        segments.append(
+            segment if selector is None else f"{segment} & {selector}"
+        )
+    expression = " | ".join(segments)
+    if combined:
         # 单条已经在 validate 里过了；多条拼起来还要再过一次，确认 `|` 连接本身
         # 没把语义拼歪（这一步同时兜住「括号丢了」这类拼串错误）。
         try:

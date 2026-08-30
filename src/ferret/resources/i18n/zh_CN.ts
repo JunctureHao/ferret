@@ -687,72 +687,72 @@
 <context>
     <name>ComposeInterface</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="79"/>
+        <location filename="../../apps/compose/views.py" line="84"/>
         <source>Record to flow list; when off, the request is still sent through the proxy core (rewrite/gateway/intercept rules apply) but does not appear in the flow list</source>
         <translation>进入流量列表；关闭时请求仍会经过代理内核发出（重写/网关/断点规则照常生效），但不会出现在流量列表中</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="98"/>
+        <location filename="../../apps/compose/views.py" line="112"/>
         <source>Content type</source>
         <translation>数据类型</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="101"/>
+        <location filename="../../apps/compose/views.py" line="115"/>
         <source>Params</source>
         <translation>参数</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="102"/>
+        <location filename="../../apps/compose/views.py" line="116"/>
         <source>Headers</source>
         <translation>请求头</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="103"/>
+        <location filename="../../apps/compose/views.py" line="117"/>
         <source>Body</source>
         <translation>请求体</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="112"/>
+        <location filename="../../apps/compose/views.py" line="126"/>
         <source>Response</source>
         <translation>响应</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="114"/>
+        <location filename="../../apps/compose/views.py" line="128"/>
         <source>Timing</source>
         <translation>性能</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="121"/>
+        <location filename="../../apps/compose/views.py" line="135"/>
         <source>Duration</source>
         <translation>耗时</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="122"/>
+        <location filename="../../apps/compose/views.py" line="136"/>
         <source>Response size</source>
         <translation>响应大小</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="123"/>
+        <location filename="../../apps/compose/views.py" line="137"/>
         <source>Server address</source>
         <translation>服务器地址</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="136"/>
+        <location filename="../../apps/compose/views.py" line="150"/>
         <source>Edit the request on the left and hit Send</source>
         <translation>在左侧编辑请求，然后点击「发送」</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="209"/>
+        <location filename="../../apps/compose/views.py" line="248"/>
         <source>Send failed</source>
         <translation>发送失败</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="209"/>
+        <location filename="../../apps/compose/views.py" line="248"/>
         <source>The URL is empty</source>
         <translation>URL 为空</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="227"/>
+        <location filename="../../apps/compose/views.py" line="267"/>
         <source>Request failed</source>
         <translation>请求失败</translation>
     </message>
@@ -2193,60 +2193,40 @@
 <context>
     <name>HeldFlowTableModel</name>
     <message>
-        <location filename="../../apps/intercept/models.py" line="71"/>
-        <source>Waiting for response</source>
-        <translation>等待响应</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/models.py" line="72"/>
-        <source>Edited</source>
-        <translation>已编辑</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/models.py" line="305"/>
-        <source>Phase</source>
-        <translation>阶段</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/models.py" line="306"/>
+        <location filename="../../apps/intercept/models.py" line="293"/>
         <source>Method</source>
         <translation>方法</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="307"/>
+        <location filename="../../apps/intercept/models.py" line="294"/>
         <source>URL</source>
         <translation>URL</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="308"/>
-        <source>Status</source>
-        <translation>状态</translation>
+        <location filename="../../apps/intercept/models.py" line="295"/>
+        <source>Actions</source>
+        <translation>操作</translation>
     </message>
 </context>
 <context>
     <name>HeldFlowsCloseDialog</name>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="187"/>
+        <location filename="../../apps/intercept/dialogs.py" line="199"/>
         <source>{} flow(s) are still held</source>
         <translation>还有 {} 条流量挂着</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="191"/>
+        <location filename="../../apps/intercept/dialogs.py" line="203"/>
         <source>Held traffic never times out on its own, so the client keeps waiting. If you keep it held, the “Held queue” button on the breakpoint page opens this window again.</source>
         <translation>挂起中的流量不会自己超时放行，客户端会一直等。保持挂起的话，可以从断点页的「拦截队列」再打开这个窗口。</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="199"/>
+        <location filename="../../apps/intercept/dialogs.py" line="211"/>
         <source>Keep held and hide</source>
         <translation>保持挂起并隐藏</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="206"/>
-        <source>Release all</source>
-        <translation>放行全部</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/dialogs.py" line="207"/>
+        <location filename="../../apps/intercept/dialogs.py" line="212"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
@@ -2345,32 +2325,32 @@
 <context>
     <name>InterceptEdit</name>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="450"/>
+        <location filename="../../core/mitm/intercept.py" line="482"/>
         <source>Invalid HTTP status code: {}</source>
         <translation>无效的 HTTP 状态码：{}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="466"/>
+        <location filename="../../core/mitm/intercept.py" line="498"/>
         <source>This flow has no request to edit</source>
         <translation>这条流量没有请求可改</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="478"/>
+        <location filename="../../core/mitm/intercept.py" line="510"/>
         <source>The request method cannot be empty</source>
         <translation>请求方法不能为空</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="485"/>
+        <location filename="../../core/mitm/intercept.py" line="517"/>
         <source>The request URL cannot be empty</source>
         <translation>请求 URL 不能为空</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="510"/>
+        <location filename="../../core/mitm/intercept.py" line="542"/>
         <source>This flow has no response to edit yet</source>
         <translation>这条流量还没有响应可改</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="536"/>
+        <location filename="../../core/mitm/intercept.py" line="568"/>
         <source>This flow already has a response; edit the response instead</source>
         <translation>这条流量已经有响应，请直接编辑响应</translation>
     </message>
@@ -2378,32 +2358,32 @@
 <context>
     <name>InterceptField</name>
     <message>
-        <location filename="../../apps/intercept/models.py" line="44"/>
+        <location filename="../../apps/intercept/models.py" line="54"/>
         <source>URL</source>
         <translation>URL</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="45"/>
+        <location filename="../../apps/intercept/models.py" line="55"/>
         <source>Host</source>
         <translation>主机</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="46"/>
+        <location filename="../../apps/intercept/models.py" line="56"/>
         <source>Method</source>
         <translation>方法</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="59"/>
+        <location filename="../../apps/intercept/models.py" line="69"/>
         <source>Matches the whole URL, including scheme, port and query string.</source>
         <translation>匹配完整 URL（含协议、端口与查询串）。</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="63"/>
+        <location filename="../../apps/intercept/models.py" line="73"/>
         <source>Matches the host name without the port; case-insensitive.</source>
         <translation>匹配主机名，不含端口；忽略大小写。</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="66"/>
+        <location filename="../../apps/intercept/models.py" line="76"/>
         <source>Matches the request method; case-insensitive.</source>
         <translation>匹配请求方法；忽略大小写。</translation>
     </message>
@@ -2411,85 +2391,85 @@
 <context>
     <name>InterceptInterface</name>
     <message>
-        <location filename="../../apps/intercept/views.py" line="117"/>
-        <location filename="../../apps/intercept/views.py" line="180"/>
+        <location filename="../../apps/intercept/views.py" line="118"/>
+        <location filename="../../apps/intercept/views.py" line="181"/>
         <source>Add rule</source>
         <translation>新增规则</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="120"/>
+        <location filename="../../apps/intercept/views.py" line="121"/>
         <source>Search rules</source>
         <translation>搜索规则</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="127"/>
-        <location filename="../../apps/intercept/views.py" line="309"/>
+        <location filename="../../apps/intercept/views.py" line="128"/>
+        <location filename="../../apps/intercept/views.py" line="310"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="133"/>
-        <location filename="../../apps/intercept/views.py" line="327"/>
+        <location filename="../../apps/intercept/views.py" line="134"/>
+        <location filename="../../apps/intercept/views.py" line="328"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="136"/>
+        <location filename="../../apps/intercept/views.py" line="137"/>
         <source>Held queue</source>
         <translation>拦截队列</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="138"/>
+        <location filename="../../apps/intercept/views.py" line="139"/>
         <source>Open the breakpoint window and deal with the held traffic</source>
         <translation>打开断点窗口，处理已被拦下的流量</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="148"/>
+        <location filename="../../apps/intercept/views.py" line="149"/>
         <source>Enabled</source>
         <translation>已启用</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="149"/>
+        <location filename="../../apps/intercept/views.py" line="150"/>
         <source>Disabled</source>
         <translation>已停用</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="152"/>
+        <location filename="../../apps/intercept/views.py" line="153"/>
         <source>Breakpoint master switch. Turning it off stops holding new traffic; whatever is already held still needs handling.</source>
         <translation>断点总开关。关闭后不再拦下新流量，已拦下的仍需手动处理</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="172"/>
+        <location filename="../../apps/intercept/views.py" line="173"/>
         <source>No breakpoint rules yet</source>
         <translation>暂无断点规则</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="175"/>
-        <source>Matching traffic is held twice: once before the request goes out and once after the response comes back</source>
-        <translation>命中的流量会被拦两次：请求发出前一次、响应回来后一次</translation>
+        <location filename="../../apps/intercept/views.py" line="176"/>
+        <source>Rules can hold traffic before the request goes out, after the response comes back, or both</source>
+        <translation>规则可以在请求发出前、响应回来后或两个阶段都拦下流量</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="270"/>
+        <location filename="../../apps/intercept/views.py" line="271"/>
         <source>New breakpoint rule</source>
         <translation>新增断点规则</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="288"/>
+        <location filename="../../apps/intercept/views.py" line="289"/>
         <source>Edit breakpoint rule</source>
         <translation>编辑断点规则</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="317"/>
+        <location filename="../../apps/intercept/views.py" line="318"/>
         <source>Enable</source>
         <translation>启用</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="317"/>
+        <location filename="../../apps/intercept/views.py" line="318"/>
         <source>Disable</source>
         <translation>停用</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="349"/>
+        <location filename="../../apps/intercept/views.py" line="350"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
@@ -2497,17 +2477,17 @@
 <context>
     <name>InterceptLogic</name>
     <message>
-        <location filename="../../apps/intercept/models.py" line="52"/>
+        <location filename="../../apps/intercept/models.py" line="62"/>
         <source>Contains</source>
         <translation>包含</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="53"/>
+        <location filename="../../apps/intercept/models.py" line="63"/>
         <source>Equals</source>
         <translation>等于</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="54"/>
+        <location filename="../../apps/intercept/models.py" line="64"/>
         <source>Regex</source>
         <translation>正则表达式</translation>
     </message>
@@ -2515,40 +2495,55 @@
 <context>
     <name>InterceptPhase</name>
     <message>
-        <location filename="../../apps/intercept/models.py" line="29"/>
-        <source>Request phase</source>
-        <translation>请求期</translation>
+        <location filename="../../apps/intercept/models.py" line="30"/>
+        <source>Request &amp; response</source>
+        <translation>请求和响应</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="30"/>
-        <source>Response phase</source>
-        <translation>响应期</translation>
+        <location filename="../../apps/intercept/models.py" line="31"/>
+        <source>Request</source>
+        <translation>请求</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/models.py" line="32"/>
+        <source>Response</source>
+        <translation>响应</translation>
     </message>
 </context>
 <context>
     <name>InterceptRule</name>
     <message>
-        <location filename="../../apps/intercept/models.py" line="37"/>
-        <source>Matching traffic is held twice: once before the request goes out (you can edit the request, or answer the client with a faked response instead of sending it to the server), and once again after it is released and the response comes back (only the response can be edited then).</source>
-        <translation>命中的流量会拦两次：请求发出前停一次（可以改请求，也可以不发往服务器、直接伪造一条响应回给客户端），放行后响应回来再停一次（这时只能改响应）。</translation>
+        <location filename="../../apps/intercept/models.py" line="38"/>
+        <source>Matching traffic is held twice: once before the request goes out, and once again after the response comes back; only the request can be edited at the first stop, and only the response at the second.</source>
+        <translation>命中的流量会拦两次：请求发出前停一次（这时只能改请求），响应回来后再停一次（这时只能改响应）。</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="103"/>
+        <location filename="../../apps/intercept/models.py" line="42"/>
+        <source>Matching traffic is held once, before the request goes out; only the request can be edited there.</source>
+        <translation>命中的流量只在请求发出前停一次，这时只能改请求。</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/models.py" line="46"/>
+        <source>Matching traffic is held once, after the response comes back; only the response can be edited there.</source>
+        <translation>命中的流量只在响应回来后停一次，这时只能改响应。</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/models.py" line="115"/>
         <source>Match expression: {}</source>
         <translation>匹配表达式：{}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="133"/>
+        <location filename="../../core/mitm/intercept.py" line="145"/>
         <source>Match value cannot be empty</source>
         <translation>匹配值不能为空</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="179"/>
+        <location filename="../../core/mitm/intercept.py" line="193"/>
         <source>Invalid match value: {}</source>
         <translation>无效的匹配值：{}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="242"/>
+        <location filename="../../core/mitm/intercept.py" line="274"/>
         <source>These breakpoint rules cannot be combined: {}</source>
         <translation>断点规则无法合并：{}</translation>
     </message>
@@ -2556,32 +2551,37 @@
 <context>
     <name>InterceptRuleDialog</name>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="92"/>
+        <location filename="../../apps/intercept/dialogs.py" line="99"/>
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="93"/>
+        <location filename="../../apps/intercept/dialogs.py" line="100"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="100"/>
+        <location filename="../../apps/intercept/dialogs.py" line="107"/>
         <source>Match on</source>
         <translation>匹配对象</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="101"/>
+        <location filename="../../apps/intercept/dialogs.py" line="108"/>
         <source>Condition</source>
         <translation>条件</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="102"/>
+        <location filename="../../apps/intercept/dialogs.py" line="109"/>
         <source>Match value</source>
         <translation>匹配值</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/dialogs.py" line="159"/>
+        <location filename="../../apps/intercept/dialogs.py" line="110"/>
+        <source>Phase</source>
+        <translation>阶段</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/dialogs.py" line="172"/>
         <source>Match expression: {}</source>
         <translation>匹配表达式：{}</translation>
     </message>
@@ -2589,22 +2589,27 @@
 <context>
     <name>InterceptRuleTableModel</name>
     <message>
-        <location filename="../../apps/intercept/models.py" line="151"/>
+        <location filename="../../apps/intercept/models.py" line="131"/>
         <source>Enabled</source>
         <translation>启用</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="152"/>
+        <location filename="../../apps/intercept/models.py" line="132"/>
         <source>Match on</source>
         <translation>匹配对象</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="153"/>
+        <location filename="../../apps/intercept/models.py" line="133"/>
         <source>Condition</source>
         <translation>条件</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="154"/>
+        <location filename="../../apps/intercept/models.py" line="134"/>
+        <source>Phase</source>
+        <translation>阶段</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/models.py" line="135"/>
         <source>Value</source>
         <translation>值</translation>
     </message>
@@ -2612,96 +2617,64 @@
 <context>
     <name>InterceptWindow</name>
     <message>
-        <location filename="../../apps/intercept/window.py" line="73"/>
+        <location filename="../../apps/intercept/window.py" line="68"/>
         <source>Breakpoints</source>
         <translation>断点</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="140"/>
+        <location filename="../../apps/intercept/window.py" line="145"/>
         <source>Request</source>
         <translation>请求</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="142"/>
+        <location filename="../../apps/intercept/window.py" line="146"/>
         <source>Response</source>
         <translation>响应</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="167"/>
-        <location filename="../../apps/intercept/window.py" line="438"/>
+        <location filename="../../apps/intercept/window.py" line="199"/>
+        <source>No response yet — this flow is held before the request goes out</source>
+        <translation>还没有响应——这条流量停在请求发出之前</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/window.py" line="217"/>
+        <location filename="../../apps/intercept/window.py" line="456"/>
         <source>Release</source>
         <translation>放行</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="169"/>
-        <source>Write the current edits back and release (Ctrl+Enter)</source>
-        <translation>写回当前改动并放行 (Ctrl+Enter)</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="171"/>
-        <source>Apply edits</source>
-        <translation>应用改动</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="173"/>
-        <source>Write the edits back and keep the flow held (Ctrl+S)</source>
-        <translation>只写回改动，继续钉住这条流量 (Ctrl+S)</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="175"/>
-        <source>Answer directly</source>
-        <translation>直接返回</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="178"/>
-        <source>Answer the client with whatever the Response tab holds instead of sending the request to the server (rules hold both phases, so the faked response stops once more on its way back)</source>
-        <translation>用「响应」标签里的内容直接回给客户端，不发往服务器（规则两边都拦，这条伪造的响应还会在响应期再停一次）</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="183"/>
-        <location filename="../../apps/intercept/window.py" line="443"/>
+        <location filename="../../apps/intercept/window.py" line="218"/>
+        <location filename="../../apps/intercept/window.py" line="461"/>
         <source>Drop</source>
         <translation>丢弃</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="185"/>
+        <location filename="../../apps/intercept/window.py" line="222"/>
         <source>Kill this flow; the client receives nothing at all</source>
         <translation>断开这条流量，客户端什么都收不到</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="191"/>
-        <location filename="../../apps/intercept/window.py" line="449"/>
-        <source>Revert edits</source>
-        <translation>撤销编辑</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="194"/>
-        <location filename="../../apps/intercept/window.py" line="455"/>
-        <source>Release all</source>
-        <translation>放行全部</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="197"/>
-        <source>Release every held flow without writing any edits back</source>
-        <translation>放行所有被拦下的流量，不写回改动</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="214"/>
+        <location filename="../../apps/intercept/window.py" line="179"/>
         <source>Nothing is held right now</source>
         <translation>当前没有被拦下的流量</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="217"/>
+        <location filename="../../apps/intercept/window.py" line="182"/>
         <source>Traffic that matches a breakpoint rule stops here and waits until you release it</source>
         <translation>命中断点规则的流量会停在这里，等你改完再放行</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="273"/>
+        <location filename="../../apps/intercept/window.py" line="221"/>
+        <source>Write the edits back and release this flow</source>
+        <translation>写回改动并放行这条流量</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/window.py" line="267"/>
         <source>Breakpoints · {} pending</source>
         <translation>断点 · {} 条待处理</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="502"/>
+        <location filename="../../apps/intercept/window.py" line="504"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
@@ -2709,12 +2682,12 @@
 <context>
     <name>ItemDualPanel</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="770"/>
+        <location filename="../../apps/common/edit/widgets.py" line="778"/>
         <source>Text view</source>
         <translation>文本模式</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="772"/>
+        <location filename="../../apps/common/edit/widgets.py" line="780"/>
         <source>Table view</source>
         <translation>表格模式</translation>
     </message>
@@ -2799,12 +2772,12 @@
 <context>
     <name>JsonDualPanel</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="964"/>
+        <location filename="../../apps/common/edit/widgets.py" line="972"/>
         <source>Text view</source>
         <translation>文本模式</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="966"/>
+        <location filename="../../apps/common/edit/widgets.py" line="974"/>
         <source>Tree view</source>
         <translation>树形模式</translation>
     </message>
@@ -2812,12 +2785,12 @@
 <context>
     <name>JsonTreeWidget</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="839"/>
+        <location filename="../../apps/common/edit/widgets.py" line="847"/>
         <source>Key</source>
         <translation>键</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="839"/>
+        <location filename="../../apps/common/edit/widgets.py" line="847"/>
         <source>Value</source>
         <translation>值</translation>
     </message>
@@ -3247,17 +3220,17 @@
 <context>
     <name>ResponseEditor</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="178"/>
+        <location filename="../../apps/intercept/editors.py" line="179"/>
         <source>Empty = standard phrase for the status code</source>
         <translation>留空 = 按状态码取标准短语</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="180"/>
+        <location filename="../../apps/intercept/editors.py" line="181"/>
         <source>Status code</source>
         <translation>状态码</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="181"/>
+        <location filename="../../apps/intercept/editors.py" line="182"/>
         <source>Reason phrase</source>
         <translation>原因短语</translation>
     </message>

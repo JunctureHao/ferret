@@ -1,13 +1,13 @@
-"""断点页两个对话框的测试：规则表单，和关窗时那个三选一确认。
+"""断点页两个对话框的测试：规则表单，和关窗时那个二选一确认。
 
-规则表单是 匹配对象 + 条件 + 值 三栏，**没有阶段** —— 命中的流量请求期、响应期各停
-一次，选择本身就不该存在。要守的有三条：
+规则表单是 匹配对象 + 条件 + 值 + 阶段 四栏。要守的有四条：
 
-1. **表单里不该出现阶段** —— 预览的表达式也不带 ~q / ~s，措辞和真正下发的东西对齐。
+1. **阶段下拉给全三个选项**，且默认「请求和响应」—— 与老行为（两边都拦）一致。
 2. **预览给的必须是真正要下发的那截表达式** —— 用户唯一能看见「忽略大小写」到底加
-   没加的地方就是它。
+   没加的地方就是它。单条规则的表达式不带 ~q / ~s（阶段选择器由合并时加在段外）。
 3. **过不了原生解析器就不让保存** —— `options.update` 是原子的，一条坏表达式会把
    整批规则连坐回滚，界面上却只剩一句原生英文。
+4. **提示语按阶段走** —— 选了「只在请求期停」就别再说「会停两次」。
 
 `MessageBoxBase` 会读 `parent.width()`，所以每个用例都得有一个真的宿主窗口。
 """
@@ -27,6 +27,7 @@ from ferret.apps.intercept.dialogs import (
 from ferret.core.mitm import (
     InterceptField,
     InterceptLogic,
+    InterceptPhase,
     InterceptRule,
 )
 
@@ -34,6 +35,7 @@ app = QApplication.instance() or QApplication([])
 
 _FIELDS = list(InterceptField)
 _LOGICS = list(InterceptLogic)
+_PHASES = list(InterceptPhase)
 
 
 class InterceptDialogTests(unittest.TestCase):
@@ -54,6 +56,8 @@ class InterceptDialogTests(unittest.TestCase):
             dlg.field_combo.setCurrentIndex(_FIELDS.index(kwargs["field"]))
         if "logic" in kwargs:
             dlg.logic_combo.setCurrentIndex(_LOGICS.index(kwargs["logic"]))
+        if "phase" in kwargs:
+            dlg.phase_combo.setCurrentIndex(_PHASES.index(kwargs["phase"]))
 
     def test_a_blank_form_cannot_be_saved(self) -> None:
         dlg = self.dialog()
@@ -75,9 +79,11 @@ class InterceptDialogTests(unittest.TestCase):
         self.assertNotIn("~q", preview)
         self.assertNotIn("~s", preview)
 
-    def test_the_form_offers_no_phase_choice(self) -> None:
-        """表单上不该留一个阶段下拉框去暗示这件事能选。"""
-        self.assertFalse(hasattr(self.dialog(), "phase_combo"))
+    def test_the_form_offers_the_phase_choice(self) -> None:
+        """阶段是规则行为的一部分：三个选项都得在，默认落在「请求和响应」。"""
+        dlg = self.dialog()
+        self.assertEqual(dlg.phase_combo.count(), len(InterceptPhase))
+        self.assertEqual(dlg.get_rule().phase, InterceptPhase.BOTH)
 
     def test_host_and_method_are_case_insensitive(self) -> None:
         """原生这三个选择器一个都没带 IGNORECASE，写 `get` 匹配不上 `GET` 是纯坑。"""
@@ -116,13 +122,22 @@ class InterceptDialogTests(unittest.TestCase):
         self.choose(dlg, field=InterceptField.METHOD, logic=InterceptLogic.REGEX)
         self.assertEqual(dlg.value_edit.placeholderText(), "POST|PUT|PATCH")
 
-    def test_the_hint_combines_the_two_phase_note_and_the_field(self) -> None:
+    def test_the_hint_follows_the_phase_and_the_field(self) -> None:
         dlg = self.dialog()
         self.choose(dlg, field=InterceptField.HOST)
         hint = dlg.hint_label.text()
-        # 阶段说明是固定的一句，不随选择变 —— 但必须在，用户得知道会停两次。
+        # 默认「请求和响应」要说清会停两次；字段提示照旧跟在后面。
         self.assertIn("held twice", hint)
         self.assertIn("without the port", hint)
+
+    def test_the_hint_changes_with_the_phase(self) -> None:
+        """选了只停一次，就不能还挂着「会停两次」的说明。"""
+        dlg = self.dialog()
+        self.choose(dlg, phase=InterceptPhase.REQUEST)
+        self.assertIn("held once", dlg.hint_label.text())
+        self.assertNotIn("held twice", dlg.hint_label.text())
+        self.choose(dlg, phase=InterceptPhase.RESPONSE)
+        self.assertIn("held once", dlg.hint_label.text())
 
     def test_changing_a_choice_revalidates(self) -> None:
         """换字段/条件会换掉下发的表达式，闸门和预览都得跟着重算。"""
@@ -150,12 +165,19 @@ class InterceptDialogTests(unittest.TestCase):
         )
         self.assertEqual(self.dialog(rule).get_rule(), rule)
 
+    def test_the_phase_round_trips(self) -> None:
+        """每个阶段都得原样读回来 —— 表单吞掉选项就是静默改行为。"""
+        for phase in InterceptPhase:
+            with self.subTest(phase=phase):
+                rule = InterceptRule(value="api.example.com", phase=phase)
+                self.assertEqual(self.dialog(rule).get_rule().phase, phase)
+
 
 class HeldFlowsCloseDialogTests(unittest.TestCase):
-    """关掉断点窗口时那三个出口。
+    """关掉断点窗口时那两个出口。
 
-    结果读 `choice` 而不是 `exec()` 的真假：三个出口里有两个都算「关得掉」，光看
-    accepted/rejected 分不出「放行全部」和「保持挂起」。
+    结果读 `choice` 而不是 `exec()` 的真假：「保持挂起」也算关得掉，光看
+    accepted/rejected 分不出它和「取消」。
     """
 
     def setUp(self) -> None:
@@ -169,20 +191,15 @@ class HeldFlowsCloseDialogTests(unittest.TestCase):
         return dlg
 
     def test_cancel_is_the_default(self) -> None:
-        """随手关掉这个框不能变成「放行全部」—— 默认值必须是最不做事的那个。"""
+        """随手关掉这个框不能变成「保持挂起」—— 默认值必须是最不做事的那个。"""
         self.assertEqual(self.dialog().choice, HeldFlowsChoice.CANCEL)
 
     def test_the_title_says_how_many_are_still_held(self) -> None:
         self.assertIn("3", self.dialog(3).title_label.text())
 
-    def test_release_all_is_recorded(self) -> None:
-        dlg = self.dialog()
-        dlg.yesButton.click()
-        self.assertEqual(dlg.choice, HeldFlowsChoice.RELEASE_ALL)
-
     def test_keeping_them_held_is_recorded(self) -> None:
         dlg = self.dialog()
-        dlg.keep_button.click()
+        dlg.yesButton.click()
         self.assertEqual(dlg.choice, HeldFlowsChoice.KEEP_HELD)
 
     def test_cancelling_records_nothing(self) -> None:
@@ -190,13 +207,13 @@ class HeldFlowsCloseDialogTests(unittest.TestCase):
         dlg.cancelButton.click()
         self.assertEqual(dlg.choice, HeldFlowsChoice.CANCEL)
 
-    def test_all_three_buttons_sit_in_the_button_row(self) -> None:
-        """「保持挂起」是插进原生 buttonLayout 的，插错位置会顶掉原来那两个。"""
+    def test_the_button_row_has_just_yes_and_cancel(self) -> None:
+        """「保持挂起」用的是原生 yesButton，不该再冒出一个自己插的按钮。"""
         dlg = self.dialog()
         layout = dlg.buttonLayout
         items = [layout.itemAt(i) for i in range(layout.count())]
         widgets = [item.widget() for item in items if item is not None]
-        self.assertEqual(widgets, [dlg.yesButton, dlg.keep_button, dlg.cancelButton])
+        self.assertEqual(widgets, [dlg.yesButton, dlg.cancelButton])
 
 
 if __name__ == "__main__":

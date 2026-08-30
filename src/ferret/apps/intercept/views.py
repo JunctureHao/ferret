@@ -39,8 +39,9 @@ class InterceptInterface(QWidget):
     """断点页：规则表 + 总开关。命中之后的处理不在这里。
 
     拦不拦由 mitmproxy 原生的 `Intercept` addon 决定（读一条 flowfilter 表达式），
-    ferret 只负责把这张表编译成表达式。规则**不选阶段** —— 原生那两个钩子共用同一个
-    过滤器，命中的流量在请求发出前停一次、响应回来后再停一次（见 `InterceptPhase`）。
+    ferret 只负责把这张表编译成表达式。规则**选阶段**：请求（只停请求期）、
+    响应（只停响应期）或两者（默认，两期各停一次），带阶段的规则经
+    `intercept_expression` 在段外并列 ``~q`` / ``~s``（见 `InterceptPhase`）。
 
     队列和编辑器长在独立的 `InterceptWindow` 里：断点一命中就得让人看见并动手，藏在
     一个要自己切过来的页面里等于没提醒。这一页只留一个带计数的入口按钮 —— 用户在关窗
@@ -84,7 +85,7 @@ class InterceptInterface(QWidget):
             QAbstractItemView.SelectionBehavior.SelectRows
         )
         self.rule_table.setWordWrap(False)
-        widths = [60, 110, 100, 260]
+        widths = [60, 110, 100, 130, 260]
         header = self.rule_table.horizontalHeader()
         header.setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -172,8 +173,8 @@ class InterceptInterface(QWidget):
         label = BodyLabel(self.tr("No breakpoint rules yet"), page)
         hint = CaptionLabel(
             self.tr(
-                "Matching traffic is held twice: once before the request goes "
-                "out and once after the response comes back"
+                "Rules can hold traffic before the request goes out, after the "
+                "response comes back, or both"
             ),
             page,
         )

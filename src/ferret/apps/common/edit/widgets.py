@@ -745,18 +745,26 @@ class ItemDualPanel(QWidget):
     """带工具栏的文本、表格双重面板 可切换
 
     :param bool editable: 是否可编辑
+    :param str default_view: 初始显示哪页，`"text"`（默认）或 `"table"`
     :param parent: 父控件
     """
 
     changed = Signal()
 
-    def __init__(self, editable: bool = False, parent: QWidget | None = None):
+    def __init__(
+        self,
+        editable: bool = False,
+        parent: QWidget | None = None,
+        default_view: str = "text",
+    ):
         super().__init__(parent)
         self._editable = editable
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
         self.set_read_only(not editable)
+        if default_view == "table":
+            self.stack.setCurrentWidget(self.table)
 
     def __init_widget(self):
         self.text = ToolPlainTextEdit(self)

@@ -165,8 +165,9 @@ class RequestEditor(MessageEditor):
 class ResponseEditor(MessageEditor):
     """响应编辑器：状态码 + 原因短语 + 头 + 体。
 
-    请求期断点（还没有响应）也用这一套：填好之后走
-    `MitmFacade.fake_response`，直接回给客户端、不发往服务器。
+    请求期断点（还没有响应）没有内容可编：窗口的「响应」标签那边显示的是占位提示，
+    这里只把编辑器清空占着。伪造响应（填好直接回给客户端、不发往服务器）已从窗口
+    UI 撤掉，入口留在内核 `MitmFacade.fake_response` 供别处使用。
     """
 
     def __init__(self, parent: QWidget | None = None):
@@ -183,15 +184,8 @@ class ResponseEditor(MessageEditor):
     def load(self, flow: HTTPFlow) -> None:
         response = flow.response
         if response is None:
-            # 请求期断点：给一套能直接放行的默认值，用户改哪栏改哪栏。
-            self.status_edit.setText("200")
-            self.reason_edit.clear()
-            self.headers_panel.set_items([("Content-Type", "application/json")])
-            self._raw_body = b""
-            self._binary = False
-            self.body_edit.set_text("", Language.JSON)
-            self.body_hint.hide()
-            self._sync_body_read_only()
+            # 请求期：响应还不存在，清空占位（窗口那边显示的是占位提示页）。
+            self.clear()
             return
         self.status_edit.setText(str(response.status_code))
         self.reason_edit.setText(response.reason or "")

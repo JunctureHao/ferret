@@ -4,8 +4,8 @@
 
 * 规则**不给上移/下移** —— 所有启用的规则被 ``|`` 连成一条 flowfilter 表达式，
   命中任意一条就拦，行序没有语义；
-* 队列装的是 `flow.copy()` 快照，判「停在哪个阶段」只能看有没有 response
-  （与原生 ``~q`` / ``~s`` 逐字同义），不能自己另记一份阶段。
+* 队列每行是「请求方式 + URL + 操作」，操作列不放数据 —— 按钮由窗口经
+  `setIndexWidget` 挂进那一格。
 """
 
 import os
@@ -21,13 +21,10 @@ from ferret.apps.intercept.models import (
     HeldFlowTableModel,
     InterceptRuleFilterProxyModel,
     InterceptRuleTableModel,
-    both_phases_hint,
     field_hint,
     field_label,
-    held_edited,
-    held_phase_label,
-    held_status,
     logic_label,
+    phase_hint,
     phase_label,
     rule_summary,
 )
@@ -53,14 +50,11 @@ def flow_to(url: str = "http://api.example.com/v1", *, resp: bool = False):
 
 
 class LabelTests(unittest.TestCase):
-    def test_every_enum_member_has_a_label(self) -> None:
-        """漏一个就会在界面上显示成 ``InterceptPhase.REQUEST`` 这种原始值。
-
-        阶段只剩「标注队列里这条停在哪」这一个用途，所以只要 label，没有 hint ——
-        规则的行为说明是一句固定的 `both_phases_hint()`，不按阶段分。
-        """
+    def test_every_enum_member_has_a_label_and_a_hint(self) -> None:
+        """漏一个就会在界面上显示成 ``InterceptPhase.REQUEST`` 这种原始值。"""
         for phase in InterceptPhase:
             self.assertNotEqual(phase_label(phase), str(phase))
+            self.assertTrue(phase_hint(phase))
         for field in InterceptField:
             self.assertNotEqual(field_label(field), str(field))
             self.assertTrue(field_hint(field))
@@ -79,8 +73,14 @@ class LabelTests(unittest.TestCase):
 
     def test_rule_summary_shows_the_expression_that_gets_pushed_down(self) -> None:
         summary = rule_summary(make_rule())
-        self.assertIn(both_phases_hint(), summary)
+        self.assertIn(phase_hint(InterceptPhase.BOTH), summary)
         self.assertIn(make_rule().expression, summary)
+
+    def test_the_summary_hint_follows_the_rule_phase(self) -> None:
+        """每个阶段各停几次要说清楚 —— 规则选阶段是会改变行为的。"""
+        for phase in InterceptPhase:
+            with self.subTest(phase=phase):
+                self.assertIn(phase_hint(phase), rule_summary(make_rule(phase=phase)))
 
     def test_rule_summary_explains_an_unusable_rule(self) -> None:
         self.assertEqual(rule_summary(make_rule("")), "Match value cannot be empty")
@@ -88,45 +88,6 @@ class LabelTests(unittest.TestCase):
             "Invalid match value",
             rule_summary(make_rule("bad(", logic=InterceptLogic.REGEX)),
         )
-
-
-class HeldFlowLabelTests(unittest.TestCase):
-    def test_the_phase_is_decided_by_having_a_response(self) -> None:
-        """和原生 ``~q`` / ``~s`` 同一个判据，不另记一份阶段。"""
-        self.assertEqual(
-            held_phase_label(flow_to()), phase_label(InterceptPhase.REQUEST)
-        )
-        self.assertEqual(
-            held_phase_label(flow_to(resp=True)),
-            phase_label(InterceptPhase.RESPONSE),
-        )
-
-    def test_a_request_phase_flow_has_no_status_code_yet(self) -> None:
-        self.assertEqual(held_status(flow_to()), "Waiting for response")
-
-    def test_a_response_phase_flow_shows_its_status_code(self) -> None:
-        self.assertEqual(held_status(flow_to(resp=True)), "200")
-
-    def test_a_backed_up_flow_reads_as_edited(self) -> None:
-        """`Flow.modified()` 的真实语义是「有备份可撤销」，写回前必然 backup 过。"""
-        flow = flow_to(resp=True)
-        self.assertFalse(held_edited(flow))
-        flow.backup()
-        self.assertTrue(held_edited(flow))
-        self.assertEqual(held_status(flow), "200 · Edited")
-
-    def test_reverting_takes_the_edited_mark_away(self) -> None:
-        flow = flow_to(resp=True)
-        flow.backup()
-        flow.revert()
-        self.assertFalse(held_edited(flow))
-        self.assertEqual(held_status(flow), "200")
-
-    def test_a_copy_carries_the_edited_mark(self) -> None:
-        """队列里装的是 `flow.copy()`，标记必须跟着快照走。"""
-        flow = flow_to()
-        flow.backup()
-        self.assertTrue(held_edited(flow.copy()))
 
 
 class InterceptRuleTableModelTests(unittest.TestCase):
@@ -140,13 +101,14 @@ class InterceptRuleTableModelTests(unittest.TestCase):
                     field=InterceptField.METHOD,
                     logic=InterceptLogic.EQUALS,
                     enabled=False,
+                    phase=InterceptPhase.RESPONSE,
                 ),
             ]
         )
 
     def test_row_and_column_counts(self) -> None:
         self.assertEqual(self.model.rowCount(), 2)
-        self.assertEqual(self.model.columnCount(), 4)
+        self.assertEqual(self.model.columnCount(), 5)
 
     def test_headers_are_labelled(self) -> None:
         for col, expected in enumerate(InterceptRuleTableModel.HEADERS):
@@ -164,7 +126,13 @@ class InterceptRuleTableModelTests(unittest.TestCase):
             self.model.data(self.model.index(1, 2), role),
             logic_label(InterceptLogic.EQUALS),
         )
-        self.assertEqual(self.model.data(self.model.index(1, 3), role), "POST")
+        self.assertEqual(
+            self.model.data(self.model.index(1, 3), role),
+            phase_label(InterceptPhase.RESPONSE),
+        )
+        self.assertEqual(
+            self.model.data(self.model.index(1, 4), role), "POST"
+        )
 
     def test_check_state_reflects_enabled(self) -> None:
         role = Qt.ItemDataRole.CheckStateRole
@@ -246,11 +214,11 @@ class InterceptRuleTableModelTests(unittest.TestCase):
         """行序没有语义（多条规则是 ``|`` 关系），所以刻意不提供上移/下移。"""
         self.assertFalse(hasattr(self.model, "move_rule"))
 
-    def test_the_table_has_no_phase_column(self) -> None:
-        """规则不选阶段，表里也不该留一列去暗示它能选。"""
+    def test_the_phase_column_sits_before_the_value(self) -> None:
+        """规则选阶段。值是最长的一列、要占满剩余宽度，所以阶段排在它前面。"""
         self.assertEqual(
             InterceptRuleTableModel.HEADERS,
-            ["Enabled", "Match on", "Condition", "Value"],
+            ["Enabled", "Match on", "Condition", "Phase", "Value"],
         )
 
 
@@ -284,6 +252,11 @@ class InterceptRuleFilterProxyModelTests(unittest.TestCase):
         self.proxy.set_filter_text(logic_label(InterceptLogic.EQUALS))
         self.assertEqual(self.proxy.rowCount(), 1)
 
+    def test_filter_matches_the_phase_label(self) -> None:
+        """阶段也进了搜索范围：两条都停在默认「请求和响应」，搜「响应」两条都在。"""
+        self.proxy.set_filter_text(phase_label(InterceptPhase.BOTH))
+        self.assertEqual(self.proxy.rowCount(), 2)
+
     def test_filter_is_case_insensitive(self) -> None:
         self.proxy.set_filter_text("ADS.EXAMPLE")
         self.assertEqual(self.proxy.rowCount(), 1)
@@ -306,7 +279,7 @@ class HeldFlowTableModelTests(unittest.TestCase):
 
     def test_row_and_column_counts(self) -> None:
         self.assertEqual(self.model.rowCount(), 2)
-        self.assertEqual(self.model.columnCount(), 4)
+        self.assertEqual(self.model.columnCount(), 3)
 
     def test_headers_are_labelled(self) -> None:
         for col, expected in enumerate(HeldFlowTableModel.HEADERS):
@@ -317,20 +290,23 @@ class HeldFlowTableModelTests(unittest.TestCase):
     def test_display_columns_describe_the_held_flow(self) -> None:
         role = Qt.ItemDataRole.DisplayRole
         self.assertEqual(
-            self.model.data(self.model.index(0, 0), role),
-            phase_label(InterceptPhase.REQUEST),
+            self.model.data(self.model.index(0, 0), role), self.waiting.request.method
         )
         self.assertEqual(
-            self.model.data(self.model.index(0, 1), role), self.waiting.request.method
-        )
-        self.assertEqual(
-            self.model.data(self.model.index(0, 2), role),
+            self.model.data(self.model.index(0, 1), role),
             "http://api.example.com/v1",
         )
         self.assertEqual(
-            self.model.data(self.model.index(0, 3), role), "Waiting for response"
+            self.model.data(self.model.index(1, 1), role),
+            "http://cdn.example.com/a.js",
         )
-        self.assertEqual(self.model.data(self.model.index(1, 3), role), "200")
+
+    def test_the_actions_column_carries_no_data(self) -> None:
+        """操作列不放数据：那一格归 `setIndexWidget` 挂的「放行 / 丢弃」按钮组。"""
+        role = Qt.ItemDataRole.DisplayRole
+        for row in range(self.model.rowCount()):
+            self.assertIsNone(self.model.data(self.model.index(row, 2), role))
+        self.assertEqual(HeldFlowTableModel.ACTIONS_COLUMN, 2)
 
     def test_user_role_returns_the_flow(self) -> None:
         self.assertIs(

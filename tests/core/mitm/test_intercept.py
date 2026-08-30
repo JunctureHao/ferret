@@ -15,6 +15,7 @@ from ferret.core.mitm import (
     FerretMaster,
     InterceptField,
     InterceptLogic,
+    InterceptPhase,
     InterceptRule,
     RequestEdit,
     ResponseEdit,
@@ -94,12 +95,12 @@ class InterceptRulePatternTests(unittest.TestCase):
 
 
 class InterceptRuleExpressionTests(unittest.TestCase):
-    def test_the_expression_carries_no_phase_selector(self) -> None:
-        """规则不筛阶段：不带 ~q / ~s 就是原生那两个钩子都拦。"""
-        expression = rule().expression
-        self.assertEqual(expression, r'(~u "api\\.example\\.com")')
-        self.assertNotIn("~q", expression)
-        self.assertNotIn("~s", expression)
+    def test_the_rule_expression_itself_carries_no_phase_selector(self) -> None:
+        """阶段由 intercept_expression 分组后加在段外；单条表达式不变。"""
+        for phase in InterceptPhase:
+            with self.subTest(phase=phase):
+                expression = rule(phase=phase).expression
+                self.assertEqual(expression, r'(~u "api\\.example\\.com")')
 
     def test_every_expression_is_parenthesized(self) -> None:
         for field in InterceptField:
@@ -121,6 +122,30 @@ class InterceptRuleExpressionTests(unittest.TestCase):
             built.validate()
         self.assertIn("Invalid match value", str(ctx.exception))
 
+    def test_every_phase_matches_the_right_half(self) -> None:
+        """段外并列 = 隐式 AND；三种 phase 的组合交给原生解析并验证语义。"""
+        pending = tflow.tflow(resp=False)
+        pending.request.host = "api.example.com"
+        answered = tflow.tflow(resp=True)
+        answered.request.host = "api.example.com"
+        for phase in InterceptPhase:
+            built = rule(phase=phase)
+            with self.subTest(phase=phase):
+                built.validate()
+                expression = intercept_expression([built])
+                assert expression is not None
+                matcher = parse_filter(expression)
+                assert matcher is not None
+                if phase == InterceptPhase.REQUEST:
+                    self.assertTrue(matcher(pending))
+                    self.assertFalse(matcher(answered))
+                elif phase == InterceptPhase.RESPONSE:
+                    self.assertFalse(matcher(pending))
+                    self.assertTrue(matcher(answered))
+                else:
+                    self.assertTrue(matcher(pending))
+                    self.assertTrue(matcher(answered))
+
 
 class InterceptExpressionCompilationTests(unittest.TestCase):
     def test_no_rules_compile_to_none(self) -> None:
@@ -135,8 +160,69 @@ class InterceptExpressionCompilationTests(unittest.TestCase):
         rules = [rule(value="a.com"), rule(value="b.com")]
         expression = intercept_expression(rules)
         assert expression is not None
-        self.assertIn(" | ", expression)
-        self.assertEqual(expression.count("("), 2 + expression.count("(?i)"))
+        # 同阶段多条规则包一段：单靠并列拼 `|` 会被解析成 FAnd（见下一条）。
+        self.assertEqual(expression, r'((~u "a\\.com") | (~u "b\\.com"))')
+
+    def test_the_request_phase_appends_the_q_selector(self) -> None:
+        expression = intercept_expression([rule(phase=InterceptPhase.REQUEST)])
+        self.assertEqual(expression, r'(~u "api\\.example\\.com") & ~q')
+
+    def test_the_response_phase_appends_the_s_selector(self) -> None:
+        expression = intercept_expression([rule(phase=InterceptPhase.RESPONSE)])
+        self.assertEqual(expression, r'(~u "api\\.example\\.com") & ~s')
+
+    def test_the_both_phase_keeps_the_bare_expression(self) -> None:
+        """默认 BOTH：不带 ~q / ~s，原生那两个钩子都拦。"""
+        expression = intercept_expression([rule(phase=InterceptPhase.BOTH)])
+        assert expression is not None
+        self.assertEqual(expression, r'(~u "api\\.example\\.com")')
+        self.assertNotIn("~q", expression)
+        self.assertNotIn("~s", expression)
+
+    def test_same_phase_rules_share_one_selector(self) -> None:
+        """同阶段多条规则在段内 `` | `` 连接，阶段选择器只出现一次。"""
+        rules = [
+            rule(value="a.com", phase=InterceptPhase.REQUEST),
+            rule(value="b.com", phase=InterceptPhase.REQUEST),
+        ]
+        expression = intercept_expression(rules)
+        assert expression is not None
+        self.assertEqual(expression.count("~q"), 1)
+        matcher = parse_filter(expression)
+        assert matcher is not None
+        pending_b = tflow.tflow(resp=False)
+        pending_b.request.url = "http://b.com/x"
+        answered_a = tflow.tflow(resp=True)
+        answered_a.request.url = "http://a.com/x"
+        self.assertTrue(matcher(pending_b))
+        self.assertFalse(matcher(answered_a))
+
+    def test_mixed_phase_rules_or_join_and_parse(self) -> None:
+        """不同 phase 的规则分组后用 `` | `` 连接，整条表达式原生可解析。"""
+        rules = [
+            rule(value="a.com", phase=InterceptPhase.REQUEST),
+            rule(value="b.com", phase=InterceptPhase.RESPONSE),
+            rule(value="c.com"),
+        ]
+        expression = intercept_expression(rules)
+        assert expression is not None
+        matcher = parse_filter(expression)
+        assert matcher is not None
+        pending_a = tflow.tflow(resp=False)
+        pending_a.request.url = "http://a.com/x"
+        answered_a = tflow.tflow(resp=True)
+        answered_a.request.url = "http://a.com/x"
+        answered_b = tflow.tflow(resp=True)
+        answered_b.request.url = "http://b.com/x"
+        pending_b = tflow.tflow(resp=False)
+        pending_b.request.url = "http://b.com/x"
+        answered_c = tflow.tflow(resp=True)
+        answered_c.request.url = "http://c.com/x"
+        self.assertTrue(matcher(pending_a))
+        self.assertFalse(matcher(answered_a))
+        self.assertTrue(matcher(answered_b))
+        self.assertFalse(matcher(pending_b))
+        self.assertTrue(matcher(answered_c))
 
     def test_or_joined_expression_really_means_or(self) -> None:
         """Without the per-rule parentheses this parses as FAnd and matches nothing."""
@@ -177,6 +263,8 @@ class InterceptConfigRoundTripTests(unittest.TestCase):
         rules = [
             rule(field=InterceptField.HOST),
             rule(logic=InterceptLogic.REGEX, value="^x", enabled=False),
+            rule(phase=InterceptPhase.REQUEST),
+            rule(phase=InterceptPhase.RESPONSE),
         ]
         self.assertEqual(
             intercept_rules_from_config(intercept_rules_to_config(rules)), rules
@@ -186,14 +274,24 @@ class InterceptConfigRoundTripTests(unittest.TestCase):
         raw = [{"field": "nope", "value": "x"}, "not-a-dict", rule().to_dict()]
         self.assertEqual(intercept_rules_from_config(raw), [rule()])
 
-    def test_a_legacy_phase_key_is_ignored(self) -> None:
-        """老配置里存过 `phase`（那时规则要选拦请求还是拦响应）。
+    def test_a_bad_phase_value_is_rejected(self) -> None:
+        raw = [{"phase": "sideways", "value": "api.example.com"}]
+        self.assertEqual(intercept_rules_from_config(raw), [])
+        with self.assertRaises(ValueError):
+            InterceptRule.from_dict({"phase": "sideways"})
 
-        `from_dict` 只读认识的键，所以这个键自然作废，规则照常读出来 —— 不需要
-        迁移代码，也不该把整条规则判死。
-        """
-        raw = [{"phase": "request", "value": "api.example.com"}]
+    def test_a_missing_phase_key_defaults_to_both(self) -> None:
+        """老配置没有 `phase` 键：默认 BOTH，与旧行为（两边都拦）一致。"""
+        raw = [{"value": "api.example.com"}]
         self.assertEqual(intercept_rules_from_config(raw), [rule()])
+        self.assertEqual(intercept_rules_from_config(raw)[0].phase, InterceptPhase.BOTH)
+
+    def test_to_dict_and_from_dict_preserve_the_phase(self) -> None:
+        for phase in InterceptPhase:
+            with self.subTest(phase=phase):
+                built = rule(phase=phase)
+                self.assertEqual(built.to_dict()["phase"], str(phase))
+                self.assertEqual(InterceptRule.from_dict(built.to_dict()), built)
 
     def test_non_list_config_yields_no_rules(self) -> None:
         self.assertEqual(intercept_rules_from_config({"a": 1}), [])

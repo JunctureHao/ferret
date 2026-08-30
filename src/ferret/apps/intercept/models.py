@@ -24,20 +24,30 @@ from ferret.core.mitm import (
 )
 from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 
-# 只剩两个，而且只用来标注「队列里这条停在哪」—— 规则不再选阶段，见 `InterceptPhase`。
+# 规则表单的阶段下拉与规则表的「阶段」列共用这一份词；队列那侧不再标阶段（列已撤，
+# 停在哪个阶段由编辑区标签直接体现）。
 PHASE_LABELS: dict[InterceptPhase, str] = {
-    InterceptPhase.REQUEST: QT_TRANSLATE_NOOP("InterceptPhase", "Request phase"),
-    InterceptPhase.RESPONSE: QT_TRANSLATE_NOOP("InterceptPhase", "Response phase"),
+    InterceptPhase.BOTH: QT_TRANSLATE_NOOP("InterceptPhase", "Request & response"),
+    InterceptPhase.REQUEST: QT_TRANSLATE_NOOP("InterceptPhase", "Request"),
+    InterceptPhase.RESPONSE: QT_TRANSLATE_NOOP("InterceptPhase", "Response"),
 }
 
-
-# 所有规则的行为都一样，所以是一句固定说明而不是一张按阶段分的表。措辞对齐实际下发的
-# 表达式（`InterceptRule.expression` 不带 ~q / ~s），别写成愿望。
-def both_phases_hint() -> str:
-    return QCoreApplication.translate(
+# 按阶段说明会停几次、每一次能改什么。措辞对齐实际下发的表达式（`InterceptRule.expression`
+# 本身不带 ~q / ~s，阶段选择器由 `intercept_expression` 加在段外），别写成愿望。
+PHASE_HINTS: dict[InterceptPhase, str] = {
+    InterceptPhase.BOTH: QT_TRANSLATE_NOOP(
         "InterceptRule",
-        "Matching traffic is held twice: once before the request goes out (you can edit the request, or answer the client with a faked response instead of sending it to the server), and once again after it is released and the response comes back (only the response can be edited then).",
-    )
+        "Matching traffic is held twice: once before the request goes out, and once again after the response comes back; only the request can be edited at the first stop, and only the response at the second.",
+    ),
+    InterceptPhase.REQUEST: QT_TRANSLATE_NOOP(
+        "InterceptRule",
+        "Matching traffic is held once, before the request goes out; only the request can be edited there.",
+    ),
+    InterceptPhase.RESPONSE: QT_TRANSLATE_NOOP(
+        "InterceptRule",
+        "Matching traffic is held once, after the response comes back; only the response can be edited there.",
+    ),
+}
 
 
 FIELD_LABELS: dict[InterceptField, str] = {
@@ -68,12 +78,14 @@ FIELD_HINTS: dict[InterceptField, str] = {
     ),
 }
 
-_WAITING = QT_TRANSLATE_NOOP("HeldFlowTableModel", "Waiting for response")
-_EDITED = QT_TRANSLATE_NOOP("HeldFlowTableModel", "Edited")
-
 
 def phase_label(phase: InterceptPhase) -> str:
     return resolve_marker(PHASE_LABELS, phase, "InterceptPhase", str(phase))
+
+
+def phase_hint(phase: InterceptPhase) -> str:
+    """这条规则会把命中的流量在哪些时机拦下来。"""
+    return resolve_marker(PHASE_HINTS, phase, "InterceptRule")
 
 
 def field_label(field: InterceptField) -> str:
@@ -103,39 +115,7 @@ def rule_summary(rule: InterceptRule) -> str:
     expression = QCoreApplication.translate(
         "InterceptRule", "Match expression: {}"
     ).format(rule.expression)
-    return f"{both_phases_hint()}\n{expression}"
-
-
-def held_phase_label(flow: HTTPFlow) -> str:
-    """这条流量停在哪个阶段。判据和原生 ~q / ~s 完全一致：有没有响应。"""
-    return phase_label(
-        InterceptPhase.RESPONSE if flow.response is not None else InterceptPhase.REQUEST
-    )
-
-
-def held_edited(flow: HTTPFlow) -> bool:
-    """这条流量是否有可撤销的改动。
-
-    原生 `Flow.modified()` 一旦 `backup()` 过就恒为 True（它拿 `_backup` 和
-    `get_state()` 比，而后者必然多带一个内容不同的 backup 键），所以它的实际语义是
-    「有备份、撤销得回去」—— 而这恰好就是界面要标的东西：`apply_request_edit` /
-    `apply_response_edit` / `fake_response` 写回前都会 `backup()`，`revert()` 成功后
-    又把备份清掉。`flow.copy()` 会把备份一起带过来，所以拿 Qt 线程上的快照判也准。
-    """
-    return bool(flow.modified())
-
-
-def held_status(flow: HTTPFlow) -> str:
-    """「状态」列：响应期给状态码，请求期还没有响应可给。"""
-    text = (
-        QCoreApplication.translate("HeldFlowTableModel", _WAITING)
-        if flow.response is None
-        else str(flow.response.status_code)
-    )
-    if not held_edited(flow):
-        return text
-    edited = QCoreApplication.translate("HeldFlowTableModel", _EDITED)
-    return f"{text} · {edited}"
+    return f"{phase_hint(rule.phase)}\n{expression}"
 
 
 class InterceptRuleTableModel(QAbstractTableModel):
@@ -151,6 +131,7 @@ class InterceptRuleTableModel(QAbstractTableModel):
         QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Enabled"),
         QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Match on"),
         QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Condition"),
+        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Phase"),
         QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Value"),
     ]
 
@@ -221,6 +202,8 @@ class InterceptRuleTableModel(QAbstractTableModel):
             if col == 2:
                 return logic_label(rule.logic)
             if col == 3:
+                return phase_label(rule.phase)
+            if col == 4:
                 return rule.value
             return None
 
@@ -289,6 +272,7 @@ class InterceptRuleFilterProxyModel(QSortFilterProxyModel):
                 rule.value,
                 field_label(rule.field),
                 logic_label(rule.logic),
+                phase_label(rule.phase),
             )
         ).lower()
         return self._filter_text in haystack
@@ -299,14 +283,20 @@ class HeldFlowTableModel(QAbstractTableModel):
 
     整表重置而不做增量：队列本来就短（`INTERCEPT_LIMIT` 是 128，实际同时拦下的是
     个位数），而每次刷新拿到的都是一批新的快照对象，增量比对反而要按 id 手工对齐。
+
+    每行是「请求方式 + URL + 操作」：操作列不放数据，`InterceptWindow` 用
+    `setIndexWidget` 往那一格里挂「放行 / 丢弃」按钮组。停在哪个阶段不占列了 ——
+    编辑区的「请求 / 响应」标签本身就是答案。
     """
 
     HEADERS: ClassVar[list[str]] = [
-        QT_TRANSLATE_NOOP("HeldFlowTableModel", "Phase"),
         QT_TRANSLATE_NOOP("HeldFlowTableModel", "Method"),
         QT_TRANSLATE_NOOP("HeldFlowTableModel", "URL"),
-        QT_TRANSLATE_NOOP("HeldFlowTableModel", "Status"),
+        QT_TRANSLATE_NOOP("HeldFlowTableModel", "Actions"),
     ]
+
+    #: 「操作」列的序号，`InterceptWindow` 往这一格挂按钮组。
+    ACTIONS_COLUMN: ClassVar[int] = 2
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -370,13 +360,10 @@ class HeldFlowTableModel(QAbstractTableModel):
 
         if role == Qt.ItemDataRole.DisplayRole:
             if col == 0:
-                return held_phase_label(flow)
-            if col == 1:
                 return flow.request.method
-            if col == 2:
+            if col == 1:
                 return flow.request.pretty_url
-            if col == 3:
-                return held_status(flow)
+            # 操作列没有数据：那一格归 `setIndexWidget` 挂的按钮组。
             return None
 
         if role == Qt.ItemDataRole.ToolTipRole:

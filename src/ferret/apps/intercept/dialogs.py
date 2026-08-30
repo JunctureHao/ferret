@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QFormLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
@@ -10,24 +10,26 @@ from qfluentwidgets import (
     ComboBox,
     LineEdit,
     MessageBoxBase,
-    PushButton,
     SubtitleLabel,
 )
 
 from ferret.apps.intercept.models import (
-    both_phases_hint,
     field_hint,
     field_label,
     logic_label,
+    phase_hint,
+    phase_label,
 )
 from ferret.core.mitm import (
     InterceptField,
     InterceptLogic,
+    InterceptPhase,
     InterceptRule,
 )
 
 _FIELDS: list[InterceptField] = list(InterceptField)
 _LOGICS: list[InterceptLogic] = list(InterceptLogic)
+_PHASES: list[InterceptPhase] = list(InterceptPhase)
 
 _PLACEHOLDERS: dict[tuple[InterceptField, InterceptLogic], str] = {
     (InterceptField.URL, InterceptLogic.CONTAINS): "/v1/user",
@@ -43,10 +45,11 @@ _PLACEHOLDERS: dict[tuple[InterceptField, InterceptLogic], str] = {
 
 
 class InterceptRuleDialog(MessageBoxBase):
-    """断点规则表单：匹配对象 + 条件 + 值。
+    """断点规则表单：匹配对象 + 条件 + 值 + 阶段。
 
-    没有「断点阶段」这一项，也不该有：命中的流量在请求期和响应期各停一次，理由见
-    `InterceptPhase` 的类注释。
+    「阶段」决定命中的流量停几次：请求（只停请求期）/ 响应（只停响应期）/
+    请求和响应（默认，两期各停一次），经 `intercept_expression` 编译成段外的
+    ``~q`` / ``~s`` 选择器。
 
     合法性一律交给原生 flowfilter 解析器拍板（`InterceptRule.validate` 内部跑
     `parse_filter`），过不了就不让保存 —— `options.update` 是原子的，一条坏表达式
@@ -79,6 +82,10 @@ class InterceptRuleDialog(MessageBoxBase):
         self.logic_combo.addItems([logic_label(logic) for logic in _LOGICS])
         self.logic_combo.setCurrentIndex(self._index_of(_LOGICS, self._rule.logic))
 
+        self.phase_combo = ComboBox(self)
+        self.phase_combo.addItems([phase_label(phase) for phase in _PHASES])
+        self.phase_combo.setCurrentIndex(self._index_of(_PHASES, self._rule.phase))
+
         self.value_edit = LineEdit(self)
         self.value_edit.setText(self._rule.value)
         self.value_edit.setClearButtonEnabled(True)
@@ -100,6 +107,7 @@ class InterceptRuleDialog(MessageBoxBase):
         form.addRow(BodyLabel(self.tr("Match on"), self), self.field_combo)
         form.addRow(BodyLabel(self.tr("Condition"), self), self.logic_combo)
         form.addRow(BodyLabel(self.tr("Match value"), self), self.value_edit)
+        form.addRow(BodyLabel(self.tr("Phase"), self), self.phase_combo)
 
         layout = QVBoxLayout()
         layout.setSpacing(8)
@@ -113,6 +121,7 @@ class InterceptRuleDialog(MessageBoxBase):
     def __connect_signal_to_slot(self):
         self.field_combo.currentIndexChanged.connect(self._on_choice_changed)
         self.logic_combo.currentIndexChanged.connect(self._on_choice_changed)
+        self.phase_combo.currentIndexChanged.connect(self._on_choice_changed)
         self.value_edit.textChanged.connect(self._validate)
 
     @staticmethod
@@ -128,10 +137,13 @@ class InterceptRuleDialog(MessageBoxBase):
     def _current_logic(self) -> InterceptLogic:
         return _LOGICS[max(self.logic_combo.currentIndex(), 0)]
 
+    def _current_phase(self) -> InterceptPhase:
+        return _PHASES[max(self.phase_combo.currentIndex(), 0)]
+
     def _sync_texts(self) -> None:
         field, logic = self._current_field(), self._current_logic()
         self.value_edit.setPlaceholderText(_PLACEHOLDERS.get((field, logic), ""))
-        hints = [both_phases_hint(), field_hint(field)]
+        hints = [phase_hint(self._current_phase()), field_hint(field)]
         self.hint_label.setText("\n".join(hint for hint in hints if hint))
 
     def _on_choice_changed(self):
@@ -144,6 +156,7 @@ class InterceptRuleDialog(MessageBoxBase):
             logic=self._current_logic(),
             value=self.value_edit.text().strip(),
             enabled=self._rule.enabled,
+            phase=self._current_phase(),
         )
 
     def _validate(self):
@@ -164,19 +177,18 @@ class InterceptRuleDialog(MessageBoxBase):
 class HeldFlowsChoice(StrEnum):
     """关掉断点窗口时，那些还攥在手里的流量怎么办。"""
 
-    RELEASE_ALL = "release_all"
     KEEP_HELD = "keep_held"
     CANCEL = "cancel"
 
 
 class HeldFlowsCloseDialog(MessageBoxBase):
-    """队列非空时关窗的三选一确认。
+    """队列非空时关窗的二选一确认。
 
     不能默默关掉：窗口一藏，那几条流量还钉在 `wait_for_resume()` 上，客户端就那么
     转圈，而界面上再也看不到它们（`handle_hook` 在等待期间 `disarm()` 了看门狗，
     `tcp_timeout` 不会兜底）。所以「保持挂起」也是一个**明示**的选择，不是默认行为。
 
-    结果读 :attr:`choice` 而不是 `exec()` 的真假：三个出口里有两个都算「关得掉」。
+    结果读 :attr:`choice` 而不是 `exec()` 的真假：「保持挂起」也算关得掉。
     """
 
     def __init__(self, flow_count: int, parent: QWidget | None = None) -> None:
@@ -196,14 +208,7 @@ class HeldFlowsCloseDialog(MessageBoxBase):
         )
         self.desc_label.setWordWrap(True)
 
-        self.keep_button = PushButton(self.tr("Keep held and hide"), self.buttonGroup)
-        self.keep_button.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
-        # 夹在「放行全部」和「取消」中间：破坏性最小的那个不该排在最边上。
-        self.buttonLayout.insertWidget(
-            1, self.keep_button, 1, Qt.AlignmentFlag.AlignVCenter
-        )
-
-        self.yesButton.setText(self.tr("Release all"))
+        self.yesButton.setText(self.tr("Keep held and hide"))
         self.cancelButton.setText(self.tr("Cancel"))
 
         layout = QVBoxLayout()
@@ -213,18 +218,12 @@ class HeldFlowsCloseDialog(MessageBoxBase):
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(420)
 
-        self.keep_button.clicked.connect(self._on_keep)
-
     def validate(self) -> bool:
-        """「放行全部」这一路的记账点。
+        """「保持挂起」这一路的记账点。
 
         刻意用这个钩子而不是再给 `yesButton.clicked` 挂一个槽：基类在
         `__onYesButtonClicked` 里是先 `validate()` 再 `accept()`，记账稳稳排在关窗
         之前；反过来挂槽就要赌两个槽的调用顺序压过 `accept()`。
         """
-        self.choice = HeldFlowsChoice.RELEASE_ALL
-        return True
-
-    def _on_keep(self) -> None:
         self.choice = HeldFlowsChoice.KEEP_HELD
-        self.accept()
+        return True
