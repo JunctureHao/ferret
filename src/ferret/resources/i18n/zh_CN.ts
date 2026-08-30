@@ -4,7 +4,7 @@
 <context>
     <name>BodyPane</name>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="306"/>
+        <location filename="../../apps/common/flow/detail.py" line="307"/>
         <source>No data</source>
         <translation>无任何数据</translation>
     </message>
@@ -148,12 +148,27 @@
 <context>
     <name>CaptureController</name>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="179"/>
+        <location filename="../../apps/capture/controllers.py" line="37"/>
+        <source>Invalid system proxy address</source>
+        <translation>无效的系统代理地址</translation>
+    </message>
+    <message>
+        <location filename="../../apps/capture/controllers.py" line="40"/>
+        <source>Restoring the previous system proxy failed</source>
+        <translation>恢复原系统代理失败</translation>
+    </message>
+    <message>
+        <location filename="../../apps/capture/controllers.py" line="43"/>
+        <source>Setting the system proxy failed</source>
+        <translation>设置系统代理失败</translation>
+    </message>
+    <message>
+        <location filename="../../apps/capture/controllers.py" line="203"/>
         <source>Failed to restore the original system proxy</source>
         <translation>恢复原系统代理失败</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="365"/>
+        <location filename="../../apps/capture/controllers.py" line="392"/>
         <source>The mitmproxy core has stopped</source>
         <translation>mitmproxy 内核已停止</translation>
     </message>
@@ -687,7 +702,7 @@
 <context>
     <name>CommentPane</name>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="346"/>
+        <location filename="../../apps/common/flow/detail.py" line="347"/>
         <source>Save comment</source>
         <translation>保存备注</translation>
     </message>
@@ -776,27 +791,27 @@
 <context>
     <name>CookieWidget</name>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="220"/>
+        <location filename="../../apps/common/flow/detail.py" line="221"/>
         <source>Copy cookies</source>
         <translation>复制 Cookie</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="275"/>
+        <location filename="../../apps/common/flow/detail.py" line="276"/>
         <source>Notice</source>
         <translation>提示</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="275"/>
+        <location filename="../../apps/common/flow/detail.py" line="276"/>
         <source>No cookies to copy</source>
         <translation>没有可复制的 Cookie</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="282"/>
+        <location filename="../../apps/common/flow/detail.py" line="283"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="282"/>
+        <location filename="../../apps/common/flow/detail.py" line="283"/>
         <source>Cookies copied to clipboard</source>
         <translation>Cookie 已复制到剪贴板</translation>
     </message>
@@ -988,58 +1003,58 @@
         <translation>更多操作</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="755"/>
+        <location filename="../../apps/common/flow/detail.py" line="758"/>
         <source>Nothing to copy</source>
         <translation>没有可复制的内容</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="756"/>
+        <location filename="../../apps/common/flow/detail.py" line="759"/>
         <source>%s is not ready yet</source>
         <translation>%s 还没有准备好</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="762"/>
-        <location filename="../../apps/common/flow/detail.py" line="830"/>
+        <location filename="../../apps/common/flow/detail.py" line="765"/>
+        <location filename="../../apps/common/flow/detail.py" line="833"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="763"/>
+        <location filename="../../apps/common/flow/detail.py" line="766"/>
         <source>%s copied to clipboard</source>
         <translation>%s 已复制到剪贴板</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="776"/>
+        <location filename="../../apps/common/flow/detail.py" line="779"/>
         <source>Replay failed</source>
         <translation>重发失败</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="793"/>
+        <location filename="../../apps/common/flow/detail.py" line="796"/>
         <source>Failed to mark</source>
         <translation>标记失败</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="828"/>
+        <location filename="../../apps/common/flow/detail.py" line="831"/>
         <source>Failed to save comment</source>
         <translation>备注保存失败</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="830"/>
+        <location filename="../../apps/common/flow/detail.py" line="833"/>
         <source>Comment saved</source>
         <translation>备注已保存</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="976"/>
+        <location filename="../../apps/common/flow/detail.py" line="979"/>
         <source>Headers ({count})</source>
         <translation>请求头 ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="979"/>
+        <location filename="../../apps/common/flow/detail.py" line="982"/>
         <source>Query ({count})</source>
         <translation>查询参数 ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="982"/>
+        <location filename="../../apps/common/flow/detail.py" line="985"/>
         <source>Cookies ({count})</source>
         <translation>Cookie ({count})</translation>
     </message>
@@ -3226,22 +3241,22 @@
 <context>
     <name>ResponsePane</name>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="426"/>
+        <location filename="../../apps/common/flow/detail.py" line="427"/>
         <source>Raw</source>
         <translation>原始</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="427"/>
+        <location filename="../../apps/common/flow/detail.py" line="428"/>
         <source>Headers</source>
         <translation>响应头</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="428"/>
+        <location filename="../../apps/common/flow/detail.py" line="429"/>
         <source>Body</source>
         <translation>响应体</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="457"/>
+        <location filename="../../apps/common/flow/detail.py" line="458"/>
         <source>Headers ({count})</source>
         <translation>响应头 ({count})</translation>
     </message>
@@ -4086,25 +4101,6 @@
         <location filename="../../apps/settings/views.py" line="150"/>
         <source>Configuration takes effect after restart</source>
         <translation>配置将在重启后生效</translation>
-    </message>
-</context>
-<context>
-    <name>SystemProxyService</name>
-    <message>
-        <location filename="../../core/system_proxy/service.py" line="53"/>
-        <source>Invalid system proxy address</source>
-        <translation>无效的系统代理地址</translation>
-    </message>
-    <message>
-        <location filename="../../core/system_proxy/service.py" line="62"/>
-        <source>Restoring the previous system proxy failed</source>
-        <translation>恢复原系统代理失败</translation>
-    </message>
-    <message>
-        <location filename="../../core/system_proxy/service.py" line="81"/>
-        <location filename="../../core/system_proxy/service.py" line="86"/>
-        <source>Setting the system proxy failed</source>
-        <translation>设置系统代理失败</translation>
     </message>
 </context>
 <context>

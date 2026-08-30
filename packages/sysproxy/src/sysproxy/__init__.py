@@ -1,13 +1,21 @@
-from ferret.core.system_proxy.backends import (
+from sysproxy.backends import (
     SystemProxyBackend,
     UnsupportedSystemProxyBackend,
     WindowsSystemProxyBackend,
     create_system_proxy_backend,
 )
-from ferret.core.system_proxy.models import ProxyEndpoint, ProxySnapshot
-from ferret.core.system_proxy.service import SystemProxyService
+from sysproxy.models import ProxyEndpoint, ProxySnapshot
+from sysproxy.service import (
+    ERR_INVALID_ADDRESS,
+    ERR_RESTORE_FAILED,
+    ERR_SET_FAILED,
+    SystemProxyService,
+)
 
 __all__ = [
+    "ERR_INVALID_ADDRESS",
+    "ERR_RESTORE_FAILED",
+    "ERR_SET_FAILED",
     "ProxyEndpoint",
     "ProxySnapshot",
     "SystemProxyBackend",

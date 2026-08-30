@@ -37,6 +37,7 @@ from qfluentwidgets import (
     TransparentToolButton,
     VerticalSeparator,
 )
+from sysproxy import SystemProxyService
 
 from ferret.apps.capture.controllers import CaptureController, CaptureState
 from ferret.apps.common.filter import MultiFilterManager
@@ -45,7 +46,6 @@ from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.core.mitm.facade import MitmFacade
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
-from ferret.core.system_proxy import SystemProxyService
 
 if TYPE_CHECKING:
     from ferret.apps.window import MainWindow

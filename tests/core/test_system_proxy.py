@@ -1,144 +1,53 @@
+"""sysproxy 包接线冒烟：ferret 作为宿主的三条接缝没断。
+
+服务自身的单元测试随包迁到了 `packages/sysproxy/tests/`；这里只验证宿主侧
+—— journal 路径注入、包异常常量 → 界面文案的翻译映射是否对得上账。
+"""
+
+import os
 import unittest
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
-from ferret.core.system_proxy import (
-    ProxyEndpoint,
-    ProxySnapshot,
-    SystemProxyBackend,
-    SystemProxyService,
-    WindowsSystemProxyBackend,
-)
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import sysproxy
+from PySide6.QtWidgets import QApplication
+from sysproxy import ERR_SET_FAILED
+
+from ferret.apps.capture.controllers import _SYSTEM_PROXY_ERRORS, CaptureController
+from ferret.core.settings import get_config_dir
 
 
-class FakeBackend(SystemProxyBackend):
-    def __init__(self) -> None:
-        self.current = "original"
-        self.restore_calls = 0
-        self.fail_set = False
-        self.fail_restore = False
+class WiringTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
 
-    def snapshot(self) -> ProxySnapshot:
-        return ProxySnapshot({"current": self.current})
-
-    def set(self, endpoint: ProxyEndpoint) -> bool:
-        self.current = endpoint.address
-        return not self.fail_set
-
-    def restore(self, snapshot: ProxySnapshot) -> bool:
-        self.restore_calls += 1
-        if self.fail_restore:
-            return False
-        self.current = snapshot.values["current"]
-        return True
-
-    def owns(self, endpoint: ProxyEndpoint) -> bool:
-        return self.current == endpoint.address
-
-
-class SystemProxyServiceTests(unittest.TestCase):
-    def test_attach_and_detach_restore_original_proxy(self) -> None:
-        backend = FakeBackend()
-        service = SystemProxyService(backend, journal_path=None)
-
-        service.attach("127.0.0.1", 8080)
-        self.assertEqual(backend.current, "127.0.0.1:8080")
-        self.assertTrue(service.detach())
-        self.assertEqual(backend.current, "original")
-
-    def test_external_change_is_not_overwritten(self) -> None:
-        backend = FakeBackend()
-        service = SystemProxyService(backend, journal_path=None)
-        service.attach("127.0.0.1", 8080)
-        backend.current = "user-change"
-
-        self.assertTrue(service.detach())
-        self.assertEqual(backend.current, "user-change")
-        self.assertEqual(backend.restore_calls, 0)
-
-    def test_partial_apply_failure_rolls_back_snapshot(self) -> None:
-        backend = FakeBackend()
-        backend.fail_set = True
-        service = SystemProxyService(backend, journal_path=None)
-
-        with self.assertRaises(RuntimeError):
-            service.attach("127.0.0.1", 8080)
-
-        self.assertEqual(backend.current, "original")
-
-    def test_restore_failure_can_be_retried(self) -> None:
-        backend = FakeBackend()
-        service = SystemProxyService(backend, journal_path=None)
-        service.attach("127.0.0.1", 8080)
-        backend.fail_restore = True
-
-        self.assertFalse(service.detach())
-        self.assertTrue(service.is_attached)
-        backend.fail_restore = False
-        self.assertTrue(service.detach())
-        self.assertFalse(service.is_attached)
-
-    def test_recover_restores_proxy_left_by_previous_process(self) -> None:
-        backend = FakeBackend()
-        with TemporaryDirectory() as directory:
-            journal = Path(directory) / "proxy.json"
-            first = SystemProxyService(backend, journal_path=journal)
-            first.attach("127.0.0.1", 8080)
-
-            recovered = SystemProxyService(backend, journal_path=journal)
-            self.assertTrue(recovered.recover())
-            self.assertEqual(backend.current, "original")
-            self.assertFalse(journal.exists())
-
-    def test_recover_does_not_overwrite_external_proxy_change(self) -> None:
-        backend = FakeBackend()
-        with TemporaryDirectory() as directory:
-            journal = Path(directory) / "proxy.json"
-            first = SystemProxyService(backend, journal_path=journal)
-            first.attach("127.0.0.1", 8080)
-            backend.current = "user-change"
-
-            recovered = SystemProxyService(backend, journal_path=journal)
-            self.assertTrue(recovered.recover())
-            self.assertEqual(backend.current, "user-change")
-            self.assertFalse(journal.exists())
-
-
-class FakeWinreg:
-    HKEY_CURRENT_USER = object()
-
-    def __init__(self, values: dict[str, object]) -> None:
-        self.values = values
-
-    def OpenKey(self, *_args):
-        return self
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args) -> None:
-        return None
-
-    def QueryValueEx(self, _key, name: str):
-        if name not in self.values:
-            raise FileNotFoundError(name)
-        return self.values[name], 0
-
-
-class WindowsSystemProxyBackendTests(unittest.TestCase):
-    def test_missing_auto_detect_value_is_treated_as_disabled(self) -> None:
-        backend = WindowsSystemProxyBackend()
-        winreg = FakeWinreg(
-            {
-                "ProxyEnable": 1,
-                "ProxyServer": "127.0.0.1:8080",
-                "ProxyOverride": "<-loopback>",
-            }
+    def test_the_fallback_service_journals_into_the_app_config_dir(self) -> None:
+        """包刻意不带默认目录；宿主没注入等于 journal 落错地方。"""
+        controller = CaptureController()
+        self.assertEqual(
+            controller._system_proxy._journal_path,
+            get_config_dir() / "system-proxy-state.json",
         )
+        controller.deleteLater()
 
-        with patch.object(backend, "_winreg", return_value=winreg):
-            self.assertTrue(backend.owns(ProxyEndpoint("127.0.0.1", 8080)))
+    def test_the_error_mapping_covers_every_package_constant(self) -> None:
+        """包的对账常量缺一条，界面上那条错误就会原样冒英文。"""
+        constants = {
+            sysproxy.ERR_INVALID_ADDRESS,
+            sysproxy.ERR_RESTORE_FAILED,
+            sysproxy.ERR_SET_FAILED,
+        }
+        self.assertEqual(constants, set(_SYSTEM_PROXY_ERRORS))
+
+    def test_a_package_error_is_lookable_up_in_the_mapping(self) -> None:
+        """未装翻译器时 `resolve_marker` 原样回英文源文本 —— 映射表键值同文。"""
+        from ferret.utils.i18n import resolve_marker
+
+        resolved = resolve_marker(
+            _SYSTEM_PROXY_ERRORS, ERR_SET_FAILED, "CaptureController", fallback=""
+        )
+        self.assertEqual(resolved, ERR_SET_FAILED)
 
 
 if __name__ == "__main__":

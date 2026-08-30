@@ -15,6 +15,8 @@
 # nuitka-project: --enable-plugins=pyside6
 # nuitka-project: --python-flag=no_docstrings
 # nuitka-project: --python-flag=no_asserts
+# sysproxy 是 uv workspace 成员（editable 安装），显式声明防剪枝误裁
+# nuitka-project: --include-package=sysproxy
 # nuitka-project: --nofollow-import-to=PySide6.QtWebEngineCore
 # nuitka-project: --nofollow-import-to=PySide6.QtMultimedia
 # nuitka-project: --nofollow-import-to=PySide6.QtOpenGL

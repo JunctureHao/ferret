@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject
+from sysproxy import SystemProxyService
 
 from ferret.core.log import get_logger
 from ferret.core.mitm import MitmFacade, MitmRuntime
 from ferret.core.network import normalize_listen_host, normalize_listen_port
-from ferret.core.settings import CONFIG
-from ferret.core.system_proxy import SystemProxyService
+from ferret.core.settings import CONFIG, get_config_dir
 
 log = get_logger("application")
 
@@ -18,7 +18,11 @@ class ApplicationRuntime(QObject):
         super().__init__(parent)
         self.mitm_runtime = self._build_mitm_runtime()
         self.mitm = MitmFacade(self.mitm_runtime)
-        self.system_proxy = SystemProxyService()
+        # journal 落在应用配置目录：崩溃后下次启动 `recover()` 还能找到它。
+        # sysproxy 包刻意不带默认目录，路径一律由宿主注入。
+        self.system_proxy = SystemProxyService(
+            journal_path=get_config_dir() / "system-proxy-state.json"
+        )
         self._shutdown = False
 
     def _build_mitm_runtime(self) -> MitmRuntime:

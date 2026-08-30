@@ -8,7 +8,7 @@ import subprocess
 import sys
 from abc import ABC, abstractmethod
 
-from ferret.core.system_proxy.models import ProxyEndpoint, ProxySnapshot
+from sysproxy.models import ProxyEndpoint, ProxySnapshot
 
 
 class SystemProxyBackend(ABC):

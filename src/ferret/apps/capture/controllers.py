@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
+from sysproxy import (
+    ERR_INVALID_ADDRESS,
+    ERR_RESTORE_FAILED,
+    ERR_SET_FAILED,
+    SystemProxyService,
+)
 
 from ferret.apps.capture.services import compile_filter
 from ferret.core.log import get_logger
@@ -19,10 +25,25 @@ from ferret.core.mitm import (
     WsClose,
     WsFrame,
 )
-from ferret.core.settings import CONFIG
-from ferret.core.system_proxy import SystemProxyService
+from ferret.core.settings import CONFIG, get_config_dir
+from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 
 log = get_logger("mitmproxy")
+
+# sysproxy 包按「库不管展示」的约定只抛英文常量；捕获页在展示边界把它们译成
+# 当前语言。键是包的对账常量，值是 QT_TRANSLATE_NOOP 标记 —— 模块级不许直接
+# translate（AGENTS.md §8），用点经 `resolve_marker` 求值。
+_SYSTEM_PROXY_ERRORS = {
+    ERR_INVALID_ADDRESS: QT_TRANSLATE_NOOP(
+        "CaptureController", "Invalid system proxy address"
+    ),
+    ERR_RESTORE_FAILED: QT_TRANSLATE_NOOP(
+        "CaptureController", "Restoring the previous system proxy failed"
+    ),
+    ERR_SET_FAILED: QT_TRANSLATE_NOOP(
+        "CaptureController", "Setting the system proxy failed"
+    ),
+}
 
 
 class CaptureState(StrEnum):
@@ -73,7 +94,10 @@ class CaptureController(QObject):
 
         self._mitm = mitm
         self._runtime = runtime
-        self._system_proxy = system_proxy or SystemProxyService()
+        # 兜底构造仅用于无人注入的场景（测试等）；journal 同样落应用配置目录。
+        self._system_proxy = system_proxy or SystemProxyService(
+            journal_path=get_config_dir() / "system-proxy-state.json"
+        )
         self._capture_state = CaptureState.STOPPED
         self._last_error = ""
         self._pending_attach = False
@@ -329,9 +353,12 @@ class CaptureController(QObject):
                 except Exception:
                     log.exception("failed to roll back capture recording")
             self._pending_attach = False
-            self._last_error = str(exc)
+            message = resolve_marker(
+                _SYSTEM_PROXY_ERRORS, str(exc), "CaptureController", fallback=str(exc)
+            )
+            self._last_error = message
             self._set_capture_state(CaptureState.FAILED)
-            self.proxy_failed.emit(str(exc))
+            self.proxy_failed.emit(message)
             self.captureStateChanged.emit(False)
             return
 
