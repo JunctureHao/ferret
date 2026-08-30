@@ -7,7 +7,8 @@
 * **队列非空时不许默默关掉**。窗口一藏，那几条流量还钉在 `wait_for_resume()` 上，
   客户端就那么转圈，而界面上再也看不到它们（本轮刻意没做超时自动放行）。
 
-编辑区的标签与只读态读的是 `flow.response is None`，和规则写了什么阶段无关。
+右侧面板由当前流量的阶段决定：请求期的流给请求面板，响应期给响应面板，没有手动
+切换的入口 —— 判据是 `flow.response is None`，和规则写了什么阶段无关。
 """
 
 import os
@@ -15,13 +16,12 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from mitmproxy.http import Response
 from mitmproxy.test import tflow
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import PushButton
 
 from ferret.apps.intercept.dialogs import HeldFlowsChoice
-from ferret.apps.intercept.models import HeldFlowTableModel
 from ferret.apps.intercept.window import InterceptWindow
 
 app = QApplication.instance() or QApplication([])
@@ -71,6 +71,10 @@ class FakeController(QObject):
     def drop_flows(self, flow_ids: list[str]) -> bool:
         self.calls.append(("drop_flows", tuple(flow_ids)))
         return True
+
+    def release_all(self) -> int:
+        self.calls.append(("release_all",))
+        return 0
 
     def apply_request(self, flow_id: str, edit, *, release: bool = False) -> bool:
         self.calls.append(("apply_request", flow_id, release))
@@ -128,12 +132,25 @@ class ConstructionTests(InterceptWindowTestCase):
         win = self.window()
         self.assertIs(win.queue_stack.currentWidget(), win.queue_empty_page)
 
+    def test_no_selection_shows_the_placeholder_page(self) -> None:
+        """没选中就没有「哪一条」可编：占位页，不给一张改不出去的空表单。"""
+        win = self.window()
+        self.assertIs(win.editor_panel.currentWidget(), win.no_selection_page)
+
     def test_the_title_bar_height_is_reserved(self) -> None:
         """标题栏是浮在窗口上的兄弟控件、不进布局，不留边距内容会被它压住。"""
         win = self.window()
         top = win.layout().contentsMargins().top()
         self.assertEqual(top, win.titleBar.height())
         self.assertGreater(top, 0)
+
+    def test_the_left_table_is_read_only(self) -> None:
+        """列表只负责选人，行内不挂任何按钮 —— 放行/丢弃长在面板页头上。"""
+        win = self.window()
+        self.assertEqual(win.flow_model.columnCount(), 3)
+        for row in range(win.flow_model.rowCount()):
+            for col in range(3):
+                self.assertIsNone(win.flow_table.indexWidget(win.flow_model.index(row, col)))
 
 
 class PopUpTests(InterceptWindowTestCase):
@@ -187,46 +204,44 @@ class PopUpTests(InterceptWindowTestCase):
         self.assertTrue(win.isVisible())
 
 
-class PhaseTests(InterceptWindowTestCase):
-    """编辑区标签的分工按流量停在哪个阶段来，判据是 `flow.response is None`。"""
+class PanelTests(InterceptWindowTestCase):
+    """右侧面板由流量停在哪一期决定，判据是 `flow.response is None`。"""
 
-    def test_a_request_phase_flow_is_fully_editable(self) -> None:
+    def test_a_request_phase_flow_gets_the_request_panel(self) -> None:
         win = self.window()
         self.controller.emit_flows([flow_to()])
-        self.assertFalse(win.request_editor.url_edit.isReadOnly())
-        self.assertIs(win.editor_panel.currentWidget(), win.request_editor)
+        self.assertIs(win.editor_panel.currentWidget(), win.request_panel)
+        self.assertFalse(win.request_panel.url_edit.isReadOnly())
 
-    def test_a_response_phase_flow_locks_the_request(self) -> None:
-        """请求早发出去了，改它没有任何效果，锁只读比让人白改一场好。"""
+    def test_a_response_phase_flow_gets_the_response_panel(self) -> None:
         win = self.window()
         self.controller.emit_flows([flow_to(resp=True)])
-        self.assertTrue(win.request_editor.url_edit.isReadOnly())
-        self.assertTrue(win.request_editor.method_edit.isReadOnly())
-        self.assertFalse(win.response_editor.status_edit.isReadOnly())
-        self.assertIs(win.editor_panel.currentWidget(), win.response_editor)
+        self.assertIs(win.editor_panel.currentWidget(), win.response_panel)
+        self.assertFalse(win.response_panel.code_edit.isReadOnly())
 
-    def test_the_response_tab_shows_a_placeholder_before_the_request_goes_out(self) -> None:
-        """请求期没有响应可编：切到「响应」标签只能看到一句提示，不给空表单。"""
+    def test_the_panel_follows_the_selection(self) -> None:
+        """选谁就给谁的面板：请求期和响应期的流混在队列里各归各的。"""
         win = self.window()
-        self.controller.emit_flows([flow_to()])
-        win.editor_nav.setCurrentItem("Response")
-        self.assertIs(win.editor_panel.currentWidget(), win.response_pending_page)
-        # 切回请求标签，编辑器还在、还是可编辑的那张。
-        win.editor_nav.setCurrentItem("Request")
-        self.assertIs(win.editor_panel.currentWidget(), win.request_editor)
+        self.controller.emit_flows([flow_to(), flow_to("http://cdn.example.com/a.js", resp=True)])
+        win.flow_table.selectRow(0)
+        self.assertIs(win.editor_panel.currentWidget(), win.request_panel)
+        win.flow_table.selectRow(1)
+        self.assertIs(win.editor_panel.currentWidget(), win.response_panel)
 
-    def test_the_response_tab_shows_the_editor_once_answered(self) -> None:
-        """响应期两张标签都看得：请求只读供查看，响应可编辑。"""
+    def test_the_panel_follows_a_phase_transition_of_the_same_flow(self) -> None:
+        """BOTH 规则下同一条流放行请求后会再停响应期：id 没变，面板也必须跟着换。"""
         win = self.window()
-        self.controller.emit_flows([flow_to(resp=True)])
-        win.editor_nav.setCurrentItem("Request")
-        self.assertIs(win.editor_panel.currentWidget(), win.request_editor)
-        self.assertTrue(win.request_editor.url_edit.isReadOnly())
-        win.editor_nav.setCurrentItem("Response")
-        self.assertIs(win.editor_panel.currentWidget(), win.response_editor)
+        flow = flow_to()
+        self.controller.emit_flows([flow])
+        self.assertIs(win.editor_panel.currentWidget(), win.request_panel)
+
+        answered = snapshot(flow)
+        answered.response = Response.make(status_code=200, content=b'{"ok": true}')
+        self.controller.emit_flows([answered])
+        self.assertIs(win.editor_panel.currentWidget(), win.response_panel)
 
     def test_releasing_writes_back_and_releases_in_one_step(self) -> None:
-        """没有单独的「应用改动」：放行（Ctrl+Enter）就是写回 + 放行，按阶段选编辑器。"""
+        """没有单独的「应用改动」：放行（Ctrl+Enter）就是写回 + 放行，按阶段选面板。"""
         win = self.window()
         self.controller.emit_flows([flow_to()])
         win._on_release()
@@ -241,6 +256,36 @@ class PhaseTests(InterceptWindowTestCase):
         win = self.window()
         win._on_release()
         self.assertEqual(self.controller.calls, [])
+
+    def test_params_merge_into_the_url_on_write_back(self) -> None:
+        """参数页是 query 的权威源：写回时合并进 URL（与 compose 页同一套规则）。"""
+        win = self.window()
+        self.controller.emit_flows([flow_to("https://api.example.com/v1?keep=1")])
+        win.request_panel.params_panel.set_items([("page", "2"), ("tag", "a b")])
+        win._on_release()
+
+        call = self.controller.calls[0]
+        self.assertEqual(call[0], "apply_request")
+        # 合并结果直接读面板的合并函数：FakeController 不存 edit 内容。
+        self.assertEqual(
+            win.request_panel._merge_url(), "https://api.example.com/v1?page=2&tag=a+b"
+        )
+
+    def test_empty_params_leave_the_url_query_alone(self) -> None:
+        """参数页清空时不覆盖 URL 上手写的查询串。"""
+        win = self.window()
+        self.controller.emit_flows([flow_to("https://api.example.com/v1?keep=1")])
+        win.request_panel.params_panel.set_items([])
+        self.assertEqual(win.request_panel._merge_url(), "https://api.example.com/v1?keep=1")
+
+    def test_the_status_bar_counts_and_enables_release_all(self) -> None:
+        """批量放行有一个看得见的入口，跟着队列有无启停。"""
+        win = self.window()
+        self.assertFalse(win.release_all_button.isEnabled())
+        self.controller.emit_flows([flow_to()])
+        self.assertTrue(win.release_all_button.isEnabled())
+        self.controller.release_all()
+        self.assertIn(("release_all",), self.controller.calls)
 
 
 class CloseTests(InterceptWindowTestCase):
@@ -267,55 +312,23 @@ class CloseTests(InterceptWindowTestCase):
 
 
 class ActionTests(InterceptWindowTestCase):
-    def row_buttons(self, win: StubbedWindow, row: int) -> list:
-        """一行操作格里的按钮。`PrimaryPushButton` 是 `PushButton` 的子类，
-        按 `PushButton` 找就全在，再单独数主按钮。"""
-        host = win.flow_table.indexWidget(
-            win.flow_model.index(row, HeldFlowTableModel.ACTIONS_COLUMN)
-        )
-        assert host is not None
-        return host.findChildren(PushButton)
-
-    def test_every_row_gets_its_own_release_and_drop(self) -> None:
-        """操作列长在行上：一格一组「放行 / 丢弃」，刷新后跟着快照重建。"""
+    def test_the_panel_release_button_writes_back_the_current_flow(self) -> None:
+        """页头「放行」发的是信号，干活的是窗口：写回 + 放行一步到位。"""
         win = self.window()
-        self.controller.emit_flows([flow_to(), flow_to(resp=True)])
-        for row in range(2):
-            with self.subTest(row=row):
-                self.assertEqual(len(self.row_buttons(win, row)), 2)
         self.controller.emit_flows([flow_to()])
-        self.assertEqual(len(self.row_buttons(win, 0)), 2)
+        win.request_panel.releaseRequested.emit()
+        self.assertEqual(
+            self.controller.calls, [("apply_request", self.controller.flows[0].id, True)]
+        )
 
-    def test_the_row_release_button_writes_back_that_row(self) -> None:
-        """点哪行放哪行：先把它选成当前流量，再写回 + 放行。"""
-        win = self.window()
-        flow = flow_to()
-        self.controller.emit_flows([flow])
-        win._on_row_release(flow)
-        self.assertEqual(self.controller.calls, [("apply_request", flow.id, True)])
-
-    def test_the_row_release_button_selects_the_row_first(self) -> None:
-        """多选时点其中一行的放行：只放这一行，别把别的一起送出去。"""
+    def test_the_panel_drop_button_only_drops_the_current_flow(self) -> None:
         win = self.window()
         keep, other = flow_to(), flow_to("http://cdn.example.com/a.js")
         self.controller.emit_flows([keep, other])
-        win._on_row_release(other)
-        self.assertEqual(self.controller.calls, [("apply_request", other.id, True)])
-
-    def test_releasing_a_row_that_is_already_gone_does_nothing(self) -> None:
-        """刷新间隙流量已经不在队列里：别把别的流量放出去。"""
-        win = self.window()
-        flow = flow_to()
-        self.controller.emit_flows([flow])
-        win._on_row_release(snapshot(flow_to("http://gone.example.com/")))
-        self.assertEqual(self.controller.calls, [])
-
-    def test_the_row_drop_button_only_drops_that_row(self) -> None:
-        win = self.window()
-        first, second = flow_to(), flow_to("http://cdn.example.com/a.js")
-        self.controller.emit_flows([first, second])
-        win._on_row_drop(second)
-        self.assertEqual(self.controller.calls, [("drop_flows", (second.id,))])
+        win.flow_table.selectRow(1)
+        win.request_panel.dropRequested.emit()
+        # 选中的是第 1 行（响应期），请求面板的丢弃按钮也只认当前选中。
+        self.assertEqual(self.controller.calls, [("drop_flows", (other.id,))])
 
     def test_dropping_the_selection_sends_the_selected_ids(self) -> None:
         """右键菜单那条路（多选）还在：选中几条丢几条。"""
@@ -325,24 +338,16 @@ class ActionTests(InterceptWindowTestCase):
         win._on_drop()
         self.assertEqual(self.controller.calls, [("drop_flows", (flow.id,))])
 
-    def test_the_tabs_sit_above_the_editor_stack(self) -> None:
-        """编辑区先是「请求 / 响应」两个标签，下面才是栈。"""
-        win = self.window()
-        layout = win.editor_box.layout()
-        assert layout is not None
-        self.assertIs(layout.itemAt(0).widget(), win.editor_nav)
-        self.assertIs(layout.itemAt(1).widget(), win.editor_panel)
-
     def test_the_edited_flow_stays_selected_across_a_refresh(self) -> None:
         """快照每次都是新对象，认人只能靠 id —— 别人被拦下不该冲掉我正在改的。"""
         win = self.window()
         keep, other = flow_to(), flow_to("http://cdn.example.com/a.js")
         self.controller.emit_flows([keep])
-        win.request_editor.url_edit.setText("http://edited.example.com/")
-        # 新来的那条排在前面：按行号认人就会把编辑器切到它身上去。
+        win.request_panel.url_edit.setText("http://edited.example.com/")
+        # 新来的那条排在前面：按行号认人就会把面板切到它身上去。
         self.controller.emit_flows([other, snapshot(keep)])
         self.assertEqual(
-            win.request_editor.url_edit.text(), "http://edited.example.com/"
+            win.request_panel.url_edit.text(), "http://edited.example.com/"
         )
 
 

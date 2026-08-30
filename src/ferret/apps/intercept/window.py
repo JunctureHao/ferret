@@ -44,10 +44,8 @@ from qfluentwidgets import (
     CaptionLabel,
     FluentIcon,
     FluentWidget,
-    PrimaryPushButton,
     PushButton,
     RoundMenu,
-    SegmentedWidget,
     TableView,
 )
 
@@ -57,7 +55,7 @@ from ferret.apps.common.splitter import BaseSplitter
 from ferret.apps.common.window import center_window
 from ferret.apps.intercept.controllers import InterceptController
 from ferret.apps.intercept.dialogs import HeldFlowsChoice, HeldFlowsCloseDialog
-from ferret.apps.intercept.editors import RequestEditor, ResponseEditor
+from ferret.apps.intercept.editors import RequestPanel, ResponsePanel
 from ferret.apps.intercept.models import HeldFlowTableModel
 from ferret.core.mitm import HTTPFlow
 
@@ -71,19 +69,18 @@ def _title() -> str:
 class InterceptWindow(FluentWidget):
     """命中断点的流量停在这里，改完放行或丢弃。
 
-    上半是队列，每行「请求方式 + URL + 放行 / 丢弃按钮组」（参考 Reqable 的断点
-    列表）；下半是编辑区，「请求 / 响应」两个标签（`SegmentedWidget`，内容仍是
-    `RequestEditor` / `ResponseEditor` 那套 common/edit 组件）：
+    左列是断点列表（「请求方式 + URL + 阶段」，只读，选择驱动右侧），右侧是
+    **当前那条流量所处阶段的面板**：请求期的流给请求面板（方法 + URL + 参数/
+    请求头/请求体），响应期的流给响应面板（状态码 + 响应头/响应体）—— 来的是什么
+    阶段就给什么面板，没有阶段切换标签、没有占位页、没有只读锁。放行/丢弃图标
+    按钮长在面板页头行上，作用于当前选中的那条。
 
-    - 请求期（还没有响应）：请求标签可编辑；响应标签还没有内容可看，显示一句提示。
-    - 响应期：响应标签可编辑；请求早发出去了，请求标签锁成只读供查看。
-
-    停在哪个阶段判的是 `flow.response is None`，与规则选了什么阶段无关。写回也按
-    阶段选编辑器 —— 跟用户当前停在哪个标签没关系（响应期停在请求标签上按
-    Ctrl+Enter，写回的仍是响应编辑器里的改动）。
+    停在哪个阶段判的是 `flow.response is None`，与规则选了什么阶段无关；写回来源
+    就是当前显示的面板。
 
     这个窗口**不提供伪造响应**（内核 `MitmFacade.fake_response` 保留，供其他入口
-    使用）。同样没有「撤销」「放行全部」—— 这两个动作留在控制器上，窗口不调用。
+    使用），也没有「撤销」。批量动作有两处：列表右键菜单（放行/丢弃选中项）和
+    底部状态条的「放行全部」。
     """
 
     # 队列从空变成非空、窗口刚刚自己弹出来时发一次，带上队列条数。
@@ -109,14 +106,12 @@ class InterceptWindow(FluentWidget):
     def __init_widget(self):
         self.setObjectName("InterceptWindow")
         self.setWindowIcon(QIcon(":/icon"))
-        # self.resize(1080, 700)
         self._sync_title(0)
 
         self.flow_model = HeldFlowTableModel(self)
         self.flow_table = TableView(self)
         self.flow_table.verticalHeader().hide()
-        # 行高放宽到 40，给行内按钮组留位置（见 `__build_row_actions`）。
-        self.flow_table.verticalHeader().setDefaultSectionSize(40)
+        self.flow_table.verticalHeader().setDefaultSectionSize(36)
         self.flow_table.setModel(self.flow_model)
         self.flow_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.flow_table.setSelectionBehavior(
@@ -128,36 +123,27 @@ class InterceptWindow(FluentWidget):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        for i, w in enumerate([70, 320, 180]):
+        for i, w in enumerate([80, 320, 90]):
             self.flow_table.setColumnWidth(i, w)
         # URL 是这张表里唯一值得占满的列，其余两列宽度固定。
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.flow_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
-        self.request_editor = RequestEditor(self)
-        self.response_editor = ResponseEditor(self)
-        # 请求期停在「响应」标签时看到的占位页：响应还不存在，没有可编的东西。
-        self.response_pending_page = self.__build_response_pending_page()
+        self.request_panel = RequestPanel(self)
+        self.response_panel = ResponsePanel(self)
+        # 没有选中项时的占位：不给一张能改却改不出去的空表单。
+        self.no_selection_page = self.__build_no_selection_page()
 
-        # 编辑区导航：与流量详情页同一套「SegmentedWidget + 栈」的做法，信号在
-        # `__connect_signal_to_slot` 里接，这里两边各自先置一次。
-        self.editor_nav = SegmentedWidget(self)
-        self.editor_nav.addItem(routeKey="Request", text=self.tr("Request"))
-        self.editor_nav.addItem(routeKey="Response", text=self.tr("Response"))
-        self.editor_nav.setItemFontSize(12)
-
+        # 阶段面板：来的是什么阶段就显示什么，代码里没有任何手动切换入口。
         self.editor_panel = QStackedWidget(self)
-        self.editor_panel.addWidget(self.request_editor)
-        self.editor_panel.addWidget(self.response_editor)
-        self.editor_panel.addWidget(self.response_pending_page)
-        self.editor_nav.setCurrentItem("Request")
-        self.editor_panel.setCurrentWidget(self.request_editor)
+        self.editor_panel.addWidget(self.request_panel)
+        self.editor_panel.addWidget(self.response_panel)
+        self.editor_panel.addWidget(self.no_selection_page)
 
         self.editor_box = QWidget(self)
         editor_layout = QVBoxLayout(self.editor_box)
         editor_layout.setContentsMargins(12, 8, 12, 12)
         editor_layout.setSpacing(8)
-        editor_layout.addWidget(self.editor_nav)
         editor_layout.addWidget(self.editor_panel, 1)
 
         self.queue_splitter = BaseSplitter(Qt.Orientation.Horizontal, self)
@@ -170,6 +156,23 @@ class InterceptWindow(FluentWidget):
         self.queue_stack = QStackedWidget(self)
         self.queue_stack.addWidget(self.queue_splitter)
         self.queue_stack.addWidget(self.queue_empty_page)
+
+        # 底部状态条：待处理数 + 当前选中 + 「放行全部」。批量动作原来只有右键菜单，
+        # 给一个看得见的入口。
+        self.status_label = CaptionLabel(self)
+        self.release_all_button = PushButton(
+            FluentIcon.SEND, self.tr("Release all"), self
+        )
+        self.release_all_button.setToolTip(
+            self.tr("Release every held flow without applying any edits")
+        )
+        self.status_bar = QWidget(self)
+        status_layout = QHBoxLayout(self.status_bar)
+        status_layout.setContentsMargins(12, 4, 12, 4)
+        status_layout.setSpacing(8)
+        status_layout.addWidget(self.status_label)
+        status_layout.addStretch(1)
+        status_layout.addWidget(self.release_all_button)
 
     def __build_queue_empty_page(self) -> QWidget:
         """兜底页。队列清空会自动隐藏窗口，所以正常路径下它不该被看见。"""
@@ -190,41 +193,16 @@ class InterceptWindow(FluentWidget):
         layout.addStretch(1)
         return page
 
-    def __build_response_pending_page(self) -> QWidget:
-        """请求期停在「响应」标签时看到的占位页。"""
+    def __build_no_selection_page(self) -> QWidget:
+        """没有选中项时的占位。"""
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint = CaptionLabel(
-            self.tr("No response yet — this flow is held before the request goes out"),
-            page,
-        )
+        hint = CaptionLabel(self.tr("Select a held flow to edit it"), page)
         layout.addStretch(1)
         layout.addWidget(hint, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addStretch(1)
         return page
-
-    def __build_row_actions(self, flow: HTTPFlow) -> QWidget:
-        """一行一组「放行 / 丢弃」，闭包直接攥住这一行的快照。
-
-        快照每次刷新都换新对象，按钮组跟着整表重建（见 `_populate_row_buttons`），
-        所以闭包不会攥到一条早已放行的旧流量。
-        """
-        host = QWidget()
-        layout = QHBoxLayout(host)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(6)
-        release_btn = PrimaryPushButton(FluentIcon.SEND, self.tr("Release"), host)
-        drop_btn = PushButton(FluentIcon.CANCEL, self.tr("Drop"), host)
-        for btn in (release_btn, drop_btn):
-            btn.setFixedHeight(28)
-        release_btn.setToolTip(self.tr("Write the edits back and release this flow"))
-        drop_btn.setToolTip(self.tr("Kill this flow; the client receives nothing at all"))
-        release_btn.clicked.connect(lambda: self._on_row_release(flow))
-        drop_btn.clicked.connect(lambda: self._on_row_drop(flow))
-        layout.addWidget(release_btn)
-        layout.addWidget(drop_btn)
-        return host
 
     def __init_layout(self):
         layout = QVBoxLayout(self)
@@ -234,13 +212,20 @@ class InterceptWindow(FluentWidget):
         layout.setContentsMargins(0, self.titleBar.height(), 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.queue_stack, 1)
+        layout.addWidget(self.status_bar)
 
     def __connect_signal_to_slot(self):
-        self.editor_nav.currentItemChanged.connect(self._on_nav_changed)
         self.flow_table.selectionModel().selectionChanged.connect(
             self._on_flow_selection_changed
         )
         self.flow_table.customContextMenuRequested.connect(self._on_flow_context_menu)
+
+        self.request_panel.releaseRequested.connect(self._on_release)
+        self.request_panel.dropRequested.connect(self._on_drop_current)
+        self.response_panel.releaseRequested.connect(self._on_release)
+        self.response_panel.dropRequested.connect(self._on_drop_current)
+
+        self.release_all_button.clicked.connect(self.controller.release_all)
 
         self.controller.flows_changed.connect(self._on_flows_changed)
         self.controller.operation_failed.connect(self._on_operation_failed)
@@ -278,98 +263,57 @@ class InterceptWindow(FluentWidget):
         flows = self._selected_flows()
         return flows[0] if len(flows) == 1 else None
 
-    def _load_editors(self, flow: HTTPFlow | None) -> None:
-        if flow is None:
-            self.request_editor.clear()
-            self.response_editor.clear()
-            self.request_editor.set_read_only(True)
-            self.response_editor.set_read_only(True)
-            self._set_current_tab("Request")
-            return
-        self.request_editor.load(flow)
-        self.response_editor.load(flow)
-        # 响应期的请求早发出去了，改它没有任何效果，锁成只读比让人白改一场好。
-        # 请求期反过来：响应还不存在，响应编辑器只清空占位。
-        response_phase = flow.response is not None
-        self.request_editor.set_read_only(response_phase)
-        self.response_editor.set_read_only(not response_phase)
-        # 换流量时落在它的主场上：请求期开请求标签、响应期开响应标签。
-        # 用户手动停在另一个标签的偏好不跨流量保留 —— 停错半边看不见可编辑的内容。
-        self._set_current_tab("Response" if response_phase else "Request")
+    def _panel_matches(self, flow: HTTPFlow | None) -> bool:
+        """当前摆出的面板是否就是这条流量该有的那一个。
 
-    # —— 编辑区标签 ——
-
-    def _set_current_tab(self, key: str) -> None:
-        """代码侧切标签。`setCurrentItem` 值没变时信号不来，页面得在这里补摆。"""
-        self.editor_nav.setCurrentItem(key)
-        self._apply_tab(key)
-
-    def _apply_tab(self, key: str) -> None:
-        if key != "Response":
-            self.editor_panel.setCurrentWidget(self.request_editor)
-            return
-        flow = self._current_flow()
-        if flow is not None and flow.response is not None:
-            self.editor_panel.setCurrentWidget(self.response_editor)
-        else:
-            # 请求期没有响应可编：占位页说清楚，别给一张能改却改不出去的空表单。
-            self.editor_panel.setCurrentWidget(self.response_pending_page)
-
-    @Slot(str)
-    def _on_nav_changed(self, key: str):
-        """用户点标签（`currentItemChanged`：点选和代码置位两条路都走这里）。"""
-        self._apply_tab(key)
-
-    # —— 队列行内按钮 ——
-
-    def _populate_row_buttons(self) -> None:
-        """给每一行的操作格挂上「放行 / 丢弃」按钮组。"""
-        for row in range(self.flow_model.rowCount()):
-            flow = self.flow_model.flow_at(row)
-            if flow is None:
-                continue
-            self.flow_table.setIndexWidget(
-                self.flow_model.index(row, HeldFlowTableModel.ACTIONS_COLUMN),
-                self.__build_row_actions(flow),
-            )
-
-    def _clear_row_buttons(self) -> None:
-        """拆掉上一轮的按钮组。
-
-        必须趁**模型还没重置**做：`setIndexWidget(index, None)` 会顺手删掉旧控件，
-        而索引还有效；等 `set_flows` 重置完，旧索引全失效，就只剩指望视图自己回收了。
+        id 相同不代表不用重载：BOTH 规则下同一条流会先停请求期、放行后再停
+        响应期 —— 阶段变了面板必须跟着换，不然用户看到的是旧一期的内容。
         """
-        for row in range(self.flow_model.rowCount()):
-            index = self.flow_model.index(row, HeldFlowTableModel.ACTIONS_COLUMN)
-            if self.flow_table.indexWidget(index) is not None:
-                self.flow_table.setIndexWidget(index, None)
+        current = self.editor_panel.currentWidget()
+        if flow is None:
+            return current is self.no_selection_page
+        expected = (
+            self.response_panel if flow.response is not None else self.request_panel
+        )
+        return current is expected
 
-    def _on_row_release(self, flow: HTTPFlow) -> None:
-        """行内「放行」：先把这行选成当前流量（编辑器跟着切过去），再写回 + 放行。"""
-        current = self._current_flow()
-        if current is None or current.id != flow.id:
-            row = self.flow_model.row_of(flow.id)
-            if row < 0:
-                # 刷新间隙这条流量已经不在队列里了，别把别的流量放出去。
-                return
-            self.flow_table.selectRow(row)
-        self._write_back()
+    def _load_panel(self, flow: HTTPFlow | None) -> None:
+        """按当前流量的阶段摆面板：来的是什么阶段就给什么面板。"""
+        if flow is None:
+            self.request_panel.clear()
+            self.response_panel.clear()
+            self.editor_panel.setCurrentWidget(self.no_selection_page)
+            self._sync_status()
+            return
+        if flow.response is None:
+            self.request_panel.load(flow)
+            self.editor_panel.setCurrentWidget(self.request_panel)
+        else:
+            self.response_panel.load(flow)
+            self.editor_panel.setCurrentWidget(self.response_panel)
+        self._sync_status()
 
-    def _on_row_drop(self, flow: HTTPFlow) -> None:
-        self.controller.drop_flows([flow.id])
+    # —— 写回 / 丢弃 ——
 
     def _write_back(self) -> bool:
-        """把当前编辑器的内容写回选中的那条流量并放行，按它所处的阶段选编辑器。"""
+        """把当前面板的内容写回选中的那条流量并放行。"""
         flow = self._current_flow()
         if flow is None:
             return False
         if flow.response is None:
             return self.controller.apply_request(
-                flow.id, self.request_editor.edit(), release=True
+                flow.id, self.request_panel.edit(), release=True
             )
         return self.controller.apply_response(
-            flow.id, self.response_editor.edit(), release=True
+            flow.id, self.response_panel.edit(), release=True
         )
+
+    @Slot()
+    def _on_drop_current(self):
+        """面板页头的「丢弃」：只丢当前选中的那一条。"""
+        flow = self._current_flow()
+        if flow is not None:
+            self.controller.drop_flows([flow.id])
 
     # —— 队列槽 ——
 
@@ -380,9 +324,11 @@ class InterceptWindow(FluentWidget):
             return
         flow = self._current_flow()
         flow_id = flow.id if flow is not None else ""
-        if flow_id != self._current_id:
+        if flow_id != self._current_id or not self._panel_matches(flow):
             self._current_id = flow_id
-            self._load_editors(flow)
+            self._load_panel(flow)
+        else:
+            self._sync_status()
 
     @Slot(list)
     def _on_flows_changed(self, flows: list):
@@ -390,13 +336,12 @@ class InterceptWindow(FluentWidget):
 
         换表会顺手清掉选中项，而清空选中项又会把编辑器清空 —— 别人的流量刚被拦下就
         把用户正在编辑的内容冲掉，所以整段用 `_restoring` 挡住，最后只在**真的换了
-        一条流量**时才重载编辑器。行内按钮组趁换表重建：闭包攥着的是旧快照。
+        一条流量**时才重载面板。
         """
         was_empty = self.flow_model.rowCount() == 0
 
         self._restoring = True
         try:
-            self._clear_row_buttons()
             self.flow_model.set_flows(flows)
             row = self.flow_model.row_of(self._current_id) if self._current_id else -1
             if row < 0:
@@ -407,17 +352,19 @@ class InterceptWindow(FluentWidget):
                 self.flow_table.clearSelection()
         finally:
             self._restoring = False
-        self._populate_row_buttons()
 
         flow = self._current_flow()
         flow_id = flow.id if flow is not None else ""
-        if flow_id != self._current_id:
+        # 构造时 `_current_id` 是空串，与「无选中」同值；阶段变化（请求期→响应期）
+        # 时 id 不变 —— 两头都不能只比 id，见 `_panel_matches`。
+        if flow_id != self._current_id or not self._panel_matches(flow):
             self._current_id = flow_id
-            self._load_editors(flow)
+            self._load_panel(flow)
         self.queue_stack.setCurrentWidget(
             self.queue_splitter if flows else self.queue_empty_page
         )
         self._sync_title(len(flows))
+        self._sync_status()
 
         if not flows:
             # 队列空了就收起来，不留一个空窗挡着主窗口。
@@ -430,8 +377,8 @@ class InterceptWindow(FluentWidget):
 
     @Slot()
     def _on_release(self):
-        """放行（Ctrl+Enter / 右键菜单）。单选时连带写回当前改动再放行；多选时只
-        放行 —— 改动属于哪一条不明确。"""
+        """放行（Ctrl+Enter / 面板按钮 / 右键菜单）。单选时连带写回当前改动再放行；
+        多选时只放行 —— 改动属于哪一条不明确。"""
         flows = self._selected_flows()
         if not flows:
             return
@@ -463,6 +410,23 @@ class InterceptWindow(FluentWidget):
         drop_action.triggered.connect(self._on_drop)
         menu.addAction(drop_action)
         menu.exec(self.flow_table.viewport().mapToGlobal(pos))
+
+    # —— 状态条 ——
+
+    def _sync_status(self) -> None:
+        """待处理数 + 当前选中。文案整句留在外面，变量交给 format。"""
+        count = self.flow_model.rowCount()
+        flow = self._current_flow()
+        if flow is not None:
+            summary = self.tr("{} pending · editing {}").format(
+                count, flow.request.pretty_url
+            )
+        elif count:
+            summary = self.tr("{} pending").format(count)
+        else:
+            summary = ""
+        self.status_label.setText(summary)
+        self.release_all_button.setEnabled(count > 0)
 
     # —— 关窗 ——
 

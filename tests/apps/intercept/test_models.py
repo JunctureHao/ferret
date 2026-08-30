@@ -301,12 +301,11 @@ class HeldFlowTableModelTests(unittest.TestCase):
             "http://cdn.example.com/a.js",
         )
 
-    def test_the_actions_column_carries_no_data(self) -> None:
-        """操作列不放数据：那一格归 `setIndexWidget` 挂的「放行 / 丢弃」按钮组。"""
+    def test_the_phase_column_reflects_where_the_flow_is_held(self) -> None:
+        """阶段列读 `flow.response is None`：BOTH 规则同一条流会先后停两次。"""
         role = Qt.ItemDataRole.DisplayRole
-        for row in range(self.model.rowCount()):
-            self.assertIsNone(self.model.data(self.model.index(row, 2), role))
-        self.assertEqual(HeldFlowTableModel.ACTIONS_COLUMN, 2)
+        self.assertEqual(self.model.data(self.model.index(0, 2), role), "Request")
+        self.assertEqual(self.model.data(self.model.index(1, 2), role), "Response")
 
     def test_user_role_returns_the_flow(self) -> None:
         self.assertIs(

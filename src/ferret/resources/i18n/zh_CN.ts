@@ -2196,19 +2196,29 @@
 <context>
     <name>HeldFlowTableModel</name>
     <message>
-        <location filename="../../apps/intercept/models.py" line="293"/>
+        <location filename="../../apps/intercept/models.py" line="294"/>
         <source>Method</source>
         <translation>方法</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="294"/>
+        <location filename="../../apps/intercept/models.py" line="295"/>
         <source>URL</source>
         <translation>URL</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/models.py" line="295"/>
-        <source>Actions</source>
-        <translation>操作</translation>
+        <location filename="../../apps/intercept/models.py" line="296"/>
+        <source>Phase</source>
+        <translation>阶段</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/models.py" line="306"/>
+        <source>Response</source>
+        <translation>响应</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/models.py" line="307"/>
+        <source>Request</source>
+        <translation>请求</translation>
     </message>
 </context>
 <context>
@@ -2620,64 +2630,62 @@
 <context>
     <name>InterceptWindow</name>
     <message>
-        <location filename="../../apps/intercept/window.py" line="68"/>
+        <location filename="../../apps/intercept/window.py" line="66"/>
         <source>Breakpoints</source>
         <translation>断点</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="145"/>
-        <source>Request</source>
-        <translation>请求</translation>
+        <location filename="../../apps/intercept/window.py" line="164"/>
+        <source>Release all</source>
+        <translation>放行全部</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="146"/>
-        <source>Response</source>
-        <translation>响应</translation>
+        <location filename="../../apps/intercept/window.py" line="167"/>
+        <source>Release every held flow without applying any edits</source>
+        <translation>放行全部挂起的流量，不套用任何编辑</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="199"/>
-        <source>No response yet — this flow is held before the request goes out</source>
-        <translation>还没有响应——这条流量停在请求发出之前</translation>
+        <location filename="../../apps/intercept/window.py" line="201"/>
+        <source>Select a held flow to edit it</source>
+        <translation>选择一条挂起的流量进行编辑</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="217"/>
-        <location filename="../../apps/intercept/window.py" line="456"/>
+        <location filename="../../apps/intercept/window.py" line="389"/>
         <source>Release</source>
         <translation>放行</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="218"/>
-        <location filename="../../apps/intercept/window.py" line="461"/>
+        <location filename="../../apps/intercept/window.py" line="394"/>
         <source>Drop</source>
         <translation>丢弃</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="222"/>
-        <source>Kill this flow; the client receives nothing at all</source>
-        <translation>断开这条流量，客户端什么都收不到</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="179"/>
+        <location filename="../../apps/intercept/window.py" line="182"/>
         <source>Nothing is held right now</source>
         <translation>当前没有被拦下的流量</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="182"/>
+        <location filename="../../apps/intercept/window.py" line="185"/>
         <source>Traffic that matches a breakpoint rule stops here and waits until you release it</source>
         <translation>命中断点规则的流量会停在这里，等你改完再放行</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="221"/>
-        <source>Write the edits back and release this flow</source>
-        <translation>写回改动并放行这条流量</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/window.py" line="267"/>
+        <location filename="../../apps/intercept/window.py" line="252"/>
         <source>Breakpoints · {} pending</source>
         <translation>断点 · {} 条待处理</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="504"/>
+        <location filename="../../apps/intercept/window.py" line="407"/>
+        <source>{} pending · editing {}</source>
+        <translation>{} 条待处理 · 正在编辑 {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/window.py" line="411"/>
+        <source>{} pending</source>
+        <translation>{} 条待处理</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/window.py" line="454"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
@@ -2849,9 +2857,29 @@
 <context>
     <name>MessageEditor</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="18"/>
+        <location filename="../../apps/intercept/editors.py" line="38"/>
         <source>This content is not valid UTF-8 (an archive, an image, or a non-UTF-8 charset), so it is locked read-only; it goes out unchanged when released.</source>
         <translation>这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；放行时按原样发出。</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/editors.py" line="97"/>
+        <source>Write the edits back and release this flow</source>
+        <translation>写回改动并放行这条流量</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/editors.py" line="102"/>
+        <source>Release</source>
+        <translation>放行</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/editors.py" line="107"/>
+        <source>Kill this flow; the client receives nothing at all</source>
+        <translation>断开这条流量，客户端什么都收不到</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/editors.py" line="112"/>
+        <source>Drop</source>
+        <translation>丢弃</translation>
     </message>
 </context>
 <context>
@@ -3208,34 +3236,26 @@
     </message>
 </context>
 <context>
-    <name>RequestEditor</name>
+    <name>RequestPanel</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="142"/>
-        <source>Method</source>
-        <translation>方法</translation>
+        <location filename="../../apps/intercept/editors.py" line="209"/>
+        <source>Request headers ({count})</source>
+        <translation>请求头 ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="143"/>
-        <source>URL</source>
-        <translation>URL</translation>
-    </message>
-</context>
-<context>
-    <name>ResponseEditor</name>
-    <message>
-        <location filename="../../apps/intercept/editors.py" line="179"/>
-        <source>Empty = standard phrase for the status code</source>
-        <translation>留空 = 按状态码取标准短语</translation>
+        <location filename="../../apps/intercept/editors.py" line="230"/>
+        <source>Params</source>
+        <translation>参数</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="181"/>
-        <source>Status code</source>
-        <translation>状态码</translation>
+        <location filename="../../apps/intercept/editors.py" line="231"/>
+        <source>Headers</source>
+        <translation>请求头</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="182"/>
-        <source>Reason phrase</source>
-        <translation>原因短语</translation>
+        <location filename="../../apps/intercept/editors.py" line="232"/>
+        <source>Body</source>
+        <translation>请求体</translation>
     </message>
 </context>
 <context>
@@ -3259,6 +3279,24 @@
         <location filename="../../apps/common/flow/detail.py" line="458"/>
         <source>Headers ({count})</source>
         <translation>响应头 ({count})</translation>
+    </message>
+</context>
+<context>
+    <name>ResponsePanel</name>
+    <message>
+        <location filename="../../apps/intercept/editors.py" line="278"/>
+        <source>Response headers ({count})</source>
+        <translation>响应头 ({count})</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/editors.py" line="292"/>
+        <source>Headers</source>
+        <translation>响应头</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/editors.py" line="293"/>
+        <source>Body</source>
+        <translation>响应体</translation>
     </message>
 </context>
 <context>

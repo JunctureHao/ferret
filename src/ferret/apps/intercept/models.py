@@ -284,19 +284,28 @@ class HeldFlowTableModel(QAbstractTableModel):
     整表重置而不做增量：队列本来就短（`INTERCEPT_LIMIT` 是 128，实际同时拦下的是
     个位数），而每次刷新拿到的都是一批新的快照对象，增量比对反而要按 id 手工对齐。
 
-    每行是「请求方式 + URL + 操作」：操作列不放数据，`InterceptWindow` 用
-    `setIndexWidget` 往那一格里挂「放行 / 丢弃」按钮组。停在哪个阶段不占列了 ——
-    编辑区的「请求 / 响应」标签本身就是答案。
+    每行是「请求方式 + URL + 阶段」，纯只读 —— 放行/丢弃按钮长在右侧阶段面板的
+    页头行上，作用于当前选中的那条，不再用 `setIndexWidget` 往行里挂控件。停在哪个
+    阶段判的是 `flow.response is None`：BOTH 规则下同一条流会先后停两次，看阶段列
+    就知道它这回是请求期还是响应期。
     """
 
     HEADERS: ClassVar[list[str]] = [
         QT_TRANSLATE_NOOP("HeldFlowTableModel", "Method"),
         QT_TRANSLATE_NOOP("HeldFlowTableModel", "URL"),
-        QT_TRANSLATE_NOOP("HeldFlowTableModel", "Actions"),
+        QT_TRANSLATE_NOOP("HeldFlowTableModel", "Phase"),
     ]
 
-    #: 「操作」列的序号，`InterceptWindow` 往这一格挂按钮组。
-    ACTIONS_COLUMN: ClassVar[int] = 2
+    # 「阶段」列的序号。
+    PHASE_COLUMN: ClassVar[int] = 2
+
+    # 阶段列的文案标记：模块级/类体不许求值翻译，只存标记到使用点再 translate
+    # （三元表达式塞在 translate 实参里 lupdate 也提取不到）。`PHASE_COLUMN` 的
+    # 序号含义见类 docstring，这里不再重复。
+    PHASE_MARKS: ClassVar[dict[bool, str]] = {
+        True: QT_TRANSLATE_NOOP("HeldFlowTableModel", "Response"),
+        False: QT_TRANSLATE_NOOP("HeldFlowTableModel", "Request"),
+    }
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -363,8 +372,9 @@ class HeldFlowTableModel(QAbstractTableModel):
                 return flow.request.method
             if col == 1:
                 return flow.request.pretty_url
-            # 操作列没有数据：那一格归 `setIndexWidget` 挂的按钮组。
-            return None
+            # 请求期 / 响应期。面板与写回用的判据是同一个。
+            marked = self.PHASE_MARKS[flow.response is not None]
+            return QCoreApplication.translate("HeldFlowTableModel", marked)
 
         if role == Qt.ItemDataRole.ToolTipRole:
             return flow.request.pretty_url
