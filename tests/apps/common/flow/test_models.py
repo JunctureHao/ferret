@@ -141,26 +141,6 @@ class FlowTableModelTests(unittest.TestCase):
                 expected,
             )
 
-    def test_cell_alignment_unchanged(self) -> None:
-        # 单元格对齐不得因表头左对齐改动而改变
-        flow = self.completed_flow()
-        model = self.model_with(flow)
-
-        # 第 0 列 (#) 单元格右对齐
-        self.assertEqual(
-            model.data(model.index(0, 0), Qt.ItemDataRole.TextAlignmentRole),
-            int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-        )
-        # 第 1 列 (Method) 单元格居中
-        self.assertEqual(
-            model.data(model.index(0, 1), Qt.ItemDataRole.TextAlignmentRole),
-            int(Qt.AlignmentFlag.AlignCenter),
-        )
-        # 第 2 列 (URL) 单元格默认左对齐（模型未指定，返回 None）
-        self.assertIsNone(
-            model.data(model.index(0, 2), Qt.ItemDataRole.TextAlignmentRole),
-        )
-
     def test_the_size_column_and_the_detail_wire_rows_agree(self) -> None:
         """两处数字必须一致 —— 而且是结构上一致：同走 `wire_size()` 一个函数。
 

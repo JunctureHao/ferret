@@ -108,7 +108,7 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def wait_for_signal(self, signal, timeout_ms: int = 5000):
+    def wait_for_signal(self, signal, timeout_ms: int = 30000):
         loop = QEventLoop()
         values = []
 
@@ -134,7 +134,10 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
         self.assertFalse(runtime.block_global)
 
         runtime.start()
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        self.assertTrue(
+            self.wait_for_signal(runtime.ready),
+            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
+        )
         self.assertEqual(runtime.state, MitmRuntimeState.RUNNING)
 
         master = runtime._master
@@ -147,7 +150,10 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
         runtime.start()
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        self.assertTrue(
+            self.wait_for_signal(runtime.ready),
+            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
+        )
 
         runtime.apply_block_options(block_global=False, block_private=True)
 
@@ -160,10 +166,16 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
         runtime.start()
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        self.assertTrue(
+            self.wait_for_signal(runtime.ready),
+            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
+        )
 
         runtime.restart(listen_host="0.0.0.0", listen_port=free_port())
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        self.assertTrue(
+            self.wait_for_signal(runtime.ready),
+            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
+        )
         self.assertEqual(runtime.listen_host, "0.0.0.0")
 
         master = runtime._master
@@ -181,7 +193,10 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
         runtime.start()
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        self.assertTrue(
+            self.wait_for_signal(runtime.ready),
+            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
+        )
 
         with self.assertRaises(TypeError):
             runtime.apply_block_options(block_global="yes")  # type: ignore

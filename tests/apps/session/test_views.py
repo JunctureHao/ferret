@@ -45,6 +45,8 @@ class SessionViewerPageTests(unittest.TestCase):
         page.resize(900, 600)
         page.show()
         self.app.processEvents()
+        # 4ee294f 起无流量时空态会隐藏详情面板，先恢复显示才能谈「展开后收起」。
+        page.panel.setVisible(True)
         page.splitter.setSizes([450, 450])
         self.app.processEvents()
         self.assertGreater(page.splitter.sizes()[1], 0)
