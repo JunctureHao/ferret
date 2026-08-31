@@ -166,6 +166,8 @@ class _MitmThread(QThread):
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
+        # SSE tee 的信号桥同理（master 装配时 runtime 还不存在，只能在这里补）。
+        master.sse.bridge = self.runtime
         self.master = master
         self.runtime._master_created.emit(self.generation, master)
         if self.stop_requested:
@@ -277,6 +279,10 @@ class MitmRuntime(QObject):
     websocket_started = Signal(str)
     websocket_frame = Signal(str, object)
     websocket_closed = Signal(str, object)
+    # SSE 三件事，与 WS 同形：flow_id + SseEvent 值对象（core/mitm/sse.py）。
+    sse_started = Signal(str)
+    sse_event = Signal(str, object)
+    sse_ended = Signal(str)
     # 编辑页手工发送的落地结果：ComposeResult 值对象（见 core/mitm/compose.py）。
     compose_result = Signal(object)
 

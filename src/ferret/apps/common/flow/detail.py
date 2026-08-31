@@ -67,7 +67,7 @@ from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.core.log import get_logger
-from ferret.core.mitm import MARKER_DEFAULT, WsClose, WsFrame
+from ferret.core.mitm import MARKER_DEFAULT, SseEvent, WsClose, WsFrame
 from ferret.core.settings import CONFIG
 
 log = get_logger("flow.detail")
@@ -424,9 +424,9 @@ class PivotBadgeAnchor(QObject):
         self.pivot.installEventFilter(self)
 
     def eventFilter(self, obj, e: QEvent) -> bool:
-        if (
-            obj in (self.target, self.pivot)
-            and e.type() in (QEvent.Type.Resize, QEvent.Type.Move)
+        if obj in (self.target, self.pivot) and e.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.Move,
         ):
             self.reposition()
         return super().eventFilter(obj, e)
@@ -704,7 +704,7 @@ class FlowDataPanel(QWidget):
         self.__connect_controller(self.controller)
 
     def __connect_controller(self, controller, connect: bool = True) -> None:
-        """接上/断开 controller 的三条 websocket 信号。
+        """接上/断开 controller 的 WS / SSE 实时信号。
 
         用 `getattr` 探而不是直接 `controller.websocket_frame`：只读的
         `SessionViewController` **刻意**一条都不提供（会话文件里的流量早就结束了，
@@ -716,6 +716,9 @@ class FlowDataPanel(QWidget):
             "websocket_started": self.__on_ws_started,
             "websocket_frame": self.__on_ws_frame,
             "websocket_closed": self.__on_ws_closed,
+            "sse_started": self.__on_sse_started,
+            "sse_event": self.__on_sse_event,
+            "sse_ended": self.__on_sse_ended,
         }
         for name, slot in slots.items():
             signal = getattr(controller, name, None)
@@ -798,9 +801,7 @@ class FlowDataPanel(QWidget):
         menu = RoundMenu(parent=self)
         for action in self._more_actions():
             menu.addAction(action)
-        menu.exec(
-            self.more_button.mapToGlobal(QPoint(0, self.more_button.height()))
-        )
+        menu.exec(self.more_button.mapToGlobal(QPoint(0, self.more_button.height())))
 
     @Slot()
     def __on_copy_url(self) -> None:
@@ -913,7 +914,7 @@ class FlowDataPanel(QWidget):
         finally:
             self.__syncing_mark = False
 
-    # —— WebSocket 实时 ——
+    # —— WebSocket / SSE 实时 ——
 
     def __is_current(self, flow_id: str) -> bool:
         """这条信号说的是不是面板上正显示的那一条。
@@ -943,6 +944,30 @@ class FlowDataPanel(QWidget):
             return
         self.messages.set_close(close)
 
+    @Slot(str)
+    def __on_sse_started(self, flow_id: str) -> None:
+        """检测出事件流。选中时还是普通 HTTP 流量的那一条，从这里开始消息栏有内容。"""
+        if not self.__is_current(flow_id):
+            return
+        self.messages.show_sse_events(self.__events(flow_id))
+        self.__refresh_message_page()
+
+    @Slot(str, object)
+    def __on_sse_event(self, flow_id: str, event: SseEvent) -> None:
+        if not self.__is_current(flow_id):
+            return
+        self.messages.append_event(event)
+        self.__refresh_message_page()
+
+    @Slot(str)
+    def __on_sse_ended(self, flow_id: str) -> None:
+        """流末：body 已补回，响应体页该从「还在流」换成最终内容 —— 重拉一次详情。"""
+        if not self.__is_current(flow_id):
+            return
+        detail = self.controller.flow_detail(flow_id) if self.controller else {}
+        if detail:
+            self.set_data(detail)
+
     def __frames(self, flow_id: str) -> list[WsFrame]:
         """向 controller 要帧。跨线程那一步归门面，这里只兜异常。
 
@@ -965,17 +990,37 @@ class FlowDataPanel(QWidget):
             log.warning("读取 websocket 关闭信息失败 flow_id=%s: %s", flow_id, exc)
             return WsClose()
 
+    def __events(self, flow_id: str) -> list[SseEvent]:
+        """向 controller 要 SSE 事件存档。
+
+        只读的会话 controller **刻意**不提供这个方法（历史流量由消息页兑底解
+        body，见 `protocols.py` 的注释），所以缺方法走 `getattr` 探 —— 静默回
+        空表，别把设计如此的情况当天天报的 warning。真出错（内核没在跑等）才
+        留一行日志。
+        """
+        fetch = (
+            getattr(self.controller, "sse_events", None) if self.controller else None
+        )
+        if not flow_id or fetch is None:
+            return []
+        try:
+            return fetch(flow_id)
+        except (AttributeError, RuntimeError) as exc:
+            log.warning("读取 SSE 事件失败 flow_id=%s: %s", flow_id, exc)
+            return []
+
     def __set_messages(self, data: dict) -> None:
         """填消息栏。
 
         帧要现取：详情字典是在 mitm 线程上一次性构建的（`core/mitm/detail.py`），
         塞进去上千帧等于让每一条流量都背着一份帧列表过界，而九成流量压根不是 WS。
-        SSE 那一路相反 —— 事件全在已缓冲的响应体里，`MessagesPane` 自己解析就够。"""
+        SSE 那一路同形：事件在 `FerretSseAddon` 的存档里，问 controller 整取；
+        取不到的（从 `.flow` 文件回来的历史流量）由 `MessagesPane` 兑底解 body。"""
         flow_id = str(data.get("id") or "")
         if is_websocket(data):
             self.messages.set_data(data, self.__frames(flow_id), self.__close(flow_id))
         else:
-            self.messages.set_data(data)
+            self.messages.set_data(data, events=self.__events(flow_id))
         self.__refresh_message_page()
 
     def __refresh_message_page(self) -> None:

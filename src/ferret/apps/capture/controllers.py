@@ -21,6 +21,7 @@ from ferret.core.mitm import (
     MitmFacade,
     MitmRuntime,
     MitmRuntimeState,
+    SseEvent,
     View,
     WsClose,
     WsFrame,
@@ -70,6 +71,10 @@ class CaptureController(QObject):
     websocket_started = Signal(str)
     websocket_frame = Signal(str, object)
     websocket_closed = Signal(str, object)
+    # SSE 同形：`FerretSseAddon` 的 tee 在 mitm 线程上解析，过界的只有值对象。
+    sse_started = Signal(str)
+    sse_event = Signal(str, object)
+    sse_ended = Signal(str)
 
     captureStateChanged = Signal(bool)
     proxy_started = Signal()
@@ -117,6 +122,9 @@ class CaptureController(QObject):
         runtime.websocket_started.connect(self.websocket_started)
         runtime.websocket_frame.connect(self.websocket_frame)
         runtime.websocket_closed.connect(self.websocket_closed)
+        runtime.sse_started.connect(self.sse_started)
+        runtime.sse_event.connect(self.sse_event)
+        runtime.sse_ended.connect(self.sse_ended)
         runtime.ready.connect(self._on_runtime_ready)
         runtime.failed.connect(self._on_runtime_failed)
         runtime.stopped.connect(self._on_runtime_stopped)
@@ -281,6 +289,9 @@ class CaptureController(QObject):
 
     def websocket_close(self, flow_id: str) -> WsClose:
         return self._mitm.websocket_close(flow_id)
+
+    def sse_events(self, flow_id: str) -> list[SseEvent]:
+        return self._mitm.sse_events(flow_id)
 
     def total_count(self) -> int:
         return self._mitm.total_count()

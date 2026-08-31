@@ -50,7 +50,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 ## 4. 目录分层
 
 - `core/`：`application.py`/`runtime.py`(`AppRuntime`)/`settings.py`/`network.py`(地址词表+局域网探测，无 Qt 无 mitmproxy)/`log.py`/`resources_rc.py`(勿手改)。系统代理已拆为 **uv workspace 成员 `packages/sysproxy`**（发行名 `sysproxy`，零依赖、零 Qt）：ferret 经 `tool.uv.sources` 以 workspace 依赖接入，journal 路径由宿主注入（`get_config_dir()/"system-proxy-state.json"`，两个构造点 `core/runtime.py` 与 `capture/controllers.py` 兜底），包内不许自造默认目录、不许 import ferret/PySide6（守卫用例在包测试里）。
-- `core/mitm/`：`bindings`(唯一 mitmproxy 入口)/`master`/`runtime`/`facade`/`addons`(`FerretTlsConfig`/`LogAddon`)/`export`/`io`/`certificate`(同步阻塞，调用方负责挪后台线程)/`blocklist`/`rewrite`/`intercept`(断点规则+报文写回，规则可选阶段：请求/响应/两者，`intercept_expression` 按 phase 分组后用显式 `&` 挂 `~q`/`~s`——不能用并列，flowfilter 里并列优先级低于 `|`，会把整串段攥住)/`compose`(手工发送：`build_compose_flow` 从零造 flow 走 `ClientPlayback`，`ComposeAddon` 在 response/error 钩子里报结果并按 `record` 决定是否从 View 摘除)/`__init__`(公开 API)。`engine.py` 零引用可删。**会送到界面的异常文案**（`certificate`/`facade`/`gateway`/`intercept`/`rewrite`/`runtime`）用 `QCoreApplication.translate("<Ctx>", ...)` 包一层，所以这几个模块 import QtCore（不碰控件）；日志与 `from_dict` 校验消息不译（后者被 `rules_from_raw` 吞掉，从不上界面）。
+- `core/mitm/`：`bindings`(唯一 mitmproxy 入口)/`master`/`runtime`/`facade`/`addons`(`FerretTlsConfig`/`LogAddon`)/`export`/`io`/`certificate`(同步阻塞，调用方负责挪后台线程)/`blocklist`/`rewrite`/`intercept`(断点规则+报文写回，规则可选阶段：请求/响应/两者，`intercept_expression` 按 phase 分组后用显式 `&` 挂 `~q`/`~s`——不能用并列，flowfilter 里并列优先级低于 `|`，会把整串段攥住)/`compose`(手工发送：`build_compose_flow` 从零造 flow 走 `ClientPlayback`，`ComposeAddon` 在 response/error 钩子里报结果并按 `record` 决定是否从 View 摘除)/`sse`(解析层纯函数零依赖 + `FerretSseAddon` tee，见 §6)/`__init__`(公开 API)。`engine.py` 零引用可删。**会送到界面的异常文案**（`certificate`/`facade`/`gateway`/`intercept`/`rewrite`/`runtime`）用 `QCoreApplication.translate("<Ctx>", ...)` 包一层，所以这几个模块 import QtCore（不碰控件）；日志与 `from_dict` 校验消息不译（后者被 `rules_from_raw` 吞掉，从不上界面）。
 - `apps/`：`capture`/`certificate`/`common`/`session`/`settings`/`blocklist`/`rewrite`/`intercept`（断点页只留规则，规则表单可选阶段：请求/响应/请求和响应；队列与编辑面板在独立的非模态窗口 `intercept/window.py`，构造时 parent 必须为 None，否则 `qframelesswindow` 不补 `Qt.Window` 会退化成子控件。窗口左侧是断点列表（`HeldFlowTableModel` 只读三列：请求方式 + URL + 阶段，无行内按钮），右侧由当前流的阶段决定显示 `editors.py` 的哪个面板（请求期→`RequestPanel`：方法下拉+URL+放行/丢弃图标按钮+TabPanel 参数/请求头(N)/请求体；响应期→`ResponsePanel`：状态码+同款按钮+响应头(N)/响应体）——来什么阶段给什么面板，无切换标签无占位页无只读锁；组件与流量详情面板同源（`TabPanel`/`ItemDualPanel`/`JsonDualPanel`，editable 档）。参数页是 query 权威源，写回经 `_merge_query` 合并进 URL（与 compose `_collect_url` 同一套端口规范）。批量入口：列表右键菜单 + 底部状态条「放行全部」；写回仅在放行时发生）/`compose`（手工请求编辑页：顶栏独占一行 方法下拉只可选/URL/发送大钮 → `MitmFacade.send_custom_request`；左侧 TabPanel 参数/请求头(N)/请求体（body=JsonDualPanel 可编辑、Content-Type 下拉挂其文本工具栏、参数页变化实时写回 URL 栏，发送合并与断点同一套端口规范）；右侧 `ResponsePane(with_raw=False)` 承载 响应头(N)/响应体/性能 三条标签，性能页 = 状态行（InfoBadge+摘要）+ 时间/流量两组 FieldCard（复用 fields 的声明式规格，`_PERF_SECTIONS`）+ `OverviewPane(sections=…)`；分栏 `OrientationSplitter` 跟随全局布局（本页不反转）；方法词表 `apps/common/http_methods.py` 与断点共享），**不直接 import mitmproxy 内部模块**。后台任务统一用 `apps/common/tasks.py::FunctionTask`。编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel`/`ToolPlainTextEdit`/`JsonDualPanel`），不新造编辑器。
 - `utils/`：`http_parser.py`(body 预处理)/`scripts.py`(i18n 流水线，subprocess)/`i18n.py`(`QT_TRANSLATE_NOOP` 标记 + `resolve_marker`，见 §8)。新增 utils 不再加依赖（现 `http_parser.py` 已误引 `core.mitm.bindings`，别扩散）。
 
@@ -62,11 +62,11 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 ## 6. 功能状态
 
-实际装载 addon（`core/mitm/master.py` 为准）：Core、Block、StripDnsHttpsRecords、AntiCache(关)、AntiComp(关)、ClientPlayback、DisableH2C、Proxyserver、DnsResolver、GatewayL4Addon、NextLayer、MapRemote、MapLocal、ModifyBody、ModifyHeaders、FerretTlsConfig、GatewayL7Addon、FerretIntercept、View、ComposeAddon(挂在 View 之后，摘除靠 `loop.call_soon` 排到当轮钩子之后)、ReadFile、Save、LogAddon。BlockList 已撤（网关取代，见 `master.py` 注释）。
+实际装载 addon（`core/mitm/master.py` 为准）：Core、Block、StripDnsHttpsRecords、AntiCache(关)、AntiComp(关)、ClientPlayback、DisableH2C、Proxyserver、DnsResolver、GatewayL4Addon、NextLayer、MapRemote、MapLocal、ModifyBody、ModifyHeaders、FerretTlsConfig、GatewayL7Addon、FerretIntercept、View、ComposeAddon(挂在 View 之后，摘除靠 `loop.call_soon` 排到当轮钩子之后)、FerretSseAddon(同区，见下)、ReadFile、Save、LogAddon。BlockList 已撤（网关取代，见 `master.py` 注释）。
 
-已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR/curl/httpie/raw 导出、CA 证书页、系统代理开关、会话管理、屏蔽 blocklist、代理来源限制 block、网关（L4/L7 策略）、重写六类（mapremote/maplocal/modifyheaders×2/modifybody×2）、断点 intercept（规则可选阶段：请求/响应/两者，默认两者各停一次；改请求或响应→放行/丢弃；窗口左侧断点列表+右侧单阶段可编辑面板，参数页合并进 URL，底部状态条放行全部；伪造响应与撤销留在控制器，窗口未提供入口）、WebSocket 逐帧展示、SSE 事件分行展示（消息页为 qfw `CardWidget` 卡片流：卡片只显消息内容，方向靠左右对齐——右=发过去、左=发过来；方向词/事件元信息只进过滤搜索串）、流量标记与备注、手工请求 compose（编辑页自己拼请求经内核发出，重写/网关/断点规则照常命中；「进入流量列表」可选，不选的等 replay 结束后从 View 摘除）。
+已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR/curl/httpie/raw 导出、CA 证书页、系统代理开关、会话管理、屏蔽 blocklist、代理来源限制 block、网关（L4/L7 策略）、重写六类（mapremote/maplocal/modifyheaders×2/modifybody×2）、断点 intercept（规则可选阶段：请求/响应/两者，默认两者各停一次；改请求或响应→放行/丢弃；窗口左侧断点列表+右侧单阶段可编辑面板，参数页合并进 URL，底部状态条放行全部；伪造响应与撤销留在控制器，窗口未提供入口）、WebSocket 逐帧展示、SSE 事件实时推送（边收边显，消息页为 qfw `CardWidget` 卡片流：卡片只显消息内容，方向靠左右对齐——右=发过去、左=发过来；方向词/事件元信息只进过滤搜索串）、流量标记与备注、手工请求 compose（编辑页自己拼请求经内核发出，重写/网关/断点规则照常命中；「进入流量列表」可选，不选的等 replay 结束后从 View 摘除）。
 
-缺口：serverplayback、stickycookie/stickyauth、SSE 实时推送（见下）。
+缺口：serverplayback、stickycookie/stickyauth。
 
 WebSocket：帧不走 addon，走 `mitmproxy.proxy.layers.websocket`（`layers/__init__.py`
 顶层就 import 它，连带 `wsproto`），经 `UiBridgeAddon` 的 `websocket_start` /
@@ -78,12 +78,19 @@ WebSocket：帧不走 addon，走 `mitmproxy.proxy.layers.websocket`（`layers/_
 一条行情连接上千帧，跟着选中一起搬过界不划算。显示上限 `WS_FRAME_LIMIT`（界面策略，
 超限静默从最旧端逐出；`ws_frames()` 本身恒返回全部，`count` 徽标恒指内核总数）。
 
-SSE：响应体一律缓冲 —— `stream_large_bodies` 默认 `None`（`proxyserver` 声明的），
-ferret 不设它，也不碰 `flow.response.stream`。所以事件表读的是**已结束**的响应体，
-端点不收尾就一直看不到，这正是原生 `ServerSideEvents` addon（内容只有一条告警，
-ferret 没装）在说的 mitmproxy#4469。将来要做实时推送，`stream_large_bodies` 必须配
-`store_streamed_bodies`：只开前者的话 body 压根不入库，事件表反而更空。解析在
-`utils/sse.py`（纯函数、零依赖），不在 `core/mitm/`。
+SSE：mitmproxy 对 SSE 零支持 —— 原生 `ServerSideEvents` addon 全文只有一条告警
+（mitmproxy#4469，ferret 没装）。两条原生路都不通：默认缓冲模式下端点不收尾就永远
+看不到事件；改 `stream_large_bodies` 又必须配 `store_streamed_bodies`，只开前者 body
+压根不入库。所以 ferret 在 `core/mitm/sse.py` 自己 tee —— `responseheaders` 检测出
+事件流后，把 `flow.response.stream` 换成**官方支持的 callable**（每个 chunk 先过它再
+转发），边转发边增量解码解析、逐事件经 `sse_event` 信号过界；全局选项一个都不碰，
+非 SSE 流量零影响。攒 body 有 `SSE_BODY_LIMIT`（10 MiB）闸门：超限后停止继续攒，
+流末仍把已攒的前缀写回 `flow.response.data.content`（响应体页 / 保存 / HAR 导出都读
+它），解析推送不受影响 —— 原生一个上限都没有，闸门只能由 ferret 加。事件存档**恒存
+全量**（显示上限归界面）；内核一停存档就没了（addon 跟 master 一代一换），历史流量
+（`.flow` 文件）由消息页兑底 `parse_sse(body)`。解析层（零 mitmproxy 零 Qt）与 tee 层
+同文件分两层，`FerretSseAddon` 的 bridge 由 runtime 后置注入（master 装配时不认识
+runtime）。
 
 ⚠️ `README.md` 的「内置 Addon 对照」表已过期，以 `master.py` 为准。
 

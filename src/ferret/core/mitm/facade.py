@@ -24,6 +24,7 @@ from ferret.core.mitm.intercept import (
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.rewrite import RewriteRule
 from ferret.core.mitm.runtime import MitmRuntime
+from ferret.core.mitm.sse import SseEvent
 from ferret.core.mitm.wsframe import WsClose, WsFrame, ws_close, ws_frames
 from ferret.core.network import LOOPBACK_HOST, detect_lan_address
 
@@ -402,6 +403,20 @@ class MitmFacade:
 
         return self.runtime.call(collect) if self.runtime.is_running else collect()
 
+    # —— SSE ——
+
+    def sse_events(self, flow_id: str) -> list[SseEvent]:
+        """那条流迄今 tee 出的全部事件；不是事件流就是空表。
+
+        数据在 `FerretSseAddon` 的存档里（恒存全量，显示上限归界面），所以内核
+        没跑时**没有**退化路径：addon 跟 master 一代一换，内核停了存档就没了，
+        返回空表（历史流量走 `parse_sse(body)` 兑底那条路）。
+        """
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
+            return []
+        return self.runtime.call(lambda: master.sse.events(flow_id))
+
     def total_count(self) -> int:
         count = lambda: sum(
             isinstance(flow, HTTPFlow) for flow in self.view._store.values()
@@ -615,6 +630,7 @@ class MitmFacade:
                 master.gateway.release_all()
                 master.intercept_state.release_all()
                 self._sweep(list(self.view._store))
+                master.sse.clear()
             self.view.clear()
 
         if self.runtime.is_running:
@@ -635,6 +651,8 @@ class MitmFacade:
                 master.gateway.release(flow_ids)
                 master.intercept_state.release(flow_ids)
                 self._sweep(flow_ids)
+                for flow_id in flow_ids:
+                    master.sse.forget(flow_id)
             current = [self.view.get_by_id(flow_id) for flow_id in flow_ids]
             self.view.remove([flow for flow in current if flow is not None])
 

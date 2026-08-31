@@ -19,7 +19,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from unittest.mock import patch
 
 from mitmproxy.test import tflow
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication, QWidget
 from qfluentwidgets import InfoLevel
 
@@ -36,7 +36,13 @@ from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     READONLY_CAPABILITIES,
 )
-from ferret.core.mitm import MARKER_DEFAULT, WsClose, WsFrame, build_flow_detail
+from ferret.core.mitm import (
+    MARKER_DEFAULT,
+    WsClose,
+    WsFrame,
+    build_flow_detail,
+    parse_sse,
+)
 
 
 class BodyLangTests(unittest.TestCase):
@@ -297,6 +303,136 @@ class MessageBadgeTests(unittest.TestCase):
         self.assertEqual(badge.x() - tab.geometry().right(), before)
 
 
+class _SseController(QObject):
+    """带 SSE 三件套信号的最小 controller —— 面板构造时就会把这些接上。"""
+
+    sse_started = Signal(str)
+    sse_event = Signal(str, object)
+    sse_ended = Signal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.archived: list = []
+        self.detail: dict = {}
+        self.detail_requests = 0
+
+    def sse_events(self, _flow_id: str) -> list:
+        return list(self.archived)
+
+    def flow_detail(self, _flow_id: str) -> dict:
+        self.detail_requests += 1
+        return self.detail
+
+    def get_raw_request(self, _flow_id: str) -> str:
+        return ""
+
+    def get_raw_response(self, _flow_id: str) -> str:
+        return ""
+
+
+class SseRealtimeTests(unittest.TestCase):
+    """SSE 三件事在详情面板的落点：检测出事件流 → 消息栏亮起；逐事件追加；
+    流末重拉详情（body 已补回，响应体页要换成最终内容）。
+
+    信号是广播的：抓包时几十条连接同时在推，`flow_id` 对不上当前那一行的
+    一律不许碰面板 —— 这条与 WS 共用一套过滤，但值得单独钉一遍。
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.controller = _SseController()
+        self.panel = FlowDataPanel(self.host, self.controller)
+        self.host.resize(900, 700)
+        self.host.show()
+        self.app.processEvents()
+
+    def tearDown(self) -> None:
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def __pending_detail(self) -> dict:
+        """选中时响应还没到的那一条：没有 Content-Type，消息栏还谈不上。"""
+        return build_flow_detail(tflow.tflow())
+
+    def __sse_detail(self, body: str = "") -> dict:
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.headers["content-type"] = "text/event-stream"
+        detail = build_flow_detail(flow)
+        detail["Response Body Text"] = body
+        return detail
+
+    def __select(self, detail: dict) -> str:
+        flow_id = str(detail["id"])
+        self.panel.set_data(detail)
+        self.app.processEvents()
+        return flow_id
+
+    def test_sse_started_lights_up_the_messages_page(self) -> None:
+        """选中时还是普通流量，检测出事件流的那一刻消息栏要有内容。"""
+        flow_id = self.__select(self.__pending_detail())
+        self.assertFalse(self.panel.res_pane.isTabVisible("Messages"))
+
+        self.controller.archived = parse_sse("data: seeded\n\n")
+        self.controller.sse_started.emit(flow_id)
+        self.app.processEvents()
+
+        self.assertTrue(self.panel.res_pane.isTabVisible("Messages"))
+        self.assertFalse(self.panel.message_badge.isHidden())
+        self.assertEqual(self.panel.message_badge.text(), "1")
+
+    def test_sse_events_append_and_tick_the_badge(self) -> None:
+        flow_id = self.__select(self.__sse_detail())
+        self.controller.sse_started.emit(flow_id)
+
+        self.controller.sse_event.emit(flow_id, parse_sse("data: one\n\n")[0])
+        self.controller.sse_event.emit(flow_id, parse_sse("data: two\n\n")[0])
+        self.app.processEvents()
+
+        self.assertEqual(self.panel.messages.count, 2)
+        self.assertEqual(self.panel.message_badge.text(), "2")
+
+    def test_a_foreign_flow_id_leaves_the_panel_alone(self) -> None:
+        self.__select(self.__pending_detail())
+
+        self.controller.sse_started.emit("someone-else")
+        self.controller.sse_event.emit("someone-else", parse_sse("data: x\n\n")[0])
+        self.controller.sse_ended.emit("someone-else")
+
+        self.assertFalse(self.panel.res_pane.isTabVisible("Messages"))
+        self.assertEqual(self.panel.messages.count, 0)
+        self.assertEqual(self.controller.detail_requests, 0)
+
+    def test_sse_ended_repulls_the_detail(self) -> None:
+        """流末 body 已补回：响应体页要换最终内容，整个面板重拉一次详情。"""
+        flow_id = self.__select(self.__sse_detail())
+        self.controller.sse_started.emit(flow_id)
+
+        final = self.__sse_detail("data: final\n\n")
+        self.controller.detail = final
+        self.controller.sse_ended.emit(flow_id)
+        self.app.processEvents()
+
+        self.assertEqual(self.controller.detail_requests, 1)
+        self.assertIs(self.panel.datas, final)
+        # 重拉之后消息页从补回的 body 重新落位（addon 存档为空 → 兑底解 body）。
+        self.assertEqual(self.panel.messages.count, 1)
+
+    def test_sse_ended_with_nothing_to_show_does_not_blanks_the_panel(self) -> None:
+        """controller 给不出详情（{}）时保持现状，别把面板打空。"""
+        flow_id = self.__select(self.__sse_detail("data: seeded\n\n"))
+        before = self.panel.messages.count
+
+        self.controller.sse_ended.emit(flow_id)
+
+        self.assertEqual(self.controller.detail_requests, 1)
+        self.assertEqual(self.panel.messages.count, before)
+
+
 class LeftColumnTests(unittest.TestCase):
     """左栏内容：Raw 的兜底拼装、body 三态、查询参数与 Cookies 的显隐。"""
 
@@ -435,7 +571,9 @@ class ResponsePaneTests(unittest.TestCase):
         pane = ResponsePane()
         data = build_flow_detail(tflow.tflow(resp=True))
         pane.set_data(data)
-        self.assertIn(str(len(data["Response Headers"])), pane.pivot.items["Headers"].text())
+        self.assertIn(
+            str(len(data["Response Headers"])), pane.pivot.items["Headers"].text()
+        )
         pane.deleteLater()
 
     def test_raw_falls_back_to_the_detail_dict_without_a_controller(self) -> None:

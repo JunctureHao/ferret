@@ -19,9 +19,10 @@ SSE 事件一律靠左，纯注释块（心跳）收成居中的系统条；连�
 * **WS 帧是活的**。`flow.websocket` 由 mitmproxy 持续填充，帧要边到边追加，所以
   :meth:`MessagesPane.append_frame` 是增量接口 —— 整流重建会把用户的选中和滚动位置
   一起清掉，而行情型连接每秒几十帧，等于面板没法用。
-* **SSE 事件是静的**。mitmproxy 默认不开 streaming，流量走完时整份 body 已经缓冲好，
-  所以直接解析 `Response Body Text` 就是全部。开了 `stream` 时 body 为空，这时显示
-  「响应体以流式转发，未缓冲」而不是一条空流 —— 后者看着像解析失败。
+* **SSE 事件也是活的**。`FerretSseAddon` 在 `responseheaders` 把
+  `flow.response.stream` 换成 callable，边转发边增量解析，逐事件经信号推过来，走
+  :meth:`MessagesPane.append_event` 追加；整取（选中时）与兑底（从 `.flow` 文件
+  回来的历史流量，走 `parse_sse(body)`）两条路汇合到同一个 `show_sse_events`。
 
 顶栏就三件事（整行靠右）：过滤框（大小写不敏感子串，WS 匹配帧文本 / 方向文字 /
 BINARY 帧 hex，SSE 匹配 data 与事件名——方向词与事件元信息只进搜索串不进界面）、
@@ -52,8 +53,14 @@ from qfluentwidgets import (
 )
 
 from ferret.apps.common.flow.chat import Bubble, ChatStream, SystemNote
-from ferret.core.mitm import WS_FRAME_LIMIT, WsClose, WsFrame
-from ferret.utils.sse import SseEvent, is_event_stream, parse_sse
+from ferret.core.mitm import (
+    WS_FRAME_LIMIT,
+    SseEvent,
+    WsClose,
+    WsFrame,
+    is_event_stream,
+    parse_sse,
+)
 
 # 气泡流最多摆多少条。和 :data:`ferret.core.mitm.WS_FRAME_LIMIT` 钉在同一个数
 # ——它本来就是「界面侧显示上限」的那个值，SSE 事件没有理由另立一个。
@@ -158,6 +165,9 @@ class MessagesPane(QWidget):
         # `_total` —— 标签徽标恒指内核总数，与显示条数语义分开）。
         self._total = 0
         self._applicable = False
+        # 三态分派要读它，而 append_* 可能先于任何 show_* 到达（选中时握手还没
+        # 完成、第一帧/第一个事件却已经到了），构造期就得有值。
+        self._mode = ""
         self._close = WsClose()
         self._close_note: SystemNote | None = None
 
@@ -244,20 +254,27 @@ class MessagesPane(QWidget):
         data: dict,
         frames: list[WsFrame] | None = None,
         close: WsClose | None = None,
+        events: list[SseEvent] | None = None,
     ) -> None:
         """换一条流量。
 
         Args:
-            data: 详情字典。SSE 那一路只靠它（``Response Content-Type`` +
-                ``Response Body Text``），不需要 controller。
+            data: 详情字典。判定走它（``Response Content-Type``）。
             frames: 已抓到的帧，由详情面板从 controller 取来（跨线程那一步归它）。
             close: 关闭信息，同上。
+            events: addon 存档里的 SSE 事件，同上。为 None（历史流量）或空表时兑底
+                解详情字典里的 body —— 从 `.flow` 文件加载的流量没有 addon 存档。
         """
         if is_websocket(data) or frames:
             self.show_websocket(frames or [], close or WsClose())
             return
         if is_event_stream(data.get("Response Content-Type")):
-            self.show_sse(str(data.get("Response Body Text") or ""))
+            if events:
+                self.show_sse_events(events)
+            else:
+                self.show_sse_events(
+                    parse_sse(str(data.get("Response Body Text") or ""))
+                )
             return
         self.__reset()
         self._applicable = False
@@ -277,23 +294,31 @@ class MessagesPane(QWidget):
         self.pages.setCurrentIndex(_PAGE_STREAM)
         self.stream.scroll_to_newest()
 
-    def show_sse(self, body: str) -> None:
-        """一份 `text/event-stream` body → 事件气泡流。空 body 走「未缓冲」占位。"""
+    def show_sse_events(self, events: list[SseEvent]) -> None:
+        """整取重建。选中期间新到的事件走 `append_event`，不再走这里。
+
+        空列表不是「未缓冲」：tee 在流式转发也照样解析，空就是还没有事件到 ——
+        摆一条空流，事件到了自然长出来。
+        """
         self.__reset()
         self._applicable = True
         self._mode = "sse"
-        if not body:
-            self.placeholder.setText(
-                self.tr("The response body was streamed, not buffered")
-            )
-            self.pages.setCurrentIndex(_PAGE_PLACEHOLDER)
-            return
-        events = parse_sse(body)
         self._total = len(events)
         for event in events[-MESSAGE_ROW_LIMIT:]:
             self.__add_event(event)
         self.pages.setCurrentIndex(_PAGE_STREAM)
         self.stream.scroll_to_newest()
+
+    def append_event(self, event: SseEvent) -> None:
+        """新到一个事件。语义对齐 `append_frame`：计数 +1、贴边才滚、超限从最旧端逐出。"""
+        if self._mode != "sse":
+            self.show_sse_events([])
+        self._total += 1
+        at_edge = self.stream.at_newest_edge()
+        self.__add_event(event)
+        self.__trim()
+        if at_edge:
+            self.stream.scroll_to_newest()
 
     def append_frame(self, frame: WsFrame) -> None:
         """新到一帧。

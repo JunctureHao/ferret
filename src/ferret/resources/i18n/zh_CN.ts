@@ -148,27 +148,27 @@
 <context>
     <name>CaptureController</name>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="37"/>
+        <location filename="../../apps/capture/controllers.py" line="38"/>
         <source>Invalid system proxy address</source>
         <translation>无效的系统代理地址</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="40"/>
+        <location filename="../../apps/capture/controllers.py" line="41"/>
         <source>Restoring the previous system proxy failed</source>
         <translation>恢复原系统代理失败</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="43"/>
+        <location filename="../../apps/capture/controllers.py" line="44"/>
         <source>Setting the system proxy failed</source>
         <translation>设置系统代理失败</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="203"/>
+        <location filename="../../apps/capture/controllers.py" line="211"/>
         <source>Failed to restore the original system proxy</source>
         <translation>恢复原系统代理失败</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="392"/>
+        <location filename="../../apps/capture/controllers.py" line="403"/>
         <source>The mitmproxy core has stopped</source>
         <translation>mitmproxy 内核已停止</translation>
     </message>
@@ -1111,58 +1111,58 @@
         <translation>更多操作</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="813"/>
+        <location filename="../../apps/common/flow/detail.py" line="814"/>
         <source>Nothing to copy</source>
         <translation>没有可复制的内容</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="814"/>
+        <location filename="../../apps/common/flow/detail.py" line="815"/>
         <source>%s is not ready yet</source>
         <translation>%s 还没有准备好</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="820"/>
-        <location filename="../../apps/common/flow/detail.py" line="888"/>
+        <location filename="../../apps/common/flow/detail.py" line="821"/>
+        <location filename="../../apps/common/flow/detail.py" line="889"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="821"/>
+        <location filename="../../apps/common/flow/detail.py" line="822"/>
         <source>%s copied to clipboard</source>
         <translation>%s 已复制到剪贴板</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="834"/>
+        <location filename="../../apps/common/flow/detail.py" line="835"/>
         <source>Replay failed</source>
         <translation>重发失败</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="851"/>
+        <location filename="../../apps/common/flow/detail.py" line="852"/>
         <source>Failed to mark</source>
         <translation>标记失败</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="886"/>
+        <location filename="../../apps/common/flow/detail.py" line="887"/>
         <source>Failed to save comment</source>
         <translation>备注保存失败</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="888"/>
+        <location filename="../../apps/common/flow/detail.py" line="889"/>
         <source>Comment saved</source>
         <translation>备注已保存</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1034"/>
+        <location filename="../../apps/common/flow/detail.py" line="1079"/>
         <source>Headers ({count})</source>
         <translation>请求头 ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1037"/>
+        <location filename="../../apps/common/flow/detail.py" line="1082"/>
         <source>Query ({count})</source>
         <translation>查询参数 ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1040"/>
+        <location filename="../../apps/common/flow/detail.py" line="1085"/>
         <source>Cookies ({count})</source>
         <translation>Cookie ({count})</translation>
     </message>
@@ -2993,69 +2993,64 @@
 <context>
     <name>MessagesPane</name>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="177"/>
+        <location filename="../../apps/common/flow/messages.py" line="187"/>
         <source>Filter messages...</source>
         <translation>过滤消息…</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="184"/>
-        <location filename="../../apps/common/flow/messages.py" line="431"/>
+        <location filename="../../apps/common/flow/messages.py" line="194"/>
+        <location filename="../../apps/common/flow/messages.py" line="456"/>
         <source>Newest first</source>
         <translation>最新在上</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="185"/>
+        <location filename="../../apps/common/flow/messages.py" line="195"/>
         <source>Toggle message order</source>
         <translation>切换消息顺序</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="190"/>
-        <location filename="../../apps/common/flow/messages.py" line="191"/>
+        <location filename="../../apps/common/flow/messages.py" line="200"/>
+        <location filename="../../apps/common/flow/messages.py" line="201"/>
         <source>Clear the displayed messages</source>
         <translation>清空显示的消息</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="264"/>
+        <location filename="../../apps/common/flow/messages.py" line="281"/>
         <source>This flow carries no messages</source>
         <translation>这条流量没有消息</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="287"/>
-        <source>The response body was streamed, not buffered</source>
-        <translation>响应体以流式转发，未缓冲</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/messages.py" line="335"/>
+        <location filename="../../apps/common/flow/messages.py" line="360"/>
         <source>Client → Server</source>
         <translation>客户端 → 服务端</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="337"/>
+        <location filename="../../apps/common/flow/messages.py" line="362"/>
         <source>Server → Client</source>
         <translation>服务端 → 客户端</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="431"/>
+        <location filename="../../apps/common/flow/messages.py" line="456"/>
         <source>Oldest first</source>
         <translation>最早在上</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="410"/>
+        <location filename="../../apps/common/flow/messages.py" line="435"/>
         <source>Closed</source>
         <translation>已关闭</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="412"/>
+        <location filename="../../apps/common/flow/messages.py" line="437"/>
         <source>Closed by client</source>
         <translation>客户端关闭</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="414"/>
+        <location filename="../../apps/common/flow/messages.py" line="439"/>
         <source>Closed by server</source>
         <translation>服务端关闭</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="364"/>
+        <location filename="../../apps/common/flow/messages.py" line="389"/>
         <source>Showing the first {} of {} bytes</source>
         <translation>仅显示前 {} 字节，共 {} 字节</translation>
     </message>
@@ -3063,58 +3058,58 @@
 <context>
     <name>MitmFacade</name>
     <message>
-        <location filename="../../core/mitm/facade.py" line="39"/>
+        <location filename="../../core/mitm/facade.py" line="40"/>
         <source>The mitmproxy core is not running</source>
         <translation>mitmproxy 内核未运行</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="257"/>
+        <location filename="../../core/mitm/facade.py" line="258"/>
         <source>Unknown marker value: %s</source>
         <translation>无法识别的标记值：%s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="308"/>
+        <location filename="../../core/mitm/facade.py" line="309"/>
         <source>That flow is no longer in the list</source>
         <translation>这条流量已不在列表中</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="490"/>
+        <location filename="../../core/mitm/facade.py" line="505"/>
         <source>That flow could not be found</source>
         <translation>找不到指定的 Flow</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="497"/>
+        <location filename="../../core/mitm/facade.py" line="512"/>
         <source>There is no flow to resend</source>
         <translation>没有可重发的 Flow</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="502"/>
-        <location filename="../../core/mitm/facade.py" line="577"/>
+        <location filename="../../core/mitm/facade.py" line="517"/>
+        <location filename="../../core/mitm/facade.py" line="592"/>
         <source>The mitmproxy core is not running, so nothing can be replayed</source>
         <translation>mitmproxy 内核未运行，无法回放</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="520"/>
+        <location filename="../../core/mitm/facade.py" line="535"/>
         <source>There is nothing left to replay</source>
         <translation>无可回放的 Flow</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="546"/>
+        <location filename="../../core/mitm/facade.py" line="561"/>
         <source>The HTTP method is empty</source>
         <translation>HTTP 方法为空</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="550"/>
+        <location filename="../../core/mitm/facade.py" line="565"/>
         <source>The URL is empty</source>
         <translation>URL 为空</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="555"/>
+        <location filename="../../core/mitm/facade.py" line="570"/>
         <source>The mitmproxy core is not running, so nothing can be sent</source>
         <translation>mitmproxy 内核未运行，无法发送</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="591"/>
+        <location filename="../../core/mitm/facade.py" line="606"/>
         <source>The mitmproxy core is not running, so the file cannot be read</source>
         <translation>mitmproxy 内核未运行，无法读取文件</translation>
     </message>
@@ -3127,22 +3122,22 @@
         <translation>代理端口监听失败</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="245"/>
+        <location filename="../../core/mitm/runtime.py" line="247"/>
         <source>Port {} is already in use</source>
         <translation>端口 {} 已被占用</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="383"/>
+        <location filename="../../core/mitm/runtime.py" line="389"/>
         <source>The mitmproxy core did not stop in time, so it cannot restart</source>
         <translation>mitmproxy 内核停止超时，无法重启</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="576"/>
+        <location filename="../../core/mitm/runtime.py" line="582"/>
         <source>The mitmproxy core is not running</source>
         <translation>mitmproxy 内核未运行</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="599"/>
+        <location filename="../../core/mitm/runtime.py" line="605"/>
         <source>The mitmproxy task timed out</source>
         <translation>mitmproxy 任务执行超时</translation>
     </message>

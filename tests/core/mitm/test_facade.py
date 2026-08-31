@@ -20,6 +20,7 @@ from mitmproxy.utils import emoji
 
 from ferret.core.mitm import (
     MARKER_DEFAULT,
+    FerretSseAddon,
     MitmFacade,
     MitmRuntime,
     View,
@@ -61,11 +62,12 @@ class SnapshotIdentityTests(unittest.TestCase):
 
 
 class _FakeMaster:
-    """只有两本账的 master：`_resume` 用得到的就这两个属性。"""
+    """只有三本账的 master：`_resume` / `sse_events` 用得到就这三个属性。"""
 
     def __init__(self) -> None:
         self.gateway = GatewayState()
         self.intercept_state = InterceptState()
+        self.sse = FerretSseAddon()
 
 
 class _InlineRuntime:
@@ -248,6 +250,54 @@ class WebsocketReadTests(unittest.TestCase):
         facade.view.add([self.flow])
         self.assertEqual(len(facade.websocket_frames(self.flow.id)), 3)
         self.assertEqual(facade.websocket_close(self.flow.id).close_code, 1000)
+
+
+class SseEventReadTests(unittest.TestCase):
+    """`sse_events` 整取 addon 存档 —— 契约对齐 `websocket_frames`，只有一处刻意
+    不同：内核没跑时**没有**就地退化路径。存档跟着 master 一代一换，内核停了存档
+    就没了，返回空表（历史流量由消息页走 `parse_sse(body)` 兑底）。
+    """
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+        self.flow = tflow.tflow(resp=True)
+        assert self.flow.response is not None
+        self.flow.response.headers["content-type"] = "text/event-stream"
+        self.runtime.view.add([self.flow])
+        # 经 addon 自己的钩子把两块事件喂进存档（responseheaders + stream 转发约定）。
+        self.runtime.master.sse.responseheaders(self.flow)
+        stream = self.flow.response.stream
+        assert callable(stream)
+        stream(b"data: a\n\n")
+        stream(b"data: b\n\n")
+        stream(b"")
+
+    def test_events_come_back_whole(self) -> None:
+        events = self.facade.sse_events(self.flow.id)
+        self.assertEqual([e.data for e in events], ["a", "b"])
+        self.assertEqual([e.index for e in events], [0, 1])
+
+    def test_the_events_are_read_through_the_runtime(self) -> None:
+        """内核跑着时必须借 mitm 线程读 —— Qt 线程不许碰 addon 的账（AGENTS.md §3）。"""
+        calls: list[str] = []
+        inner = self.runtime.call
+
+        def spy(callback, *, timeout: float = 5.0):
+            calls.append("call")
+            return inner(callback, timeout=timeout)
+
+        self.runtime.call = spy  # type: ignore
+        self.facade.sse_events(self.flow.id)
+        self.assertEqual(calls, ["call"])
+
+    def test_an_unknown_id_yields_nothing(self) -> None:
+        self.assertEqual(self.facade.sse_events("nope"), [])
+
+    def test_a_stopped_kernel_answers_empty(self) -> None:
+        facade = MitmFacade(MitmRuntime())
+        facade.view.add([self.flow])
+        self.assertEqual(facade.sse_events(self.flow.id), [])
 
 
 if __name__ == "__main__":

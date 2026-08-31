@@ -15,10 +15,11 @@
 
 import unittest
 
-from ferret.utils.sse import (
+from ferret.core.mitm import (
     DEFAULT_EVENT,
     SSE_CONTENT_TYPE,
     SseEvent,
+    SseFeeder,
     is_event_stream,
     parse_sse,
 )
@@ -294,6 +295,54 @@ class RealisticStreamTests(unittest.TestCase):
         self.assertEqual(events[3].event, "")
         self.assertEqual(events[4].data, "[DONE]")
         self.assertEqual([e.index for e in events], [0, 1, 2, 3, 4])
+
+
+class FeederTests(unittest.TestCase):
+    """增量 feeder：tee 拿到的 chunk 是 TCP 切分，与块边界无关，拼回去必须严丝合缝。"""
+
+    def feed_all(self, chunks: list[str], *, flush: bool = True) -> list[SseEvent]:
+        feeder = SseFeeder()
+        events = [event for chunk in chunks for event in feeder.feed(chunk)]
+        if flush:
+            events.extend(feeder.flush())
+        return events
+
+    def test_byte_by_byte_feeding_matches_parse_sse(self) -> None:
+        body = "event: a\ndata: one\n\ndata: two\n\n: ping\n\ndata: tail"
+        events = self.feed_all(list(body))
+        self.assertEqual(events, parse_sse(body))
+
+    def test_a_block_split_across_chunks_dispatches_once(self) -> None:
+        events = self.feed_all(["data: hel", "lo\n\n"])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].data, "hello")
+
+    def test_one_chunk_can_carry_multiple_blocks(self) -> None:
+        events = self.feed_all(["data: a\n\ndata: b\n\ndata: c\n\n"])
+        self.assertEqual([e.data for e in events], ["a", "b", "c"])
+
+    def test_a_partial_line_is_not_dispatched_early(self) -> None:
+        feeder = SseFeeder()
+        self.assertEqual(feeder.feed('data: {"a'), [])
+        # 补全的这半段带着收尾空行一起到 —— 凑齐了就该当场派发，这正是实时推送
+        # 要的语义（迟一拍等于白做 tee）。
+        events = feeder.feed('": 1}\n\n')
+        self.assertEqual([e.data for e in events], ['{"a": 1}'])
+        self.assertEqual(feeder.flush(), [])
+
+    def test_flush_dispatches_the_unterminated_tail(self) -> None:
+        events = self.feed_all(["data: tail"])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].data, "tail")
+
+    def test_indices_continue_across_feed_calls(self) -> None:
+        events = self.feed_all(["data: a\n\n", "data: b\n\n", "data: c"])
+        self.assertEqual([e.index for e in events], [0, 1, 2])
+
+    def test_crlf_split_across_chunks(self) -> None:
+        """`\\r` 落在 chunk 尾、`\\n` 在下一段：合成 `\\r\\n` 一个分隔符，不是两个空行。"""
+        events = self.feed_all(["data: a\r", "\n\r", "\ndata: b\r\n\r\n"])
+        self.assertEqual([e.data for e in events], ["a", "b"])
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ from ferret.core.mitm import (
     WsClose,
     WsFrame,
     build_flow_detail,
+    parse_sse,
     ws_frames,
 )
 
@@ -566,8 +567,12 @@ class SseBubbleTests(unittest.TestCase):
         self.pane = MessagesPane()
         self.addCleanup(self.pane.deleteLater)
 
+    def show_sse(self, body: str) -> None:
+        """老接口退场后的便捷包装：解析一整份 body 再走整取。"""
+        self.pane.show_sse_events(parse_sse(body))
+
     def test_every_event_gets_a_bubble(self) -> None:
-        self.pane.show_sse("data: a\n\ndata: b\n\ndata: c\n\n")
+        self.show_sse("data: a\n\ndata: b\n\ndata: c\n\n")
 
         self.assertTrue(self.pane.applicable)
         self.assertEqual(self.pane.pages.currentIndex(), PAGE_STREAM)
@@ -576,7 +581,7 @@ class SseBubbleTests(unittest.TestCase):
 
     def test_a_bubble_shows_only_the_data(self) -> None:
         """事件名 / id / retry 只进搜索串 —— 气泡里只有数据本体。"""
-        self.pane.show_sse('event: price\ndata: {"px": 1}\nid: 7\nretry: 3000\n\n')
+        self.show_sse('event: price\ndata: {"px": 1}\nid: 7\nretry: 3000\n\n')
         bubble = bubbles_of(self.pane)[0]
 
         self.assertEqual(bubble.content_label.text(), '{"px": 1}')
@@ -585,19 +590,19 @@ class SseBubbleTests(unittest.TestCase):
 
     def test_event_metadata_stays_searchable(self) -> None:
         """输事件名能过滤到对应事件 —— 元信息只是不占界面。"""
-        self.pane.show_sse('event: price\ndata: {"px": 1}\nid: 7\n\n')
+        self.show_sse('event: price\ndata: {"px": 1}\nid: 7\n\n')
         self.pane.filter_input.setText("price")
 
         self.assertFalse(bubbles_of(self.pane)[0].isHidden())
 
     def test_a_multi_line_data_event_keeps_its_lines(self) -> None:
         """气泡里摆全文（限高截断是控件的事），折成一行反而丢信息。"""
-        self.pane.show_sse("data: one\ndata: two\n\n")
+        self.show_sse("data: one\ndata: two\n\n")
         self.assertEqual(bubbles_of(self.pane)[0].content_label.text(), "one\ntwo")
 
     def test_a_heartbeat_becomes_a_centered_system_note(self) -> None:
         """心跳不是任何一方说的话，不占一枚气泡。"""
-        self.pane.show_sse(": keep-alive\n\n")
+        self.show_sse(": keep-alive\n\n")
 
         self.assertEqual(bubbles_of(self.pane), [])
         notes = notes_of(self.pane)
@@ -607,20 +612,73 @@ class SseBubbleTests(unittest.TestCase):
 
     def test_an_over_limit_stream_keeps_the_newest_events(self) -> None:
         total = MESSAGE_ROW_LIMIT + 5
-        self.pane.show_sse("".join(f"data: {i}\n\n" for i in range(total)))
+        self.show_sse("".join(f"data: {i}\n\n" for i in range(total)))
 
         bubbles = bubbles_of(self.pane)
         self.assertEqual(len(bubbles), MESSAGE_ROW_LIMIT)
         self.assertEqual(self.pane.count, total)
         self.assertEqual(bubbles[0].key, 5)
 
-    def test_a_streamed_body_says_why_the_stream_is_missing(self) -> None:
-        """空流看着像解析失败，而这条流量其实是被转发走了。"""
-        self.pane.show_sse("")
+    def test_an_empty_event_list_shows_an_empty_stream(self) -> None:
+        """流式中、事件还没到：摆一条空流，事件到了经 `append_event` 长出来。
+
+        「响应体以流式转发，未缓冲」的占位文案已退役 —— tee 之后流式反而有数据。
+        """
+        self.pane.show_sse_events([])
 
         self.assertTrue(self.pane.applicable)
-        self.assertEqual(self.pane.pages.currentIndex(), PAGE_PLACEHOLDER)
-        self.assertIn("streamed", self.pane.placeholder.text())
+        self.assertEqual(self.pane.pages.currentIndex(), PAGE_STREAM)
+        self.assertEqual(bubbles_of(self.pane), [])
+        self.assertEqual(self.pane.count, 0)
+
+    def test_append_event_grows_the_stream_incrementally(self) -> None:
+        """增量语义对齐 `append_frame`：计数 +1、不重建、超限从最旧端逐出。"""
+        self.pane.show_sse_events(parse_sse("data: a\n\n"))
+        self.pane.append_event(parse_sse("data: b\n\n")[0])
+
+        bubbles = bubbles_of(self.pane)
+        self.assertEqual(len(bubbles), 2)
+        self.assertEqual(self.pane.count, 2)
+        self.assertEqual(bubbles[-1].content_label.text(), "b")
+
+    def test_append_event_from_a_non_sse_mode_rebuilds(self) -> None:
+        """选中时还没认出是事件流（`set_data` 走了别的分支），事件本身就是证据。"""
+        self.pane.append_event(parse_sse("data: x\n\n")[0])
+
+        self.assertTrue(self.pane.applicable)
+        self.assertEqual(self.pane.pages.currentIndex(), PAGE_STREAM)
+        self.assertEqual(len(bubbles_of(self.pane)), 1)
+        self.assertEqual(self.pane.count, 1)
+
+    def test_set_data_prefers_the_archive_over_the_body(self) -> None:
+        """流式中的流量走整取：事件从 addon 存档来，body 是旧的也不碍事。"""
+        archived = parse_sse("data: from-archive\n\n")
+        self.pane.set_data(sse_detail("data: stale-body\n\n"), events=archived)
+
+        self.assertEqual(
+            [b.content_label.text() for b in bubbles_of(self.pane)], ["from-archive"]
+        )
+        self.assertEqual(self.pane.count, 1)
+
+    def test_set_data_falls_back_to_the_body_without_an_archive(self) -> None:
+        """历史流量（从 `.flow` 文件读回来的）没有 addon 存档，兑底解 body。"""
+        self.pane.set_data(sse_detail("data: from-body\n\n"))
+
+        self.assertEqual(
+            [b.content_label.text() for b in bubbles_of(self.pane)], ["from-body"]
+        )
+
+    def test_an_empty_archive_still_falls_back_to_the_body(self) -> None:
+        """空表 = 还没攒到事件（与没有这个参数是同一条兑底路）。
+
+        流式 body 本身是空的，解出来自然是空流 —— 事件到了经 `append_event`
+        长出来，这条已经在上面钉过。
+        """
+        self.pane.set_data(sse_detail("data: from-body\n\n"), events=[])
+
+        self.assertEqual(
+            [b.content_label.text() for b in bubbles_of(self.pane)], ["from-body"]
+        )
 
 
 class FilterTests(unittest.TestCase):
@@ -675,7 +733,9 @@ class FilterTests(unittest.TestCase):
         self.assertTrue(all(not b.isHidden() for b in bubbles_of(self.pane)))
 
     def test_sse_events_match_data_and_event_name(self) -> None:
-        self.pane.show_sse('event: price\ndata: {"px": 1}\n\ndata: keep\n\n')
+        self.pane.show_sse_events(
+            parse_sse('event: price\ndata: {"px": 1}\n\ndata: keep\n\n')
+        )
         self.pane.filter_input.setText("price")
 
         first, second = bubbles_of(self.pane)

@@ -32,6 +32,7 @@ from ferret.core.mitm.bindings import (
 )
 from ferret.core.mitm.compose import ComposeAddon
 from ferret.core.mitm.intercept import FerretIntercept, InterceptState
+from ferret.core.mitm.sse import FerretSseAddon
 
 
 class FerretMaster(Master):
@@ -56,6 +57,10 @@ class FerretMaster(Master):
         self.intercept_state = InterceptState()
         self.intercept = FerretIntercept(self.intercept_state)
         self.compose = ComposeAddon(self.view)
+        # SSE tee：挂在 View 之后、与 Compose 同区。检测点是 responseheaders
+        # （源码注释明确 stream 必须在 response 钩子之前换），链上这里照常能收到。
+        # bridge 由 runtime 在挂 UiBridgeAddon 时注入（master 装配时还不认识它）。
+        self.sse = FerretSseAddon()
         self.save = Save()
 
         self.addons.add(
@@ -98,6 +103,7 @@ class FerretMaster(Master):
             # 挂在 View 之后：摘除（record=False）要等 View 收录完再执行，靠
             # `loop.call_soon` 排在当前一轮钩子派发之后，次序与链上位置无关。
             self.compose,
+            self.sse,
             self.readfile,
             self.save,
             LogAddon(),

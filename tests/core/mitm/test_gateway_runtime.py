@@ -10,7 +10,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from mitmproxy.test import tflow
 from PySide6.QtCore import QCoreApplication, QEventLoop, QObject, QTimer, Signal
 
-from ferret.core.mitm import MitmFacade, MitmRuntime, MitmRuntimeState, View
+from ferret.core.mitm import (
+    FerretSseAddon,
+    MitmFacade,
+    MitmRuntime,
+    MitmRuntimeState,
+    View,
+)
 from ferret.core.mitm.addons import GatewayState
 from ferret.core.mitm.gateway import (
     GatewayLayer,
@@ -46,6 +52,9 @@ class FakeMaster:
     def __init__(self) -> None:
         self.gateway = GatewayState()
         self.intercept_state = InterceptState()
+        # 真 addon：`clear_flows` / `remove_flows` 会连带清它的事件存档，用替身就
+        # 测不到「存档跟着 flow 一起走」这条路径（bridge 缺省 = 只存不发信号）。
+        self.sse = FerretSseAddon()
         self.options = MagicMock()
 
 
