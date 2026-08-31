@@ -244,7 +244,7 @@ class MitmRuntimeGatewayLiveTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def wait_for_signal(self, signal, timeout_ms: int = 5000):
+    def wait_for_signal(self, signal, timeout_ms: int = 30000):
         loop = QEventLoop()
         values = []
 

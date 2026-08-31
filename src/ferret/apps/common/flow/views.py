@@ -353,6 +353,10 @@ class FlowViewerPane(OrientationSplitter):
     @Slot(dict)
     def _on_row_double_clicked(self, data: dict) -> None:
         """Open details and normalize the outer splitter to 50/50."""
+        # 空态会把面板整个隐藏（4ee294f），而 QSplitter 对隐藏件不分配尺寸；
+        # 有行可双击就说明面板不该再藏着，先恢复显示再等分。
+        if self.panel.isHidden():
+            self.panel.setVisible(True)
         self.panel.set_data(data)
         QTimer.singleShot(0, self._apply_equal_sizes)
 
@@ -402,7 +406,9 @@ class FlowViewerPane(OrientationSplitter):
 
         if shown > 0:
             self.table_stack.setCurrentWidget(self.table)
-            if not self.panel.isVisible():
+            # isHidden() 只认「被刻意隐藏」；isVisible() 会把窗口未显示误判进来，
+            # 导致显示前每次 stats 更新都白白 collapse 一次。
+            if self.panel.isHidden():
                 self.panel.setVisible(True)
                 self.collapse_panel()
             return

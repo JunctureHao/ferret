@@ -37,6 +37,9 @@ class FlowViewerPaneTests(unittest.TestCase):
         self.assertEqual(self.viewer.sizes()[1], 0)
 
     def test_single_click_updates_open_panel_without_changing_ratio(self) -> None:
+        # 4ee294f 起空态会隐藏详情面板，QSplitter 对隐藏件不分配尺寸；
+        # 本测试要的是「面板已展开」状态，先显式恢复显示。
+        self.viewer.panel.setVisible(True)
         self.viewer.setSizes([650, 250])
         self.app.processEvents()
         before = self.viewer.sizes()
