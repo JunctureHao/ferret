@@ -259,10 +259,7 @@ class FlowTableModel(QAbstractTableModel):
             return self._semantic_color(self._status_kind(flow))
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            if column_name in ("#", "Status", "Size", "Time"):
-                return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            if column_name == "Method":
-                return int(Qt.AlignmentFlag.AlignCenter)
+            return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         return None
 
     @staticmethod
