@@ -62,7 +62,7 @@
 # nuitka-project: --nofollow-import-to=pyperclip
 # nuitka-project: --nofollow-import-to=zstandard.backend_cffi
 # nuitka-project: --noinclude-dlls=*zstandard*_cffi*
-# # nuitka-project: --nofollow-import-to=urwid
+# urwid 只有 mitmproxy.tools.console 引用，不在模块图里，无需排除
 # nuitka-project: --nofollow-import-to=wcwidth
 # nuitka-project: --nofollow-import-to=tornado
 # nuitka-project: --nofollow-import-to=win32evtlog
@@ -81,49 +81,73 @@
 # 整个模块图里零引用者（report.xml 的 module_usages 反查，只有 Nuitka 记在 __main__
 # 名下的那条伪引用），实测跑完 ferret 全量 import + FerretMaster 装配后也不进
 # sys.modules。字节码 blob 基本不压缩（input 5,882,087 → blob 5,854,988），所以这里
-# 省下的 ~695 KiB 是 1:1 落到 exe 上的，比编译模块的 0.35 折算划算。
-# 刻意留着的两个：_sitebuiltins（site.py 启动时就加载）、_pylong（CPython 的 C 层在
-# 超大整数 ↔ 字符串转换时自己 import，静态图里看不见引用者）。
+# 省下的是 1:1 落到 exe 上的，比编译模块的 0.35 折算划算。
+# 列表按字母序维护，新增插在对应位置；每条新增都先过「全量 import + 装配实测不进
+# sys.modules」和「引用反查无活引用者」两关。
+# 刻意留着：_sitebuiltins（site.py 启动就加载，它内部还持着 pydoc 的函数级懒引用——
+# 所以 pydoc 也不排）、_pylong（CPython 的 C 层在超大整数 ↔ 字符串转换时自己
+# import，静态图里看不见引用者）。
+# 已评估不排：_cffi_backend —— cryptography 48 的 _rust.pyd 初始化硬 import（装配
+# 路径经 cryptography.x509，实测进 sys.modules），Nuitka ImplicitImports 也显式挂
+# cryptography→_cffi_backend，排掉 = TLS/证书全崩；doctest —— 现存引用者
+# pickle._test() / heapq 的 __main__ 守卫虽是死路径，但 pickle 是核心活模块，保守
+# 留到 report.xml 复核后再定。
+# nuitka-project: --nofollow-import-to=__hello__
+# nuitka-project: --nofollow-import-to=__phello__
+# nuitka-project: --nofollow-import-to=_aix_support
+# nuitka-project: --nofollow-import-to=_markupbase
+# nuitka-project: --nofollow-import-to=_osx_support
 # nuitka-project: --nofollow-import-to=_pyio
-# nuitka-project: --nofollow-import-to=pickletools
-# nuitka-project: --nofollow-import-to=configparser
-# nuitka-project: --nofollow-import-to=imaplib
-# nuitka-project: --nofollow-import-to=difflib
-# nuitka-project: --nofollow-import-to=pstats
+# nuitka-project: --nofollow-import-to=aifc
+# nuitka-project: --nofollow-import-to=bdb
 # nuitka-project: --nofollow-import-to=cgi
+# nuitka-project: --nofollow-import-to=cgitb
+# nuitka-project: --nofollow-import-to=chunk
+# nuitka-project: --nofollow-import-to=cmd
+# nuitka-project: --nofollow-import-to=code
+# nuitka-project: --nofollow-import-to=codeop
+# nuitka-project: --nofollow-import-to=colorsys
+# nuitka-project: --nofollow-import-to=configparser
+# nuitka-project: --nofollow-import-to=difflib
+# nuitka-project: --nofollow-import-to=filecmp
+# nuitka-project: --nofollow-import-to=fileinput
+# getopt 的引用者只有 quopri.main() / mimetypes.main() 等函数级死路径，运行期不可达
+# （不满足严格零引用口径，收益 7.5 KB，特批）
+# nuitka-project: --nofollow-import-to=getopt
+# nuitka-project: --nofollow-import-to=graphlib
+# nuitka-project: --nofollow-import-to=html.parser
+# nuitka-project: --nofollow-import-to=imghdr
+# nuitka-project: --nofollow-import-to=imaplib
+# nuitka-project: --nofollow-import-to=importlib.simple
+# nuitka-project: --nofollow-import-to=mailbox
+# nuitka-project: --nofollow-import-to=mailcap
+# nuitka-project: --nofollow-import-to=modulefinder
+# nuitka-project: --nofollow-import-to=netrc
+# nuitka-project: --nofollow-import-to=nntplib
+# nuitka-project: --nofollow-import-to=optparse
+# nuitka-project: --nofollow-import-to=pdb
+# nuitka-project: --nofollow-import-to=pickletools
+# nuitka-project: --nofollow-import-to=pipes
+# nuitka-project: --nofollow-import-to=pkgutil
+# nuitka-project: --nofollow-import-to=poplib
+# nuitka-project: --nofollow-import-to=pstats
+# nuitka-project: --nofollow-import-to=pyclbr
+# nuitka-project: --nofollow-import-to=rlcompleter
+# nuitka-project: --nofollow-import-to=sched
+# nuitka-project: --nofollow-import-to=sndhdr
+# nuitka-project: --nofollow-import-to=sre_compile
+# nuitka-project: --nofollow-import-to=sre_constants
+# nuitka-project: --nofollow-import-to=sre_parse
+# nuitka-project: --nofollow-import-to=sunau
+# nuitka-project: --nofollow-import-to=symtable
+# nuitka-project: --nofollow-import-to=sysconfig
+# nuitka-project: --nofollow-import-to=timeit
 # nuitka-project: --nofollow-import-to=tomllib
 # nuitka-project: --nofollow-import-to=trace
-# nuitka-project: --nofollow-import-to=modulefinder
-# nuitka-project: --nofollow-import-to=webbrowser
-# nuitka-project: --nofollow-import-to=symtable
-# nuitka-project: --nofollow-import-to=cgitb
-# nuitka-project: --nofollow-import-to=_osx_support
-# nuitka-project: --nofollow-import-to=fileinput
-# nuitka-project: --nofollow-import-to=poplib
-# nuitka-project: --nofollow-import-to=pkgutil
-# nuitka-project: --nofollow-import-to=cmd
-# nuitka-project: --nofollow-import-to=filecmp
-# nuitka-project: --nofollow-import-to=pyclbr
-# nuitka-project: --nofollow-import-to=xdrlib
-# nuitka-project: --nofollow-import-to=mailcap
-# nuitka-project: --nofollow-import-to=sndhdr
-# nuitka-project: --nofollow-import-to=timeit
-# nuitka-project: --nofollow-import-to=netrc
-# nuitka-project: --nofollow-import-to=code
-# nuitka-project: --nofollow-import-to=pipes
+# nuitka-project: --nofollow-import-to=turtle
 # nuitka-project: --nofollow-import-to=uu
-# nuitka-project: --nofollow-import-to=graphlib
-# nuitka-project: --nofollow-import-to=imghdr
-# nuitka-project: --nofollow-import-to=rlcompleter
-# nuitka-project: --nofollow-import-to=chunk
-# nuitka-project: --nofollow-import-to=sched
-# nuitka-project: --nofollow-import-to=colorsys
-# nuitka-project: --nofollow-import-to=_aix_support
-# nuitka-project: --nofollow-import-to=__phello__
-# nuitka-project: --nofollow-import-to=__hello__
-# nuitka-project: --nofollow-import-to=sre_constants
-# nuitka-project: --nofollow-import-to=sre_compile
-# nuitka-project: --nofollow-import-to=sre_parse
+# nuitka-project: --nofollow-import-to=webbrowser
+# nuitka-project: --nofollow-import-to=xdrlib
 # nuitka-project: --noinclude-dlls=pythoncom*
 
 
