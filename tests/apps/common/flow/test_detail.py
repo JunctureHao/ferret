@@ -36,7 +36,7 @@ from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     READONLY_CAPABILITIES,
 )
-from ferret.core.mitm import MARKER_DEFAULT, build_flow_detail
+from ferret.core.mitm import MARKER_DEFAULT, WsClose, WsFrame, build_flow_detail
 
 
 class BodyLangTests(unittest.TestCase):
@@ -209,6 +209,92 @@ class FlowDataPanelTests(unittest.TestCase):
 
         self.assertIn("2", self.panel.req_tabs.pivot.items["Query"].text())
         self.assertIn("2", self.panel.req_tabs.pivot.items["Cookies"].text())
+
+
+class MessageBadgeTests(unittest.TestCase):
+    """「消息」计数徽标：外挂在标签右侧，不许压住标签文字。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.panel = FlowDataPanel(self.host)
+        self.host.resize(900, 700)
+        self.host.show()
+        self.app.processEvents()
+
+    def tearDown(self) -> None:
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def __show_websocket(self) -> None:
+        """给面板接一个 stub 控制器，让徽标亮出来。raw 报文按详情字典兜底。"""
+
+        class FramesOnly:
+            def websocket_frames(self, _flow_id):
+                return [
+                    WsFrame(0, True, 1, b"hi", 1700000000.0, False, False),
+                    WsFrame(1, False, 1, b"pong", 1700000001.0, False, False),
+                ]
+
+            def websocket_close(self, _flow_id):
+                return WsClose()
+
+            def get_raw_request(self, _flow_id):
+                return ""
+
+            def get_raw_response(self, _flow_id):
+                return ""
+
+        flow = tflow.twebsocketflow()
+        assert flow.websocket is not None
+        self.panel.controller = FramesOnly()
+        self.panel.set_data(build_flow_detail(flow))
+        self.app.processEvents()
+
+    def test_the_badge_sits_outside_the_tab_not_on_top_of_it(self) -> None:
+        """qfw 的 RIGHT 锚点公式会把徽标半压在标签上，这里必须完全外挂。"""
+        self.__show_websocket()
+        badge = self.panel.message_badge
+        self.assertFalse(badge.isHidden())
+
+        tab = self.panel.res_pane.pivot.items["Messages"]
+        pane = self.panel.res_pane
+        # 徽标挂 res_pane、标签挂 pivot，统一折算到 res_pane 坐标再比。
+        tab_right = pane.mapFrom(
+            self.panel.res_pane.pivot, tab.geometry().topRight()
+        ).x()
+        self.assertGreaterEqual(badge.geometry().left(), tab_right + 1)
+
+    def test_the_badge_follows_a_wider_number(self) -> None:
+        """数字从个位数涨到四位数后仍不遮字 —— 变宽要触发重定位。"""
+        self.__show_websocket()
+        self.panel.message_badge.setText("1024")
+        self.panel.message_badge.adjustSize()
+        self.panel.message_badge.manager.reposition()
+
+        tab = self.panel.res_pane.pivot.items["Messages"]
+        pane = self.panel.res_pane
+        tab_right = pane.mapFrom(
+            self.panel.res_pane.pivot, tab.geometry().topRight()
+        ).x()
+        self.assertGreaterEqual(
+            self.panel.message_badge.geometry().left(), tab_right + 1
+        )
+
+    def test_the_badge_follows_the_tab_when_it_moves(self) -> None:
+        """标签移动（别的标签变宽把它挤走）后徽标要跟过去。"""
+        self.__show_websocket()
+        badge = self.panel.message_badge
+        tab = self.panel.res_pane.pivot.items["Messages"]
+        before = badge.x() - tab.geometry().right()
+
+        tab.move(tab.x() + 60, tab.y())
+        self.app.processEvents()
+
+        self.assertEqual(badge.x() - tab.geometry().right(), before)
 
 
 class LeftColumnTests(unittest.TestCase):

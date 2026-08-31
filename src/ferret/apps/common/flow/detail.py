@@ -22,7 +22,7 @@ Pivot（Headers/Query/Form/…/Raw），两层导航点两次才到一份报文�
 `views.py` 继续 re-export `FlowDataPanel`，两个挂载点的 import 不受影响。
 """
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     FluentIcon,
     InfoBadge,
-    InfoBadgePosition,
     InfoLevel,
     RoundMenu,
     SimpleCardWidget,
@@ -398,6 +397,54 @@ class CommentPane(QWidget):
         self.commentSaved.emit(self.edit.text())
 
 
+class PivotBadgeAnchor(QObject):
+    """把 `InfoBadge` 外挂在 Pivot 标签右侧的定位器。
+
+    qfw 自带的 `InfoBadgeManager`（RIGHT 档）公式是 ``x = 标签.right() - 徽标宽//2``，
+    徽标有一半永远压在标签文字上。这里改成完全外挂：``x = 标签.right() + GAP``、
+    y 垂直居中，并跟住目标的 Resize / Move —— 与 manager 同一套事件面，只是
+    位置公式不同。徽标自身变宽（数字 9 → 1024）不触发目标事件，调用方在
+    `setText` 之后要自己再 `reposition` 一次。
+
+    徽标必须挂在**比 pivot 更宽的宿主**上（本面板传入 `res_pane`）：Qt 子件永远
+    被父件矩形裁剪，而 pivot 的宽度恰好等于内容 —— 挂在它身上、越出右缘的部分
+    会被整枚裁掉。坐标一律经 `mapTo` 折算到徽标自己的父件坐标系。
+    """
+
+    GAP = 4
+
+    def __init__(self, target: QWidget, badge: InfoBadge, parent=None) -> None:
+        super().__init__(parent)
+        self.target = target
+        self.badge = badge
+        self.pivot = target.parentWidget()
+        if self.pivot is None:
+            return
+        target.installEventFilter(self)
+        self.pivot.installEventFilter(self)
+
+    def eventFilter(self, obj, e: QEvent) -> bool:
+        if (
+            obj in (self.target, self.pivot)
+            and e.type() in (QEvent.Type.Resize, QEvent.Type.Move)
+        ):
+            self.reposition()
+        return super().eventFilter(obj, e)
+
+    def reposition(self) -> None:
+        self.badge.move(self.position())
+
+    def position(self) -> QPoint:
+        host = self.badge.parentWidget()
+        if self.pivot is None or host is None:
+            return self.badge.pos()
+        anchor = self.pivot.mapTo(host, self.target.geometry().topRight())
+        return QPoint(
+            anchor.x() + self.GAP,
+            anchor.y() + self.target.height() // 2 - self.badge.height() // 2,
+        )
+
+
 class ResponsePane(TabPanel):
     """响应栏：Raw / Headers(N) / Body。
 
@@ -560,18 +607,21 @@ class FlowDataPanel(QWidget):
         self.messages = MessagesPane()
         self.res_pane.addTab("Messages", self.messages, self.tr("Messages"))
         self.res_pane.setTabVisible("Messages", False)
-        # 帧数/事件数挂在「消息」标签右侧。`InfoBadge.make` 给的 manager 会跟着
-        # 目标的 Resize / Move 重新定位，但**不管**徽标自己变宽（数字从 9 涨到
-        # 1024 时），所以 `__refresh_message_page` 里 `setText` 之后要自己再
-        # `position()` 一次。位置取 `RIGHT` 而不是 `TOP_RIGHT`：后者把 y 放在
-        # `-h/2`，而标签行是零边距布局，徽标上半截会被裁掉。
+        # 帧数/事件数挂在「消息」标签右侧。qfw 的 `InfoBadgeManager` 会把徽标
+        # 半压在标签文字上，这里换 `PivotBadgeAnchor` 完全外挂；徽标挂 `res_pane`
+        # 而不是 pivot —— pivot 宽度恰等于内容，越出右缘的子件会被父件矩形
+        # 裁掉。徽标自己变宽（数字从 9 涨到 1024）不触发目标事件，所以
+        # `__refresh_message_page` 里 `setText` 之后要自己再 `reposition` 一次。
         self.message_badge = InfoBadge.make(
             "",
-            parent=self.res_pane.pivot,
+            parent=self.res_pane,
             level=InfoLevel.ATTENTION,
-            target=self.res_pane.pivot.items["Messages"],
-            position=InfoBadgePosition.RIGHT,
         )
+        self.message_badge.manager = PivotBadgeAnchor(
+            self.res_pane.pivot.items["Messages"], self.message_badge
+        )
+        # pivot 与徽标同挂 res_pane，创建顺序在徽标之前；浮层要压在其上。
+        self.message_badge.raise_()
         self.message_badge.hide()
 
         # 「…」菜单动作。备注弹窗保留（内联编辑页承担日常编辑，两处共用写回）；
@@ -937,8 +987,8 @@ class FlowDataPanel(QWidget):
             return
         self.message_badge.setText(str(count))
         self.message_badge.adjustSize()
-        # `InfoBadgeManager` 只在目标 Resize / Move 时重定位，徽标自己变宽不算。
-        self.message_badge.move(self.message_badge.manager.position())
+        # 徽标变宽不触发目标 Resize / Move，`PivotBadgeAnchor` 感知不到，得手动补一次。
+        self.message_badge.manager.reposition()
         self.message_badge.show()
 
     # —— 数据 ——

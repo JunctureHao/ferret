@@ -64,16 +64,19 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 实际装载 addon（`core/mitm/master.py` 为准）：Core、Block、StripDnsHttpsRecords、AntiCache(关)、AntiComp(关)、ClientPlayback、DisableH2C、Proxyserver、DnsResolver、GatewayL4Addon、NextLayer、MapRemote、MapLocal、ModifyBody、ModifyHeaders、FerretTlsConfig、GatewayL7Addon、FerretIntercept、View、ComposeAddon(挂在 View 之后，摘除靠 `loop.call_soon` 排到当轮钩子之后)、ReadFile、Save、LogAddon。BlockList 已撤（网关取代，见 `master.py` 注释）。
 
-已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR/curl/httpie/raw 导出、CA 证书页、系统代理开关、会话管理、屏蔽 blocklist、代理来源限制 block、网关（L4/L7 策略）、重写六类（mapremote/maplocal/modifyheaders×2/modifybody×2）、断点 intercept（规则可选阶段：请求/响应/两者，默认两者各停一次；改请求或响应→放行/丢弃；窗口左侧断点列表+右侧单阶段可编辑面板，参数页合并进 URL，底部状态条放行全部；伪造响应与撤销留在控制器，窗口未提供入口）、WebSocket 逐帧展示、SSE 事件分行展示、流量标记与备注、手工请求 compose（编辑页自己拼请求经内核发出，重写/网关/断点规则照常命中；「进入流量列表」可选，不选的等 replay 结束后从 View 摘除）。
+已实现：正向代理抓包、client_playback 重放、`.flow` 读写、HAR/curl/httpie/raw 导出、CA 证书页、系统代理开关、会话管理、屏蔽 blocklist、代理来源限制 block、网关（L4/L7 策略）、重写六类（mapremote/maplocal/modifyheaders×2/modifybody×2）、断点 intercept（规则可选阶段：请求/响应/两者，默认两者各停一次；改请求或响应→放行/丢弃；窗口左侧断点列表+右侧单阶段可编辑面板，参数页合并进 URL，底部状态条放行全部；伪造响应与撤销留在控制器，窗口未提供入口）、WebSocket 逐帧展示、SSE 事件分行展示（消息页为 qfw `CardWidget` 卡片流：卡片只显消息内容，方向靠左右对齐——右=发过去、左=发过来；方向词/事件元信息只进过滤搜索串）、流量标记与备注、手工请求 compose（编辑页自己拼请求经内核发出，重写/网关/断点规则照常命中；「进入流量列表」可选，不选的等 replay 结束后从 View 摘除）。
 
 缺口：serverplayback、stickycookie/stickyauth、SSE 实时推送（见下）。
 
 WebSocket：帧不走 addon，走 `mitmproxy.proxy.layers.websocket`（`layers/__init__.py`
 顶层就 import 它，连带 `wsproto`），经 `UiBridgeAddon` 的 `websocket_start` /
 `websocket_message` / `websocket_end` 三个钩子转成 Qt 信号实时到界面，详情页「消息」
-逐帧展示。信号只送 `flow_id` + 值对象，界面再回头问一趟 `websocket_frames()` ——
+以**聊天气泡流**展示（`apps/common/flow/chat.py::ChatStream` + `messages.py`，WS/SSE
+共用：上行帧靠右强调色、下行靠左中性色、心跳/关闭是居中系统条，点气泡原地展开，
+二进制展开态为 hex dump；顶栏整行靠右：过滤框=大小写不敏感子串、正/逆序切换、清空
+仅清显示）。信号只送 `flow_id` + 值对象，界面再回头问一趟 `websocket_frames()` ——
 一条行情连接上千帧，跟着选中一起搬过界不划算。显示上限 `WS_FRAME_LIMIT`（界面策略，
-`ws_frames()` 本身恒返回全部）。
+超限静默从最旧端逐出；`ws_frames()` 本身恒返回全部，`count` 徽标恒指内核总数）。
 
 SSE：响应体一律缓冲 —— `stream_large_bodies` 默认 `None`（`proxyserver` 声明的），
 ferret 不设它，也不碰 `flow.response.stream`。所以事件表读的是**已结束**的响应体，

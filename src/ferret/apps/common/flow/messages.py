@@ -1,76 +1,76 @@
-"""消息页：WebSocket 帧表与 SSE 事件表。
+"""消息页：WebSocket 帧与 SSE 事件的聊天式气泡流。
 
 改造前这两种流量在详情面板里**根本看不见**：WS 流量只有 101 那一次握手的头，之后所有
 帧都在 `flow.websocket` 里躺着没人读；SSE 响应则整份挤在 Body 那一页里，一堆
 ``data: {...}`` 连成一块文本，想看第三个事件只能自己数空行。
 
-两种协议共用这一页而不是各开一页：它们回答的是同一个问题 ——「这条连接上来回传了些
-什么」，而任何一条流量最多只可能是其中一种。所以内部一个 `QStackedWidget` 三态切换
-（帧表 / 事件表 / 占位），外面由详情面板决定整页是否露面。
+现在是「聊天气泡」而不是表格：每枚气泡就是一张只摆**消息内容**的 qfw 卡片
+（`chat.Bubble`），方向不占字 —— 客户端→服务端靠右、服务端→客户端靠左；
+SSE 事件一律靠左，纯注释块（心跳）收成居中的系统条；连接关闭也以系统条收尾。
+长内容默认限高截断，点击气泡原地展开。
+
+两种协议共用一条 :class:`~ferret.apps.common.flow.chat.ChatStream` 而不是各开一条：
+它们回答的是同一个问题 ——「这条连接上来回传了些 什么」，而任何一条流量最多只可能
+是其中一种。三态（气泡流 / 占位）由 `QStackedWidget` 切换，外面由详情面板决定整页
+是否露面。
 
 两侧的数据来路完全不同，这一点决定了 API 形状：
 
 * **WS 帧是活的**。`flow.websocket` 由 mitmproxy 持续填充，帧要边到边追加，所以
-  :meth:`MessagesPane.append_frame` 是增量接口 —— 整表重建会把用户的选中和滚动位置
+  :meth:`MessagesPane.append_frame` 是增量接口 —— 整流重建会把用户的选中和滚动位置
   一起清掉，而行情型连接每秒几十帧，等于面板没法用。
 * **SSE 事件是静的**。mitmproxy 默认不开 streaming，流量走完时整份 body 已经缓冲好，
   所以直接解析 `Response Body Text` 就是全部。开了 `stream` 时 body 为空，这时显示
-  「响应体以流式转发，未缓冲」而不是一张空表 —— 后者看着像解析失败。
+  「响应体以流式转发，未缓冲」而不是一条空流 —— 后者看着像解析失败。
 
-表格行数上限见 :data:`MESSAGE_ROW_LIMIT`：**截断只发生在这一层**，`ws_frames` 恒返回
-全部帧，被截掉多少一定在界面上说出来。
+顶栏就三件事（整行靠右）：过滤框（大小写不敏感子串，WS 匹配帧文本 / 方向文字 /
+BINARY 帧 hex，SSE 匹配 data 与事件名——方向词与事件元信息只进搜索串不进界面）、
+正逆序切换（逆序时新气泡插顶）、清空显示（只清界面，内核帧数据不动，后续帧照常
+追加）。
+
+显示上限见 :data:`MESSAGE_ROW_LIMIT`：**截断只发生在这一层**，`ws_frames` 恒返回
+全部帧；超限时静默从最旧一端逐出，`count`（标签徽标）恒指内核总数 —— 显示与计数
+语义分开，各自有测试钉着。
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QHBoxLayout,
-    QHeaderView,
     QStackedWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
     BodyLabel,
-    CaptionLabel,
-    InfoBadge,
-    InfoLevel,
-    TableWidget,
+    FluentIcon,
+    LineEdit,
+    TransparentToolButton,
 )
 
-from ferret.apps.common.edit import Language, ToolPlainTextEdit
-from ferret.apps.common.splitter import BaseSplitter
-from ferret.core.mitm import WS_FRAME_LIMIT, WsClose, WsFrame, human, opcode_name
+from ferret.apps.common.flow.chat import Bubble, ChatStream, SystemNote
+from ferret.core.mitm import WS_FRAME_LIMIT, WsClose, WsFrame
 from ferret.utils.sse import SseEvent, is_event_stream, parse_sse
 
-# 两张表各自最多摆多少行。和 :data:`ferret.core.mitm.WS_FRAME_LIMIT` 钉在同一个数
-# ——它本来就是「界面侧显示上限」的那个值，事件表没有理由另立一个。
+# 气泡流最多摆多少条。和 :data:`ferret.core.mitm.WS_FRAME_LIMIT` 钉在同一个数
+# ——它本来就是「界面侧显示上限」的那个值，SSE 事件没有理由另立一个。
 MESSAGE_ROW_LIMIT = WS_FRAME_LIMIT
 
-# 预览列的字符上限。够看出这帧是什么（JSON 的头几个键、订阅指令的动作名），又不会
-# 让一帧几十 KB 的推流内容把整行拖成一条线。
+# 预览的字符上限（SSE data 单行预览用）。够看出这条事件是什么，又不会让几十 KB
+# 的推流内容把搜索串撑爆。
 PREVIEW_LIMIT = 160
 
-# 二进制帧预览列取多少字节转十六进制（每字节占三个字符）。
+# 二进制帧内容 / 搜索串取多少字节转十六进制（每字节占三个字符）。
 PREVIEW_HEX_BYTES = 32
 
-# 详情区 hex dump 最多铺多少字节。上限本身要在界面上说出来，同 `MESSAGE_ROW_LIMIT`。
+# 二进制气泡展开态 hex dump 最多铺多少字节。
 HEX_DUMP_LIMIT = 4096
 
-# 帧表列号。
-_COL_NO, _COL_DIR, _COL_TYPE, _COL_TIME, _COL_SIZE, _COL_PREVIEW = range(6)
-
-# 事件表列号。
-_SSE_NO, _SSE_EVENT, _SSE_ID, _SSE_RETRY, _SSE_SIZE, _SSE_DATA = range(6)
-
 # 堆叠页序号。
-_PAGE_PLACEHOLDER, _PAGE_WS, _PAGE_SSE = range(3)
+_PAGE_PLACEHOLDER, _PAGE_STREAM = range(2)
 
 
 def is_websocket(data: dict) -> bool:
@@ -92,7 +92,7 @@ def looks_like_json(text: str) -> bool:
     """`{` / `[` 开头就当 JSON。
 
     嗅探而不是试解析：一帧几百 KB 的推流内容 `json.loads` 一遍纯属浪费，而这里的问题
-    只是「该用哪套词法器」，猜错的代价是高亮不准，不是显示错。
+    只是「内容是什么形态」，猜错的代价是预览折行难看一点，不是显示错。
     """
     return text.lstrip()[:1] in ("{", "[")
 
@@ -100,9 +100,7 @@ def looks_like_json(text: str) -> bool:
 def frame_time(timestamp: float | None) -> str:
     """帧时间戳 → ``HH:MM:SS.mmm``。
 
-    刻意不带日期（`human.format_timestamp` 那套）：一条连接上的帧动辄成百上千、彼此
-    只差几毫秒，日期在每一行重复一遍是纯噪音，而毫秒才是这张表要回答的东西。整条流量
-    的起止时间在「概览」的时序卡里。
+    气泡流里**没有时间**（顺序即时间），这个函数留给系统条上的关闭时刻用。
 
     时区走 `UTC` → `astimezone()` 这一趟而不是裸 `fromtimestamp`（同
     `models.py::_time_tooltip`）：mitmproxy 的时间戳是 Unix epoch，显式声明它是 UTC
@@ -117,7 +115,7 @@ def frame_time(timestamp: float | None) -> str:
 def preview_text(text: str) -> str:
     """一行预览：连续空白折叠成单空格，超长截断。
 
-    折叠空白是必须的：JSON 帧常常是格式化过的，直接塞进单元格只能看到第一行的 ``{``。
+    折叠空白是必须的：JSON 帧常常是格式化过的，直接塞进搜索串只能匹配到第一行。
     """
     line = " ".join(text.split())
     if len(line) > PREVIEW_LIMIT:
@@ -126,7 +124,7 @@ def preview_text(text: str) -> str:
 
 
 def frame_preview(frame: WsFrame) -> str:
-    """帧内容的预览列文案：TEXT 帧按文本，其余按十六进制。"""
+    """帧内容的预览文案：TEXT 帧按文本，其余按十六进制。"""
     if frame.is_text:
         return preview_text(frame.text())
     return preview_text(frame.content[:PREVIEW_HEX_BYTES].hex(" "))
@@ -147,24 +145,8 @@ def hex_dump(content: bytes, limit: int = HEX_DUMP_LIMIT) -> str:
     return "\n".join(lines)
 
 
-def _item(text: str, tooltip: str = "") -> QTableWidgetItem:
-    """一个单元格。长文本自动挂 tooltip —— 预览列截断之后全文只能靠它。"""
-    cell = QTableWidgetItem(text)
-    if tooltip:
-        cell.setToolTip(tooltip)
-    elif len(text) > 30:
-        cell.setToolTip(text)
-    return cell
-
-
-def _numeric_item(text: str) -> QTableWidgetItem:
-    cell = QTableWidgetItem(text)
-    cell.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-    return cell
-
-
 class MessagesPane(QWidget):
-    """WS 帧 / SSE 事件两张表 + 选中项全文。
+    """WS 帧 / SSE 事件共用的聊天气泡页。
 
     对外只有四件事：`set_data` 换一条流量、`append_frame` 追一帧、`set_close` 更新
     关闭信息、`applicable` / `count` 告诉详情面板这一页该不该露面、标签上挂几。
@@ -172,12 +154,12 @@ class MessagesPane(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        # 显示中的行，和表格行号 1:1 对齐（截断之后就不等于全部了，所以另存 `_total`）。
-        self._frames: list[WsFrame] = []
-        self._events: list[SseEvent] = []
+        # 显示中的条数，和流里的气泡 1:1 对齐（截断之后就不等于全部了，所以另存
+        # `_total` —— 标签徽标恒指内核总数，与显示条数语义分开）。
         self._total = 0
         self._applicable = False
         self._close = WsClose()
+        self._close_note: SystemNote | None = None
 
         self.__init_widget()
         self.__init_layout()
@@ -190,123 +172,56 @@ class MessagesPane(QWidget):
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder.setWordWrap(True)
 
-        self.frame_table = self.__make_table(
-            (
-                self.tr("#"),
-                self.tr("Direction"),
-                self.tr("Type"),
-                self.tr("Time"),
-                self.tr("Size"),
-                self.tr("Preview"),
-            ),
-            (44, 52, 76, 96, 72),
-        )
-        self.frame_detail = ToolPlainTextEdit()
-        self.frame_detail.set_read_only(True)
-        self.frame_notice = InfoBadge(self)
-        self.frame_notice.setLevel(InfoLevel.WARNING)
-        self.frame_notice.hide()
-        self.close_label = CaptionLabel(self)
+        self.filter_input = LineEdit(self)
+        self.filter_input.setFixedWidth(200)
+        self.filter_input.setPlaceholderText(self.tr("Filter messages..."))
+        self.filter_input.setClearButtonEnabled(True)
 
-        self.event_table = self.__make_table(
-            (
-                self.tr("#"),
-                self.tr("Event"),
-                self.tr("ID"),
-                self.tr("Retry"),
-                self.tr("Size"),
-                self.tr("Data"),
-            ),
-            (44, 120, 90, 60, 72),
-        )
-        self.event_detail = ToolPlainTextEdit()
-        self.event_detail.set_read_only(True)
-        self.event_notice = InfoBadge(self)
-        self.event_notice.setLevel(InfoLevel.WARNING)
-        self.event_notice.hide()
+        self.sort_btn = TransparentToolButton(FluentIcon.DOWN, self)
+        self.sort_btn.setCheckable(True)
+        self.sort_btn.setFixedSize(28, 28)
+        self.sort_btn.setIconSize(QSize(16, 16))
+        self.sort_btn.setToolTip(self.tr("Newest first"))
+        self.sort_btn.setAccessibleName(self.tr("Toggle message order"))
 
-        # 上表下详情，比例可拖：帧短的时候（订阅指令那类）表格该占大头，一帧几十 KB
-        # 的时候详情该占大头，而这两种连接看的是同一个面板。
-        self.frame_splitter = BaseSplitter(Qt.Orientation.Vertical, self)
-        self.frame_splitter.addWidget(self.frame_table)
-        self.frame_splitter.addWidget(self.frame_detail)
-        self.frame_splitter.setStretchFactor(0, 1)
-        self.frame_splitter.setStretchFactor(1, 1)
+        self.clear_btn = TransparentToolButton(FluentIcon.DELETE, self)
+        self.clear_btn.setFixedSize(28, 28)
+        self.clear_btn.setIconSize(QSize(16, 16))
+        self.clear_btn.setToolTip(self.tr("Clear the displayed messages"))
+        self.clear_btn.setAccessibleName(self.tr("Clear the displayed messages"))
 
-        self.event_splitter = BaseSplitter(Qt.Orientation.Vertical, self)
-        self.event_splitter.addWidget(self.event_table)
-        self.event_splitter.addWidget(self.event_detail)
-        self.event_splitter.setStretchFactor(0, 1)
-        self.event_splitter.setStretchFactor(1, 1)
+        self.stream = ChatStream(self)
 
-    def __make_table(
-        self, headers: tuple[str, ...], widths: tuple[int, ...]
-    ) -> TableWidget:
-        """一张只读、整行选中、末列拉伸的表。
-
-        刻意**不**开排序：帧和事件本来就是按到达顺序编号的，按大小排一遍之后
-        `#` 列和表格行号就不再对应，增量追加也没地方插。
-        """
-        table = TableWidget(self)
-        table.setColumnCount(len(headers))
-        table.setHorizontalHeaderLabels(list(headers))
-        table.setWordWrap(False)
-        table.verticalHeader().hide()
-        table.verticalHeader().setDefaultSectionSize(28)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        header = table.horizontalHeader()
-        header.setDefaultAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setMinimumSectionSize(40)
-        header.setFixedHeight(32)
-        for column, width in enumerate(widths):
-            table.setColumnWidth(column, width)
-        header.setSectionResizeMode(len(headers) - 1, QHeaderView.ResizeMode.Stretch)
-        return table
+        # 占位页也要有一条顶栏是浪费，所以顶栏跟着气泡页走。
+        self.stream_page = QWidget(self)
+        self.pages = QStackedWidget(self)
 
     def __init_layout(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        ws_page = QWidget(self)
-        ws_layout = QVBoxLayout(ws_page)
-        ws_layout.setContentsMargins(0, 0, 0, 0)
-        ws_layout.setSpacing(4)
-        ws_layout.addWidget(self.frame_splitter, 1)
-        ws_footer = QHBoxLayout()
-        ws_footer.setContentsMargins(2, 0, 2, 2)
-        ws_footer.setSpacing(8)
-        ws_footer.addWidget(self.close_label, 1)
-        ws_footer.addWidget(self.frame_notice, 0)
-        ws_layout.addLayout(ws_footer)
+        stream_layout = QVBoxLayout(self.stream_page)
+        stream_layout.setContentsMargins(2, 2, 2, 0)
+        stream_layout.setSpacing(4)
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.setSpacing(6)
+        toolbar.addStretch(1)
+        toolbar.addWidget(self.filter_input)
+        toolbar.addWidget(self.sort_btn)
+        toolbar.addWidget(self.clear_btn)
+        stream_layout.addLayout(toolbar)
+        stream_layout.addWidget(self.stream, 1)
 
-        sse_page = QWidget(self)
-        sse_layout = QVBoxLayout(sse_page)
-        sse_layout.setContentsMargins(0, 0, 0, 0)
-        sse_layout.setSpacing(4)
-        sse_layout.addWidget(self.event_splitter, 1)
-        sse_footer = QHBoxLayout()
-        sse_footer.setContentsMargins(2, 0, 2, 2)
-        sse_footer.setSpacing(8)
-        sse_footer.addStretch(1)
-        sse_footer.addWidget(self.event_notice, 0)
-        sse_layout.addLayout(sse_footer)
-
-        # 三态共用一个 `QStackedWidget`：任何一条流量最多只是其中一种。
-        self.pages = QStackedWidget(self)
         self.pages.addWidget(self.placeholder)  # _PAGE_PLACEHOLDER
-        self.pages.addWidget(ws_page)  # _PAGE_WS
-        self.pages.addWidget(sse_page)  # _PAGE_SSE
+        self.pages.addWidget(self.stream_page)  # _PAGE_STREAM
         layout.addWidget(self.pages)
 
     def __connect_signal_to_slot(self) -> None:
-        self.frame_table.itemSelectionChanged.connect(self.__on_frame_selected)
-        self.event_table.itemSelectionChanged.connect(self.__on_event_selected)
+        self.filter_input.textChanged.connect(self.stream.set_filter)
+        self.sort_btn.toggled.connect(self.__on_order_toggled)
+        self.clear_btn.clicked.connect(self.stream.clear)
 
     # —— 对外 ——
 
@@ -321,7 +236,7 @@ class MessagesPane(QWidget):
 
     @property
     def count(self) -> int:
-        """帧数 / 事件数的**总数**（不是显示行数）—— 标签上那枚徽标读它。"""
+        """帧数 / 事件数的**总数**（不是显示条数）—— 标签上那枚徽标读它。"""
         return self._total
 
     def set_data(
@@ -350,22 +265,23 @@ class MessagesPane(QWidget):
         self.pages.setCurrentIndex(_PAGE_PLACEHOLDER)
 
     def show_websocket(self, frames: list[WsFrame], close: WsClose) -> None:
-        """整表重建。选中期间新到的帧走 `append_frame`，不再走这里。"""
+        """整流重建。选中期间新到的帧走 `append_frame`，不再走这里。"""
         self.__reset()
         self._applicable = True
+        self._mode = "ws"
         self._total = len(frames)
-        self._frames = list(frames[-MESSAGE_ROW_LIMIT:])
-        self.frame_table.setRowCount(len(self._frames))
-        for row, frame in enumerate(self._frames):
-            self.__fill_frame_row(row, frame)
-        self.__update_frame_notice()
+        for frame in frames[-MESSAGE_ROW_LIMIT:]:
+            self.stream.add(self.__frame_bubble(frame))
+        self.__trim()
         self.set_close(close)
-        self.pages.setCurrentIndex(_PAGE_WS)
+        self.pages.setCurrentIndex(_PAGE_STREAM)
+        self.stream.scroll_to_newest()
 
     def show_sse(self, body: str) -> None:
-        """一份 `text/event-stream` body → 事件表。空 body 走「未缓冲」占位。"""
+        """一份 `text/event-stream` body → 事件气泡流。空 body 走「未缓冲」占位。"""
         self.__reset()
         self._applicable = True
+        self._mode = "sse"
         if not body:
             self.placeholder.setText(
                 self.tr("The response body was streamed, not buffered")
@@ -374,136 +290,122 @@ class MessagesPane(QWidget):
             return
         events = parse_sse(body)
         self._total = len(events)
-        self._events = list(events[-MESSAGE_ROW_LIMIT:])
-        self.event_table.setRowCount(len(self._events))
-        for row, event in enumerate(self._events):
-            self.__fill_event_row(row, event)
-        self.__update_event_notice()
-        self.pages.setCurrentIndex(_PAGE_SSE)
+        for event in events[-MESSAGE_ROW_LIMIT:]:
+            self.__add_event(event)
+        self.pages.setCurrentIndex(_PAGE_STREAM)
+        self.stream.scroll_to_newest()
 
     def append_frame(self, frame: WsFrame) -> None:
         """新到一帧。
 
-        只有已经贴着底部时才跟着滚：正翻看前面某一帧的人不该被每秒几十帧的推流拽走。
-        超过上限时从头部挤掉一行 —— 反过来（到上限就不再追加）看着像面板卡死了。
+        只有已经贴着「最新」一端时才跟着滚：正翻看旧帧的人不该被每秒几十帧的推流
+        拽走。超过上限时从最旧一端挤掉一条 —— 反过来（到上限就不再追加）看着像面板
+        卡死了。
         """
-        if self.pages.currentIndex() != _PAGE_WS:
+        if self._mode != "ws":
             # 选中流量时握手还没完成（`raw_state` 里 `websocket` 仍是 None），
             # 帧却已经到了：这一帧本身就是「它是 WS」的证据。
             self.show_websocket([], self._close)
         self._total += 1
-        bar = self.frame_table.verticalScrollBar()
-        at_bottom = bar.value() >= bar.maximum() - 4
-        if len(self._frames) >= MESSAGE_ROW_LIMIT:
-            self._frames.pop(0)
-            self.frame_table.removeRow(0)
-        self._frames.append(frame)
-        row = self.frame_table.rowCount()
-        self.frame_table.insertRow(row)
-        self.__fill_frame_row(row, frame)
-        self.__update_frame_notice()
-        if at_bottom:
-            self.frame_table.scrollToBottom()
+        at_edge = self.stream.at_newest_edge()
+        self.stream.add(self.__frame_bubble(frame))
+        self.__trim()
+        if at_edge:
+            self.stream.scroll_to_newest()
 
     def set_close(self, close: WsClose) -> None:
-        """底部那一行关闭信息。连接还开着就说「保持中」，别留空。"""
-        self._close = close
-        self.close_label.setText(self.__close_text(close))
+        """关闭信息：开着时什么都不摆，关了在流末尾（逆序时在顶部）落一条居中系统条。
 
-    # —— 填表 ——
+        重复调用原地更新 —— `websocket_end` 信号可能晚于 `set_data` 到达。
+        """
+        self._close = close
+        if self._close_note is not None:
+            self._close_note.setParent(None)
+            self._close_note.deleteLater()
+            self._close_note = None
+        if not close.is_closed:
+            return
+        self._close_note = SystemNote(self.__close_text(close), self.stream)
+        self.stream.add_note(self._close_note)
+
+    # —— 造气泡 ——
+
+    def __frame_bubble(self, frame: WsFrame) -> Bubble:
+        direction = (
+            self.tr("Client → Server")
+            if frame.from_client
+            else self.tr("Server → Client")
+        )
+        if frame.is_text:
+            content = frame.text()
+        else:
+            content = frame.content[:PREVIEW_HEX_BYTES].hex(" ")
+        # 方向文字也进搜索串：输 "client" 只看上行帧，这是排查订阅流时最快的切法。
+        # 界面上方向不占字 —— 靠左（发过来）右（发过去）对齐表达。
+        bubble = Bubble(
+            content,
+            key=frame.index,
+            search_text=f"{direction}\n{content}",
+            align_right=frame.from_client,
+        )
+        # 二进制帧的展开态才是 hex dump：收起态那一行 hex 预览是给人认类型的，
+        # 真要看内容必须铺成带偏移的 dump。
+        if not frame.is_text:
+            self.__bind_hex_expand(bubble, frame)
+        return bubble
+
+    def __bind_hex_expand(self, bubble: Bubble, frame: WsFrame) -> None:
+        collapsed = frame.content[:PREVIEW_HEX_BYTES].hex(" ")
+
+        def swap(_key: object) -> None:
+            if bubble.is_expanded:
+                dump = hex_dump(frame.content)
+                if frame.size > HEX_DUMP_LIMIT:
+                    note = self.tr("Showing the first {} of {} bytes")
+                    dump = f"{dump}\n{note.format(HEX_DUMP_LIMIT, frame.size)}"
+                bubble.set_content(dump)
+            else:
+                bubble.set_content(collapsed)
+
+        bubble.activated.connect(swap)
+
+    def __add_event(self, event: SseEvent) -> None:
+        if not event.data and not event.event:
+            # 纯注释块（心跳）不是任何一方说的话，收成居中系统条。
+            self.stream.add_note(
+                SystemNote(preview_text(f": {event.comment}"), self.stream)
+            )
+            return
+        # 事件名/id/retry 进搜索串不进界面：气泡只摆数据本体。
+        search = f"{event.event}\n{event.data}"
+        if event.id:
+            search += f"\nid: {event.id}"
+        if event.retry is not None:
+            search += f"\nretry: {event.retry}"
+        bubble = Bubble(
+            event.data,
+            key=event.index,
+            search_text=search,
+            align_right=False,
+        )
+        self.stream.add(bubble)
+
+    # —— 内部 ——
 
     def __reset(self) -> None:
-        self._frames = []
-        self._events = []
         self._total = 0
         self._close = WsClose()
-        self.frame_table.clearContents()
-        self.frame_table.setRowCount(0)
-        self.event_table.clearContents()
-        self.event_table.setRowCount(0)
-        self.frame_detail.set_text("")
-        self.event_detail.set_text("")
-        self.frame_notice.hide()
-        self.event_notice.hide()
-        self.close_label.clear()
+        self._close_note = None
+        self._mode = ""
+        self.stream.clear()
+        self.filter_input.clear()
 
-    def __fill_frame_row(self, row: int, frame: WsFrame) -> None:
-        arrow, direction = (
-            ("↑", self.tr("Client → Server"))
-            if frame.from_client
-            else ("↓", self.tr("Server → Client"))
-        )
-        # `dropped` / `injected` 写成字眼而不是一枚小圆点：被丢掉的帧对端**根本没收到**，
-        # 这是排查时的结论级信息，读者不该先去猜一个没有图例的色点是什么意思。
-        kind = opcode_name(frame.opcode)
-        flags = [
-            label
-            for flag, label in (
-                (frame.dropped, self.tr("dropped")),
-                (frame.injected, self.tr("injected")),
-            )
-            if flag
-        ]
-        if flags:
-            kind = f"{kind} ({', '.join(flags)})"
-        self.frame_table.setItem(row, _COL_NO, _numeric_item(str(frame.index)))
-        self.frame_table.setItem(row, _COL_DIR, _item(arrow, direction))
-        self.frame_table.setItem(row, _COL_TYPE, _item(kind))
-        self.frame_table.setItem(row, _COL_TIME, _item(frame_time(frame.timestamp)))
-        self.frame_table.setItem(
-            row, _COL_SIZE, _numeric_item(human.pretty_size(frame.size))
-        )
-        self.frame_table.setItem(row, _COL_PREVIEW, _item(frame_preview(frame)))
-
-    def __fill_event_row(self, row: int, event: SseEvent) -> None:
-        # 纯注释块（心跳）没有事件类型，预览列退回注释原文并带上 `:` —— 那正是它在线上
-        # 的样子，看着就知道这一行不是一条消息。
-        preview = (
-            preview_text(event.data)
-            if event.data
-            else preview_text(f": {event.comment}")
-        )
-        self.event_table.setItem(row, _SSE_NO, _numeric_item(str(event.index)))
-        self.event_table.setItem(row, _SSE_EVENT, _item(event.event))
-        self.event_table.setItem(row, _SSE_ID, _item(event.id))
-        self.event_table.setItem(
-            row,
-            _SSE_RETRY,
-            _numeric_item("" if event.retry is None else str(event.retry)),
-        )
-        self.event_table.setItem(
-            row,
-            _SSE_SIZE,
-            _numeric_item(human.pretty_size(len(event.data.encode()))),
-        )
-        self.event_table.setItem(row, _SSE_DATA, _item(preview))
-
-    def __update_frame_notice(self) -> None:
-        self.__update_notice(
-            self.frame_notice,
-            len(self._frames),
-            self.tr("Showing the latest {} of {} frames"),
-        )
-
-    def __update_event_notice(self) -> None:
-        self.__update_notice(
-            self.event_notice,
-            len(self._events),
-            self.tr("Showing the latest {} of {} events"),
-        )
-
-    def __update_notice(self, badge: InfoBadge, shown: int, template: str) -> None:
-        """截断提示。没截断就不出现，截了就必须写清总数。"""
-        if self._total <= shown:
-            badge.hide()
-            return
-        badge.setText(template.format(shown, self._total))
-        badge.adjustSize()
-        badge.show()
+    def __trim(self) -> None:
+        """超上限从最旧一端逐出。显示条数是界面策略，`count` 恒指内核总数。"""
+        while len(self.stream.bubbles()) > MESSAGE_ROW_LIMIT:
+            self.stream.evict_oldest()
 
     def __close_text(self, close: WsClose) -> str:
-        if not close.is_closed:
-            return self.tr("Connection open")
         if close.closed_by_client is None:
             parts = [self.tr("Closed")]
         elif close.closed_by_client:
@@ -520,35 +422,11 @@ class MessagesPane(QWidget):
 
     # —— 槽 ——
 
-    @Slot()
-    def __on_frame_selected(self) -> None:
-        row = self.frame_table.currentRow()
-        if not 0 <= row < len(self._frames):
-            self.frame_detail.set_text("")
-            return
-        frame = self._frames[row]
-        if frame.is_text:
-            text = frame.text()
-            lang = Language.JSON if looks_like_json(text) else Language.TEXT
-            self.frame_detail.set_text(text, lang=lang)
-            return
-        dump = hex_dump(frame.content)
-        if frame.size > HEX_DUMP_LIMIT:
-            note = self.tr("Showing the first {} of {} bytes")
-            dump = f"{dump}\n{note.format(HEX_DUMP_LIMIT, frame.size)}"
-        self.frame_detail.set_text(dump, lang=Language.TEXT)
-
-    @Slot()
-    def __on_event_selected(self) -> None:
-        row = self.event_table.currentRow()
-        if not 0 <= row < len(self._events):
-            self.event_detail.set_text("")
-            return
-        event = self._events[row]
-        # 有 data 就只看 data（JSON 自动高亮），否则退回块原文 —— 心跳块的信息全在
-        # 那一行注释里。
-        if event.data:
-            lang = Language.JSON if looks_like_json(event.data) else Language.TEXT
-            self.event_detail.set_text(event.data, lang=lang)
-            return
-        self.event_detail.set_text(event.raw, lang=Language.TEXT)
+    @Slot(bool)
+    def __on_order_toggled(self, checked: bool) -> None:
+        self.stream.set_descending(checked)
+        # 图标跟着方向走：逆序（最新在上）朝上，正序朝下 —— 只换 tooltip 的话
+        # 按钮看起来像没反应。
+        self.sort_btn.setIcon(FluentIcon.UP if checked else FluentIcon.DOWN)
+        tip = self.tr("Oldest first") if checked else self.tr("Newest first")
+        self.sort_btn.setToolTip(tip)
