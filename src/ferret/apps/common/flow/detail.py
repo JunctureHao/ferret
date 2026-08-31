@@ -404,13 +404,17 @@ class ResponsePane(TabPanel):
     详情面板的右栏，也被 compose 页整个复用 —— 那边没有 flow 可问，
     controller 为 None，Raw 走详情字典手工拼装的兜底。
 
+    `with_raw=False` 时不给 Raw 标签（compose 的响应结果不需要原始报文兜底，
+    那边用 响应头/响应体/性能 三条标签）。宿主仍可用 `addTab` 往里追加自己的
+    标签（compose 把「性能」追加在末位）。
+
     关闭按钮默认藏：compose 那路不需要 ×；详情面板里由 `FlowDataPanel` 按
     分栏方向决定它显不显示。
     """
 
     PREFIX = "Response"
 
-    def __init__(self, parent=None, controller=None):
+    def __init__(self, parent=None, controller=None, *, with_raw: bool = True):
         super().__init__(parent)
         self.controller = controller
         self.datas: dict | None = None
@@ -424,7 +428,8 @@ class ResponsePane(TabPanel):
         self.raw_edit = ToolPlainTextEdit()
         self.raw_edit.set_read_only(True)
 
-        self.addTab("Raw", self.raw_edit, self.tr("Raw"))
+        if with_raw:
+            self.addTab("Raw", self.raw_edit, self.tr("Raw"))
         self.addTab("Headers", self.header_card, self.tr("Headers"))
         self.addTab("Body", self.body_pane, self.tr("Body"))
 

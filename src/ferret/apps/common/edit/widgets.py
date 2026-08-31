@@ -818,9 +818,10 @@ class ItemDualPanel(QWidget):
 
     def set_items(self, items: ItemSource):
         pairs = normalize_items(items)
-        self.table.set_items(pairs)
-        # 请求头/响应头/参数为 Key: Value 结构，用 headers 高亮避免全红
+        # 先文本后表格：表格页 set_rows 会发 items_changed，任何监听方此刻读
+        # `items()`（以当前页为准）都必须拿到两边一致的最新数据。
         self.text.set_text(items_to_text(pairs), lang=Language.HEADERS)
+        self.table.set_items(pairs)
 
     def items(self) -> list[tuple[str, str]]:
         """当前键值对：以**正在显示的那一页**为准。

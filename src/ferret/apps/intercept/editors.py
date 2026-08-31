@@ -25,13 +25,10 @@ from qfluentwidgets import (
 )
 
 from ferret.apps.common.edit import ItemDualPanel, JsonDualPanel, Language
+from ferret.apps.common.http_methods import METHODS
 from ferret.apps.common.panel import TabPanel
 from ferret.core.mitm import HTTPFlow, RequestEdit, ResponseEdit
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
-
-# 方法下拉的固定词表，与 compose 页同一份口径；EditableComboBox 允许自由输入，
-# 冷门方法（PROPFIND 之类）手敲即可。
-METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 # 只存标记：模块级求值赶在翻译器安装之前，`self.tr(变量)` 也提取不到。
 _BINARY_HINT = QT_TRANSLATE_NOOP(
