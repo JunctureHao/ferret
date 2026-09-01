@@ -923,6 +923,9 @@ class _PickerPanel(QDialog):
         item = QListWidgetItem(label, self._list)
         if icon is not None:
             item.setIcon(icon)
+        # 清掉默认 flags 里的 ItemIsUserCheckable：QStyledItemDelegate 见此标志
+        # 就会在行首画原生勾选框，与 delegate 自绘的 Fluent 勾选框叠成左右两个。
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
         item.setForeground(color)
         item.setSizeHint(QSize(0, _PICKER_ROW_HEIGHT))
         return item

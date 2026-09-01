@@ -113,6 +113,13 @@ class LocalSpecSelectorTests(unittest.TestCase):
         self.assertTrue(ding is not None and ding.isHidden())
         self.assertEqual(panel.checked_labels(), ["Chrome", "钉钉"])
 
+    def test_items_have_no_native_check_indicator(self) -> None:
+        """原生勾选指示器必须清掉——否则与 delegate 自绘的青勾左右叠画。"""
+        from PySide6.QtCore import Qt as _Qt
+
+        for item in self._items(self.panel([])):
+            self.assertFalse(item.flags() & _Qt.ItemFlag.ItemIsUserCheckable)
+
     @staticmethod
     def _items(panel: _PickerPanel) -> list:
         return [panel._list.item(row) for row in range(panel._list.count())]
