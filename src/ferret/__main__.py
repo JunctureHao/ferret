@@ -155,6 +155,10 @@
 # nuitka-project: --nofollow-import-to=statistics
 # nuitka-project: --nofollow-import-to=tarfile
 # nuitka-project: --nofollow-import-to=xml.sax.expatreader
+# nuitka-project: --nofollow-import-to=email._header_value_parser
+# nuitka-project: --nofollow-import-to=email.contentmanager
+# nuitka-project: --nofollow-import-to=email.headerregistry
+# nuitka-project: --nofollow-import-to=email.policy
 
 
 from ferret.core.application import Application
