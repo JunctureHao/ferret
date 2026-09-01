@@ -57,6 +57,35 @@ class MultiSelectionComboBoxTests(unittest.TestCase):
     def test_items_feed_the_popup_entries(self) -> None:
         self.assertEqual(self.box._items, [("Chrome", None), ("钉钉", None)])
 
+    def test_chip_and_edit_align_and_row_toggles(self) -> None:
+        """视觉契约：芯片/手输框同高；点行任意处切换勾选（Fluent 青色勾）。"""
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from PySide6.QtGui import QMouseEvent
+
+        from ferret.apps.capture.multi_select_combo import (
+            _CHIP_HEIGHT,
+            _FRAME_MIN_HEIGHT,
+            _CheckRow,
+        )
+
+        self.box.set_tokens(["curl"])
+        self.assertEqual(self.box._add_edit.minimumHeight(), _CHIP_HEIGHT)
+        self.assertGreaterEqual(self.box.minimumHeight(), _FRAME_MIN_HEIGHT)
+
+        row = _CheckRow("Chrome", None, False)
+        event = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(5, 5),
+            QPointF(5, 5),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        row.mousePressEvent(event)
+        self.assertTrue(row.box.isChecked())
+        row.mousePressEvent(event)
+        self.assertFalse(row.box.isChecked())
+
 
 class WireGuardConfigDialogTests(unittest.TestCase):
     @classmethod

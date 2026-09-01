@@ -5,39 +5,71 @@
 芯片，面板保持打开、点外部关闭。qfw 的菜单点击条目即关闭
 （`RoundMenu._onItemClicked` → `_hideMenu`），撑不起连续勾选，所以面板用
 `Qt.Popup` 自绘而非 CheckableMenu。
+
+视觉层全部取 qfw 官方参数（实测 dump LineEdit 官方 QSS 得到）：边框浅色
+``rgba(0,0,0,13)`` / 深色 ``rgba(255,255,255,0.08)``，圆角 4px，焦点青
+``#009faa``；条目复选框用 qfw `CheckBox`（自带 Fluent 青色勾），对齐
+全应用视觉。浅深双套经 `setCustomStyleSheet` 挂载，主题切换自动跟随。
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import CaptionLabel, FlowLayout, FluentIcon, TransparentToolButton
+from qfluentwidgets import (
+    CheckBox,
+    FlowLayout,
+    FluentIcon,
+    LineEdit,
+    SearchLineEdit,
+    SmoothScrollArea,
+    TransparentToolButton,
+    setCustomStyleSheet,
+)
 
-_FRAME_QSS = (
-    "#MultiSelectionComboBox { border: 1px solid rgba(127, 127, 127, 0.35);"
-    " border-radius: 6px; background: transparent; }"
-    "#MultiSelectionComboBox:focus { border-color: rgba(0, 120, 212, 0.8); }"
-)
-_CHIP_QSS = "#tokenChip { background: rgba(127, 127, 127, 0.14); border-radius: 4px; }"
-_POPUP_QSS = (
-    "#checklistCard { border: 1px solid rgba(127, 127, 127, 0.35);"
-    " border-radius: 8px; background: palette(base); }"
-)
-_CHIP_HEIGHT = 24
+# qfw LineEdit 官方视觉参数（浅/深两套；实测 dump，勿手改）。
+_BORDER_LIGHT = "rgba(0, 0, 0, 13)"
+_BORDER_DARK = "rgba(255, 255, 255, 0.08)"
+_BORDER_BOTTOM_LIGHT = "rgba(0, 0, 0, 46)"
+_BORDER_BOTTOM_DARK = "rgba(255, 255, 255, 0.18)"
+_FOCUS_COLOR = "#009faa"
+_CHIP_BG_LIGHT = "rgba(0, 0, 0, 9)"
+_CHIP_BG_DARK = "rgba(255, 255, 255, 0.0605)"
+_CHIP_HOVER_LIGHT = "rgba(0, 0, 0, 14)"
+_CHIP_HOVER_DARK = "rgba(255, 255, 255, 0.1)"
+
+_CHIP_HEIGHT = 26
+_FRAME_MIN_HEIGHT = 33
 _ROW_HEIGHT = 33
 _POPUP_MAX_ROWS = 9
+
+
+def _frame_qss(bg: str, border: str, border_bottom: str) -> str:
+    return (
+        f"#MultiSelectionComboBox {{ border: 1px solid {border};"
+        f" border-bottom: 1px solid {border_bottom}; border-radius: 4px;"
+        f" background-color: {bg}; }}"
+        f"#MultiSelectionComboBox:focus {{ border-bottom: 1px solid {_FOCUS_COLOR}; }}"
+    )
+
+
+def _chip_qss(bg: str, hover: str) -> str:
+    return (
+        f"#tokenChip {{ background-color: {bg}; border-radius: 4px; }}"
+        f"#tokenChip:hover {{ background-color: {hover}; }}"
+    )
 
 
 class _TokenChip(QFrame):
@@ -49,12 +81,13 @@ class _TokenChip(QFrame):
         super().__init__(parent)
         self.token = token
         self.setObjectName("tokenChip")
-        self.setStyleSheet(_CHIP_QSS)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 2, 4, 2)
+        layout.setContentsMargins(8, 0, 4, 0)
         layout.setSpacing(2)
-        layout.addWidget(QLabel(token, self), 0, Qt.AlignmentFlag.AlignVCenter)
+        label = QLabel(token, self)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        layout.addWidget(label, 0, Qt.AlignmentFlag.AlignVCenter)
         button = TransparentToolButton(FluentIcon.CLOSE, self)
         button.setFixedSize(18, 18)
         button.clicked.connect(lambda: self.removed.emit(self.token))
@@ -62,8 +95,41 @@ class _TokenChip(QFrame):
         self.setFixedHeight(_CHIP_HEIGHT)
 
 
+class _CheckRow(QFrame):
+    """勾选面板的一行：图标 + qfw CheckBox。点行任意处即切换勾选。"""
+
+    def __init__(
+        self,
+        label: str,
+        icon: QIcon | None,
+        checked: bool,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self.setObjectName("checkRow")
+        self.setFixedHeight(_ROW_HEIGHT)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 0, 8, 0)
+        layout.setSpacing(8)
+        icon_label = QLabel(self)
+        if icon is not None and not icon.isNull():
+            icon_label.setPixmap(icon.pixmap(16, 16))
+        icon_label.setFixedSize(20, _ROW_HEIGHT)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+        self.box = CheckBox(label, self)
+        self.box.setChecked(checked)
+        layout.addWidget(self.box, 1)
+
+    def mousePressEvent(self, event) -> None:
+        self.box.toggle()
+        super().mousePressEvent(event)
+
+
 class _ChecklistPopup(QDialog):
-    """进程勾选面板：顶部搜索 + 图标条目。点外部关闭，勾选状态随时可读。"""
+    """进程勾选面板：搜索 + 图标 + qfw 勾选框。点外部关闭，勾选随时可读。"""
 
     def __init__(
         self,
@@ -73,62 +139,60 @@ class _ChecklistPopup(QDialog):
         """`items` 为 ``(标签, 图标, 初始勾选)``，顺序即展示顺序。"""
         super().__init__(anchor, Qt.WindowType.Popup)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setStyleSheet(_POPUP_QSS)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(1, 1, 1, 1)
         card = QFrame(self)
         card.setObjectName("checklistCard")
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 4)
+        card.setGraphicsEffect(shadow)
         outer.addWidget(card)
 
         inner = QVBoxLayout(card)
         inner.setContentsMargins(8, 8, 8, 8)
         inner.setSpacing(6)
 
-        self._search = QLineEdit(card)
+        self._search = SearchLineEdit(card)
         self._search.setPlaceholderText(self.tr("Search"))
         self._search.setClearButtonEnabled(True)
         inner.addWidget(self._search)
 
         self._list = QListWidget(card)
         self._list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self._list.setFrameShape(QFrame.Shape.NoFrame)
+        self._list.setStyleSheet("QListWidget { background: transparent; }")
         for label, icon, checked in items:
-            item = QListWidgetItem(label)
-            if icon is not None:
-                item.setIcon(icon)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
-                Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-            )
-            self._list.addItem(item)
-        self._list.itemClicked.connect(self._toggle_item)
-        inner.addWidget(self._list)
+            item = QListWidgetItem(self._list)
+            item.setSizeHint(QSize(0, _ROW_HEIGHT))
+            row = _CheckRow(label, icon, checked, card)
+            self._list.setItemWidget(item, row)
+        area = SmoothScrollArea(card)
+        area.setWidget(self._list)
+        area.setWidgetResizable(True)
+        area.setFixedHeight(min(len(items), _POPUP_MAX_ROWS) * _ROW_HEIGHT + 4)
+        inner.addWidget(area)
 
         self._search.textChanged.connect(self._filter)
         width = max(anchor.width(), 260)
-        rows = min(len(items), _POPUP_MAX_ROWS)
-        self.resize(width, 96 + rows * _ROW_HEIGHT)
-
-    def _toggle_item(self, item: QListWidgetItem) -> None:
-        # 点行任意处切换勾选，与 Pro 版一致；面板保持打开。
-        item.setCheckState(
-            Qt.CheckState.Unchecked
-            if item.checkState() == Qt.CheckState.Checked
-            else Qt.CheckState.Checked
-        )
+        self.resize(width, 96 + min(len(items), _POPUP_MAX_ROWS) * _ROW_HEIGHT)
 
     def _filter(self, query: str) -> None:
         needle = query.strip().lower()
         for row in range(self._list.count()):
-            item = self._list.item(row)
-            item.setHidden(bool(needle) and needle not in item.text().lower())
+            widget = self._list.itemWidget(self._list.item(row))
+            if not isinstance(widget, _CheckRow):
+                continue
+            widget.setHidden(bool(needle) and needle not in widget.box.text().lower())
 
     def checked_labels(self) -> list[str]:
-        return [
-            self._list.item(row).text()
-            for row in range(self._list.count())
-            if self._list.item(row).checkState() == Qt.CheckState.Checked
-        ]
+        labels = []
+        for row in range(self._list.count()):
+            widget = self._list.itemWidget(self._list.item(row))
+            if isinstance(widget, _CheckRow) and widget.box.isChecked():
+                labels.append(widget.box.text())
+        return labels
 
 
 class MultiSelectionComboBox(QFrame):
@@ -144,8 +208,13 @@ class MultiSelectionComboBox(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("MultiSelectionComboBox")
-        self.setStyleSheet(_FRAME_QSS)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        setCustomStyleSheet(
+            self,
+            _frame_qss("rgba(249, 249, 249, 0.3)", _BORDER_LIGHT, _BORDER_BOTTOM_LIGHT),
+            _frame_qss("rgba(255, 255, 255, 0.0419)", _BORDER_DARK, _BORDER_BOTTOM_DARK),
+        )
 
         self._tokens: list[str] = []
         self._items: list[tuple[str, QIcon | None]] | None = None
@@ -158,14 +227,13 @@ class MultiSelectionComboBox(QFrame):
         self._chip_area = QFrame(self)
         self._flow = FlowLayout(self._chip_area, needAni=False, isTight=True)
         self._flow.setContentsMargins(0, 0, 0, 0)
+        self._flow.setHorizontalSpacing(6)
+        self._flow.setVerticalSpacing(4)
         body.addWidget(self._chip_area, 1)
 
-        self._placeholder = CaptionLabel("", self._chip_area)
-        self._placeholder.setVisible(False)
-
-        self._add_edit = QLineEdit(self._chip_area)
+        self._add_edit = LineEdit(self._chip_area)
         self._add_edit.setPlaceholderText(self.tr("Add"))
-        self._add_edit.setFixedWidth(64)
+        self._add_edit.setFixedWidth(72)
         self._add_edit.setFixedHeight(_CHIP_HEIGHT)
         self._add_edit.returnPressed.connect(self._commit_manual)
 
@@ -174,6 +242,7 @@ class MultiSelectionComboBox(QFrame):
         self._button.clicked.connect(self._open_popup)
         body.addWidget(self._button, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        self.setMinimumHeight(_FRAME_MIN_HEIGHT)
         self._rebuild()
 
     # —— 对外 API ——
@@ -196,6 +265,7 @@ class MultiSelectionComboBox(QFrame):
         self._flow.takeAllWidgets()
         for token in self._tokens:
             chip = _TokenChip(token, self._chip_area)
+            chip.setStyleSheet(_chip_qss(_CHIP_BG_LIGHT, _CHIP_HOVER_LIGHT))
             chip.removed.connect(self.remove_token)
             self._flow.addWidget(chip)
         self._flow.addWidget(self._add_edit)
@@ -217,7 +287,7 @@ class MultiSelectionComboBox(QFrame):
         width = max(self._chip_area.width(), 120)
         height = max(int(self._flow.heightForWidth(width)), _CHIP_HEIGHT)
         self._chip_area.setFixedHeight(height)
-        self.setFixedHeight(height + 8)
+        self.setFixedHeight(max(height + 8, _FRAME_MIN_HEIGHT))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
