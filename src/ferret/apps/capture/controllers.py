@@ -6,7 +6,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal
 from sysproxy import (
     ERR_INVALID_ADDRESS,
     ERR_RESTORE_FAILED,
@@ -45,6 +45,31 @@ _SYSTEM_PROXY_ERRORS = {
     ),
 }
 
+# local / wireguard 通道的启动失败没有异常类型可对账（原生 proxyserver 把实例
+# 启动错误记日志吞掉，界面侧只能经 channel_health 读 last_exception 原文），
+# 所以按特征词映射；都兜不住就原样展示技术串。
+_CHANNEL_ERROR_MARKERS = (
+    (
+        "as administrator",
+        QT_TRANSLATE_NOOP(
+            "CaptureController",
+            "The local redirector needs administrator approval (UAC)",
+        ),
+    ),
+    (
+        "spawn more than one local redirector",
+        QT_TRANSLATE_NOOP(
+            "CaptureController", "The local redirector is already running"
+        ),
+    ),
+    (
+        "wireguard",
+        QT_TRANSLATE_NOOP(
+            "CaptureController", "The WireGuard tunnel could not be started"
+        ),
+    ),
+)
+
 
 class CaptureState(StrEnum):
     """System traffic attachment state exposed to the traffic page."""
@@ -57,7 +82,13 @@ class CaptureState(StrEnum):
 
 
 class CaptureController(QObject):
-    """Coordinate system proxy attachment; the mitmproxy runtime stays alive."""
+    """Coordinate capture channels, the system proxy and the write gate.
+
+    语义（AGENTS.md §5/§6 的现行决策）：应用启动零抓包动作 —— 内核 regular 空转、
+    系统代理不挂、写入闸门关。「开始抓包」= 把启用的通道（本地重定向 / WireGuard）
+    热更进内核 mode 列表 + 挂系统代理（按勾选）+ 开写入闸门；「停止」整体回落。
+    local 的提权守护进程被上游常驻复用，停止只是清掉截流配置，重开不再弹 UAC。
+    """
 
     flow_added = Signal(object)
     flow_updated = Signal(object)
@@ -75,6 +106,9 @@ class CaptureController(QObject):
     proxy_started = Signal()
     proxy_failed = Signal(str)
     capture_state_changed = Signal(object)
+    # 写入闸门与通道状态：流量表/命令栏据此显示「抓包中 / 已停止」与通道摘要。
+    recordingChanged = Signal(bool)
+    channels_changed = Signal()
 
     def __init__(
         self,
@@ -101,8 +135,15 @@ class CaptureController(QObject):
         self._capture_state = CaptureState.STOPPED
         self._last_error = ""
         self._pending_attach = False
+        # 写入闸门：关着的时候新 flow 不进流量表（通道照常转发）。默认关 ——
+        # 应用打开是「已停止」态，点开始抓包才开。
+        self._recording = False
+        # 系统代理注册表当前是否由我们挂着（attach 成功 / detach 落下）。
+        self._sysproxy_attached = False
+        # 通道健康检查（异步启动失败只能延迟读 channel_health）的最近结果。
+        self._channel_errors: dict[str, str] = {}
 
-        runtime.flow_added.connect(self.flow_added)
+        runtime.flow_added.connect(self._on_flow_added)
         runtime.flow_updated.connect(self.flow_updated)
         # 挂起/放行也当成一次更新：网关挂起发生在 `request`，而 `View` 没有这个钩子，
         # 不借道 flow_updated 那一行的「挂起中」永远不上屏。
@@ -171,10 +212,45 @@ class CaptureController(QObject):
         return self._mitm.block_private
 
     @property
+    def recording(self) -> bool:
+        """写入闸门。开着时新 flow 才进流量表；与系统代理挂载是两回事。"""
+        return self._recording
+
+    @property
+    def channel_errors(self) -> dict[str, str]:
+        """最近一次健康检查发现的通道错误（键 `local` / `wireguard`）。"""
+        return dict(self._channel_errors)
+
+    @property
+    def use_local(self) -> bool:
+        return self._mitm.use_local
+
+    @property
+    def local_spec(self) -> str:
+        return self._mitm.local_spec
+
+    @property
+    def use_wireguard(self) -> bool:
+        return self._mitm.use_wireguard
+
+    def system_proxy_enabled(self) -> bool:
+        """「开始抓包」时是否挂系统代理（对话框勾选的持久化偏好）。"""
+        return bool(CONFIG.get(CONFIG.system_proxy_enabled))
+
+    def wireguard_client_config(self) -> str:
+        """WireGuard 客户端配置文本（隧道启动过才有，否则抛 FileNotFoundError）。"""
+        return self._mitm.wireguard_client_config()
+
+    @property
     def view(self) -> View:
         return self._mitm.view
 
     def start_capture(self, port: int | None = None) -> None:
+        """Open the capture session: channels + system proxy + write gate.
+
+        任何一步失败都以 FAILED 收场并回滚已生效的步骤 —— 「半开」状态比抓不到包
+        更难排查。启动失败的具体通道文案进 ``last_error``，其余通道随整体回落。
+        """
         if self._capture_state in (CaptureState.STARTING, CaptureState.RUNNING):
             return
         if port is not None and port != self.current_port:
@@ -184,30 +260,54 @@ class CaptureController(QObject):
                 self._runtime.listen_port = port
 
         self._last_error = ""
+        self._channel_errors = {}
         self._pending_attach = True
         self._set_capture_state(CaptureState.STARTING)
 
-        if self._runtime.is_running:
-            self._attach_system_proxy()
+        # 通道先行：mode 热更失败（坏过滤串、内核拒绝）说明会话开不起来，整体回落。
+        try:
+            self._mitm.engage_channels()
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            self._fail_start(self._translate_channel_error(str(exc)))
             return
-        if self._runtime.state in (MitmRuntimeState.STOPPED, MitmRuntimeState.FAILED):
-            self._runtime.start()
+        # 内核还没跑就把监听也拉起来：ready 信号会回来调 _on_runtime_ready → attach。
+        if not self._runtime.is_running:
+            if self._runtime.state in (
+                MitmRuntimeState.STOPPED,
+                MitmRuntimeState.FAILED,
+            ):
+                self._runtime.start()
+            return
+        self._attach_system_proxy()
 
     def stop_capture(self) -> None:
+        """Close the capture session: detach proxy, drop channels, close the gate.
+
+        内核继续以 regular 空转（compose / 详情页依赖它活着）；已入表的行保留。
+        """
         self._pending_attach = False
         if self._capture_state == CaptureState.STOPPED:
             return
         self._set_capture_state(CaptureState.STOPPING)
-        detach_ok = self._system_proxy.detach()
-        if not detach_ok:
-            self._last_error = self.tr("Failed to restore the original system proxy")
-            self._set_capture_state(CaptureState.FAILED)
-            self.captureStateChanged.emit(False)
-            return
+        if self._sysproxy_attached:
+            detach_ok = self._system_proxy.detach()
+            self._sysproxy_attached = False
+            if not detach_ok:
+                self._last_error = self.tr("Failed to restore the original system proxy")
+                self._set_capture_state(CaptureState.FAILED)
+                self.captureStateChanged.emit(False)
+                return
         try:
             self._mitm.stop_capture_recording()
         except Exception:
             log.exception("failed to stop capture recording")
+        self._set_recording(False)
+        # 通道回落：OS 级截流停止（上游只清截流配置，守护进程驻留 → 重开免 UAC）。
+        # 只动接通位，use_local/use_wireguard 意图值原样保留。
+        try:
+            self._mitm.disengage_channels()
+        except (RuntimeError, TimeoutError, ValueError):
+            log.exception("failed to drop capture channels")
         self._set_capture_state(CaptureState.STOPPED)
         self.captureStateChanged.emit(False)
 
@@ -262,6 +362,12 @@ class CaptureController(QObject):
         was_capturing = self._capture_state == CaptureState.RUNNING
         if was_capturing:
             self.stop_capture()
+            # stop_capture 把会话接通位落下了；重启前先抬回去，内核才会在启动的
+            # Options 里带上通道（ready 之后 _attach_system_proxy 只补挂代理）。
+            try:
+                self._mitm.engage_channels()
+            except (RuntimeError, TimeoutError, ValueError):
+                log.exception("failed to re-engage channels before restart")
         self._runtime.restart(listen_host=wanted_host, listen_port=wanted_port)
         # 读回内核实际采纳的值：normalize_listen_host 可能把非法地址纠成环回。
         CONFIG.set(CONFIG.listen_host, self.current_host)
@@ -336,36 +442,137 @@ class CaptureController(QObject):
         return self.is_capturing
 
     def _attach_system_proxy(self) -> None:
+        """Arm the capture session once the kernel is up: attach proxy, open the gate.
+
+        通道接通已在 ``start_capture`` / 重挂路径里完成（boot 时就带着 mode 列表），
+        这里负责剩下的两步：按勾选挂系统代理、开写入闸门。挂代理失败不撤通道 ——
+        本地重定向 / WireGuard 与注册表互不相干，会话保持 FAILED 让用户重试。
+        """
         if not self._pending_attach or not self._runtime.is_running:
             return
-        try:
-            self._mitm.start_capture_recording()
-            # 必须是环回，不是 listen_host：绑定 0.0.0.0 时把 `0.0.0.0:8080` 写进
-            # 系统代理，Windows 会拿它当目标地址去连，抓包会整体失效。
-            self._system_proxy.attach(
-                self._mitm.local_client_host, self._mitm.listen_port
-            )
-        except Exception as exc:  # noqa: BLE001
-            with_recording = self._mitm.runtime.is_running
-            if with_recording:
-                try:
-                    self._mitm.stop_capture_recording()
-                except Exception:
-                    log.exception("failed to roll back capture recording")
-            self._pending_attach = False
-            message = resolve_marker(
-                _SYSTEM_PROXY_ERRORS, str(exc), "CaptureController", fallback=str(exc)
-            )
-            self._last_error = message
-            self._set_capture_state(CaptureState.FAILED)
-            self.proxy_failed.emit(message)
-            self.captureStateChanged.emit(False)
-            return
+        if self.system_proxy_enabled():
+            try:
+                self._mitm.start_capture_recording()
+                # 必须是环回，不是 listen_host：绑定 0.0.0.0 时把 `0.0.0.0:8080` 写进
+                # 系统代理，Windows 会拿它当目标地址去连，抓包会整体失效。local 的
+                # WinDivert 过滤器放行全部环回流量，所以这个地址也保证不会被
+                # 本地重定向二次截走。
+                self._system_proxy.attach(
+                    self._mitm.local_client_host, self._mitm.listen_port
+                )
+            except Exception as exc:  # noqa: BLE001
+                with_recording = self._mitm.runtime.is_running
+                if with_recording:
+                    try:
+                        self._mitm.stop_capture_recording()
+                    except Exception:
+                        log.exception("failed to roll back capture recording")
+                self._pending_attach = False
+                message = resolve_marker(
+                    _SYSTEM_PROXY_ERRORS,
+                    str(exc),
+                    "CaptureController",
+                    fallback=str(exc),
+                )
+                self._last_error = message
+                self._set_capture_state(CaptureState.FAILED)
+                self.proxy_failed.emit(message)
+                self.captureStateChanged.emit(False)
+                return
+            self._sysproxy_attached = True
 
         self._pending_attach = False
+        self._set_recording(True)
         self._set_capture_state(CaptureState.RUNNING)
         self.proxy_started.emit()
         self.captureStateChanged.emit(True)
+        self._schedule_channel_check()
+
+    def _set_recording(self, recording: bool) -> None:
+        if recording == self._recording:
+            return
+        self._recording = recording
+        self.recordingChanged.emit(recording)
+
+    def _fail_start(self, message: str) -> None:
+        self._pending_attach = False
+        self._last_error = message
+        self._set_capture_state(CaptureState.FAILED)
+        self.proxy_failed.emit(message)
+        self.captureStateChanged.emit(False)
+
+    def update_channels(
+        self,
+        *,
+        use_system_proxy: bool,
+        use_local: bool,
+        local_spec: str,
+        use_wireguard: bool,
+    ) -> None:
+        """Commit the capture-channels dialog: persist, then hot-apply what is live.
+
+        未抓包时只落盘 + 更新内核意图值，下次「开始抓包」按新配置开会话；抓包中
+        则实时增删通道、按需挂/摘系统代理。
+        """
+        # 校验先行：坏过滤串连落盘都不该发生（否则坏串会一直躺在配置里）。
+        self._mitm.validate_local_spec(local_spec)
+        CONFIG.set(CONFIG.system_proxy_enabled, use_system_proxy)
+        CONFIG.set(CONFIG.local_enabled, use_local)
+        CONFIG.set(CONFIG.local_spec, local_spec)
+        CONFIG.set(CONFIG.wireguard_enabled, use_wireguard)
+        # 提交意图：抓包中会顺带热更 mode 列表与 block 联动（runtime 内部处理）。
+        self._mitm.set_channels(
+            use_local=use_local, local_spec=local_spec, use_wireguard=use_wireguard
+        )
+        self.channels_changed.emit()
+
+        if self._capture_state != CaptureState.RUNNING:
+            return
+        want_proxy = use_system_proxy
+        if want_proxy and not self._sysproxy_attached:
+            self._pending_attach = True
+            self._attach_system_proxy()
+        elif not want_proxy and self._sysproxy_attached:
+            detach_ok = self._system_proxy.detach()
+            self._sysproxy_attached = False
+            if not detach_ok:
+                self._last_error = self.tr(
+                    "Failed to restore the original system proxy"
+                )
+                self._set_capture_state(CaptureState.FAILED)
+                self.captureStateChanged.emit(False)
+                return
+        self._schedule_channel_check()
+
+    def _translate_channel_error(self, raw: str) -> str:
+        """把通道启动失败的技术串映射成可展示文案；兜不住就原样返回。"""
+        lowered = raw.lower()
+        for marker, marked in _CHANNEL_ERROR_MARKERS:
+            if marker in lowered:
+                return QCoreApplication.translate("CaptureController", marked)
+        return raw
+
+    def _schedule_channel_check(self) -> None:
+        """通道实例是异步启动的（UAC 弹窗可能挂起数秒），延迟一轮再查健康。"""
+        QTimer.singleShot(1500, self._check_channel_health)
+
+    def _check_channel_health(self) -> None:
+        if self._capture_state != CaptureState.RUNNING or not self._runtime.is_running:
+            return
+        try:
+            health = self._mitm.channel_health()
+        except Exception:
+            log.exception("failed to inspect channel health")
+            return
+        errors = {
+            key: self._translate_channel_error(value)
+            for key, value in health.items()
+            if isinstance(value, str)
+        }
+        if errors == self._channel_errors:
+            return
+        self._channel_errors = errors
+        self.channels_changed.emit()
 
     def _set_capture_state(self, state: CaptureState) -> None:
         if state == self._capture_state:
@@ -378,7 +585,10 @@ class CaptureController(QObject):
 
     def _on_runtime_failed(self, message: str) -> None:
         self._pending_attach = False
-        self._system_proxy.detach()
+        if self._sysproxy_attached:
+            self._system_proxy.detach()
+            self._sysproxy_attached = False
+        self._set_recording(False)
         self._last_error = message
         self._set_capture_state(CaptureState.FAILED)
         self.proxy_failed.emit(message)
@@ -390,6 +600,17 @@ class CaptureController(QObject):
             CaptureState.RUNNING,
         ):
             self._on_runtime_failed(self.tr("The mitmproxy core has stopped"))
+
+    def _on_flow_added(self, flow: object) -> None:
+        """写入闸门：闸门关着时新 flow 不进流量表。
+
+        只挡新增：已有行的更新（响应到达、拦截标记等）照常转发 —— 表里已存在的
+        内容永远保持鲜活，暂停语义是「不进新行」而不是「冻结整张表」。compose /
+        手工请求的结果同样从这条路走，一并受闸门约束。
+        """
+        if not self._recording:
+            return
+        self.flow_added.emit(flow)
 
     def set_flow_comment(self, flow_id: str, comment: str) -> None:
         self._mitm.set_flow_comment(flow_id, comment)

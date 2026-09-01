@@ -44,11 +44,50 @@ class ProxyPortDialogTests(unittest.TestCase):
             "block_global": True,
             "block_private": False,
             "lan_address": "192.168.1.9",
+            "use_system_proxy": True,
+            "use_local": True,
+            "local_spec": "",
+            "use_wireguard": True,
+            "wireguard_config": lambda: "[Interface]",
         }
         values.update(overrides)
         dlg = ProxyPortDialog(**values)
         self.addCleanup(dlg.deleteLater)
         return dlg
+
+    def test_channel_getters_round_trip_the_incoming_values(self) -> None:
+        dlg = self.dialog(
+            use_system_proxy=False,
+            use_local=True,
+            local_spec="curl,python",
+            use_wireguard=False,
+        )
+        self.assertFalse(dlg.get_use_system_proxy())
+        self.assertTrue(dlg.get_use_local())
+        self.assertEqual(dlg.get_local_spec(), "curl,python")
+        self.assertFalse(dlg.get_use_wireguard())
+
+    def test_wireguard_toggle_greys_out_block_private(self) -> None:
+        """隧道客户端全在 10.0.0.x：block_private 开着会全杀，UI 必须置灰说明。"""
+        dlg = self.dialog(listen_host=ANY_HOST)
+        self.assertFalse(dlg.block_private_check.isEnabled())
+        self.assertIn("WireGuard", dlg.source_hint.text())
+
+        dlg.wireguard_check.setChecked(False)
+        self.assertTrue(dlg.block_private_check.isEnabled())
+
+    def test_local_spec_edit_follows_the_channel_toggle(self) -> None:
+        dlg = self.dialog()
+        self.assertTrue(dlg.local_spec_edit.isEnabled())
+
+        dlg.local_check.setChecked(False)
+        self.assertFalse(dlg.local_spec_edit.isEnabled())
+        # 填了一半的过滤串不清掉：重新勾上还能找回来。
+        self.assertEqual(dlg.get_local_spec(), "")
+
+    def test_wireguard_config_button_hidden_without_a_callback(self) -> None:
+        dlg = self.dialog(wireguard_config=None)
+        self.assertFalse(dlg.wireguard_config_btn.isVisible())
 
     def test_getters_round_trip_the_incoming_values(self) -> None:
         dlg = self.dialog(
@@ -117,7 +156,10 @@ class ProxyPortDialogTests(unittest.TestCase):
     def test_source_switches_are_greyed_but_keep_their_state_on_loopback(self) -> None:
         """置灰不等于清空：切回局域网时用户的偏好还得在。"""
         dlg = self.dialog(
-            listen_host=LOOPBACK_HOST, block_global=True, block_private=True
+            listen_host=LOOPBACK_HOST,
+            block_global=True,
+            block_private=True,
+            use_wireguard=False,
         )
         self.assertFalse(dlg.block_global_check.isEnabled())
         self.assertFalse(dlg.block_private_check.isEnabled())
@@ -130,7 +172,8 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.assertTrue(dlg.get_block_global())
         self.assertTrue(dlg.get_block_private())
 
-    def test_ineffective_hint_shows_only_on_loopback(self) -> None:
+    def test_ineffective_hint_shows_only_when_block_is_moot(self) -> None:
+        """提示只在该勾选「确实无效」时出现：环回监听、或 block_private 为隧道让路。"""
         dlg = self.dialog(listen_host=LOOPBACK_HOST)
         dlg.show()
         self.app.processEvents()
@@ -138,6 +181,7 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.assertTrue(dlg.source_hint.text())
 
         dlg.host_combo.setCurrentIndex(1)
+        dlg.wireguard_check.setChecked(False)
         self.app.processEvents()
         self.assertFalse(dlg.source_hint.isVisible())
 
