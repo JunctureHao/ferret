@@ -24,14 +24,11 @@ from qfluentwidgets import (
     Action,
     BodyLabel,
     CaptionLabel,
-    CheckableMenu,
     CheckBox,
     ComboBox,
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
-    LineEdit,
-    MenuIndicatorType,
     MessageBoxBase,
     RoundMenu,
     SpinBox,
@@ -45,6 +42,7 @@ from qfluentwidgets import (
 from sysproxy import SystemProxyService
 
 from ferret.apps.capture.controllers import CaptureController, CaptureState
+from ferret.apps.capture.multi_select_combo import MultiSelectionComboBox
 from ferret.apps.common.filter import MultiFilterManager
 from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
@@ -53,10 +51,9 @@ from ferret.core.mitm.facade import MitmFacade
 from ferret.core.mitm.modes import (
     WIREGUARD_PORT,
     LocalTarget,
-    checked_tokens,
     list_local_targets,
-    merge_spec,
     qr_matrix,
+    split_spec,
 )
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 
@@ -785,95 +782,32 @@ class ClearFlowsDialog(MessageBoxBase):
         self.widget.setMinimumWidth(380)
 
 
-class LocalSpecSelector(QWidget):
-    """本地重定向过滤串：可手输（token / ``!`` 排除），也可下拉点选进程。
+class LocalSpecSelector(MultiSelectionComboBox):
+    """本地重定向过滤串的多选下拉框（复刻的 MultiSelectionComboBox）。
 
-    输入框右侧一枚下拉按钮，点是 qfw `CheckableMenu`：顶部搜索框过滤，条目为
-    运行中的用户程序（图标 + 显示名），关闭菜单时把勾选项合并回过滤串（保留
-    手输内容与顺序）。目标列表首次展开时取一次并缓存；图标按路径缓存。
+    已选进程以芯片展示，可点叉删除；芯片后那枚小输入框可手输任意 token
+    （进程名 / PID / ``!`` 排除项，回车追加）。下拉面板列出运行中的用户程序
+    （图标 + 显示名，首次展开时枚举一次并缓存），搜索框实时过滤，勾选与芯片
+    即时同步。
     """
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._edit = LineEdit(self)
-        self._edit.setPlaceholderText(
-            self.tr("Leave empty to capture every process; e.g. curl,python or !1234")
-        )
-        self._edit.setClearButtonEnabled(True)
-        self._btn = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
-        self._btn.setFixedSize(29, 33)
-        self._btn.setToolTip(self.tr("Pick from running processes"))
-        self._btn.clicked.connect(self._open_menu)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        layout.addWidget(self._edit, 1)
-        layout.addWidget(self._btn)
-
         self._targets: list[LocalTarget] | None = None
-        self._icons: dict[str, QIcon] = {}
 
-    def text(self) -> str:
-        return self._edit.text()
-
-    def setText(self, text: str) -> None:
-        self._edit.setText(text)
-
-    def setEnabled(self, enabled: bool) -> None:
-        super().setEnabled(enabled)
-        self._edit.setEnabled(enabled)
-        self._btn.setEnabled(enabled)
-
-    def _open_menu(self) -> None:
+    def _open_popup(self) -> None:
         if self._targets is None:
             self._targets = list_local_targets()
-        checked = checked_tokens(self.text(), self._targets)
-        menu = CheckableMenu(indicatorType=MenuIndicatorType.CHECK, parent=self)
-        menu.setItemHeight(33)
-
-        search = LineEdit(menu)
-        search.setPlaceholderText(self.tr("Search processes"))
-        search.setClearButtonEnabled(True)
-        menu.addWidget(search, selectable=False)
-
-        for target in self._targets:
-            action = Action(target.display_name)
-            action.setCheckable(True)
-            action.setChecked(
-                target.display_name in checked
-                or Path(target.executable).name in checked
-                or target.executable in checked
+            self.set_items(
+                [(target.display_name, self._target_icon(target)) for target in self._targets]
             )
-            action.setIcon(self._icon_for(target))
-            menu.addAction(action)
+        super()._open_popup()
 
-        search.textChanged.connect(lambda query: self._filter_menu(menu, query))
-        menu.exec(self.mapToGlobal(QPoint(0, self.height())))
-
-        picked = [a.text() for a in menu.actions() if a.isCheckable() and a.isChecked()]
-        if picked:
-            self._edit.setText(merge_spec(self.text(), picked))
-
-    def _filter_menu(self, menu: CheckableMenu, query: str) -> None:
-        needle = query.strip().lower()
-        view = menu.view
-        for row in range(view.count()):
-            item = view.item(row)
-            if view.itemWidget(item) is not None:  # 顶部搜索框常显
-                continue
-            item.setHidden(bool(needle) and needle not in item.text().lower())
-
-    def _icon_for(self, target: LocalTarget) -> QIcon:
-        cached = self._icons.get(target.executable)
-        if cached is not None:
-            return cached
+    def _target_icon(self, target: LocalTarget) -> QIcon | None:
         pixmap = QPixmap()
         # 解码失败时 pixmap 保持空图，呈现为无图标（列表项兜底）。
         pixmap.loadFromData(target.icon_png or b"")
-        icon = QIcon(pixmap)
-        self._icons[target.executable] = icon
-        return icon
+        return QIcon(pixmap)
 
 
 class ProxyPortDialog(MessageBoxBase):
@@ -1011,7 +945,7 @@ class ProxyPortDialog(MessageBoxBase):
         self.local_check.setChecked(use_local)
 
         self.local_spec_edit = LocalSpecSelector(self)
-        self.local_spec_edit.setText(local_spec)
+        self.local_spec_edit.set_tokens(split_spec(local_spec))
         self.local_spec_hint = CaptionLabel(self)
         self.local_spec_hint.setWordWrap(True)
 
@@ -1095,7 +1029,7 @@ class ProxyPortDialog(MessageBoxBase):
 
     def get_local_spec(self) -> str:
         """本地重定向的进程过滤串（原样返回，校验交给控制器）。"""
-        return self.local_spec_edit.text().strip()
+        return ",".join(self.local_spec_edit.tokens())
 
     def get_use_wireguard(self) -> bool:
         """是否启用 WireGuard 通道。"""

@@ -11,8 +11,51 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QWidget
 
+from ferret.apps.capture.multi_select_combo import MultiSelectionComboBox
 from ferret.apps.capture.views import ProxyPortDialog, WireGuardConfigDialog
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
+
+
+class MultiSelectionComboBoxTests(unittest.TestCase):
+    """复刻的 qfw Pro 多选下拉框：芯片增删、tokens 单一来源、信号时序。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.box = MultiSelectionComboBox()
+        self.box.set_items([("Chrome", None), ("钉钉", None)])
+        self.addCleanup(self.box.deleteLater)
+        self.changes: list[list[str]] = []
+        self.box.tokensChanged.connect(self.changes.append)
+
+    def test_set_and_remove_tokens(self) -> None:
+        self.box.set_tokens(["curl", "!123"])
+        self.assertEqual(self.box.tokens(), ["curl", "!123"])
+
+        self.box.remove_token("curl")
+        self.assertEqual(self.box.tokens(), ["!123"])
+        self.assertEqual(self.changes[-1], ["!123"])
+
+    def test_remove_unknown_token_is_a_noop(self) -> None:
+        self.box.set_tokens(["curl"])
+        self.box.remove_token("missing")
+        self.assertEqual(self.box.tokens(), ["curl"])
+
+    def test_manual_commit_deduplicates_case_insensitively(self) -> None:
+        """手输小框回车追加 token；与已有项（不区分大小写）重复则忽略。"""
+        self.box.set_tokens(["Chrome"])
+        self.box._add_edit.setText("chrome")
+        self.box._commit_manual()
+        self.assertEqual(self.box.tokens(), ["Chrome"])
+
+        self.box._add_edit.setText("!123")
+        self.box._commit_manual()
+        self.assertEqual(self.box.tokens(), ["Chrome", "!123"])
+
+    def test_items_feed_the_popup_entries(self) -> None:
+        self.assertEqual(self.box._items, [("Chrome", None), ("钉钉", None)])
 
 
 class WireGuardConfigDialogTests(unittest.TestCase):
