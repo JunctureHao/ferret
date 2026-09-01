@@ -149,6 +149,12 @@
 # nuitka-project: --nofollow-import-to=webbrowser
 # nuitka-project: --nofollow-import-to=xdrlib
 # nuitka-project: --noinclude-dlls=pythoncom*
+# nuitka-project: --nofollow-import-to=_pydecimal
+# nuitka-project: --nofollow-import-to=_pydatetime
+# nuitka-project: --nofollow-import-to=email._header_value_parser
+# nuitka-project: --nofollow-import-to=statistics
+# nuitka-project: --nofollow-import-to=tarfile
+# nuitka-project: --nofollow-import-to=xml.sax.expatreader
 
 
 from ferret.core.application import Application
