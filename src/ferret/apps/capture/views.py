@@ -1161,16 +1161,6 @@ class WireGuardConfigDialog(MessageBoxBase):
             self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.qr_label.setPixmap(qr)
             layout.addWidget(self.qr_label)
-            self.warning_label = CaptionLabel(self)
-            self.warning_label.setWordWrap(True)
-            self.warning_label.setStyleSheet("color: #c07000;")
-            self.warning_label.setText(
-                self.tr(
-                    "The QR code and the text below both contain the client's "
-                    "private key; only show them to devices you own."
-                )
-            )
-            layout.addWidget(self.warning_label)
         layout.addWidget(self.config_edit)
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(460)

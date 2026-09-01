@@ -4387,11 +4387,6 @@
     </message>
     <message>
         <location filename="../../apps/capture/views.py" line="1169"/>
-        <source>The QR code and the text below both contain the client&apos;s private key; only show them to devices you own.</source>
-        <translation>二维码与下方文本均含客户端私钥；只向你自己的设备展示。</translation>
-    </message>
-    <message>
-        <location filename="../../apps/capture/views.py" line="1179"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
