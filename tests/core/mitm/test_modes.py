@@ -14,6 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
+from ferret.core.mitm.bindings import ProxyMode
 from ferret.core.mitm.modes import (
     WIREGUARD_PORT,
     capture_mode_specs,
@@ -39,16 +40,52 @@ class CaptureModeSpecTests(unittest.TestCase):
 
     def test_enabled_channels_are_appended_in_order(self) -> None:
         self.assertEqual(
-            capture_mode_specs(
-                use_local=True, local_spec="curl", use_wireguard=True
-            ),
-            ["regular", "local:curl", wireguard_mode_spec()],
+            capture_mode_specs(use_local=True, local_spec="curl", use_wireguard=True),
+            ["regular", "local:curl@127.0.0.1:0", wireguard_mode_spec()],
         )
 
     def test_local_spec_is_stripped_and_empty_means_everything(self) -> None:
-        self.assertEqual(local_mode_spec(""), "local")
-        self.assertEqual(local_mode_spec("  "), "local")
-        self.assertEqual(local_mode_spec(" curl , python "), "local:curl , python")
+        self.assertEqual(local_mode_spec(""), "local@127.0.0.1:0")
+        self.assertEqual(local_mode_spec("  "), "local@127.0.0.1:0")
+        self.assertEqual(
+            local_mode_spec(" curl , python "), "local:curl , python@127.0.0.1:0"
+        )
+
+    def test_local_spec_carries_the_duplicate_address_dodge(self) -> None:
+        """上游 #7063：查重把全局默认端口顶进 local（default_port=None 被覆盖），
+        裸 ``local`` 会被算成与 regular 同听 ``*:8080`` 而拒启动。显式
+        ``@127.0.0.1:0`` 让查重读到唯一地址；该地址永远不会被真正绑定
+        （``LocalRedirectorInstance.listen_addrs = ()``）。这里用上游同款查重
+        算法钉住回归。
+        """
+        from ferret.core.mitm.modes import LOCAL_DUP_DODGE
+
+        for listen_host in ("127.0.0.1", "0.0.0.0"):
+            for listen_port in (8080, 9123):
+                specs = capture_mode_specs(
+                    use_local=True, local_spec="curl,!1234", use_wireguard=True
+                )
+                addrs: list[tuple] = []
+                for spec in specs:
+                    mode = ProxyMode.parse(spec)
+                    protocols = (
+                        ["tcp", "udp"]
+                        if mode.transport_protocol == "both"
+                        else [mode.transport_protocol]
+                    )
+                    port = mode.listen_port(listen_port)
+                    if port is None:
+                        continue
+                    addrs.extend(
+                        (mode.listen_host(listen_host), port, proto)
+                        for proto in protocols
+                    )
+                with self.subTest(listen_host=listen_host, listen_port=listen_port):
+                    self.assertEqual(len(addrs), len(set(addrs)), addrs)
+        # 占位符确实长在 local spec 上，且解析后 data 不受影响。
+        mode = ProxyMode.parse(local_mode_spec("curl"))
+        self.assertTrue(mode.full_spec.endswith(LOCAL_DUP_DODGE))
+        self.assertEqual(mode.data, "curl")
 
     def test_wireguard_spec_binds_lan_reachable_udp_port(self) -> None:
         """VPN 端点必须绑 0.0.0.0：环回绑定让手机永远连不上。"""

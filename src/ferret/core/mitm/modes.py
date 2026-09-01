@@ -35,11 +35,24 @@ WIREGUARD_HOST = ANY_HOST
 WIREGUARD_PORT = 51820
 """WireGuard 默认端口（上游 ``WireGuardMode.default_port``）。"""
 
+LOCAL_DUP_DODGE = "@127.0.0.1:0"
+"""给 local spec 挂的显式 ``@`` 地址，绕开上游重复地址误报。
+
+上游 #7063（12.2.3 未修）：``proxyserver.configure`` 的查重对每个模式取
+``listen_port(ctx.options.listen_port)``，local 的 ``default_port=None`` 会被
+全局默认端口（非 None）顶掉，于是 local 被「算成」和 regular 一样监听
+``*:8080``，三通道并存必报 ``Cannot spawn multiple servers on the same address``。
+给 local 显式 ``@127.0.0.1:0`` 后，查重读到唯一的 ``(127.0.0.1, 0)``；而
+``LocalRedirectorInstance.listen_addrs = ()``（空类属性）意味着这个地址**永远不会
+被真正绑定**，纯属查重占位。上游修复后本常量与拼接处可整体移除。
+"""
+
 
 def local_mode_spec(local_spec: str) -> str:
     """拼 ``local`` 模式串。过滤串留空 = 截全部本机进程（自身 PID 由上游自动排除）。"""
     cleaned = local_spec.strip()
-    return "local" if not cleaned else f"local:{cleaned}"
+    head = "local" if not cleaned else f"local:{cleaned}"
+    return head + LOCAL_DUP_DODGE
 
 
 def wireguard_mode_spec() -> str:
