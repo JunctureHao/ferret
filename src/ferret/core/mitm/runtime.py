@@ -27,6 +27,7 @@ from ferret.core.mitm.gateway import (
 )
 from ferret.core.mitm.intercept import InterceptRule, intercept_option_updates
 from ferret.core.mitm.master import FerretMaster
+from ferret.core.mitm.modes import capture_mode_specs, validate_mode_specs
 from ferret.core.mitm.rewrite import RewriteRule, rewrite_option_updates
 from ferret.core.mitm.wsframe import latest_frame, ws_close
 from ferret.core.network import LOOPBACK_HOST, normalize_listen_host
@@ -149,6 +150,7 @@ class _MitmThread(QThread):
             listen_host=self.runtime.listen_host,
             listen_port=self.runtime.listen_port,
             confdir=str(get_certs_dir()),
+            mode=self.runtime._mode_specs(),
         )
         master = FerretMaster(options, event_loop=self.loop, view=self.runtime.view)
         master.addons.add(
@@ -197,7 +199,7 @@ class _MitmThread(QThread):
         try:
             master.options.update(
                 block_global=self.runtime.block_global,
-                block_private=self.runtime.block_private,
+                block_private=self.runtime._effective_block_private(),
             )
         except (ValueError, OptionsError) as exc:
             log.warning("来源过滤开关无法应用，已忽略: %s", exc)
@@ -291,6 +293,9 @@ class MitmRuntime(QObject):
         listen_port: int = 8080,
         block_global: bool = True,
         block_private: bool = False,
+        use_local: bool = False,
+        local_spec: str = "",
+        use_wireguard: bool = False,
     ) -> None:
         super().__init__(parent)
         self.listen_host = normalize_listen_host(listen_host)
@@ -299,6 +304,17 @@ class MitmRuntime(QObject):
         # 默认沿用 mitmproxy 出厂姿态：拒公网、放局域网；环回永远放行且不可配。
         self.block_global = block_global
         self.block_private = block_private
+        # 抓包通道（见 core/mitm/modes.py）：local = 本地重定向、wireguard = VPN
+        # 隧道。类默认**全关** —— 直接构造 MitmRuntime 的场景（测试、兜底组合根）
+        # 不该一启动就弹 UAC；真实应用的默认全开由 CONFIG 种子决定（见
+        # core/runtime.py::_build_mitm_runtime）。
+        self.use_local = use_local
+        self.local_spec = local_spec
+        self.use_wireguard = use_wireguard
+        # 「抓包会话」是否接通：False 时 _mode_specs 只回 regular（应用启动态），
+        # True 才把启用的通道拼进 mode 列表。与上面三个**意图值**分开 —— 停止
+        # 会话只动这一位，用户的通道偏好原样保留，下次点开始照旧拼装。
+        self.channels_engaged = False
         self.view = View()
         self.view.set_filter(parse_filter("~http"))
         self._state = MitmRuntimeState.STOPPED
@@ -333,6 +349,113 @@ class MitmRuntime(QObject):
     @property
     def last_error(self) -> str:
         return self._last_error
+
+    def _mode_specs(self) -> list[str]:
+        """完整 ``mode`` 选项：regular 恒在（常驻底盘），通道按「启用 × 已接通」拼接。"""
+        engaged = self.channels_engaged
+        return capture_mode_specs(
+            use_local=engaged and self.use_local,
+            local_spec=self.local_spec,
+            use_wireguard=engaged and self.use_wireguard,
+        )
+
+    def set_channels_engaged(self, engaged: bool) -> None:
+        """Open or close the capture session on the kernel.
+
+        True 把启用的通道热更进 mode 列表（local 的提权守护进程由上游常驻复用，
+        重开不弹 UAC）；False 回到 regular-only，OS 级截流全部解除 —— 内核继续
+        空转，compose / 详情页不受影响。只动接通位，不碰 use_local/use_wireguard
+        这些意图值。
+
+        Raises:
+            ValueError: 内核拒绝（坏 spec / 重复监听地址等），内存副本已回滚。
+        """
+        previous = self.channels_engaged
+        self.channels_engaged = engaged
+        specs = self._mode_specs()
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(
+                lambda: master.options.update(
+                    mode=specs,
+                    block_global=self.block_global,
+                    block_private=self._effective_block_private(),
+                )
+            )
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            self.channels_engaged = previous
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            self.channels_engaged = previous
+            raise
+
+    def _effective_block_private(self) -> bool:
+        """下发 Block 选项时实际采用的 ``block_private`` 值。
+
+        WireGuard 客户端全部来自 10.0.0.1/32（上游 ``WireGuardServerInstance`` 固定
+        分配的隧道网段），``block_private`` 开着会把它们当「局域网来源」全杀 ——
+        而原生 Block 对 LocalMode 连接已有豁免（block.py:35），环回也恒放行，所以
+        这里只需要为 wireguard 让路。用户配置的 ``block_private`` 原样保留在
+        ``self.block_private``，通道撤下后自动恢复，不丢用户偏好。
+        """
+        return self.block_private and not (self.use_wireguard and self.channels_engaged)
+
+    def apply_channels(
+        self,
+        *,
+        use_local: bool | None = None,
+        local_spec: str | None = None,
+        use_wireguard: bool | None = None,
+    ) -> None:
+        """Switch the local-redirect / WireGuard channels on a running kernel.
+
+        与 `apply_rewrite_rules` 同构：spec 在提交任何东西之前先过一遍原生解析器，
+        坏值不会走到「内核已受理一半」。热更走 ``options.update(mode=...)`` ——
+        原生 proxyserver 监听 mode 变更，diff 出增删并热启停实例；local 的提权
+        守护进程被上游刻意常驻（`LocalRedirectorInstance._stop` 只清截流配置），
+        所以关了再开不会再次弹 UAC。
+
+        Raises:
+            ValueError: spec 不合法，或内核拒绝（超时/启动失败等，此时内存副本回滚）。
+        """
+        previous = (self.use_local, self.local_spec, self.use_wireguard)
+        if use_local is not None:
+            self.use_local = use_local
+        if local_spec is not None:
+            self.local_spec = local_spec.strip()
+        if use_wireguard is not None:
+            self.use_wireguard = use_wireguard
+        specs = self._mode_specs()
+        try:
+            validate_mode_specs(specs)
+        except ValueError:
+            (self.use_local, self.local_spec, self.use_wireguard) = previous
+            raise
+
+        # block_private 要跟着让路（见 _effective_block_private）；这一步无先决
+        # 条件 —— 内核没跑时先把内存副本对齐，下次启动的 _apply_block_options 才
+        # 能读到正确值。
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(
+                lambda: master.options.update(
+                    mode=specs,
+                    block_global=self.block_global,
+                    block_private=self._effective_block_private(),
+                )
+            )
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            (self.use_local, self.local_spec, self.use_wireguard) = previous
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            (self.use_local, self.local_spec, self.use_wireguard) = previous
+            raise
 
     def start(self) -> None:
         if self._thread is not None or self._state in (
@@ -519,6 +642,32 @@ class MitmRuntime(QObject):
             return 0
         return int(self.call(lambda: master.intercept_state.release_all()))
 
+    def channel_health(self) -> dict[str, bool | str]:
+        """Report per-channel liveness of the running kernel.
+
+        ``options.update(mode=...)`` 只保证 spec 语法合法并触发热启停，实例**启动**
+        失败（UAC 拒绝、端口被占等）由原生 proxyserver 记日志吞掉，不会同步抛回。
+        这里逐实例读 ``is_running`` / ``last_exception``，给界面一个可靠的「通道
+        真的起来了吗」。键是 ``local`` / ``wireguard``，只在对应通道启用时出现；
+        regular 由端口占用与 UiBridgeAddon.running 的全局探测兜底，不单列。
+        """
+        master = self._master
+        if not self.is_running or master is None:
+            return {}
+        health: dict[str, bool | str] = {}
+        for server in master.proxyserver.servers:
+            spec = server.mode.full_spec
+            if spec.startswith("local"):
+                key = "local"
+            elif spec.startswith("wireguard"):
+                key = "wireguard"
+            else:
+                continue
+            health[key] = server.is_running
+            if not server.is_running and server.last_exception is not None:
+                health[key] = str(server.last_exception)
+        return health
+
     def apply_block_options(
         self, *, block_global: bool | None = None, block_private: bool | None = None
     ) -> None:
@@ -535,7 +684,7 @@ class MitmRuntime(QObject):
         master = self._master
         if not self.is_running or master is None:
             return
-        wanted = (self.block_global, self.block_private)
+        wanted = (self.block_global, self._effective_block_private())
         try:
             self.call(
                 lambda: master.options.update(

@@ -72,6 +72,16 @@ from ferret.core.mitm.intercept import (
 )
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.master import CaptureMaster, FerretMaster
+from ferret.core.mitm.modes import (
+    WIREGUARD_HOST,
+    WIREGUARD_PORT,
+    capture_mode_specs,
+    local_mode_spec,
+    validate_local_spec,
+    validate_mode_specs,
+    wireguard_client_config,
+    wireguard_mode_spec,
+)
 from ferret.core.mitm.rewrite import (
     BODY_KINDS,
     FILE_REPLACEMENT_PREFIX,
@@ -117,6 +127,8 @@ __all__ = [
     "REWRITE_OPTIONS",
     "SUSPEND_POLICIES",
     "WHOLE_BODY_PATTERN",
+    "WIREGUARD_HOST",
+    "WIREGUARD_PORT",
     "WS_FRAME_LIMIT",
     "CaInfo",
     "CaptureMaster",
@@ -161,6 +173,7 @@ __all__ = [
     "WsClose",
     "WsFrame",
     "build_flow_detail",
+    "capture_mode_specs",
     "escape_literal",
     "escape_template",
     "export_format",
@@ -175,13 +188,18 @@ __all__ = [
     "intercept_rules_from_config",
     "intercept_rules_to_config",
     "latest_frame",
+    "local_mode_spec",
     "opcode_name",
     "parse_filter",
     "quote_value",
     "rewrite_option_updates",
     "rewrite_rules_from_config",
     "rewrite_rules_to_config",
+    "validate_local_spec",
+    "validate_mode_specs",
     "wire_size",
+    "wireguard_client_config",
+    "wireguard_mode_spec",
     "ws_close",
     "ws_frames",
 ]
