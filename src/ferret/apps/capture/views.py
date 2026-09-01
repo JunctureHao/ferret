@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QSizePolicy,
-    QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTextEdit,
@@ -74,6 +73,9 @@ if TYPE_CHECKING:
 # 本地重定向选择器的视觉常量：色值实测 dump 自 qfw LineEdit 官方 QSS，勿手改。
 _BORDER_LIGHT = "rgba(0, 0, 0, 13)"
 _BORDER_DARK = "rgba(255, 255, 255, 0.08)"
+# 面板底色取 qfw 卡片灰阶（实测 dump ComboBox/菜单浅深底色），别用系统调色板。
+_CARD_BG_LIGHT = "rgba(249, 249, 249, 1)"
+_CARD_BG_DARK = "rgba(36, 36, 36, 1)"
 _PICKER_ROW_HEIGHT = 33
 _PICKER_MAX_ROWS = 8
 _PICKER_FRAME_HEIGHT = 33
@@ -801,11 +803,11 @@ class ClearFlowsDialog(MessageBoxBase):
 
 
 class _CheckDelegate(QStyledItemDelegate):
-    """列表条目委托：标准绘制（图标 + 文本必然渲染）+ qfw 同款青色勾。
+    """列表条目委托：标准绘制（图标 + 文本必然渲染）+ Fluent 风格勾选框。
 
-    青勾画法照抄上游 ``CheckIndicatorMenuItemDelegate``（qfw 菜单的勾选指示
-    器），勾画在行右缘、仅勾选条目显示。文字走 Qt 标准的 DisplayRole 绘制，
-    不受半透明弹窗调色板问题影响（前三版文字消失的教训）。
+    勾选指示器画在行右缘：勾选 = 主题青色圆角方块 + 白勾（白勾照抄上游
+    ``CheckIndicatorMenuItemDelegate`` 的 FIF.ACCEPT 渲染），未勾选 = 空轮廓。
+    文本走 Qt 标准的 DisplayRole 绘制，不受半透明弹窗调色板问题影响。
     """
 
     def __init__(self, parent: QWidget | None = None):
@@ -814,18 +816,23 @@ class _CheckDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         super().paint(painter, option, index)
-        if index.data(Qt.ItemDataRole.CheckStateRole) != Qt.CheckState.Checked:
-            return
-        painter.save()
+        checked = index.data(Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Checked
         rect = option.rect
-        size = 11
+        side = 16
+        box = QRectF(rect.right() - side - 12, rect.center().y() - side / 2, side, side)
+        painter.save()
         painter.setRenderHints(QPainter.RenderHint.Antialiasing)
-        if not option.state & QStyle.StateFlag.State_MouseOver:
-            painter.setOpacity(0.75)
-        self._accept.render(
-            painter,
-            QRectF(rect.right() - size - 12, rect.center().y() - size / 2, size, size),
-        )
+        if checked:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#009faa"))
+            painter.drawRoundedRect(box, 4, 4)
+            painter.setOpacity(0.9)
+            self._accept.render(painter, box.adjusted(3, 3, -3, -3))
+        else:
+            border = QColor(255, 255, 255, 46) if isDarkTheme() else QColor(0, 0, 0, 26)
+            painter.setPen(border)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(box, 4, 4)
         painter.restore()
 
 
@@ -842,6 +849,15 @@ class _PickerPanel(QDialog):
 
     def __init__(self, anchor: QWidget, targets: list[LocalTarget], tokens: list[str]):
         super().__init__(anchor, Qt.WindowType.Popup)
+        # 顶层 QDialog 的底色来自系统调色板（浅色），不随 qfw 主题——必须自己
+        # 挂主题同源的浅深双套 QSS（setCustomStyleSheet 随主题切换自动重刷）。
+        setCustomStyleSheet(
+            self,
+            f"#_PickerPanel {{ background-color: {_CARD_BG_LIGHT};"
+            f" border: 1px solid {_BORDER_LIGHT}; }}",
+            f"#_PickerPanel {{ background-color: {_CARD_BG_DARK};"
+            f" border: 1px solid {_BORDER_DARK}; }}",
+        )
         self.setFixedSize(
             max(anchor.width(), 320),
             min(len(targets), _PICKER_MAX_ROWS) * _PICKER_ROW_HEIGHT + 148,
@@ -860,6 +876,9 @@ class _PickerPanel(QDialog):
         self._list.setItemDelegate(_CheckDelegate(self._list))
         self._list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self._list.setUniformItemSizes(True)
+        self._list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self._list.setMouseTracking(True)
+        self._list.setStyleSheet("QListWidget { background: transparent; border: none; }")
         color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
         spec = ",".join(tokens)
         for target in targets:
@@ -885,8 +904,18 @@ class _PickerPanel(QDialog):
         self._add_edit.returnPressed.connect(self._commit_manual)
         layout.addWidget(self._add_edit)
 
+        # 点条目任意处切换勾选；不用 ItemIsUserCheckable（免得原生指示器与
+        # delegate 的青勾叠画），勾选态直接存 CheckStateRole。
+        self._list.itemClicked.connect(self._toggle_item)
         self._list.itemChanged.connect(lambda _item: self._emit_tokens())
         self._search.textChanged.connect(self._filter)
+
+    def _toggle_item(self, item: QListWidgetItem) -> None:
+        item.setCheckState(
+            Qt.CheckState.Unchecked
+            if item.checkState() == Qt.CheckState.Checked
+            else Qt.CheckState.Checked
+        )
 
     def _make_item(
         self, label: str, icon: QIcon | None, color: QColor
@@ -894,7 +923,6 @@ class _PickerPanel(QDialog):
         item = QListWidgetItem(label, self._list)
         if icon is not None:
             item.setIcon(icon)
-        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setForeground(color)
         item.setSizeHint(QSize(0, _PICKER_ROW_HEIGHT))
         return item
