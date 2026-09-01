@@ -15,6 +15,7 @@ from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import (
     HTTPFlow,
+    LocalRedirectorInstance,
     Options,
     OptionsError,
     View,
@@ -146,6 +147,10 @@ class _MitmThread(QThread):
     async def _run_master(self) -> None:
         self.loop = asyncio.get_running_loop()
         self._ensure_port_available()
+        # 上一个循环可能没跑成 disarm（stop 超时、崩溃），把守护进程的旧 spec
+        # 与单例占位清干净再起，否则 _start 的 "more than one redirector" 护栏
+        # 会让 local 通道静默失效。
+        await self.loop.run_in_executor(None, MitmRuntime._disarm_local_redirector)
         options = Options(
             listen_host=self.runtime.listen_host,
             listen_port=self.runtime.listen_port,
@@ -482,6 +487,18 @@ class MitmRuntime(QObject):
             self._master = None
             self._set_state(MitmRuntimeState.STOPPED)
             return True
+        # local 的提权守护进程是**进程外**服务，内核线程死了它还活着。正常停机
+        # 路径由 Servers.update 的 stop 任务清截流配置；但事件循环关闭时挂起的
+        # 任务会被静默丢弃——抓包中改端口/地址触发的 restart 必然如此。守护进程
+        # 随后继续按旧 spec 截流，而新内核的 mode 列表里没有 local，再没有谁会
+        # 去清它（界面症状：关了本地重定向还能抓到本机流量）。所以趁事件循环
+        # 还活着在它上面同步拔掉截流，不依赖任何异步任务。内核从未跑成（端口
+        # 被占、立即停止）时 call 没有循环可投，此刻本进程也没接过守护进程，
+        # 跳过即可。
+        try:
+            self.call(self._disarm_local_redirector)
+        except (RuntimeError, TimeoutError):
+            pass
         self._set_state(MitmRuntimeState.STOPPING)
         thread.request_shutdown()
         stopped = thread.wait(timeout_ms)
@@ -493,6 +510,20 @@ class MitmRuntime(QObject):
         self._master = None
         self._set_state(MitmRuntimeState.STOPPED)
         return True
+
+    @staticmethod
+    def _disarm_local_redirector() -> None:
+        """Runs on the mitm loop: clear the local redirector daemon's intercept spec.
+
+        除清 spec 外还要清掉 `_instance` 占位——这是上游 `_stop` 的簿记，丢了它
+        新 Master 的 `_start` 会被 "Cannot spawn more than one local redirector"
+        护栏拒掉，local 通道在重启后静默死亡。`_server` 为 None 说明本进程从未
+        接过守护进程，直接跳过。
+        """
+        if LocalRedirectorInstance._server is None:
+            return
+        LocalRedirectorInstance._server.set_intercept("")
+        LocalRedirectorInstance._instance = None
 
     def restart(
         self, *, listen_host: str | None = None, listen_port: int | None = None

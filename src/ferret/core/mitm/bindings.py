@@ -140,6 +140,7 @@ from mitmproxy.net.http.http1.assemble import (
 )
 from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
+from mitmproxy.proxy.mode_servers import LocalRedirectorInstance
 from mitmproxy.proxy.mode_specs import ProxyMode
 from mitmproxy.utils import emoji, human
 from mitmproxy.websocket import WebSocketData, WebSocketMessage
@@ -174,6 +175,7 @@ __all__ = [
     "HTTPFlow",
     "Headers",
     "Intercept",
+    "LocalRedirectorInstance",
     "MapLocal",
     "MapRemote",
     "Master",
