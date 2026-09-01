@@ -24,6 +24,32 @@ from ferret.core.mitm.gateway import (
 from ferret.core.settings import APP_NAME
 
 
+class CertDownloadAddon:
+    """访问  http://ferret-ca/ 直接下载 CA PEM 证书(无页面)"""
+
+    HOST = "ferret-ca"
+
+    def __init__(self, tls_config: TlsConfig) -> None:
+        self._tls_config = tls_config
+
+    def request(self, flow: HTTPFlow) -> None:
+        if flow.request.pretty_host != self.HOST or flow.request.method != "GET":
+            return
+        certstore = self._tls_config.certstore
+        if certstore is None:
+            # configure 还没跑过（开始服务前理论上不会发生）
+            flow.response = Response.make(503, b"Ferret CA is not ready yet.")
+            return
+        flow.response = Response.make(
+            200,
+            certstore.default_ca.to_pem(),
+            {
+                "Content-Type": "application/x-x509-ca-cert",
+                "Content-Disposition": 'attachment; filename="ferret-ca.pem"',
+            },
+        )
+
+
 class FerretTlsConfig(TlsConfig):
     """Use Ferret's name for generated certificate files."""
 

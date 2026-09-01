@@ -3,6 +3,7 @@
 import asyncio
 
 from ferret.core.mitm.addons import (
+    CertDownloadAddon,
     FerretTlsConfig,
     GatewayL4Addon,
     GatewayL7Addon,
@@ -62,6 +63,8 @@ class FerretMaster(Master):
         # bridge 由 runtime 在挂 UiBridgeAddon 时注入（master 装配时还不认识它）。
         self.sse = FerretSseAddon()
         self.save = Save()
+        self.tls_config = FerretTlsConfig()
+        self.cert_download = CertDownloadAddon(self.tls_config)
 
         self.addons.add(
             Core(),
@@ -88,7 +91,8 @@ class FerretMaster(Master):
             self.map_local,
             self.modify_body,
             self.modify_headers,
-            FerretTlsConfig(),
+            self.tls_config,
+            self.cert_download,
             # 必须排在 View 之前：绕行/仅允许靠 AddonHalt 截断这一次派发，从这里
             # 往后（Intercept / View / ReadFile / Save / LogAddon / UiBridgeAddon）
             # 一个都收不到，前面的 addon 则照常跑完。原生 BlockList 因此也从链上撤掉
