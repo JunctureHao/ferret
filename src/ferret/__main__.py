@@ -32,7 +32,7 @@
 # nuitka-project: --noinclude-dlls=qt6qmlworkerscript*
 # nuitka-project: --noinclude-dlls=qt6virtualkeyboard*
 # nuitka-project: --noinclude-dlls=qt6opengl*
-# nuitka-project: --noinclude-dlls=msvcp*
+# nuitka-project: --noinclude-dlls=*shiboken6*msvcp*
 # nuitka-project: --noinclude-qt-plugins=imageformats
 # nuitka-project: --noinclude-qt-plugins=styles
 # nuitka-project: --noinclude-qt-plugins=tls
