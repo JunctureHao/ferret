@@ -9,82 +9,120 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
-from ferret.apps.capture.multi_select_combo import MultiSelectionComboBox
-from ferret.apps.capture.views import ProxyPortDialog, WireGuardConfigDialog
+from ferret.apps.capture.views import (
+    LocalSpecSelector,
+    ProxyPortDialog,
+    WireGuardConfigDialog,
+    _PickerPanel,
+)
+from ferret.core.mitm.modes import LocalTarget
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 
 
-class MultiSelectionComboBoxTests(unittest.TestCase):
-    """复刻的 qfw Pro 多选下拉框：芯片增删、tokens 单一来源、信号时序。"""
+def _target(name: str) -> LocalTarget:
+    return LocalTarget(display_name=name, executable=rf"C:\app\{name.lower()}.exe", icon_png=None)
+
+
+class LocalSpecSelectorTests(unittest.TestCase):
+    """本地重定向过滤串选择器：tokens 单一来源、面板勾选契约、摘要回显。"""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
-        self.box = MultiSelectionComboBox()
-        self.box.set_items([("Chrome", None), ("钉钉", None)])
-        self.addCleanup(self.box.deleteLater)
+        self.selector = LocalSpecSelector()
+        self.selector._targets = [_target("Chrome"), _target("钉钉")]
+        self.addCleanup(self.selector.deleteLater)
         self.changes: list[list[str]] = []
-        self.box.tokensChanged.connect(self.changes.append)
+        self.selector.tokensChanged.connect(self.changes.append)
 
-    def test_set_and_remove_tokens(self) -> None:
-        self.box.set_tokens(["curl", "!123"])
-        self.assertEqual(self.box.tokens(), ["curl", "!123"])
+    def panel(self, tokens: list[str]) -> _PickerPanel:
+        targets = self.selector._targets
+        assert targets is not None  # setUp 已注入
+        panel = _PickerPanel(self.selector, targets, tokens)
+        self.addCleanup(panel.deleteLater)
+        return panel
 
-        self.box.remove_token("curl")
-        self.assertEqual(self.box.tokens(), ["!123"])
-        self.assertEqual(self.changes[-1], ["!123"])
+    def test_summary_reflects_tokens(self) -> None:
+        self.selector.resize(360, 33)
+        self.selector.show()
+        self.app.processEvents()
+        self.addCleanup(self.selector.hide)
 
-    def test_remove_unknown_token_is_a_noop(self) -> None:
-        self.box.set_tokens(["curl"])
-        self.box.remove_token("missing")
-        self.assertEqual(self.box.tokens(), ["curl"])
+        self.selector.set_tokens([])
+        self.assertIn("capture every process", self.selector._summary.text())
 
-    def test_manual_commit_deduplicates_case_insensitively(self) -> None:
-        """手输小框回车追加 token；与已有项（不区分大小写）重复则忽略。"""
-        self.box.set_tokens(["Chrome"])
-        self.box._add_edit.setText("chrome")
-        self.box._commit_manual()
-        self.assertEqual(self.box.tokens(), ["Chrome"])
+        self.selector.set_tokens(["curl", "!123"])
+        self.assertIn("curl", self.selector._summary.text())
+        self.assertIn("!123", self.selector._summary.text())
+        self.assertEqual(self.selector.tokens(), ["curl", "!123"])
 
-        self.box._add_edit.setText("!123")
-        self.box._commit_manual()
-        self.assertEqual(self.box.tokens(), ["Chrome", "!123"])
+    def test_panel_presets_checked_state_from_tokens(self) -> None:
+        """初始 tokens 回显：对上候选的勾选，对不上的手输 token 也成一条。"""
+        panel = self.panel(["Chrome", "!123"])
+        labels = {item.text() for item in self._items(panel)}
+        self.assertIn("Chrome", labels)
+        self.assertIn("!123", labels)
+        checked = {
+            item.text()
+            for item in self._items(panel)
+            if item.checkState() == Qt.CheckState.Checked
+        }
+        self.assertEqual(checked, {"Chrome", "!123"})
+        self.assertEqual(panel.checked_labels(), ["Chrome", "!123"])
 
-    def test_items_feed_the_popup_entries(self) -> None:
-        self.assertEqual(self.box._items, [("Chrome", None), ("钉钉", None)])
+    def test_panel_toggle_emits_tokens(self) -> None:
+        panel = self.panel([])
+        changes: list[list[str]] = []
+        panel.tokensChanged.connect(changes.append)
 
-    def test_chip_and_edit_align_and_row_toggles(self) -> None:
-        """视觉契约：芯片/手输框同高；点行任意处切换勾选（Fluent 青色勾）。"""
-        from PySide6.QtCore import QEvent, QPointF, Qt
-        from PySide6.QtGui import QMouseEvent
+        item = self._find(panel, "Chrome")
+        item.setCheckState(Qt.CheckState.Checked)
 
-        from ferret.apps.capture.multi_select_combo import (
-            _CHIP_HEIGHT,
-            _FRAME_MIN_HEIGHT,
-            _CheckRow,
-        )
+        self.assertEqual(changes[-1], ["Chrome"])
+        self.assertEqual(panel.checked_labels(), ["Chrome"])
 
-        self.box.set_tokens(["curl"])
-        self.assertEqual(self.box._add_edit.minimumHeight(), _CHIP_HEIGHT)
-        self.assertGreaterEqual(self.box.minimumHeight(), _FRAME_MIN_HEIGHT)
+    def test_manual_commit_adds_and_checks_token(self) -> None:
+        panel = self.panel([])
+        panel._add_edit.setText("!4321")
+        panel._commit_manual()
 
-        row = _CheckRow("Chrome", None, False)
-        event = QMouseEvent(
-            QEvent.Type.MouseButtonPress,
-            QPointF(5, 5),
-            QPointF(5, 5),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        row.mousePressEvent(event)
-        self.assertTrue(row.box.isChecked())
-        row.mousePressEvent(event)
-        self.assertFalse(row.box.isChecked())
+        item = self._find(panel, "!4321")
+        self.assertIsNotNone(item)
+        self.assertEqual(item.checkState(), Qt.CheckState.Checked)
+        self.assertEqual(panel.checked_labels(), ["!4321"])
+
+    def test_manual_commit_checks_matching_candidate(self) -> None:
+        """手输「钉」这种子串也应点亮候选（与内核 contains 语义一致）。"""
+        panel = self.panel([])
+        panel._add_edit.setText("钉")
+        panel._commit_manual()
+        self.assertEqual(panel.checked_labels(), ["钉钉"])
+
+    def test_search_filters_rows_but_keeps_checked(self) -> None:
+        """搜索只是视图过滤：隐藏行的勾选不丢，checked_labels 仍包含它。"""
+        panel = self.panel(["Chrome", "钉钉"])
+        panel._search.setText("chrome")
+        chrome = self._find(panel, "Chrome")
+        ding = self._find(panel, "钉钉")
+        self.assertTrue(chrome is not None and not chrome.isHidden())
+        self.assertTrue(ding is not None and ding.isHidden())
+        self.assertEqual(panel.checked_labels(), ["Chrome", "钉钉"])
+
+    @staticmethod
+    def _items(panel: _PickerPanel) -> list:
+        return [panel._list.item(row) for row in range(panel._list.count())]
+
+    @staticmethod
+    def _find(panel: _PickerPanel, text: str):
+        for item in LocalSpecSelectorTests._items(panel):
+            if item.text() == text:
+                return item
+        return None
 
 
 class WireGuardConfigDialogTests(unittest.TestCase):

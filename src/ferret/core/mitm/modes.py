@@ -164,30 +164,6 @@ def split_spec(spec: str) -> list[str]:
     return [token.strip() for token in spec.split(",") if token.strip()]
 
 
-def merge_spec(existing: str, additions: list[str]) -> str:
-    """把点选的目标合并进现有过滤串。
-
-    手输内容**原样保留**（含空格与 ``!`` 排除项，顺序不动），新点选的按给定
-    顺序追加到尾部；与已有 token 大小写不敏感去重（local 的匹配是 contains，
-    大小写无意义）。没有新点选时返回原文。
-    """
-    added: list[str] = []
-    seen = {token.lower() for token in split_spec(existing)}
-    for addition in additions:
-        addition = addition.strip()
-        if addition and addition.lower() not in seen:
-            added.append(addition)
-            seen.add(addition.lower())
-    if not added:
-        return existing
-    base = existing.strip().rstrip(",")
-    if not base:
-        return ",".join(added)
-    # 追加风格跟随原文：原来就有空格就用 ", "，紧凑输入就用 ","。
-    separator = ", " if "," in base and " " in base.split(",", 1)[1] else ","
-    return f"{base}{separator}{','.join(added)}"
-
-
 def list_local_targets(*, include_system: bool = False) -> list[LocalTarget]:
     """枚举可点选的本机进程，供 UI 下拉勾选。
 

@@ -28,7 +28,6 @@ from ferret.core.mitm.modes import (
     checked_tokens,
     list_local_targets,
     local_mode_spec,
-    merge_spec,
     qr_matrix,
     split_spec,
     validate_local_spec,
@@ -327,7 +326,7 @@ class WireGuardClientConfigTests(unittest.TestCase):
 
 
 class LocalTargetTests(unittest.TestCase):
-    """进程点选的数据层：spec 拆分/合并/回显 + 真实枚举的形状。"""
+    """进程点选的数据层：spec 拆分/回显 + 真实枚举的形状。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -337,14 +336,6 @@ class LocalTargetTests(unittest.TestCase):
         self.assertEqual(split_spec(" a,, b ,!123 "), ["a", "b", "!123"])
         self.assertEqual(split_spec(",,,"), [])
         self.assertEqual(split_spec(""), [])
-
-    def test_merge_spec_appends_without_touching_manual_input(self) -> None:
-        """手输内容原样保留（含 ``!`` 排除与空格风格），点选只追加尾部。"""
-        self.assertEqual(merge_spec("", ["chrome", "Chrome"]), "chrome")
-        self.assertEqual(merge_spec("!python, curl", ["chrome"]), "!python, curl, chrome")
-        self.assertEqual(merge_spec("!python,curl", ["chrome"]), "!python,curl,chrome")
-        self.assertEqual(merge_spec("curl", []), "curl")
-        self.assertEqual(merge_spec("", []), "")
 
     def test_checked_tokens_match_exactly_case_insensitively(self) -> None:
         targets = [

@@ -3,19 +3,26 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -29,8 +36,10 @@ from qfluentwidgets import (
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
+    LineEdit,
     MessageBoxBase,
     RoundMenu,
+    SearchLineEdit,
     SpinBox,
     StrongBodyLabel,
     SubtitleLabel,
@@ -38,11 +47,12 @@ from qfluentwidgets import (
     ToolTipPosition,
     TransparentToolButton,
     VerticalSeparator,
+    isDarkTheme,
+    setCustomStyleSheet,
 )
 from sysproxy import SystemProxyService
 
 from ferret.apps.capture.controllers import CaptureController, CaptureState
-from ferret.apps.capture.multi_select_combo import MultiSelectionComboBox
 from ferret.apps.common.filter import MultiFilterManager
 from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
@@ -51,6 +61,7 @@ from ferret.core.mitm.facade import MitmFacade
 from ferret.core.mitm.modes import (
     WIREGUARD_PORT,
     LocalTarget,
+    checked_tokens,
     list_local_targets,
     qr_matrix,
     split_spec,
@@ -59,6 +70,13 @@ from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 
 if TYPE_CHECKING:
     from ferret.apps.window import MainWindow
+
+# 本地重定向选择器的视觉常量：色值实测 dump 自 qfw LineEdit 官方 QSS，勿手改。
+_BORDER_LIGHT = "rgba(0, 0, 0, 13)"
+_BORDER_DARK = "rgba(255, 255, 255, 0.08)"
+_PICKER_ROW_HEIGHT = 33
+_PICKER_MAX_ROWS = 8
+_PICKER_FRAME_HEIGHT = 33
 
 
 class CapturesInterface(QWidget):
@@ -782,33 +800,236 @@ class ClearFlowsDialog(MessageBoxBase):
         self.widget.setMinimumWidth(380)
 
 
-class LocalSpecSelector(MultiSelectionComboBox):
-    """本地重定向过滤串的多选下拉框（复刻的 MultiSelectionComboBox）。
+class _CheckDelegate(QStyledItemDelegate):
+    """列表条目委托：标准绘制（图标 + 文本必然渲染）+ qfw 同款青色勾。
 
-    已选进程以芯片展示，可点叉删除；芯片后那枚小输入框可手输任意 token
-    （进程名 / PID / ``!`` 排除项，回车追加）。下拉面板列出运行中的用户程序
-    （图标 + 显示名，首次展开时枚举一次并缓存），搜索框实时过滤，勾选与芯片
-    即时同步。
+    青勾画法照抄上游 ``CheckIndicatorMenuItemDelegate``（qfw 菜单的勾选指示
+    器），勾画在行右缘、仅勾选条目显示。文字走 Qt 标准的 DisplayRole 绘制，
+    不受半透明弹窗调色板问题影响（前三版文字消失的教训）。
     """
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._targets: list[LocalTarget] | None = None
+        self._accept = FluentIcon.ACCEPT
 
-    def _open_popup(self) -> None:
-        if self._targets is None:
-            self._targets = list_local_targets()
-            self.set_items(
-                [(target.display_name, self._target_icon(target)) for target in self._targets]
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        super().paint(painter, option, index)
+        if index.data(Qt.ItemDataRole.CheckStateRole) != Qt.CheckState.Checked:
+            return
+        painter.save()
+        rect = option.rect
+        size = 11
+        painter.setRenderHints(QPainter.RenderHint.Antialiasing)
+        if not option.state & QStyle.StateFlag.State_MouseOver:
+            painter.setOpacity(0.75)
+        self._accept.render(
+            painter,
+            QRectF(rect.right() - size - 12, rect.center().y() - size / 2, size, size),
+        )
+        painter.restore()
+
+
+class _PickerPanel(QDialog):
+    """进程勾选面板：搜索 + 原生列表条目（图标 + 文本 + 青勾）+ 手输行。
+
+    一切皆条目：候选进程与手输 token（如 ``!1234`` 排除项）都是同等的勾选
+    条目，spec = 勾选文本按列表顺序连接，没有 manual/checked 两本账。弹窗
+    **不透明**且条目走原生渲染路径——半透明弹窗的调色板文字色会失效，这是
+    前几版「文字消失」的根因。
+    """
+
+    tokensChanged = Signal(list)
+
+    def __init__(self, anchor: QWidget, targets: list[LocalTarget], tokens: list[str]):
+        super().__init__(anchor, Qt.WindowType.Popup)
+        self.setFixedSize(
+            max(anchor.width(), 320),
+            min(len(targets), _PICKER_MAX_ROWS) * _PICKER_ROW_HEIGHT + 148,
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        self._search = SearchLineEdit(self)
+        self._search.setPlaceholderText(self.tr("Search processes"))
+        self._search.setClearButtonEnabled(True)
+        layout.addWidget(self._search)
+
+        self._list = QListWidget(self)
+        self._list.setItemDelegate(_CheckDelegate(self._list))
+        self._list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self._list.setUniformItemSizes(True)
+        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        spec = ",".join(tokens)
+        for target in targets:
+            item = self._make_item(target.display_name, self._icon(target), color)
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if checked_tokens(spec, [target])
+                else Qt.CheckState.Unchecked
             )
-        super()._open_popup()
+        # 对不上任何候选的手输 token（如 !1234）也各成一条，默认勾选。
+        matched = {label.lower() for label in checked_tokens(spec, targets)}
+        for token in tokens:
+            if token.lower() not in matched:
+                item = self._make_item(token, None, color)
+                item.setCheckState(Qt.CheckState.Checked)
+        layout.addWidget(self._list, 1)
 
-    def _target_icon(self, target: LocalTarget) -> QIcon | None:
+        self._add_edit = LineEdit(self)
+        self._add_edit.setPlaceholderText(
+            self.tr("Add process name or !pid and press Enter")
+        )
+        self._add_edit.setClearButtonEnabled(True)
+        self._add_edit.returnPressed.connect(self._commit_manual)
+        layout.addWidget(self._add_edit)
+
+        self._list.itemChanged.connect(lambda _item: self._emit_tokens())
+        self._search.textChanged.connect(self._filter)
+
+    def _make_item(
+        self, label: str, icon: QIcon | None, color: QColor
+    ) -> QListWidgetItem:
+        item = QListWidgetItem(label, self._list)
+        if icon is not None:
+            item.setIcon(icon)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setForeground(color)
+        item.setSizeHint(QSize(0, _PICKER_ROW_HEIGHT))
+        return item
+
+    def _icon(self, target: LocalTarget) -> QIcon:
         pixmap = QPixmap()
-        # 解码失败时 pixmap 保持空图，呈现为无图标（列表项兜底）。
+        # 解码失败时 pixmap 保持空图，空 QIcon 渲染即无图标。
         pixmap.loadFromData(target.icon_png or b"")
         return QIcon(pixmap)
 
+    def _commit_manual(self) -> None:
+        token = self._add_edit.text().strip()
+        if not token:
+            return
+        self._add_edit.clear()
+        lowered = token.lower()
+        for row in range(self._list.count()):
+            item = self._list.item(row)
+            if item.text().lower() == lowered:
+                item.setCheckState(Qt.CheckState.Checked)
+                return
+        for row in range(self._list.count()):
+            item = self._list.item(row)
+            if lowered in item.text().lower() or item.text().lower() in lowered:
+                item.setCheckState(Qt.CheckState.Checked)
+                return
+        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        self._make_item(token, None, color).setCheckState(Qt.CheckState.Checked)
+
+    def _filter(self, query: str) -> None:
+        needle = query.strip().lower()
+        for row in range(self._list.count()):
+            self._list.item(row).setHidden(
+                bool(needle) and needle not in self._list.item(row).text().lower()
+            )
+
+    def _emit_tokens(self) -> None:
+        # 被搜索隐藏的已勾条目必须保留——隐藏只是视图过滤，不是取消勾选。
+        self.tokensChanged.emit(self.checked_labels())
+
+    def checked_labels(self) -> list[str]:
+        return [
+            self._list.item(row).text()
+            for row in range(self._list.count())
+            if self._list.item(row).checkState() == Qt.CheckState.Checked
+        ]
+
+
+class LocalSpecSelector(QFrame):
+    """本地重定向过滤串：摘要行 + 下拉勾选面板（含搜索与手输）。
+
+    点整行或 ▾ 弹出面板（运行中的用户程序 + 手输条目），勾选实时回写
+    tokens；``tokens()`` 是唯一事实来源（逗号连接即过滤串）。首次展开时枚举
+    一次进程并缓存。
+    """
+
+    tokensChanged = Signal(list)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("LocalSpecSelector")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        setCustomStyleSheet(
+            self,
+            f"#LocalSpecSelector {{ border: 1px solid {_BORDER_LIGHT};"
+            f" border-radius: 4px; background-color: rgba(249, 249, 249, 0.3); }}"
+            f"#LocalSpecSelector:hover {{ background-color: rgba(0, 0, 0, 9); }}",
+            f"#LocalSpecSelector {{ border: 1px solid {_BORDER_DARK};"
+            f" border-radius: 4px; background-color: rgba(255, 255, 255, 0.0419); }}"
+            f"#LocalSpecSelector:hover {{ background-color: rgba(255, 255, 255, 9); }}",
+        )
+        self._targets: list[LocalTarget] | None = None
+        self._tokens: list[str] = []
+        self._summary = BodyLabel(self)
+        self._summary.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self._button = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
+        self._button.setFixedSize(28, 28)
+        self._button.clicked.connect(self._open_panel)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 0, 6, 0)
+        layout.setSpacing(4)
+        layout.addWidget(self._summary, 1)
+        layout.addWidget(self._button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.setFixedHeight(_PICKER_FRAME_HEIGHT)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._refresh_summary()
+
+    def tokens(self) -> list[str]:
+        return list(self._tokens)
+
+    def set_tokens(self, tokens: list[str]) -> None:
+        self._tokens = [token.strip() for token in tokens if token.strip()]
+        self._refresh_summary()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
+            self._open_panel()
+        super().mousePressEvent(event)
+
+    def _open_panel(self) -> None:
+        if self._targets is None:
+            self._targets = list_local_targets()
+        panel = _PickerPanel(self, self._targets, self._tokens)
+        panel.tokensChanged.connect(self._on_panel_changed)
+        panel.move(self.mapToGlobal(QPoint(0, self.height())))
+        panel.exec()
+        # 关面板后以最终勾选为准（与实时信号同值，兜底防漏）。
+        self._on_panel_changed(panel.checked_labels())
+
+    def _on_panel_changed(self, labels: list[str]) -> None:
+        if labels == self._tokens:
+            return
+        self._tokens = labels
+        self._refresh_summary()
+        self.tokensChanged.emit(self.tokens())
+
+    def _refresh_summary(self) -> None:
+        if not self._tokens:
+            self._summary.setText(self.tr("Leave empty to capture every process"))
+            self._summary.setStyleSheet("color: rgba(127, 127, 127, 0.9);")
+            return
+        text = ", ".join(self._tokens)
+        metrics = self._summary.fontMetrics()
+        available = max(self._summary.width() - 8, 40)
+        if metrics.horizontalAdvance(text) > available:
+            while text and metrics.horizontalAdvance(text + "…") > available:
+                text = text[:-1]
+            text += "…"
+        self._summary.setText(self.tr("Selected: {}").format(text))
+        self._summary.setStyleSheet("")
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._refresh_summary()
 
 class ProxyPortDialog(MessageBoxBase):
     """代理监听设置：绑定地址、端口、来源限制。
