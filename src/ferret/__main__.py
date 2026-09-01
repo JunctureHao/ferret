@@ -1,28 +1,37 @@
-# ── 产物按构建时刻分目录 dist/YYYYmmdd_HHMM/，历史构建可并存
-# {STAMP} 须先 -set 再引用；表达式在 Nuitka 自身命名空间 eval，那里没有 time，必须 __import__
+# ═══════════════════════════════════════════════════════════════════════
+# Nuitka 基础配置
+# ═══════════════════════════════════════════════════════════════════════
 # nuitka-project-set: STAMP = __import__("time").strftime("%Y%m%d_%H%M")
 # nuitka-project: --mode=standalone
 # nuitka-project: --output-dir=dist/{STAMP}
-# .build 脚手架约 480MB/次，产出 exe 后删除；C 编译缓存是全局的，不影响增量速度
-# nuitka-project: --remove-output
-# nuitka-project: --windows-console-mode=force
 # nuitka-project: --output-filename=Ferret
 # nuitka-project: --output-folder-name=Ferret
 # nuitka-project: --windows-icon-from-ico=src/ferret/resources/icon.ico
 # nuitka-project: --report=dist/{STAMP}/report.xml
 # nuitka-project: --msvc=latest
 # nuitka-project: --lto=no
-# nuitka-project: --enable-plugins=pyside6
+# nuitka-project: --remove-output
+# nuitka-project: --windows-console-mode=force
 # nuitka-project: --python-flag=no_docstrings
 # nuitka-project: --python-flag=no_asserts
-# sysproxy 是 uv workspace 成员（editable 安装），显式声明防剪枝误裁
-# nuitka-project: --include-package=sysproxy
+
+# ═══════════════════════════════════════════════════════════════════════
+# PySide6 / Qt 相关
+# ═══════════════════════════════════════════════════════════════════════
+# nuitka-project: --enable-plugins=pyside6
+
+# nuitka-project: --include-package=PySide6.QtXml
+# nuitka-project: --include-package=PySide6.QtSvg
+
+# 不用的 Qt 模块，静态分析不可达，显式排除防误打包
 # nuitka-project: --nofollow-import-to=PySide6.QtWebEngineCore
 # nuitka-project: --nofollow-import-to=PySide6.QtMultimedia
 # nuitka-project: --nofollow-import-to=PySide6.QtOpenGL
 # nuitka-project: --nofollow-import-to=PySide6.QtPdf
 # nuitka-project: --nofollow-import-to=PySide6.QtSpatialAudio
 # nuitka-project: --nofollow-import-to=PySide6.QtNetwork
+
+# 对应 Qt DLL / QML 运行时，零代码引用
 # nuitka-project: --noinclude-dlls=qt6network*
 # nuitka-project: --noinclude-dlls=qt6quick*
 # nuitka-project: --noinclude-dlls=qt6pdf*
@@ -33,15 +42,24 @@
 # nuitka-project: --noinclude-dlls=qt6virtualkeyboard*
 # nuitka-project: --noinclude-dlls=qt6opengl*
 # nuitka-project: --noinclude-dlls=*shiboken6*msvcp*
+# nuitka-project: --noinclude-dlls=*qdirect2d*
+# nuitka-project: --noinclude-dlls=*qminimal*
+# nuitka-project: --noinclude-dlls=*qoffscreen*
+
+# Qt 插件 / 翻译
 # nuitka-project: --noinclude-qt-plugins=imageformats
 # nuitka-project: --noinclude-qt-plugins=styles
 # nuitka-project: --noinclude-qt-plugins=tls
 # nuitka-project: --include-qt-plugins=platforms
-# nuitka-project: --noinclude-dlls=*qdirect2d*
-# nuitka-project: --noinclude-dlls=*qminimal*
-# nuitka-project: --noinclude-dlls=*qoffscreen*
 # nuitka-project: --noinclude-qt-translations
-# ── 瘦身：排除永不加载的 mitmproxy addon 及其重型依赖（配合 core/mitm/bindings.py 的桩）
+
+# ═══════════════════════════════════════════════════════════════════════
+# mitmproxy 及关联依赖
+# ═══════════════════════════════════════════════════════════════════════
+# sysproxy 是 uv workspace 成员（editable 安装），显式声明防剪枝误裁
+# nuitka-project: --include-package=sysproxy
+
+# 永不加载的 mitmproxy 命令行 addon（配合 core/mitm/bindings.py 的桩）
 # 注意：pyasn1 不能排除（aioquic → service_identity 运行时硬链）
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.onboarding
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.onboardingapp
@@ -51,6 +69,8 @@
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.command_history
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.comment
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.termlog
+
+# mitmproxy 关联但 ferret 不用的重型依赖
 # nuitka-project: --nofollow-import-to=flask
 # nuitka-project: --nofollow-import-to=jinja2
 # nuitka-project: --nofollow-import-to=asgiref
@@ -62,42 +82,35 @@
 # nuitka-project: --nofollow-import-to=pyperclip
 # nuitka-project: --nofollow-import-to=zstandard.backend_cffi
 # nuitka-project: --noinclude-dlls=*zstandard*_cffi*
-# urwid 只有 mitmproxy.tools.console 引用，不在模块图里，无需排除
 # nuitka-project: --nofollow-import-to=wcwidth
 # nuitka-project: --nofollow-import-to=tornado
+
+# mitmproxy 只在 maplocal.py 用 werkzeug.safe_join，bindings.py 已用等价实现顶掉。
+# 整包排掉，colorama / markupsafe 也随之不可达（它们只有 werkzeug 引用），不必单列。
+# nuitka-project: --nofollow-import-to=werkzeug
+
+# ═══════════════════════════════════════════════════════════════════════
+# pywin32 相关
+# ═══════════════════════════════════════════════════════════════════════
+# Windows 事件日志 / WMI，ferret 不引用
 # nuitka-project: --nofollow-import-to=win32evtlog
 # nuitka-project: --nofollow-import-to=win32evtlogutil
 # nuitka-project: --nofollow-import-to=_wmi
-# mitmproxy 只在 maplocal.py 里用了 werkzeug 的 safe_join 一个函数，bindings.py 已经
-# 用等价实现顶掉。整包排掉的同时，colorama / markupsafe 也随之不可达（它们只有
-# werkzeug 引用），不必单列。
-# nuitka-project: --nofollow-import-to=werkzeug
-# nuitka-project: --nofollow-import-to=concurrent.futures.process
-# pyparsing/core.py:2567 的 `from .diagram import ...` 在 create_diagram() 函数体里，
-# 外面就套着 except ImportError（提示 "pip install pyparsing[diagrams]"）。railroad 本来就
-# 没装，这条路运行期必然 ImportError 并被吞掉 —— Nuitka 却照样把 diagram.py 编了进去。
-# nuitka-project: --nofollow-import-to=pyparsing.diagram
-# ── 瘦身：standalone 默认「把没被排除的标准库全塞进 __bytecode.const」，下面这些在
-# 整个模块图里零引用者（report.xml 的 module_usages 反查，只有 Nuitka 记在 __main__
-# 名下的那条伪引用），实测跑完 ferret 全量 import + FerretMaster 装配后也不进
-# sys.modules。字节码 blob 基本不压缩（input 5,882,087 → blob 5,854,988），所以这里
-# 省下的是 1:1 落到 exe 上的，比编译模块的 0.35 折算划算。
-# 列表按字母序维护，新增插在对应位置；每条新增都先过「全量 import + 装配实测不进
-# sys.modules」和「引用反查无活引用者」两关。
-# 刻意留着：_sitebuiltins（site.py 启动就加载，它内部还持着 pydoc 的函数级懒引用——
-# 所以 pydoc 也不排）、_pylong（CPython 的 C 层在超大整数 ↔ 字符串转换时自己
-# import，静态图里看不见引用者）。
-# 已评估不排：_cffi_backend —— cryptography 48 的 _rust.pyd 初始化硬 import（装配
-# 路径经 cryptography.x509，实测进 sys.modules），Nuitka ImplicitImports 也显式挂
-# cryptography→_cffi_backend，排掉 = TLS/证书全崩；doctest —— 现存引用者
-# pickle._test() / heapq 的 __main__ 守卫虽是死路径，但 pickle 是核心活模块，保守
-# 留到 report.xml 复核后再定。
+
+# pythoncom312.dll：.dll 走标准 DLL 收集，--noinclude-dlls 能管
+# nuitka-project: --noinclude-dlls=pythoncom*
+
+# ═══════════════════════════════════════════════════════════════════════
+# 标准库零引用者（按字母序维护）
+# ═══════════════════════════════════════════════════════════════════════
 # nuitka-project: --nofollow-import-to=__hello__
 # nuitka-project: --nofollow-import-to=__phello__
 # nuitka-project: --nofollow-import-to=_aix_support
 # nuitka-project: --nofollow-import-to=_markupbase
 # nuitka-project: --nofollow-import-to=_osx_support
 # nuitka-project: --nofollow-import-to=_pyio
+# nuitka-project: --nofollow-import-to=_pydecimal
+# nuitka-project: --nofollow-import-to=_pydatetime
 # nuitka-project: --nofollow-import-to=aifc
 # nuitka-project: --nofollow-import-to=bdb
 # nuitka-project: --nofollow-import-to=cgi
@@ -109,10 +122,12 @@
 # nuitka-project: --nofollow-import-to=colorsys
 # nuitka-project: --nofollow-import-to=configparser
 # nuitka-project: --nofollow-import-to=difflib
+# nuitka-project: --nofollow-import-to=email._header_value_parser
+# nuitka-project: --nofollow-import-to=email.contentmanager
+# nuitka-project: --nofollow-import-to=email.headerregistry
+# nuitka-project: --nofollow-import-to=email.policy
 # nuitka-project: --nofollow-import-to=filecmp
 # nuitka-project: --nofollow-import-to=fileinput
-# getopt 的引用者只有 quopri.main() / mimetypes.main() 等函数级死路径，运行期不可达
-# （不满足严格零引用口径，收益 7.5 KB，特批）
 # nuitka-project: --nofollow-import-to=getopt
 # nuitka-project: --nofollow-import-to=graphlib
 # nuitka-project: --nofollow-import-to=html.parser
@@ -140,25 +155,26 @@
 # nuitka-project: --nofollow-import-to=sre_parse
 # nuitka-project: --nofollow-import-to=sunau
 # nuitka-project: --nofollow-import-to=symtable
+# nuitka-project: --nofollow-import-to=statistics
 # nuitka-project: --nofollow-import-to=sysconfig
+# nuitka-project: --nofollow-import-to=tarfile
 # nuitka-project: --nofollow-import-to=timeit
 # nuitka-project: --nofollow-import-to=tomllib
 # nuitka-project: --nofollow-import-to=trace
 # nuitka-project: --nofollow-import-to=turtle
 # nuitka-project: --nofollow-import-to=uu
 # nuitka-project: --nofollow-import-to=webbrowser
-# nuitka-project: --nofollow-import-to=xdrlib
-# nuitka-project: --noinclude-dlls=pythoncom*
-# nuitka-project: --nofollow-import-to=_pydecimal
-# nuitka-project: --nofollow-import-to=_pydatetime
-# nuitka-project: --nofollow-import-to=email._header_value_parser
-# nuitka-project: --nofollow-import-to=statistics
-# nuitka-project: --nofollow-import-to=tarfile
 # nuitka-project: --nofollow-import-to=xml.sax.expatreader
-# nuitka-project: --nofollow-import-to=email._header_value_parser
-# nuitka-project: --nofollow-import-to=email.contentmanager
-# nuitka-project: --nofollow-import-to=email.headerregistry
-# nuitka-project: --nofollow-import-to=email.policy
+# nuitka-project: --nofollow-import-to=xdrlib
+
+# ═══════════════════════════════════════════════════════════════════════
+# 杂项
+# ═══════════════════════════════════════════════════════════════════════
+# concurrent.futures.process：ferret 不用 multiprocessing
+# nuitka-project: --nofollow-import-to=concurrent.futures.process
+# pyparsing.diagram：create_diagram() 函数体里的 import，外层 except ImportError 吞掉，
+# Nuitka 却照样编进去
+# nuitka-project: --nofollow-import-to=pyparsing.diagram
 
 
 from ferret.core.application import Application
