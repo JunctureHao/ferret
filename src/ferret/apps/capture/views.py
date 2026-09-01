@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPlainTextEdit,
     QSizePolicy,
@@ -47,7 +48,7 @@ from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.core.mitm.facade import MitmFacade
-from ferret.core.mitm.modes import WIREGUARD_PORT
+from ferret.core.mitm.modes import WIREGUARD_PORT, qr_matrix
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 
 if TYPE_CHECKING:
@@ -1118,7 +1119,14 @@ class ProxyPortDialog(MessageBoxBase):
 
 
 class WireGuardConfigDialog(MessageBoxBase):
-    """WireGuard 客户端配置预览：只读文本，确认键即复制。"""
+    """WireGuard 客户端配置预览：扫码导入 + 只读文本，确认键即复制。
+
+    二维码直接从传入的配置文本派生（同一段内容两种呈现，永不各说一套）；
+    扫不上码的人仍可手动复制。QR 矩阵不含静区，绘制时按规范补 4 模块。
+    """
+
+    QUIET_ZONE = 4
+    """QR 规范静区（模块数）。"""
 
     def __init__(self, config: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1137,12 +1145,32 @@ class WireGuardConfigDialog(MessageBoxBase):
         self.config_edit = QPlainTextEdit(self)
         self.config_edit.setPlainText(config)
         self.config_edit.setReadOnly(True)
-        self.config_edit.setFixedHeight(220)
+        self.config_edit.setFixedHeight(140)
 
         layout = QVBoxLayout()
         layout.setSpacing(8)
         layout.addWidget(self.title_label)
         layout.addWidget(self.desc_label)
+        try:
+            qr = self._render_qr(qr_matrix(config))
+        except ValueError:
+            # 文本超容量等编码失败不应挡住手动复制这条退路。
+            qr = None
+        if qr is not None:
+            self.qr_label = QLabel(self)
+            self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.qr_label.setPixmap(qr)
+            layout.addWidget(self.qr_label)
+            self.warning_label = CaptionLabel(self)
+            self.warning_label.setWordWrap(True)
+            self.warning_label.setStyleSheet("color: #c07000;")
+            self.warning_label.setText(
+                self.tr(
+                    "The QR code and the text below both contain the client's "
+                    "private key; only show them to devices you own."
+                )
+            )
+            layout.addWidget(self.warning_label)
         layout.addWidget(self.config_edit)
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(460)
@@ -1151,6 +1179,28 @@ class WireGuardConfigDialog(MessageBoxBase):
         self.yesButton.setText(self.tr("Copy"))
         self.cancelButton.hide()
         self.yesButton.clicked.connect(self._copy_config)
+
+    def _render_qr(self, matrix: list[list[bool]]) -> QPixmap:
+        """布尔矩阵 → 位图。3px/模块 + 4 模块静区：手机取景足够大、又不过分占屏。"""
+        scale = 3
+        quiet = self.QUIET_ZONE
+        size = (len(matrix) + quiet * 2) * scale
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.white)
+        painter = QPainter(pixmap)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for y, row in enumerate(matrix):
+            for x, dark in enumerate(row):
+                if dark:
+                    painter.fillRect(
+                        (x + quiet) * scale,
+                        (y + quiet) * scale,
+                        scale,
+                        scale,
+                        Qt.GlobalColor.black,
+                    )
+        painter.end()
+        return pixmap
 
     def _copy_config(self) -> None:
         clipboard = QApplication.clipboard()

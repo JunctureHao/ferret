@@ -77,10 +77,12 @@ from ferret.core.mitm.modes import (
     WIREGUARD_PORT,
     capture_mode_specs,
     local_mode_spec,
+    qr_matrix,
     validate_local_spec,
     validate_mode_specs,
     wireguard_client_config,
     wireguard_mode_spec,
+    wireguard_qr_matrix,
 )
 from ferret.core.mitm.rewrite import (
     BODY_KINDS,
@@ -191,6 +193,7 @@ __all__ = [
     "local_mode_spec",
     "opcode_name",
     "parse_filter",
+    "qr_matrix",
     "quote_value",
     "rewrite_option_updates",
     "rewrite_rules_from_config",
@@ -200,6 +203,7 @@ __all__ = [
     "wire_size",
     "wireguard_client_config",
     "wireguard_mode_spec",
+    "wireguard_qr_matrix",
     "ws_close",
     "ws_frames",
 ]

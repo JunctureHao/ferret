@@ -11,8 +11,43 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QWidget
 
-from ferret.apps.capture.views import ProxyPortDialog
+from ferret.apps.capture.views import ProxyPortDialog, WireGuardConfigDialog
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
+
+
+class WireGuardConfigDialogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.host.resize(900, 600)
+        self.host.show()
+        self.app.processEvents()
+        self.addCleanup(self._destroy_host)
+
+    def _destroy_host(self) -> None:
+        self.host.close()
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def test_config_with_qr_renders_both_views(self) -> None:
+        """合法配置 → QR 位图 + 文本同框；文本框保留手动复制退路。"""
+        dlg = WireGuardConfigDialog("[Interface]\nPrivateKey = abc\n", self.host)
+        self.addCleanup(dlg.deleteLater)
+        self.assertTrue(dlg.qr_label.pixmap() is not None)
+        self.assertGreater(dlg.qr_label.pixmap().width(), 0)
+        self.assertEqual(dlg.config_edit.toPlainText(), "[Interface]\nPrivateKey = abc\n")
+
+    def test_copy_puts_the_config_on_the_clipboard(self) -> None:
+        dlg = WireGuardConfigDialog("profile text", self.host)
+        self.addCleanup(dlg.deleteLater)
+        dlg.yesButton.click()
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            self.skipTest("离屏平台没有剪贴板")
+        self.assertEqual(clipboard.text(), "profile text")
 
 
 class ProxyPortDialogTests(unittest.TestCase):

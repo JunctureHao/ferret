@@ -24,6 +24,7 @@ import json
 import textwrap
 from pathlib import Path
 
+import segno
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm.bindings import ProxyMode, rs_wireguard
@@ -124,3 +125,21 @@ def wireguard_client_config(conf_path: Path, lan_address: str | None) -> str:
         Endpoint = {endpoint_host}:{WIREGUARD_PORT}
         """
     ).strip()
+
+
+def wireguard_qr_matrix(conf_path: Path, lan_address: str | None) -> list[list[bool]]:
+    """客户端配置的 QR 矩阵（不含静区），供界面用 QPainter 自绘。
+
+    WireGuard 官方 App 的「扫描二维码」扫的就是 wg-quick 配置原文——解码出的
+    文本按 `[Interface]/[Peer]` 解析导入，没有任何专有编码。与
+    `wireguard_client_config` 同源同刻，码和文本框不会各说一套。一份配置实测
+    ~224 字节 → 纠错 M 下 version 11（61×61 模块），手机正常扫。
+    """
+    return qr_matrix(wireguard_client_config(conf_path, lan_address))
+
+
+def qr_matrix(text: str, *, error: str = "m") -> list[list[bool]]:
+    """把文本编码成 QR 布尔矩阵（不含静区；渲染方按规范补 4 模块白边）。"""
+    qr = segno.make(text, error=error)
+    # segno 的 matrix 元素是 0/1 int，这里归一成 bool，渲染层不必再判。
+    return [[bool(dark) for dark in row] for row in qr.matrix]

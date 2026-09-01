@@ -24,10 +24,12 @@ from ferret.core.mitm.modes import (
     WIREGUARD_PORT,
     capture_mode_specs,
     local_mode_spec,
+    qr_matrix,
     validate_local_spec,
     validate_mode_specs,
     wireguard_client_config,
     wireguard_mode_spec,
+    wireguard_qr_matrix,
 )
 
 
@@ -276,6 +278,46 @@ class WireGuardClientConfigTests(unittest.TestCase):
         self.conf_path.write_text("not json", encoding="utf-8")
         with self.assertRaises(ValueError):
             wireguard_client_config(self.conf_path, None)
+
+    def test_config_encodes_to_a_square_matrix(self) -> None:
+        matrix = wireguard_qr_matrix(self.conf_path, "192.168.1.9")
+        rows, cols = len(matrix), len(matrix[0])
+        self.assertEqual(rows, cols)
+        # 实测配置 ~224B → 纠错 M 下 version 11 = 61×61（无静区）；留些余量
+        # 容忍 Endpoint 长度变化，version 上限钉在 20（97×97）防内容意外膨胀。
+        self.assertTrue(21 <= rows <= 97, rows)
+        self.assertTrue(all(isinstance(v, bool) for row in matrix for v in row))
+
+    def test_finder_patterns_present_in_three_corners(self) -> None:
+        """三个定位角各有一个 7×7「外黑内白再黑」图案——扫码器靠它定向。"""
+        matrix = wireguard_qr_matrix(self.conf_path, None)
+
+        def has_finder(x: int, y: int) -> bool:
+            for dy in range(7):
+                for dx in range(7):
+                    edge = dx in (0, 6) or dy in (0, 6)
+                    core = 2 <= dx <= 4 and 2 <= dy <= 4
+                    if matrix[y + dy][x + dx] is not (edge or core):
+                        return False
+            return True
+
+        n = len(matrix)
+        self.assertTrue(has_finder(0, 0))
+        self.assertTrue(has_finder(n - 7, 0))
+        self.assertTrue(has_finder(0, n - 7))
+
+    def test_matrix_is_deterministic_and_text_derived(self) -> None:
+        """码与文本框同源同刻的契约：同一配置两种入口的矩阵逐位一致。"""
+        self.assertEqual(
+            wireguard_qr_matrix(self.conf_path, "192.168.1.9"),
+            qr_matrix(wireguard_client_config(self.conf_path, "192.168.1.9")),
+        )
+        self.assertEqual(qr_matrix("ferret-qr-smoke"), qr_matrix("ferret-qr-smoke"))
+
+    def test_oversized_text_is_rejected(self) -> None:
+        """编码失败显式抛 ValueError（界面据此只留手动复制退路）。"""
+        with self.assertRaises(ValueError):
+            qr_matrix("x" * 4000)
 
 
 if __name__ == "__main__":
