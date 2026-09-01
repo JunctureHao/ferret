@@ -21,13 +21,15 @@ windows-redirector.exe 内嵌字符串逐字一致）在驱动层放行全部环
 from __future__ import annotations
 
 import json
+import sys
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 
 import segno
 from PySide6.QtCore import QCoreApplication
 
-from ferret.core.mitm.bindings import ProxyMode, rs_wireguard
+from ferret.core.mitm.bindings import ProxyMode, rs_process_info, rs_wireguard
 from ferret.core.network import ANY_HOST
 
 WIREGUARD_HOST = ANY_HOST
@@ -143,3 +145,100 @@ def qr_matrix(text: str, *, error: str = "m") -> list[list[bool]]:
     qr = segno.make(text, error=error)
     # segno 的 matrix 元素是 0/1 int，这里归一成 bool，渲染层不必再判。
     return [[bool(dark) for dark in row] for row in qr.matrix]
+
+
+# —— 本地重定向的进程点选（UI 数据层；匹配语义见 LocalRedirector 的子串包含）——
+
+
+@dataclass(frozen=True)
+class LocalTarget:
+    """一个可点选的本机进程目标。`icon_png` 为 PNG 字节，取不到时是 None。"""
+
+    display_name: str
+    executable: str
+    icon_png: bytes | None
+
+
+def split_spec(spec: str) -> list[str]:
+    """把过滤串拆成 token（逗号分隔、去空白、丢空段）。"""
+    return [token.strip() for token in spec.split(",") if token.strip()]
+
+
+def merge_spec(existing: str, additions: list[str]) -> str:
+    """把点选的目标合并进现有过滤串。
+
+    手输内容**原样保留**（含空格与 ``!`` 排除项，顺序不动），新点选的按给定
+    顺序追加到尾部；与已有 token 大小写不敏感去重（local 的匹配是 contains，
+    大小写无意义）。没有新点选时返回原文。
+    """
+    added: list[str] = []
+    seen = {token.lower() for token in split_spec(existing)}
+    for addition in additions:
+        addition = addition.strip()
+        if addition and addition.lower() not in seen:
+            added.append(addition)
+            seen.add(addition.lower())
+    if not added:
+        return existing
+    base = existing.strip().rstrip(",")
+    if not base:
+        return ",".join(added)
+    # 追加风格跟随原文：原来就有空格就用 ", "，紧凑输入就用 ","。
+    separator = ", " if "," in base and " " in base.split(",", 1)[1] else ","
+    return f"{base}{separator}{','.join(added)}"
+
+
+def list_local_targets(*, include_system: bool = False) -> list[LocalTarget]:
+    """枚举可点选的本机进程，供 UI 下拉勾选。
+
+    默认只返回「可见的用户程序」（上游 `is_visible` 已滤掉后台宿主与辅助进程，
+    再排除系统进程）——全量 100+ 条里真正值得点选的就十来个。ferret 自身的
+    可执行文件也跳过：上游运行期会自动排除自身 PID，点选它没有意义。图标惰性
+    取：调用方拿到 `icon_png=None` 时自行兜底通用图标；失败静默降级（上游
+    web UI 同款处理，给透明占位）。
+    """
+    own = Path(sys.executable).resolve()
+    targets: list[LocalTarget] = []
+    for process in rs_process_info.active_executables():
+        if not include_system and (process.is_system or not process.is_visible):
+            continue
+        executable = str(process.executable)
+        try:
+            if Path(executable).resolve() == own:
+                continue
+        except OSError:
+            pass
+        try:
+            icon_png: bytes | None = rs_process_info.executable_icon(executable)
+        except Exception:  # noqa: BLE001
+            icon_png = None
+        targets.append(
+            LocalTarget(
+                display_name=process.display_name,
+                executable=executable,
+                icon_png=icon_png,
+            )
+        )
+    return targets
+
+
+def checked_tokens(spec: str, targets: list[LocalTarget]) -> set[str]:
+    """打开下拉时应当勾选的候选名集合：spec 里能对上目标名/路径的那些。
+
+    判定沿用内核的 contains 语义（大小写不敏感）：候选名出现在 spec 任一 token
+    里即算勾选——用户写 `ding` 也能点亮「钉钉」。返回值是候选名本身（显示名 /
+    exe 名 / 完整路径中第一个命中的），UI 直接与条目文本比对。
+    """
+    tokens = [token.lower() for token in split_spec(spec)]
+    checked: set[str] = set()
+    for target in targets:
+        for candidate in (
+            target.display_name,
+            Path(target.executable).name,
+            target.executable,
+        ):
+            lowered = candidate.lower()
+            if any(lowered in token or token in lowered for token in tokens):
+                checked.add(candidate)
+                break
+    return checked

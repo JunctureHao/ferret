@@ -8,6 +8,7 @@ WireGuard 客户端配置的生成格式（对齐上游 ``WireGuardServerInstanc
 import json
 import os
 import socket
+import sys
 import tempfile
 import time
 import unittest
@@ -22,9 +23,14 @@ from ferret.core.mitm import MitmRuntime
 from ferret.core.mitm.bindings import LocalRedirectorInstance, ProxyMode
 from ferret.core.mitm.modes import (
     WIREGUARD_PORT,
+    LocalTarget,
     capture_mode_specs,
+    checked_tokens,
+    list_local_targets,
     local_mode_spec,
+    merge_spec,
     qr_matrix,
+    split_spec,
     validate_local_spec,
     validate_mode_specs,
     wireguard_client_config,
@@ -318,6 +324,53 @@ class WireGuardClientConfigTests(unittest.TestCase):
         """编码失败显式抛 ValueError（界面据此只留手动复制退路）。"""
         with self.assertRaises(ValueError):
             qr_matrix("x" * 4000)
+
+
+class LocalTargetTests(unittest.TestCase):
+    """进程点选的数据层：spec 拆分/合并/回显 + 真实枚举的形状。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        QApplication.instance() or QApplication([])
+
+    def test_split_spec_tolerates_messy_input(self) -> None:
+        self.assertEqual(split_spec(" a,, b ,!123 "), ["a", "b", "!123"])
+        self.assertEqual(split_spec(",,,"), [])
+        self.assertEqual(split_spec(""), [])
+
+    def test_merge_spec_appends_without_touching_manual_input(self) -> None:
+        """手输内容原样保留（含 ``!`` 排除与空格风格），点选只追加尾部。"""
+        self.assertEqual(merge_spec("", ["chrome", "Chrome"]), "chrome")
+        self.assertEqual(merge_spec("!python, curl", ["chrome"]), "!python, curl, chrome")
+        self.assertEqual(merge_spec("!python,curl", ["chrome"]), "!python,curl,chrome")
+        self.assertEqual(merge_spec("curl", []), "curl")
+        self.assertEqual(merge_spec("", []), "")
+
+    def test_checked_tokens_match_exactly_case_insensitively(self) -> None:
+        targets = [
+            LocalTarget("Chrome", r"C:\x\chrome.exe", None),
+            LocalTarget("钉钉", r"D:\ding.exe", None),
+        ]
+        # 显示名 / exe 名 / 短写都能回显（判定沿用内核 contains 语义）；
+        # 排除项 !123 不点亮任何目标。
+        self.assertEqual(
+            checked_tokens("CHROME.EXE, ding, !123", targets), {"Chrome", "ding.exe"}
+        )
+        # 完全无关的 token 不点亮任何目标。
+        self.assertEqual(checked_tokens("word", targets), set())
+
+    def test_list_local_targets_returns_user_processes_with_icons(self) -> None:
+        """真实枚举（真机冒烟）：默认档全为用户可见进程，且不含 ferret 自身。"""
+        targets = list_local_targets()
+        self.assertTrue(targets, "至少应枚举到当前用户的一个可见进程")
+        executables = {target.executable for target in targets}
+        self.assertTrue(all(Path(e).exists() for e in executables))
+        self.assertNotIn(str(Path(sys.executable).resolve()), executables)
+
+    def test_list_local_targets_include_system_expands_the_list(self) -> None:
+        relaxed = list_local_targets(include_system=True)
+        strict = list_local_targets()
+        self.assertGreaterEqual(len(relaxed), len(strict))
 
 
 if __name__ == "__main__":

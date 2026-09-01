@@ -62,7 +62,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 - **local 与系统代理同开安全**：redirector 的 WinDivert 2.2.2 过滤器 `!loopback && ...`（上游 main2.rs，本机 windows-redirector.exe 内嵌字符串逐字一致）在驱动层放行全部环回流量 + 事件循环 `is_loopback_only` 双保险；mitmproxy 自身 PID 被 spec 自动排除（`mode_servers.py:446-449`）。前提是系统代理恒写 `127.0.0.1`（`MitmFacade.local_client_host`）——写成局域网 IP 会被 local 截到。
 - **block_private 为 wireguard 让路**：隧道客户端全在 10.0.0.1/32，`block_private` 开着会全杀；`MitmRuntime._effective_block_private()` 在通道接通且 wireguard 开启时强制 False，用户配置值保留、回落即恢复。local 连接被原生 Block 豁免（`block.py:35`），环回恒放行，无需处理。
 - 通道实例启动失败（UAC 拒绝等）不被 `options.update` 同步抛出（`Servers.update` 用 `return_exceptions=True` 吞掉只记日志），只能延迟读 `ServerInstance.is_running`/`last_exception`（`MitmRuntime.channel_health`），控制器抓包中延迟 1.5s 轮询一次并映射成人话文案。
-- 不引入 mitmproxy_rs 的 `certs`(Win/Linux 未实现)/`process_info`(transparent 用，三通道方案不需要)/`syntax_highlight`(比自写 lexer 粗)；`mitmproxy_rs.local`（local 模式）与 `mitmproxy_rs.wireguard`（密钥/客户端配置生成）经 bindings 以 `rs_wireguard` 形态接入。
+- 不引入 mitmproxy_rs 的 `certs`(Win/Linux 未实现)/`syntax_highlight`(比自写 lexer 粗)；`mitmproxy_rs.local`（local 模式）、`mitmproxy_rs.wireguard`（密钥/客户端配置生成）与 `mitmproxy_rs.process_info`（local 通道的进程点选列表，`active_executables`/`executable_icon`，本就住在同一个 `mitmproxy_rs.pyd` 里，零新增体积）经 bindings 以 `rs_*` 形态接入。
 - **QR 编码用 `segno`**（WireGuard 客户端配置扫码导入）：官方 App 扫的就是 wg-quick 配置原文，App 解码后按 `[Interface]/[Peer]` 解析。配置 ~224B → 纠错 M / version 11（61×61）。选 segno 不选 qrcode：零二级依赖（qrcode 在 Windows 会把 colorama 拉回依赖树，与 §7 桩掉 werkzeug 的瘦身方向相悖）、矩阵 API 一行、内置纯 Python PNG 写出器（将来「保存二维码」不用 PIL）。矩阵经 `modes.qr_matrix`（bool、不含静区），对话框从传入文本派生（单一事实来源），QPainter 自绘 3px/模块 + 4 模块静区；编码失败抛 ValueError，对话框只留手动复制退路。
 - 已删除勿复活：顶层 `application/` 包、`utils/proxy_manager.py`、自造 `format_bytes`/`compute_folds`/`mime_of`。
 

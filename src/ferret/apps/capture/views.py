@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtGui import QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -24,12 +24,14 @@ from qfluentwidgets import (
     Action,
     BodyLabel,
     CaptionLabel,
+    CheckableMenu,
     CheckBox,
     ComboBox,
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
     LineEdit,
+    MenuIndicatorType,
     MessageBoxBase,
     RoundMenu,
     SpinBox,
@@ -48,7 +50,14 @@ from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.core.mitm.facade import MitmFacade
-from ferret.core.mitm.modes import WIREGUARD_PORT, qr_matrix
+from ferret.core.mitm.modes import (
+    WIREGUARD_PORT,
+    LocalTarget,
+    checked_tokens,
+    list_local_targets,
+    merge_spec,
+    qr_matrix,
+)
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 
 if TYPE_CHECKING:
@@ -776,6 +785,97 @@ class ClearFlowsDialog(MessageBoxBase):
         self.widget.setMinimumWidth(380)
 
 
+class LocalSpecSelector(QWidget):
+    """本地重定向过滤串：可手输（token / ``!`` 排除），也可下拉点选进程。
+
+    输入框右侧一枚下拉按钮，点是 qfw `CheckableMenu`：顶部搜索框过滤，条目为
+    运行中的用户程序（图标 + 显示名），关闭菜单时把勾选项合并回过滤串（保留
+    手输内容与顺序）。目标列表首次展开时取一次并缓存；图标按路径缓存。
+    """
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._edit = LineEdit(self)
+        self._edit.setPlaceholderText(
+            self.tr("Leave empty to capture every process; e.g. curl,python or !1234")
+        )
+        self._edit.setClearButtonEnabled(True)
+        self._btn = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
+        self._btn.setFixedSize(29, 33)
+        self._btn.setToolTip(self.tr("Pick from running processes"))
+        self._btn.clicked.connect(self._open_menu)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        layout.addWidget(self._edit, 1)
+        layout.addWidget(self._btn)
+
+        self._targets: list[LocalTarget] | None = None
+        self._icons: dict[str, QIcon] = {}
+
+    def text(self) -> str:
+        return self._edit.text()
+
+    def setText(self, text: str) -> None:
+        self._edit.setText(text)
+
+    def setEnabled(self, enabled: bool) -> None:
+        super().setEnabled(enabled)
+        self._edit.setEnabled(enabled)
+        self._btn.setEnabled(enabled)
+
+    def _open_menu(self) -> None:
+        if self._targets is None:
+            self._targets = list_local_targets()
+        checked = checked_tokens(self.text(), self._targets)
+        menu = CheckableMenu(indicatorType=MenuIndicatorType.CHECK, parent=self)
+        menu.setItemHeight(33)
+
+        search = LineEdit(menu)
+        search.setPlaceholderText(self.tr("Search processes"))
+        search.setClearButtonEnabled(True)
+        menu.addWidget(search, selectable=False)
+
+        for target in self._targets:
+            action = Action(target.display_name)
+            action.setCheckable(True)
+            action.setChecked(
+                target.display_name in checked
+                or Path(target.executable).name in checked
+                or target.executable in checked
+            )
+            action.setIcon(self._icon_for(target))
+            menu.addAction(action)
+
+        search.textChanged.connect(lambda query: self._filter_menu(menu, query))
+        menu.exec(self.mapToGlobal(QPoint(0, self.height())))
+
+        picked = [a.text() for a in menu.actions() if a.isCheckable() and a.isChecked()]
+        if picked:
+            self._edit.setText(merge_spec(self.text(), picked))
+
+    def _filter_menu(self, menu: CheckableMenu, query: str) -> None:
+        needle = query.strip().lower()
+        view = menu.view
+        for row in range(view.count()):
+            item = view.item(row)
+            if view.itemWidget(item) is not None:  # 顶部搜索框常显
+                continue
+            item.setHidden(bool(needle) and needle not in item.text().lower())
+
+    def _icon_for(self, target: LocalTarget) -> QIcon:
+        cached = self._icons.get(target.executable)
+        if cached is not None:
+            return cached
+        pixmap = QPixmap()
+        # 解码失败时 pixmap 保持空图，呈现为无图标（列表项兜底）。
+        pixmap.loadFromData(target.icon_png or b"")
+        icon = QIcon(pixmap)
+        self._icons[target.executable] = icon
+        return icon
+
+
 class ProxyPortDialog(MessageBoxBase):
     """代理监听设置：绑定地址、端口、来源限制。
 
@@ -910,11 +1010,7 @@ class ProxyPortDialog(MessageBoxBase):
         )
         self.local_check.setChecked(use_local)
 
-        self.local_spec_edit = LineEdit(self)
-        self.local_spec_edit.setPlaceholderText(
-            self.tr("Leave empty to capture every process; e.g. curl,python or !1234")
-        )
-        self.local_spec_edit.setClearButtonEnabled(True)
+        self.local_spec_edit = LocalSpecSelector(self)
         self.local_spec_edit.setText(local_spec)
         self.local_spec_hint = CaptionLabel(self)
         self.local_spec_hint.setWordWrap(True)

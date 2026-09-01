@@ -144,6 +144,7 @@ from mitmproxy.proxy.mode_servers import LocalRedirectorInstance
 from mitmproxy.proxy.mode_specs import ProxyMode
 from mitmproxy.utils import emoji, human
 from mitmproxy.websocket import WebSocketData, WebSocketMessage
+from mitmproxy_rs import process_info as rs_process_info
 from mitmproxy_rs import wireguard as rs_wireguard
 from wsproto.frame_protocol import Opcode
 
@@ -212,6 +213,7 @@ __all__ = [
     "parse_map_local_spec",
     "parse_map_remote_spec",
     "parse_modify_spec",
+    "rs_process_info",
     "rs_wireguard",
     "server_hooks",
     "status_codes",
