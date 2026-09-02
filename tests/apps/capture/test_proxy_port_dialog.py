@@ -16,7 +16,6 @@ from ferret.apps.capture.views import (
     LocalSpecSelector,
     ProxyPortDialog,
     WireGuardConfigDialog,
-    _PickerPanel,
 )
 from ferret.core.mitm.modes import LocalTarget
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
@@ -27,7 +26,7 @@ def _target(name: str) -> LocalTarget:
 
 
 class LocalSpecSelectorTests(unittest.TestCase):
-    """本地重定向过滤串选择器：tokens 单一来源、面板勾选契约、摘要回显。"""
+    """本地重定向进程选择卡片：tokens 单一来源、勾选契约、通道显隐。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -35,101 +34,75 @@ class LocalSpecSelectorTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.selector = LocalSpecSelector()
+        # 构造时枚举的是真实进程；注入测试桩后重建候选条目。
         self.selector._targets = [_target("Chrome"), _target("钉钉")]
+        self.selector.set_items_for_testing()
+        self.selector.resize(360, self.selector.height())
         self.addCleanup(self.selector.deleteLater)
         self.changes: list[list[str]] = []
         self.selector.tokensChanged.connect(self.changes.append)
 
-    def panel(self, tokens: list[str]) -> _PickerPanel:
-        targets = self.selector._targets
-        assert targets is not None  # setUp 已注入
-        panel = _PickerPanel(self.selector, targets, tokens)
-        self.addCleanup(panel.deleteLater)
-        return panel
+    def _items(self) -> list:
+        selector = self.selector
+        return [selector._list.item(row) for row in range(selector._list.count())]
 
-    def test_summary_reflects_tokens(self) -> None:
-        self.selector.resize(360, 33)
-        self.selector.show()
-        self.app.processEvents()
-        self.addCleanup(self.selector.hide)
-
-        self.selector.set_tokens([])
-        self.assertIn("capture every process", self.selector._summary.text())
-
-        self.selector.set_tokens(["curl", "!123"])
-        self.assertIn("curl", self.selector._summary.text())
-        self.assertIn("!123", self.selector._summary.text())
-        self.assertEqual(self.selector.tokens(), ["curl", "!123"])
-
-    def test_panel_presets_checked_state_from_tokens(self) -> None:
-        """初始 tokens 回显：对上候选的勾选，对不上的手输 token 也成一条。"""
-        panel = self.panel(["Chrome", "!123"])
-        labels = {item.text() for item in self._items(panel)}
-        self.assertIn("Chrome", labels)
-        self.assertIn("!123", labels)
-        checked = {
-            item.text()
-            for item in self._items(panel)
-            if item.checkState() == Qt.CheckState.Checked
-        }
-        self.assertEqual(checked, {"Chrome", "!123"})
-        self.assertEqual(panel.checked_labels(), ["Chrome", "!123"])
-
-    def test_panel_toggle_emits_tokens(self) -> None:
-        panel = self.panel([])
-        changes: list[list[str]] = []
-        panel.tokensChanged.connect(changes.append)
-
-        item = self._find(panel, "Chrome")
-        item.setCheckState(Qt.CheckState.Checked)
-
-        self.assertEqual(changes[-1], ["Chrome"])
-        self.assertEqual(panel.checked_labels(), ["Chrome"])
-
-    def test_manual_commit_adds_and_checks_token(self) -> None:
-        panel = self.panel([])
-        panel._add_edit.setText("!4321")
-        panel._commit_manual()
-
-        item = self._find(panel, "!4321")
-        self.assertIsNotNone(item)
-        self.assertEqual(item.checkState(), Qt.CheckState.Checked)
-        self.assertEqual(panel.checked_labels(), ["!4321"])
-
-    def test_manual_commit_checks_matching_candidate(self) -> None:
-        """手输「钉」这种子串也应点亮候选（与内核 contains 语义一致）。"""
-        panel = self.panel([])
-        panel._add_edit.setText("钉")
-        panel._commit_manual()
-        self.assertEqual(panel.checked_labels(), ["钉钉"])
-
-    def test_search_filters_rows_but_keeps_checked(self) -> None:
-        """搜索只是视图过滤：隐藏行的勾选不丢，checked_labels 仍包含它。"""
-        panel = self.panel(["Chrome", "钉钉"])
-        panel._search.setText("chrome")
-        chrome = self._find(panel, "Chrome")
-        ding = self._find(panel, "钉钉")
-        self.assertTrue(chrome is not None and not chrome.isHidden())
-        self.assertTrue(ding is not None and ding.isHidden())
-        self.assertEqual(panel.checked_labels(), ["Chrome", "钉钉"])
-
-    def test_items_have_no_native_check_indicator(self) -> None:
-        """原生勾选指示器必须清掉——否则与 delegate 自绘的青勾左右叠画。"""
-        from PySide6.QtCore import Qt as _Qt
-
-        for item in self._items(self.panel([])):
-            self.assertFalse(item.flags() & _Qt.ItemFlag.ItemIsUserCheckable)
-
-    @staticmethod
-    def _items(panel: _PickerPanel) -> list:
-        return [panel._list.item(row) for row in range(panel._list.count())]
-
-    @staticmethod
-    def _find(panel: _PickerPanel, text: str):
-        for item in LocalSpecSelectorTests._items(panel):
+    def _find(self, text: str):
+        for item in self._items():
             if item.text() == text:
                 return item
         return None
+
+    def test_set_tokens_checks_candidates_and_adds_manual(self) -> None:
+        """初始 tokens 回显：对上候选的勾选，对不上的手输 token 也成一条。"""
+        self.selector.set_tokens(["Chrome", "!123"])
+        labels = {item.text() for item in self._items()}
+        self.assertIn("Chrome", labels)
+        self.assertIn("!123", labels)
+        self.assertEqual(self.selector.tokens(), ["Chrome", "!123"])
+        self.assertEqual(self.changes[-1], ["Chrome", "!123"])
+
+    def test_toggle_emits_tokens(self) -> None:
+        self.selector.set_tokens([])
+        changes: list[list[str]] = []
+        self.selector._list.itemChanged.connect(lambda _i: changes.append(self.selector.tokens()))
+
+        item = self._find("Chrome")
+        item.setCheckState(Qt.CheckState.Checked)
+
+        self.assertEqual(changes[-1], ["Chrome"])
+
+    def test_manual_commit_adds_and_checks_token(self) -> None:
+        self.selector.set_tokens([])
+        self.selector._add_edit.setText("!4321")
+        self.selector._commit_manual()
+
+        item = self._find("!4321")
+        self.assertIsNotNone(item)
+        self.assertEqual(item.checkState(), Qt.CheckState.Checked)
+        self.assertEqual(self.selector.tokens(), ["!4321"])
+
+    def test_manual_commit_checks_matching_candidate(self) -> None:
+        """手输「钉」这种子串也应点亮候选（与内核 contains 语义一致）。"""
+        self.selector.set_tokens([])
+        self.selector._add_edit.setText("钉")
+        self.selector._commit_manual()
+        self.assertEqual(self.selector.tokens(), ["钉钉"])
+
+    def test_search_filters_rows_but_keeps_checked(self) -> None:
+        """搜索只是视图过滤：隐藏行的勾选不丢，tokens 仍包含它。"""
+        self.selector.set_tokens(["Chrome", "钉钉"])
+        self.selector._search.setText("chrome")
+        chrome = self._find("Chrome")
+        ding = self._find("钉钉")
+        self.assertTrue(chrome is not None and not chrome.isHidden())
+        self.assertTrue(ding is not None and ding.isHidden())
+        self.assertEqual(self.selector.tokens(), ["Chrome", "钉钉"])
+
+    def test_items_have_no_native_check_indicator(self) -> None:
+        """原生勾选指示器必须清掉——否则与 delegate 自绘的青勾左右叠画。"""
+        self.selector.set_tokens(["curl"])
+        for item in self._items():
+            self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
 
 
 class WireGuardConfigDialogTests(unittest.TestCase):
@@ -207,6 +180,17 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.addCleanup(dlg.deleteLater)
         return dlg
 
+    def test_process_card_follows_the_local_channel_toggle(self) -> None:
+        """进程选择卡片内嵌显示：勾上本地重定向才可见，取消即隐藏。"""
+        dlg = self.dialog(use_local=True)
+        dlg.show()
+        self.app.processEvents()
+        self.assertTrue(dlg.local_spec_edit.isVisible())
+
+        dlg.local_check.setChecked(False)
+        self.app.processEvents()
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+
     def test_channel_getters_round_trip_the_incoming_values(self) -> None:
         dlg = self.dialog(
             use_system_proxy=False,
@@ -227,15 +211,6 @@ class ProxyPortDialogTests(unittest.TestCase):
 
         dlg.wireguard_check.setChecked(False)
         self.assertTrue(dlg.block_private_check.isEnabled())
-
-    def test_local_spec_edit_follows_the_channel_toggle(self) -> None:
-        dlg = self.dialog()
-        self.assertTrue(dlg.local_spec_edit.isEnabled())
-
-        dlg.local_check.setChecked(False)
-        self.assertFalse(dlg.local_spec_edit.isEnabled())
-        # 填了一半的过滤串不清掉：重新勾上还能找回来。
-        self.assertEqual(dlg.get_local_spec(), "")
 
     def test_wireguard_config_button_hidden_without_a_callback(self) -> None:
         dlg = self.dialog(wireguard_config=None)

@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QComboBox,
-    QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -20,7 +19,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QSizePolicy,
-    QStyledItemDelegate,
     QStyleOptionViewItem,
     QTextEdit,
     QVBoxLayout,
@@ -36,9 +34,12 @@ from qfluentwidgets import (
     InfoBadge,
     InfoBadgePosition,
     LineEdit,
+    ListItemDelegate,
+    ListWidget,
     MessageBoxBase,
     RoundMenu,
     SearchLineEdit,
+    SimpleCardWidget,
     SpinBox,
     StrongBodyLabel,
     SubtitleLabel,
@@ -47,7 +48,6 @@ from qfluentwidgets import (
     TransparentToolButton,
     VerticalSeparator,
     isDarkTheme,
-    setCustomStyleSheet,
 )
 from sysproxy import SystemProxyService
 
@@ -802,15 +802,15 @@ class ClearFlowsDialog(MessageBoxBase):
         self.widget.setMinimumWidth(380)
 
 
-class _CheckDelegate(QStyledItemDelegate):
-    """列表条目委托：标准绘制（图标 + 文本必然渲染）+ Fluent 风格勾选框。
+class _CheckDelegate(ListItemDelegate):
+    """列表条目委托：继承 qfw 的悬停高亮，右缘补 Fluent 风格勾选框。
 
-    勾选指示器画在行右缘：勾选 = 主题青色圆角方块 + 白勾（白勾照抄上游
+    勾选指示器：勾选 = 主题青色圆角方块 + 白勾（白勾照抄上游
     ``CheckIndicatorMenuItemDelegate`` 的 FIF.ACCEPT 渲染），未勾选 = 空轮廓。
-    文本走 Qt 标准的 DisplayRole 绘制，不受半透明弹窗调色板问题影响。
+    文本走 Qt 标准的 DisplayRole 绘制，不受弹窗调色板问题影响。
     """
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent):
         super().__init__(parent)
         self._accept = FluentIcon.ACCEPT
 
@@ -836,32 +836,70 @@ class _CheckDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class _PickerPanel(QDialog):
-    """进程勾选面板：搜索 + 原生列表条目（图标 + 文本 + 青勾）+ 手输行。
+class _ProcessList(ListWidget):
+    """进程勾选列表：点行任意处切换，勾选态存 CheckStateRole（无原生指示器）。"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setItemDelegate(_CheckDelegate(self))
+        self.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.setUniformItemSizes(True)
+        self.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.setMouseTracking(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setStyleSheet("QListWidget { background: transparent; border: none; }")
+        self.itemClicked.connect(self._toggle_item)
+
+    def _toggle_item(self, item: QListWidgetItem) -> None:
+        item.setCheckState(
+            Qt.CheckState.Unchecked
+            if item.checkState() == Qt.CheckState.Checked
+            else Qt.CheckState.Checked
+        )
+
+    def add_token(self, label: str, icon: QIcon | None, color: QColor) -> QListWidgetItem:
+        item = QListWidgetItem(label, self)
+        if icon is not None:
+            item.setIcon(icon)
+        # 清掉默认 flags 里的 ItemIsUserCheckable：原生勾选框会与自绘青勾叠画。
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+        item.setForeground(color)
+        item.setSizeHint(QSize(0, _PICKER_ROW_HEIGHT))
+        return item
+
+    def checked_labels(self) -> list[str]:
+        return [
+            self.item(row).text()
+            for row in range(self.count())
+            if self.item(row).checkState() == Qt.CheckState.Checked
+        ]
+
+    def filter(self, query: str) -> None:
+        needle = query.strip().lower()
+        for row in range(self.count()):
+            self.item(row).setHidden(
+                bool(needle) and needle not in self.item(row).text().lower()
+            )
+
+
+class LocalSpecSelector(SimpleCardWidget):
+    """本地重定向进程选择：内嵌卡片（搜索 + 勾选列表 + 手输行）。
+
+    「本地重定向」勾选时该卡片显示在通道行之下，取消勾选即隐藏——没有弹窗
+    与摘要行。卡片底色由 SimpleCardWidget 自绘（settings 卡片同源），列表用
+    qfw ListWidget（Fluent 悬停高亮）叠加青勾 delegate。
 
     一切皆条目：候选进程与手输 token（如 ``!1234`` 排除项）都是同等的勾选
-    条目，spec = 勾选文本按列表顺序连接，没有 manual/checked 两本账。弹窗
-    **不透明**且条目走原生渲染路径——半透明弹窗的调色板文字色会失效，这是
-    前几版「文字消失」的根因。
+    条目，``tokens()`` 是唯一事实来源（逗号连接即过滤串）。首次进入对话框
+    时枚举一次进程并缓存。
     """
 
     tokensChanged = Signal(list)
 
-    def __init__(self, anchor: QWidget, targets: list[LocalTarget], tokens: list[str]):
-        super().__init__(anchor, Qt.WindowType.Popup)
-        # 顶层 QDialog 的底色来自系统调色板（浅色），不随 qfw 主题——必须自己
-        # 挂主题同源的浅深双套 QSS（setCustomStyleSheet 随主题切换自动重刷）。
-        setCustomStyleSheet(
-            self,
-            f"#_PickerPanel {{ background-color: {_CARD_BG_LIGHT};"
-            f" border: 1px solid {_BORDER_LIGHT}; }}",
-            f"#_PickerPanel {{ background-color: {_CARD_BG_DARK};"
-            f" border: 1px solid {_BORDER_DARK}; }}",
-        )
-        self.setFixedSize(
-            max(anchor.width(), 320),
-            min(len(targets), _PICKER_MAX_ROWS) * _PICKER_ROW_HEIGHT + 148,
-        )
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._targets: list[LocalTarget] | None = None
+        self._icons: dict[str, QIcon] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -870,30 +908,13 @@ class _PickerPanel(QDialog):
         self._search = SearchLineEdit(self)
         self._search.setPlaceholderText(self.tr("Search processes"))
         self._search.setClearButtonEnabled(True)
+        self._search.textChanged.connect(self._filter)
         layout.addWidget(self._search)
 
-        self._list = QListWidget(self)
-        self._list.setItemDelegate(_CheckDelegate(self._list))
-        self._list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
-        self._list.setUniformItemSizes(True)
-        self._list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        self._list.setMouseTracking(True)
-        self._list.setStyleSheet("QListWidget { background: transparent; border: none; }")
+        self._list = _ProcessList(self)
         color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
-        spec = ",".join(tokens)
-        for target in targets:
-            item = self._make_item(target.display_name, self._icon(target), color)
-            item.setCheckState(
-                Qt.CheckState.Checked
-                if checked_tokens(spec, [target])
-                else Qt.CheckState.Unchecked
-            )
-        # 对不上任何候选的手输 token（如 !1234）也各成一条，默认勾选。
-        matched = {label.lower() for label in checked_tokens(spec, targets)}
-        for token in tokens:
-            if token.lower() not in matched:
-                item = self._make_item(token, None, color)
-                item.setCheckState(Qt.CheckState.Checked)
+        for name in self._known_names():
+            self._list.add_token(name, self._icon(name), color)
         layout.addWidget(self._list, 1)
 
         self._add_edit = LineEdit(self)
@@ -904,37 +925,79 @@ class _PickerPanel(QDialog):
         self._add_edit.returnPressed.connect(self._commit_manual)
         layout.addWidget(self._add_edit)
 
-        # 点条目任意处切换勾选；不用 ItemIsUserCheckable（免得原生指示器与
-        # delegate 的青勾叠画），勾选态直接存 CheckStateRole。
-        self._list.itemClicked.connect(self._toggle_item)
+        # 定高 6 行 + 搜索 + 手输：进程多于 6 个时列表内部滚动。
+        self._list.setFixedHeight(_PICKER_ROW_HEIGHT * 6 + 4)
         self._list.itemChanged.connect(lambda _item: self._emit_tokens())
-        self._search.textChanged.connect(self._filter)
 
-    def _toggle_item(self, item: QListWidgetItem) -> None:
-        item.setCheckState(
-            Qt.CheckState.Unchecked
-            if item.checkState() == Qt.CheckState.Checked
-            else Qt.CheckState.Checked
-        )
+    # —— 对外 API ——
 
-    def _make_item(
-        self, label: str, icon: QIcon | None, color: QColor
-    ) -> QListWidgetItem:
-        item = QListWidgetItem(label, self._list)
-        if icon is not None:
-            item.setIcon(icon)
-        # 清掉默认 flags 里的 ItemIsUserCheckable：QStyledItemDelegate 见此标志
-        # 就会在行首画原生勾选框，与 delegate 自绘的 Fluent 勾选框叠成左右两个。
-        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
-        item.setForeground(color)
-        item.setSizeHint(QSize(0, _PICKER_ROW_HEIGHT))
-        return item
+    def tokens(self) -> list[str]:
+        return self._list.checked_labels()
 
-    def _icon(self, target: LocalTarget) -> QIcon:
-        pixmap = QPixmap()
-        # 解码失败时 pixmap 保持空图，空 QIcon 渲染即无图标。
-        pixmap.loadFromData(target.icon_png or b"")
-        return QIcon(pixmap)
+    def set_tokens(self, tokens: list[str]) -> None:
+        """按过滤串回显：对上候选的点亮，对不上的手输 token 各成一条并点亮。"""
+        cleaned = [token.strip() for token in tokens if token.strip()]
+        spec = ",".join(cleaned)
+        targets = self._ensure_targets()
+        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        for row in range(self._list.count()):
+            item = self._list.item(row)
+            target = self._target_by_name(item.text())
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if target and checked_tokens(spec, [target])
+                else Qt.CheckState.Unchecked
+            )
+        matched = {label.lower() for label in checked_tokens(spec, targets)}
+        for token in cleaned:
+            if token.lower() not in matched:
+                self._list.add_token(token, None, color).setCheckState(
+                    Qt.CheckState.Checked
+                )
+        self._emit_tokens()
+
+    def _reload_items(self) -> None:
+        """按当前候选清空重建列表条目（进程枚举变化/测试注入后调用）。"""
+        self._list.clear()
+        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        for name in self._known_names():
+            self._list.add_token(name, self._icon(name), color)
+
+    def set_items_for_testing(self) -> None:
+        """测试注入 ``_targets`` 后调用：重建候选条目。"""
+        self._reload_items()
+
+    # —— 内部 ——
+
+    def _known_names(self) -> list[str]:
+        """候选进程名（枚举失败降级为空列表：手输 token 仍可用）。"""
+        try:
+            return [target.display_name for target in self._ensure_targets()]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _ensure_targets(self) -> list[LocalTarget]:
+        if self._targets is None:
+            self._targets = list_local_targets()
+        return self._targets
+
+    def _target_by_name(self, label: str) -> LocalTarget | None:
+        for target in self._ensure_targets():
+            if target.display_name == label:
+                return target
+        return None
+
+    def _icon(self, name: str) -> QIcon:
+        for target in self._ensure_targets():
+            if target.display_name == name:
+                cached = self._icons.get(name)
+                if cached is None:
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(target.icon_png or b"")
+                    cached = QIcon(pixmap)
+                    self._icons[name] = cached
+                return cached
+        return QIcon()
 
     def _commit_manual(self) -> None:
         token = self._add_edit.text().strip()
@@ -953,114 +1016,15 @@ class _PickerPanel(QDialog):
                 item.setCheckState(Qt.CheckState.Checked)
                 return
         color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
-        self._make_item(token, None, color).setCheckState(Qt.CheckState.Checked)
+        self._list.add_token(token, None, color).setCheckState(Qt.CheckState.Checked)
 
     def _filter(self, query: str) -> None:
-        needle = query.strip().lower()
-        for row in range(self._list.count()):
-            self._list.item(row).setHidden(
-                bool(needle) and needle not in self._list.item(row).text().lower()
-            )
+        self._list.filter(query)
 
     def _emit_tokens(self) -> None:
         # 被搜索隐藏的已勾条目必须保留——隐藏只是视图过滤，不是取消勾选。
-        self.tokensChanged.emit(self.checked_labels())
-
-    def checked_labels(self) -> list[str]:
-        return [
-            self._list.item(row).text()
-            for row in range(self._list.count())
-            if self._list.item(row).checkState() == Qt.CheckState.Checked
-        ]
-
-
-class LocalSpecSelector(QFrame):
-    """本地重定向过滤串：摘要行 + 下拉勾选面板（含搜索与手输）。
-
-    点整行或 ▾ 弹出面板（运行中的用户程序 + 手输条目），勾选实时回写
-    tokens；``tokens()`` 是唯一事实来源（逗号连接即过滤串）。首次展开时枚举
-    一次进程并缓存。
-    """
-
-    tokensChanged = Signal(list)
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("LocalSpecSelector")
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        setCustomStyleSheet(
-            self,
-            f"#LocalSpecSelector {{ border: 1px solid {_BORDER_LIGHT};"
-            f" border-radius: 4px; background-color: rgba(249, 249, 249, 0.3); }}"
-            f"#LocalSpecSelector:hover {{ background-color: rgba(0, 0, 0, 9); }}",
-            f"#LocalSpecSelector {{ border: 1px solid {_BORDER_DARK};"
-            f" border-radius: 4px; background-color: rgba(255, 255, 255, 0.0419); }}"
-            f"#LocalSpecSelector:hover {{ background-color: rgba(255, 255, 255, 9); }}",
-        )
-        self._targets: list[LocalTarget] | None = None
-        self._tokens: list[str] = []
-        self._summary = BodyLabel(self)
-        self._summary.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        self._button = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
-        self._button.setFixedSize(28, 28)
-        self._button.clicked.connect(self._open_panel)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 6, 0)
-        layout.setSpacing(4)
-        layout.addWidget(self._summary, 1)
-        layout.addWidget(self._button, 0, Qt.AlignmentFlag.AlignVCenter)
-        self.setFixedHeight(_PICKER_FRAME_HEIGHT)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._refresh_summary()
-
-    def tokens(self) -> list[str]:
-        return list(self._tokens)
-
-    def set_tokens(self, tokens: list[str]) -> None:
-        self._tokens = [token.strip() for token in tokens if token.strip()]
-        self._refresh_summary()
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
-            self._open_panel()
-        super().mousePressEvent(event)
-
-    def _open_panel(self) -> None:
-        if self._targets is None:
-            self._targets = list_local_targets()
-        panel = _PickerPanel(self, self._targets, self._tokens)
-        panel.tokensChanged.connect(self._on_panel_changed)
-        panel.move(self.mapToGlobal(QPoint(0, self.height())))
-        panel.exec()
-        # 关面板后以最终勾选为准（与实时信号同值，兜底防漏）。
-        self._on_panel_changed(panel.checked_labels())
-
-    def _on_panel_changed(self, labels: list[str]) -> None:
-        if labels == self._tokens:
-            return
-        self._tokens = labels
-        self._refresh_summary()
         self.tokensChanged.emit(self.tokens())
 
-    def _refresh_summary(self) -> None:
-        if not self._tokens:
-            self._summary.setText(self.tr("Leave empty to capture every process"))
-            self._summary.setStyleSheet("color: rgba(127, 127, 127, 0.9);")
-            return
-        text = ", ".join(self._tokens)
-        metrics = self._summary.fontMetrics()
-        available = max(self._summary.width() - 8, 40)
-        if metrics.horizontalAdvance(text) > available:
-            while text and metrics.horizontalAdvance(text + "…") > available:
-                text = text[:-1]
-            text += "…"
-        self._summary.setText(self.tr("Selected: {}").format(text))
-        self._summary.setStyleSheet("")
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._refresh_summary()
 
 class ProxyPortDialog(MessageBoxBase):
     """代理监听设置：绑定地址、端口、来源限制。
@@ -1372,12 +1336,13 @@ class ProxyPortDialog(MessageBoxBase):
                 )
             )
 
-        self.local_spec_edit.setEnabled(local_on)
+        # 进程选择卡片随通道勾选显隐（内嵌在通道行之下，随对话框伸缩）。
+        self.local_spec_edit.setVisible(local_on)
         self.local_spec_hint.setVisible(local_on)
         self.local_spec_hint.setText(
             self.tr(
-                "Process names or PIDs, comma separated, prefix ! to exclude; "
-                "Ferret itself is always excluded. Starting this channel may "
+                "Leave the list empty to capture every process; tick the ones "
+                "to capture or type !pid to exclude. Starting this channel may "
                 "ask for administrator approval (UAC)."
             )
         )
