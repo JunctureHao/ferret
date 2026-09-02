@@ -883,15 +883,16 @@ class _ProcessList(ListWidget):
 
 
 class LocalSpecSelector(SimpleCardWidget):
-    """本地重定向进程选择：内嵌卡片（搜索 + 勾选列表 + 手输行）。
+    """本地重定向进程选择：一行摘要 + 右侧折叠按钮（默认收起）。
 
-    「本地重定向」勾选时该卡片显示在通道行之下，取消勾选即隐藏——没有弹窗
-    与摘要行。卡片底色由 SimpleCardWidget 自绘（settings 卡片同源），列表用
-    qfw ListWidget（Fluent 悬停高亮）叠加青勾 delegate。
+    收起时显示摘要（空态占位 / 已选清单省略号）；点 ▾ 展开内嵌面板——搜索 +
+    mitmproxy_rs 枚举的进程图标勾选列表 + 手输行，勾选即确定本地重定向截获
+    哪些应用，再点收起。卡片底色由 SimpleCardWidget 自绘（settings 卡片同源），
+    列表用 qfw ListWidget（Fluent 悬停高亮）叠加青勾 delegate。
 
     一切皆条目：候选进程与手输 token（如 ``!1234`` 排除项）都是同等的勾选
-    条目，``tokens()`` 是唯一事实来源（逗号连接即过滤串）。首次进入对话框
-    时枚举一次进程并缓存。
+    条目，``tokens()`` 是唯一事实来源（逗号连接即过滤串）。首次展开时枚举
+    一次进程并缓存。
     """
 
     tokensChanged = Signal(list)
@@ -902,37 +903,82 @@ class LocalSpecSelector(SimpleCardWidget):
         self._icons: dict[str, QIcon] = {}
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(8, 6, 4, 6)
         layout.setSpacing(6)
 
-        self._search = SearchLineEdit(self)
+        # —— 收起态：摘要行 ——
+        header = QHBoxLayout()
+        header.setSpacing(4)
+        self._summary = BodyLabel(self)
+        self._summary.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        header.addWidget(self._summary, 1)
+        self._fold_btn = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
+        self._fold_btn.setFixedSize(28, 26)
+        self._fold_btn.setToolTip(self.tr("Pick processes"))
+        self._fold_btn.clicked.connect(self.toggle_expanded)
+        header.addWidget(self._fold_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addLayout(header)
+
+        # —— 展开态：搜索 + 勾选列表 + 手输行（默认收起） ——
+        self._body = QWidget(self)
+        body = QVBoxLayout(self._body)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(6)
+
+        self._search = SearchLineEdit(self._body)
         self._search.setPlaceholderText(self.tr("Search processes"))
         self._search.setClearButtonEnabled(True)
         self._search.textChanged.connect(self._filter)
-        layout.addWidget(self._search)
+        body.addWidget(self._search)
 
-        self._list = _ProcessList(self)
+        self._list = _ProcessList(self._body)
         color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
         for name in self._known_names():
             self._list.add_token(name, self._icon(name), color)
-        layout.addWidget(self._list, 1)
+        # 定高 6 行：进程多于 6 个时列表内部滚动。
+        self._list.setFixedHeight(_PICKER_ROW_HEIGHT * 6 + 4)
+        self._list.itemChanged.connect(lambda _item: self._emit_tokens())
+        body.addWidget(self._list)
 
-        self._add_edit = LineEdit(self)
+        self._add_edit = LineEdit(self._body)
         self._add_edit.setPlaceholderText(
             self.tr("Add process name or !pid and press Enter")
         )
         self._add_edit.setClearButtonEnabled(True)
         self._add_edit.returnPressed.connect(self._commit_manual)
-        layout.addWidget(self._add_edit)
+        body.addWidget(self._add_edit)
 
-        # 定高 6 行 + 搜索 + 手输：进程多于 6 个时列表内部滚动。
-        self._list.setFixedHeight(_PICKER_ROW_HEIGHT * 6 + 4)
-        self._list.itemChanged.connect(lambda _item: self._emit_tokens())
+        layout.addWidget(self._body)
+        self._body.setVisible(False)  # 默认收起
+        self._set_expanded(False)
+        self._refresh_summary()
+
+    # —— 折叠 ——
+
+    def is_expanded(self) -> bool:
+        return self._body.isVisible()
+
+    def toggle_expanded(self) -> None:
+        self._set_expanded(not self._body.isVisible())
+
+    def _set_expanded(self, expanded: bool) -> None:
+        self._body.setVisible(expanded)
+        self._fold_btn.setIcon(
+            FluentIcon.CARE_UP_SOLID if expanded else FluentIcon.CHEVRON_DOWN_MED
+        )
+        # 高度交给布局 sizeHint 自适应（隐藏的 body 自动排除），无需手动定高。
 
     # —— 对外 API ——
 
     def tokens(self) -> list[str]:
         return self._list.checked_labels()
+
+    def set_items_for_testing(self) -> None:
+        """测试注入 ``_targets`` 后调用：清空重建候选条目。"""
+        self._list.clear()
+        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        for name in self._known_names():
+            self._list.add_token(name, self._icon(name), color)
 
     def set_tokens(self, tokens: list[str]) -> None:
         """按过滤串回显：对上候选的点亮，对不上的手输 token 各成一条并点亮。"""
@@ -954,20 +1000,30 @@ class LocalSpecSelector(SimpleCardWidget):
                 self._list.add_token(token, None, color).setCheckState(
                     Qt.CheckState.Checked
                 )
+        self._refresh_summary()
         self._emit_tokens()
 
-    def _reload_items(self) -> None:
-        """按当前候选清空重建列表条目（进程枚举变化/测试注入后调用）。"""
-        self._list.clear()
-        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
-        for name in self._known_names():
-            self._list.add_token(name, self._icon(name), color)
-
-    def set_items_for_testing(self) -> None:
-        """测试注入 ``_targets`` 后调用：重建候选条目。"""
-        self._reload_items()
-
     # —— 内部 ——
+
+    def _summary_text(self) -> str:
+        tokens = self.tokens()
+        if not tokens:
+            return self.tr("Leave empty to capture every process; click to pick")
+        text = ", ".join(tokens)
+        metrics = self._summary.fontMetrics()
+        available = max(self._summary.width() - 8, 40)
+        if metrics.horizontalAdvance(text) > available:
+            while text and metrics.horizontalAdvance(text + "…") > available:
+                text = text[:-1]
+            text += "…"
+        return self.tr("Selected: {}").format(text)
+
+    def _refresh_summary(self) -> None:
+        empty = not self.tokens()
+        self._summary.setText(self._summary_text())
+        self._summary.setStyleSheet(
+            "color: rgba(127, 127, 127, 0.9);" if empty else ""
+        )
 
     def _known_names(self) -> list[str]:
         """候选进程名（枚举失败降级为空列表：手输 token 仍可用）。"""
@@ -1017,13 +1073,20 @@ class LocalSpecSelector(SimpleCardWidget):
                 return
         color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
         self._list.add_token(token, None, color).setCheckState(Qt.CheckState.Checked)
+        self._refresh_summary()
+        self._emit_tokens()
 
     def _filter(self, query: str) -> None:
         self._list.filter(query)
 
     def _emit_tokens(self) -> None:
         # 被搜索隐藏的已勾条目必须保留——隐藏只是视图过滤，不是取消勾选。
+        self._refresh_summary()
         self.tokensChanged.emit(self.tokens())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._refresh_summary()
 
 
 class ProxyPortDialog(MessageBoxBase):

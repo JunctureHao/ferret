@@ -104,6 +104,32 @@ class LocalSpecSelectorTests(unittest.TestCase):
         for item in self._items():
             self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
 
+    def test_collapsed_by_default_and_summary_shows_empty_hint(self) -> None:
+        """默认收起；空态摘要提示「留空截获全部」。"""
+        self.assertFalse(self.selector.is_expanded())
+        self.assertFalse(self.selector._body.isVisible())
+        self.assertIn("capture every process", self.selector._summary.text())
+
+    def test_toggle_expands_panel_and_updates_summary(self) -> None:
+        """点按钮展开面板（搜索/列表/手输行可见）；勾选后摘要显示已选清单。"""
+        self.selector.show()
+        self.app.processEvents()
+        self.addCleanup(self.selector.hide)
+
+        self.selector.toggle_expanded()
+        self.assertTrue(self.selector.is_expanded())
+        self.assertTrue(self.selector._search.isVisible())
+
+        self.selector.set_tokens(["Chrome"])
+        self.assertIn("Chrome", self.selector._summary.text())
+        self.assertIn("Selected", self.selector._summary.text())
+
+        self.selector.toggle_expanded()
+        self.assertFalse(self.selector.is_expanded())
+        # 收起不丢勾选：tokens 与摘要仍在。
+        self.assertEqual(self.selector.tokens(), ["Chrome"])
+        self.assertIn("Chrome", self.selector._summary.text())
+
 
 class WireGuardConfigDialogTests(unittest.TestCase):
     @classmethod
