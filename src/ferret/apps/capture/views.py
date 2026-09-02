@@ -33,13 +33,10 @@ from qfluentwidgets import (
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
-    LineEdit,
     ListItemDelegate,
     ListWidget,
     MessageBoxBase,
     RoundMenu,
-    SearchLineEdit,
-    SimpleCardWidget,
     SpinBox,
     StrongBodyLabel,
     SubtitleLabel,
@@ -836,11 +833,21 @@ class _CheckDelegate(ListItemDelegate):
         painter.restore()
 
 
-class _ProcessList(ListWidget):
-    """进程勾选列表：点行任意处切换，勾选态存 CheckStateRole（无原生指示器）。"""
+class LocalSpecSelector(ListWidget):
+    """本地重定向进程勾选列表：勾选 = 监听该应用，全不勾 = 全部。
+
+    条目即运行中的用户程序（mitmproxy_rs 枚举，图标 + 名称 + 青勾 delegate）。
+    展开逻辑（收起/展开与 ▾ 按钮）由对话框层的 local_row 驱动：
+    ``is_expanded``/``toggle_expanded``/``set_expanded``。
+    """
+
+    tokensChanged = Signal(list)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._targets: list[LocalTarget] | None = None
+        self._icons: dict[str, QIcon] = {}
+
         self.setItemDelegate(_CheckDelegate(self))
         self.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.setUniformItemSizes(True)
@@ -848,14 +855,24 @@ class _ProcessList(ListWidget):
         self.setMouseTracking(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setStyleSheet("QListWidget { background: transparent; border: none; }")
+        self.setFixedHeight(_PICKER_ROW_HEIGHT * 6 + 4)
         self.itemClicked.connect(self._toggle_item)
+        self.itemChanged.connect(lambda _item: self.tokensChanged.emit(self.tokens()))
 
-    def _toggle_item(self, item: QListWidgetItem) -> None:
-        item.setCheckState(
-            Qt.CheckState.Unchecked
-            if item.checkState() == Qt.CheckState.Checked
-            else Qt.CheckState.Checked
-        )
+        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        for name in self._known_names():
+            self.add_token(name, self._icon(name), color)
+
+    # —— 对外 API ——
+
+    def is_expanded(self) -> bool:
+        return self.isVisible()
+
+    def set_expanded(self, expanded: bool) -> None:
+        self.setVisible(expanded)
+
+    def tokens(self) -> list[str]:
+        return self._checked_labels()
 
     def add_token(self, label: str, icon: QIcon | None, color: QColor) -> QListWidgetItem:
         item = QListWidgetItem(label, self)
@@ -867,163 +884,48 @@ class _ProcessList(ListWidget):
         item.setSizeHint(QSize(0, _PICKER_ROW_HEIGHT))
         return item
 
-    def checked_labels(self) -> list[str]:
-        return [
-            self.item(row).text()
-            for row in range(self.count())
-            if self.item(row).checkState() == Qt.CheckState.Checked
-        ]
-
-    def filter(self, query: str) -> None:
-        needle = query.strip().lower()
-        for row in range(self.count()):
-            self.item(row).setHidden(
-                bool(needle) and needle not in self.item(row).text().lower()
-            )
-
-
-class LocalSpecSelector(SimpleCardWidget):
-    """本地重定向进程选择：一行摘要 + 右侧折叠按钮（默认收起）。
-
-    收起时显示摘要（空态占位 / 已选清单省略号）；点 ▾ 展开内嵌面板——搜索 +
-    mitmproxy_rs 枚举的进程图标勾选列表 + 手输行，勾选即确定本地重定向截获
-    哪些应用，再点收起。卡片底色由 SimpleCardWidget 自绘（settings 卡片同源），
-    列表用 qfw ListWidget（Fluent 悬停高亮）叠加青勾 delegate。
-
-    一切皆条目：候选进程与手输 token（如 ``!1234`` 排除项）都是同等的勾选
-    条目，``tokens()`` 是唯一事实来源（逗号连接即过滤串）。首次展开时枚举
-    一次进程并缓存。
-    """
-
-    tokensChanged = Signal(list)
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._targets: list[LocalTarget] | None = None
-        self._icons: dict[str, QIcon] = {}
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 4, 6)
-        layout.setSpacing(6)
-
-        # —— 收起态：摘要行 ——
-        header = QHBoxLayout()
-        header.setSpacing(4)
-        self._summary = BodyLabel(self)
-        self._summary.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        header.addWidget(self._summary, 1)
-        self._fold_btn = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
-        self._fold_btn.setFixedSize(28, 26)
-        self._fold_btn.setToolTip(self.tr("Pick processes"))
-        self._fold_btn.clicked.connect(self.toggle_expanded)
-        header.addWidget(self._fold_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addLayout(header)
-
-        # —— 展开态：搜索 + 勾选列表 + 手输行（默认收起） ——
-        self._body = QWidget(self)
-        body = QVBoxLayout(self._body)
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(6)
-
-        self._search = SearchLineEdit(self._body)
-        self._search.setPlaceholderText(self.tr("Search processes"))
-        self._search.setClearButtonEnabled(True)
-        self._search.textChanged.connect(self._filter)
-        body.addWidget(self._search)
-
-        self._list = _ProcessList(self._body)
-        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
-        for name in self._known_names():
-            self._list.add_token(name, self._icon(name), color)
-        # 定高 6 行：进程多于 6 个时列表内部滚动。
-        self._list.setFixedHeight(_PICKER_ROW_HEIGHT * 6 + 4)
-        self._list.itemChanged.connect(lambda _item: self._emit_tokens())
-        body.addWidget(self._list)
-
-        self._add_edit = LineEdit(self._body)
-        self._add_edit.setPlaceholderText(
-            self.tr("Add process name or !pid and press Enter")
-        )
-        self._add_edit.setClearButtonEnabled(True)
-        self._add_edit.returnPressed.connect(self._commit_manual)
-        body.addWidget(self._add_edit)
-
-        layout.addWidget(self._body)
-        self._body.setVisible(False)  # 默认收起
-        self._set_expanded(False)
-        self._refresh_summary()
-
-    # —— 折叠 ——
-
-    def is_expanded(self) -> bool:
-        return self._body.isVisible()
-
-    def toggle_expanded(self) -> None:
-        self._set_expanded(not self._body.isVisible())
-
-    def _set_expanded(self, expanded: bool) -> None:
-        self._body.setVisible(expanded)
-        self._fold_btn.setIcon(
-            FluentIcon.CARE_UP_SOLID if expanded else FluentIcon.CHEVRON_DOWN_MED
-        )
-        # 高度交给布局 sizeHint 自适应（隐藏的 body 自动排除），无需手动定高。
-
-    # —— 对外 API ——
-
-    def tokens(self) -> list[str]:
-        return self._list.checked_labels()
-
     def set_items_for_testing(self) -> None:
         """测试注入 ``_targets`` 后调用：清空重建候选条目。"""
-        self._list.clear()
+        self.clear()
         color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
         for name in self._known_names():
-            self._list.add_token(name, self._icon(name), color)
+            self.add_token(name, self._icon(name), color)
 
     def set_tokens(self, tokens: list[str]) -> None:
-        """按过滤串回显：对上候选的点亮，对不上的手输 token 各成一条并点亮。"""
+        """按过滤串回显：对上候选的点亮，对不上的手输 token 也各成一条。"""
         cleaned = [token.strip() for token in tokens if token.strip()]
         spec = ",".join(cleaned)
-        targets = self._ensure_targets()
         color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
-        for row in range(self._list.count()):
-            item = self._list.item(row)
+        for row in range(self.count()):
+            item = self.item(row)
             target = self._target_by_name(item.text())
             item.setCheckState(
                 Qt.CheckState.Checked
                 if target and checked_tokens(spec, [target])
                 else Qt.CheckState.Unchecked
             )
-        matched = {label.lower() for label in checked_tokens(spec, targets)}
+        matched = {label.lower() for label in checked_tokens(spec, self._ensure_targets())}
         for token in cleaned:
             if token.lower() not in matched:
-                self._list.add_token(token, None, color).setCheckState(
+                self.add_token(token, None, color).setCheckState(
                     Qt.CheckState.Checked
                 )
-        self._refresh_summary()
-        self._emit_tokens()
 
     # —— 内部 ——
 
-    def _summary_text(self) -> str:
-        tokens = self.tokens()
-        if not tokens:
-            return self.tr("Leave empty to capture every process; click to pick")
-        text = ", ".join(tokens)
-        metrics = self._summary.fontMetrics()
-        available = max(self._summary.width() - 8, 40)
-        if metrics.horizontalAdvance(text) > available:
-            while text and metrics.horizontalAdvance(text + "…") > available:
-                text = text[:-1]
-            text += "…"
-        return self.tr("Selected: {}").format(text)
-
-    def _refresh_summary(self) -> None:
-        empty = not self.tokens()
-        self._summary.setText(self._summary_text())
-        self._summary.setStyleSheet(
-            "color: rgba(127, 127, 127, 0.9);" if empty else ""
+    def _toggle_item(self, item: QListWidgetItem) -> None:
+        item.setCheckState(
+            Qt.CheckState.Unchecked
+            if item.checkState() == Qt.CheckState.Checked
+            else Qt.CheckState.Checked
         )
+
+    def _checked_labels(self) -> list[str]:
+        return [
+            self.item(row).text()
+            for row in range(self.count())
+            if self.item(row).checkState() == Qt.CheckState.Checked
+        ]
 
     def _known_names(self) -> list[str]:
         """候选进程名（枚举失败降级为空列表：手输 token 仍可用）。"""
@@ -1054,39 +956,6 @@ class LocalSpecSelector(SimpleCardWidget):
                     self._icons[name] = cached
                 return cached
         return QIcon()
-
-    def _commit_manual(self) -> None:
-        token = self._add_edit.text().strip()
-        if not token:
-            return
-        self._add_edit.clear()
-        lowered = token.lower()
-        for row in range(self._list.count()):
-            item = self._list.item(row)
-            if item.text().lower() == lowered:
-                item.setCheckState(Qt.CheckState.Checked)
-                return
-        for row in range(self._list.count()):
-            item = self._list.item(row)
-            if lowered in item.text().lower() or item.text().lower() in lowered:
-                item.setCheckState(Qt.CheckState.Checked)
-                return
-        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
-        self._list.add_token(token, None, color).setCheckState(Qt.CheckState.Checked)
-        self._refresh_summary()
-        self._emit_tokens()
-
-    def _filter(self, query: str) -> None:
-        self._list.filter(query)
-
-    def _emit_tokens(self) -> None:
-        # 被搜索隐藏的已勾条目必须保留——隐藏只是视图过滤，不是取消勾选。
-        self._refresh_summary()
-        self.tokensChanged.emit(self.tokens())
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._refresh_summary()
 
 
 class ProxyPortDialog(MessageBoxBase):
@@ -1217,18 +1086,24 @@ class ProxyPortDialog(MessageBoxBase):
         self.source_hint = CaptionLabel(self)
         self.source_hint.setWordWrap(True)
 
-        # —— 本地重定向通道 ——
+        # —— 本地重定向通道：勾选框 + 文字 + 折叠按钮同行 ——
         self.local_check = CheckBox(
             self.tr("Local redirect (zero-config, per-process)"), self
         )
         self.local_check.setChecked(use_local)
+        self.local_fold_btn = TransparentToolButton(
+            FluentIcon.CHEVRON_DOWN_MED, self
+        )
+        self.local_fold_btn.setFixedSize(28, 26)
+        self.local_fold_btn.setToolTip(self.tr("Pick processes"))
+        self.local_fold_btn.clicked.connect(self._toggle_process_list)
 
         self.local_spec_edit = LocalSpecSelector(self)
         self.local_spec_edit.set_tokens(split_spec(local_spec))
         self.local_spec_hint = CaptionLabel(self)
         self.local_spec_hint.setWordWrap(True)
 
-        # —— WireGuard 通道 ——
+        # —— WireGuard 通道：勾选框 + 文字 + 二维码按钮同行 ——
         self.wireguard_check = CheckBox(
             self.tr("WireGuard tunnel (phones and other devices)"), self
         )
@@ -1242,8 +1117,9 @@ class ProxyPortDialog(MessageBoxBase):
         self.wireguard_config_btn.setAccessibleName(
             self.tr("View client configuration")
         )
-        self.wireguard_config_btn.setFixedSize(28, 28)
+        self.wireguard_config_btn.setFixedSize(28, 26)
         self.wireguard_config_btn.setVisible(self._wireguard_config is not None)
+        self.wireguard_config_btn.clicked.connect(self._show_wireguard_config)
 
         self.restart_hint = CaptionLabel(
             self.tr("Changes apply immediately"), self
@@ -1264,13 +1140,21 @@ class ProxyPortDialog(MessageBoxBase):
         lan_row.addStretch(1)
         form.addRow(self.lan_label, lan_row)
 
-        wg_row = QHBoxLayout()
-        wg_row.setSpacing(6)
-        wg_row.addWidget(self.wireguard_hint, 1)
-        wg_row.addWidget(self.wireguard_config_btn)
+        # 通道行：勾选框 + 文字同行，右缘放各自的参数按钮（▾ / 二维码）。
+        local_row = QHBoxLayout()
+        local_row.setSpacing(6)
+        local_row.addWidget(self.local_check, 1)
+        local_row.addWidget(
+            self.local_fold_btn, 0, Qt.AlignmentFlag.AlignVCenter
+        )
 
-        # 三个通道各是一段：启用勾选 + 参数。勾选与参数是兄弟行不嵌套 ——
-        # 取消勾选只把参数区置灰，用户填了一半的内容不清掉。
+        wireguard_row = QHBoxLayout()
+        wireguard_row.setSpacing(6)
+        wireguard_row.addWidget(self.wireguard_check, 1)
+        wireguard_row.addWidget(
+            self.wireguard_config_btn, 0, Qt.AlignmentFlag.AlignVCenter
+        )
+
         layout = QVBoxLayout()
         layout.setSpacing(8)
         layout.addWidget(self.title_label)
@@ -1281,11 +1165,11 @@ class ProxyPortDialog(MessageBoxBase):
         layout.addWidget(self.block_global_check)
         layout.addWidget(self.block_private_check)
         layout.addWidget(self.source_hint)
-        layout.addWidget(self.local_check)
+        layout.addLayout(local_row)
         layout.addWidget(self.local_spec_edit)
         layout.addWidget(self.local_spec_hint)
-        layout.addWidget(self.wireguard_check)
-        layout.addLayout(wg_row)
+        layout.addLayout(wireguard_row)
+        layout.addWidget(self.wireguard_hint)
         layout.addWidget(self.restart_hint)
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(440)
@@ -1328,6 +1212,13 @@ class ProxyPortDialog(MessageBoxBase):
             return
         dialog = WireGuardConfigDialog(config, self.window())
         dialog.exec()
+
+    def _toggle_process_list(self) -> None:
+        expanded = not self.local_spec_edit.isVisible()
+        self.local_spec_edit.setVisible(expanded)
+        self.local_fold_btn.setIcon(
+            FluentIcon.CARE_UP_SOLID if expanded else FluentIcon.CHEVRON_DOWN_MED
+        )
 
     def get_port(self) -> int:
         """获取用户设置的端口号
@@ -1399,13 +1290,16 @@ class ProxyPortDialog(MessageBoxBase):
                 )
             )
 
-        # 进程选择卡片随通道勾选显隐（内嵌在通道行之下，随对话框伸缩）。
-        self.local_spec_edit.setVisible(local_on)
+        # 进程列表随通道勾选显隐；展开态由 local_row 的 ▾ 按钮控制。
+        self.local_spec_edit.setVisible(
+            local_on and self.local_spec_edit.is_expanded()
+        )
+        self.local_fold_btn.setVisible(local_on)
         self.local_spec_hint.setVisible(local_on)
         self.local_spec_hint.setText(
             self.tr(
-                "Leave the list empty to capture every process; tick the ones "
-                "to capture or type !pid to exclude. Starting this channel may "
+                "Leave the list empty to capture every process; expand the "
+                "list to tick the ones to capture. Starting this channel may "
                 "ask for administrator approval (UAC)."
             )
         )

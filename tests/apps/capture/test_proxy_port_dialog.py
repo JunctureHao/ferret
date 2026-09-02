@@ -26,7 +26,7 @@ def _target(name: str) -> LocalTarget:
 
 
 class LocalSpecSelectorTests(unittest.TestCase):
-    """本地重定向进程选择卡片：tokens 单一来源、勾选契约、通道显隐。"""
+    """本地重定向进程勾选列表：tokens 单一来源、勾选契约、显隐由对话框驱动。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -43,8 +43,9 @@ class LocalSpecSelectorTests(unittest.TestCase):
         self.selector.tokensChanged.connect(self.changes.append)
 
     def _items(self) -> list:
-        selector = self.selector
-        return [selector._list.item(row) for row in range(selector._list.count())]
+        return [
+            self.selector.item(row) for row in range(self.selector.count())
+        ]
 
     def _find(self, text: str):
         for item in self._items():
@@ -64,39 +65,28 @@ class LocalSpecSelectorTests(unittest.TestCase):
     def test_toggle_emits_tokens(self) -> None:
         self.selector.set_tokens([])
         changes: list[list[str]] = []
-        self.selector._list.itemChanged.connect(lambda _i: changes.append(self.selector.tokens()))
+        self.selector.itemChanged.connect(lambda _i: changes.append(self.selector.tokens()))
 
         item = self._find("Chrome")
         item.setCheckState(Qt.CheckState.Checked)
 
         self.assertEqual(changes[-1], ["Chrome"])
 
-    def test_manual_commit_adds_and_checks_token(self) -> None:
-        self.selector.set_tokens([])
-        self.selector._add_edit.setText("!4321")
-        self.selector._commit_manual()
+    def test_empty_selection_means_capture_everything(self) -> None:
+        """全不勾 = 全部：tokens 为空串，过滤串语义由上游处理。"""
+        self.selector.set_tokens(["Chrome"])
+        self._find("Chrome").setCheckState(Qt.CheckState.Unchecked)
+        self.assertEqual(self.selector.tokens(), [])
 
-        item = self._find("!4321")
-        self.assertIsNotNone(item)
+    def test_clicking_row_toggles_check_state(self) -> None:
+        """点行任意处切换勾选（itemClicked 路径，青勾 delegate 配套交互）。"""
+        self.selector.set_tokens([])
+        item = self._find("Chrome")
+        item.setSelected(True)
+        self.selector._toggle_item(item)
         self.assertEqual(item.checkState(), Qt.CheckState.Checked)
-        self.assertEqual(self.selector.tokens(), ["!4321"])
-
-    def test_manual_commit_checks_matching_candidate(self) -> None:
-        """手输「钉」这种子串也应点亮候选（与内核 contains 语义一致）。"""
-        self.selector.set_tokens([])
-        self.selector._add_edit.setText("钉")
-        self.selector._commit_manual()
-        self.assertEqual(self.selector.tokens(), ["钉钉"])
-
-    def test_search_filters_rows_but_keeps_checked(self) -> None:
-        """搜索只是视图过滤：隐藏行的勾选不丢，tokens 仍包含它。"""
-        self.selector.set_tokens(["Chrome", "钉钉"])
-        self.selector._search.setText("chrome")
-        chrome = self._find("Chrome")
-        ding = self._find("钉钉")
-        self.assertTrue(chrome is not None and not chrome.isHidden())
-        self.assertTrue(ding is not None and ding.isHidden())
-        self.assertEqual(self.selector.tokens(), ["Chrome", "钉钉"])
+        self.selector._toggle_item(item)
+        self.assertEqual(item.checkState(), Qt.CheckState.Unchecked)
 
     def test_items_have_no_native_check_indicator(self) -> None:
         """原生勾选指示器必须清掉——否则与 delegate 自绘的青勾左右叠画。"""
@@ -104,31 +94,15 @@ class LocalSpecSelectorTests(unittest.TestCase):
         for item in self._items():
             self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
 
-    def test_collapsed_by_default_and_summary_shows_empty_hint(self) -> None:
-        """默认收起；空态摘要提示「留空截获全部」。"""
-        self.assertFalse(self.selector.is_expanded())
-        self.assertFalse(self.selector._body.isVisible())
-        self.assertIn("capture every process", self.selector._summary.text())
-
-    def test_toggle_expands_panel_and_updates_summary(self) -> None:
-        """点按钮展开面板（搜索/列表/手输行可见）；勾选后摘要显示已选清单。"""
-        self.selector.show()
-        self.app.processEvents()
-        self.addCleanup(self.selector.hide)
-
-        self.selector.toggle_expanded()
+    def test_visibility_is_driven_by_the_dialog(self) -> None:
+        """列表显隐由对话框驱动：set_expanded/is_expanded 语义。"""
+        self.selector.set_expanded(True)
         self.assertTrue(self.selector.is_expanded())
-        self.assertTrue(self.selector._search.isVisible())
-
-        self.selector.set_tokens(["Chrome"])
-        self.assertIn("Chrome", self.selector._summary.text())
-        self.assertIn("Selected", self.selector._summary.text())
-
-        self.selector.toggle_expanded()
+        self.selector.set_expanded(False)
         self.assertFalse(self.selector.is_expanded())
-        # 收起不丢勾选：tokens 与摘要仍在。
+        # 显隐不影响 tokens。
+        self.selector.set_tokens(["Chrome"])
         self.assertEqual(self.selector.tokens(), ["Chrome"])
-        self.assertIn("Chrome", self.selector._summary.text())
 
 
 class WireGuardConfigDialogTests(unittest.TestCase):
@@ -206,16 +180,33 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.addCleanup(dlg.deleteLater)
         return dlg
 
-    def test_process_card_follows_the_local_channel_toggle(self) -> None:
-        """进程选择卡片内嵌显示：勾上本地重定向才可见，取消即隐藏。"""
+    def test_process_list_visibility_follows_the_local_channel(self) -> None:
+        """进程列表显隐：初始收起（use_local=True 但未展开）；▾ 按钮驱动开合；
+        取消勾选通道则整体隐藏。"""
         dlg = self.dialog(use_local=True)
         dlg.show()
         self.app.processEvents()
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+
+        dlg.local_fold_btn.click()
+        self.app.processEvents()
         self.assertTrue(dlg.local_spec_edit.isVisible())
+
+        dlg.local_fold_btn.click()
+        self.app.processEvents()
+        self.assertFalse(dlg.local_spec_edit.isVisible())
 
         dlg.local_check.setChecked(False)
         self.app.processEvents()
         self.assertFalse(dlg.local_spec_edit.isVisible())
+        self.assertFalse(dlg.local_fold_btn.isVisible())
+
+    def test_wireguard_row_has_the_qr_button_inline(self) -> None:
+        """二维码按钮与勾选框同行：wireguard_check 与按钮在同一 parent 行布局。"""
+        dlg = self.dialog()
+        self.assertIs(
+            dlg.wireguard_config_btn.parentWidget(), dlg.wireguard_check.parentWidget()
+        )
 
     def test_channel_getters_round_trip_the_incoming_values(self) -> None:
         dlg = self.dialog(
@@ -224,6 +215,10 @@ class ProxyPortDialogTests(unittest.TestCase):
             local_spec="curl,python",
             use_wireguard=False,
         )
+        # 注入确定性的候选集：真实枚举可能把 "python" 规范化成 "Python"。
+        dlg.local_spec_edit._targets = [_target("Chrome"), _target("钉钉")]
+        dlg.local_spec_edit.set_items_for_testing()
+        dlg.local_spec_edit.set_tokens(["curl", "python"])
         self.assertFalse(dlg.get_use_system_proxy())
         self.assertTrue(dlg.get_use_local())
         self.assertEqual(dlg.get_local_spec(), "curl,python")
