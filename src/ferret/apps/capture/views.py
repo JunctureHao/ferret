@@ -148,7 +148,9 @@ class CapturesInterface(QWidget):
 
         # Controller 状态信号 → UI 更新
         self.controller.capture_state_changed.connect(self.__on_capture_state_changed)
-        self.controller.recordingChanged.connect(lambda _on: self._refresh_command_bar())
+        self.controller.recordingChanged.connect(
+            lambda _on: self._refresh_command_bar()
+        )
         self.controller.channels_changed.connect(self._refresh_command_bar)
         self.controller.master_ready.connect(self.content.table.set_view)
         self.controller.flow_added.connect(self.content.table.on_flow_added)
@@ -289,7 +291,9 @@ class CapturesInterface(QWidget):
                 block_private=w.get_block_private(),
             )
         except (RuntimeError, ValueError) as exc:
-            show_warning(self.tr("Capture settings not applied"), str(exc), self.window())
+            show_warning(
+                self.tr("Capture settings not applied"), str(exc), self.window()
+            )
             return
         # 监听端点也可能顺带变了（端口在对话框里可改），读回刷新。
         self._ui_state = replace(
@@ -735,8 +739,10 @@ class CaptureCommandBar(QWidget):
         base = self._state.channels_summary or self._state.endpoint
         if self._state.channel_issue:
             base = f"⚠ {base}"
-        endpoint = base if self._state.channels_summary else (
-            f":{base.rsplit(':', 1)[-1]}" if compact else base
+        endpoint = (
+            base
+            if self._state.channels_summary
+            else (f":{base.rsplit(':', 1)[-1]}" if compact else base)
         )
         self.endpoint_btn.setText(endpoint)
         if self._state.shown_count == self._state.total_count:
@@ -859,7 +865,11 @@ class LocalSpecSelector(ListWidget):
         self.itemClicked.connect(self._toggle_item)
         self.itemChanged.connect(lambda _item: self.tokensChanged.emit(self.tokens()))
 
-        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        color = (
+            QColor(Qt.GlobalColor.white)
+            if isDarkTheme()
+            else QColor(Qt.GlobalColor.black)
+        )
         for name in self._known_names():
             self.add_token(name, self._icon(name), color)
 
@@ -874,7 +884,9 @@ class LocalSpecSelector(ListWidget):
     def tokens(self) -> list[str]:
         return self._checked_labels()
 
-    def add_token(self, label: str, icon: QIcon | None, color: QColor) -> QListWidgetItem:
+    def add_token(
+        self, label: str, icon: QIcon | None, color: QColor
+    ) -> QListWidgetItem:
         item = QListWidgetItem(label, self)
         if icon is not None:
             item.setIcon(icon)
@@ -887,7 +899,11 @@ class LocalSpecSelector(ListWidget):
     def set_items_for_testing(self) -> None:
         """测试注入 ``_targets`` 后调用：清空重建候选条目。"""
         self.clear()
-        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        color = (
+            QColor(Qt.GlobalColor.white)
+            if isDarkTheme()
+            else QColor(Qt.GlobalColor.black)
+        )
         for name in self._known_names():
             self.add_token(name, self._icon(name), color)
 
@@ -895,7 +911,11 @@ class LocalSpecSelector(ListWidget):
         """按过滤串回显：对上候选的点亮，对不上的手输 token 也各成一条。"""
         cleaned = [token.strip() for token in tokens if token.strip()]
         spec = ",".join(cleaned)
-        color = QColor(Qt.GlobalColor.white) if isDarkTheme() else QColor(Qt.GlobalColor.black)
+        color = (
+            QColor(Qt.GlobalColor.white)
+            if isDarkTheme()
+            else QColor(Qt.GlobalColor.black)
+        )
         for row in range(self.count()):
             item = self.item(row)
             target = self._target_by_name(item.text())
@@ -904,12 +924,12 @@ class LocalSpecSelector(ListWidget):
                 if target and checked_tokens(spec, [target])
                 else Qt.CheckState.Unchecked
             )
-        matched = {label.lower() for label in checked_tokens(spec, self._ensure_targets())}
+        matched = {
+            label.lower() for label in checked_tokens(spec, self._ensure_targets())
+        }
         for token in cleaned:
             if token.lower() not in matched:
-                self.add_token(token, None, color).setCheckState(
-                    Qt.CheckState.Checked
-                )
+                self.add_token(token, None, color).setCheckState(Qt.CheckState.Checked)
 
     # —— 内部 ——
 
@@ -1091,9 +1111,7 @@ class ProxyPortDialog(MessageBoxBase):
             self.tr("Local redirect (zero-config, per-process)"), self
         )
         self.local_check.setChecked(use_local)
-        self.local_fold_btn = TransparentToolButton(
-            FluentIcon.CHEVRON_DOWN_MED, self
-        )
+        self.local_fold_btn = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
         self.local_fold_btn.setFixedSize(28, 26)
         self.local_fold_btn.setToolTip(self.tr("Pick processes"))
         self.local_fold_btn.clicked.connect(self._toggle_process_list)
@@ -1110,20 +1128,15 @@ class ProxyPortDialog(MessageBoxBase):
         self.wireguard_check.setChecked(use_wireguard)
         self.wireguard_hint = CaptionLabel(self)
         self.wireguard_hint.setWordWrap(True)
-        self.wireguard_config_btn = TransparentToolButton(
-            FluentIcon.SHARE, self
-        )
+        self.wireguard_config_btn = TransparentToolButton(FluentIcon.QRCODE, self)
         self.wireguard_config_btn.setToolTip(self.tr("View client configuration"))
         self.wireguard_config_btn.setAccessibleName(
             self.tr("View client configuration")
         )
         self.wireguard_config_btn.setFixedSize(28, 26)
         self.wireguard_config_btn.setVisible(self._wireguard_config is not None)
-        self.wireguard_config_btn.clicked.connect(self._show_wireguard_config)
 
-        self.restart_hint = CaptionLabel(
-            self.tr("Changes apply immediately"), self
-        )
+        self.restart_hint = CaptionLabel(self.tr("Changes apply immediately"), self)
         self.restart_hint.setVisible(is_running)
 
     def __init_layout(self):
@@ -1144,9 +1157,7 @@ class ProxyPortDialog(MessageBoxBase):
         local_row = QHBoxLayout()
         local_row.setSpacing(6)
         local_row.addWidget(self.local_check, 1)
-        local_row.addWidget(
-            self.local_fold_btn, 0, Qt.AlignmentFlag.AlignVCenter
-        )
+        local_row.addWidget(self.local_fold_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         wireguard_row = QHBoxLayout()
         wireguard_row.setSpacing(6)
@@ -1291,9 +1302,7 @@ class ProxyPortDialog(MessageBoxBase):
             )
 
         # 进程列表随通道勾选显隐；展开态由 local_row 的 ▾ 按钮控制。
-        self.local_spec_edit.setVisible(
-            local_on and self.local_spec_edit.is_expanded()
-        )
+        self.local_spec_edit.setVisible(local_on and self.local_spec_edit.is_expanded())
         self.local_fold_btn.setVisible(local_on)
         self.local_spec_hint.setVisible(local_on)
         self.local_spec_hint.setText(
@@ -1346,11 +1355,6 @@ class WireGuardConfigDialog(MessageBoxBase):
             )
         )
 
-        self.config_edit = QPlainTextEdit(self)
-        self.config_edit.setPlainText(config)
-        self.config_edit.setReadOnly(True)
-        self.config_edit.setFixedHeight(140)
-
         layout = QVBoxLayout()
         layout.setSpacing(8)
         layout.addWidget(self.title_label)
@@ -1365,14 +1369,10 @@ class WireGuardConfigDialog(MessageBoxBase):
             self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.qr_label.setPixmap(qr)
             layout.addWidget(self.qr_label)
-        layout.addWidget(self.config_edit)
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(460)
 
-        # 预览框只有一个动作：复制后随手关闭。取消键没有存在的意义。
-        self.yesButton.setText(self.tr("Copy"))
-        self.cancelButton.hide()
-        self.yesButton.clicked.connect(self._copy_config)
+        self.hideYesButton()
 
     def _render_qr(self, matrix: list[list[bool]]) -> QPixmap:
         """布尔矩阵 → 位图。3px/模块 + 4 模块静区：手机取景足够大、又不过分占屏。"""
@@ -1395,8 +1395,3 @@ class WireGuardConfigDialog(MessageBoxBase):
                     )
         painter.end()
         return pixmap
-
-    def _copy_config(self) -> None:
-        clipboard = QApplication.clipboard()
-        if clipboard is not None:
-            clipboard.setText(self.config_edit.toPlainText())
