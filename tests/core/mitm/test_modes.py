@@ -350,13 +350,18 @@ class LocalTargetTests(unittest.TestCase):
         # 完全无关的 token 不点亮任何目标。
         self.assertEqual(checked_tokens("word", targets), set())
 
-    def test_list_local_targets_returns_user_processes_with_icons(self) -> None:
-        """真实枚举（真机冒烟）：默认档全为用户可见进程，且不含 ferret 自身。"""
+    def test_list_local_targets_returns_real_processes(self) -> None:
+        """真实枚举（真机冒烟）：系统服务仍被滤掉，且不含 ferret 自身。
+
+        不断言 executables 都真实存在——上游会枚举出 ``Registry`` 这类伪路径。
+        """
         targets = list_local_targets()
-        self.assertTrue(targets, "至少应枚举到当前用户的一个可见进程")
-        executables = {target.executable for target in targets}
-        self.assertTrue(all(Path(e).exists() for e in executables))
-        self.assertNotIn(str(Path(sys.executable).resolve()), executables)
+        self.assertTrue(targets, "至少应枚举到一个非系统进程")
+        names = {target.display_name.lower() for target in targets}
+        self.assertNotIn("svchost.exe", names)
+        self.assertNotIn(str(Path(sys.executable).resolve()), {
+            target.executable for target in targets
+        })
 
     def test_list_local_targets_include_system_expands_the_list(self) -> None:
         relaxed = list_local_targets(include_system=True)
