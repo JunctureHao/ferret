@@ -42,9 +42,7 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.bar.set_state(self.state(), False)
         self.assertEqual(self.bar.state_label.text(), "Idle")
         self.assertTrue(self.bar.control_btn.isEnabled())
-        self.assertEqual(
-            self.bar.control_btn.toolTip(), "Start capturing system traffic"
-        )
+        self.assertEqual(self.bar.control_btn.toolTip(), "Start capturing")
 
         self.bar.set_state(self.state(capture_state=CaptureState.STARTING), False)
         self.assertEqual(self.bar.state_label.text(), "Starting")
@@ -53,9 +51,7 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.bar.set_state(self.state(capture_state=CaptureState.RUNNING), False)
         self.assertEqual(self.bar.state_label.text(), "Capturing")
         self.assertTrue(self.bar.control_btn.isEnabled())
-        self.assertEqual(
-            self.bar.control_btn.toolTip(), "Stop capturing system traffic"
-        )
+        self.assertEqual(self.bar.control_btn.toolTip(), "Stop capturing")
 
         self.bar.set_state(self.state(capture_state=CaptureState.FAILED), False)
         self.assertEqual(self.bar.state_label.text(), "Failed")
@@ -128,6 +124,28 @@ class CaptureCommandBarTests(unittest.TestCase):
         open_tip = self.bar.endpoint_btn.toolTip()
         self.assertIn("127.0.0.1:8080", open_tip)
         self.assertNotEqual(local_tip, open_tip)
+
+    def test_running_session_shows_the_channel_summary(self) -> None:
+        """抓包会话开着时，端点位置改显通道并集 —— 那才是当下该关注的状态。"""
+        self.bar.set_state(
+            self.state(capture_state=CaptureState.RUNNING, channels_summary="Sys"), False
+        )
+        self.assertEqual(self.bar.endpoint_btn.text(), "Sys")
+
+        self.bar.set_state(self.state(), False)
+        self.assertEqual(self.bar.endpoint_btn.text(), "127.0.0.1:8080")
+
+    def test_channel_issue_is_flagged_and_explained(self) -> None:
+        self.bar.set_state(
+            self.state(
+                capture_state=CaptureState.RUNNING,
+                channels_summary="Sys",
+                channel_issue="Local redirect: approval needed",
+            ),
+            False,
+        )
+        self.assertIn("⚠", self.bar.endpoint_btn.text())
+        self.assertIn("approval needed", self.bar.endpoint_btn.toolTip())
 
 
 if __name__ == "__main__":

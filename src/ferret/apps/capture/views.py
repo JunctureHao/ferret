@@ -1,17 +1,22 @@
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QSizePolicy,
     QTextEdit,
@@ -27,8 +32,10 @@ from qfluentwidgets import (
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
+    ListWidget,
     MessageBoxBase,
     RoundMenu,
+    SmoothMode,
     SpinBox,
     StrongBodyLabel,
     SubtitleLabel,
@@ -36,6 +43,7 @@ from qfluentwidgets import (
     ToolTipPosition,
     TransparentToolButton,
     VerticalSeparator,
+    isDarkTheme,
 )
 from sysproxy import SystemProxyService
 
@@ -45,10 +53,28 @@ from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.core.mitm.facade import MitmFacade
+from ferret.core.mitm.modes import (
+    WIREGUARD_PORT,
+    LocalTarget,
+    checked_tokens,
+    list_local_targets,
+    qr_matrix,
+    split_spec,
+)
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 
 if TYPE_CHECKING:
     from ferret.apps.window import MainWindow
+
+# 本地重定向选择器的视觉常量：色值实测 dump 自 qfw LineEdit 官方 QSS，勿手改。
+_BORDER_LIGHT = "rgba(0, 0, 0, 13)"
+_BORDER_DARK = "rgba(255, 255, 255, 0.08)"
+# 面板底色取 qfw 卡片灰阶（实测 dump ComboBox/菜单浅深底色），别用系统调色板。
+_CARD_BG_LIGHT = "rgba(249, 249, 249, 1)"
+_CARD_BG_DARK = "rgba(36, 36, 36, 1)"
+_PICKER_ROW_HEIGHT = 33
+_PICKER_MAX_ROWS = 8
+_PICKER_FRAME_HEIGHT = 33
 
 
 class CapturesInterface(QWidget):
@@ -121,6 +147,10 @@ class CapturesInterface(QWidget):
 
         # Controller 状态信号 → UI 更新
         self.controller.capture_state_changed.connect(self.__on_capture_state_changed)
+        self.controller.recordingChanged.connect(
+            lambda _on: self._refresh_command_bar()
+        )
+        self.controller.channels_changed.connect(self._refresh_command_bar)
         self.controller.master_ready.connect(self.content.table.set_view)
         self.controller.flow_added.connect(self.content.table.on_flow_added)
         self.controller.flow_updated.connect(self.content.table.on_flow_updated)
@@ -227,7 +257,7 @@ class CapturesInterface(QWidget):
 
     @Slot()
     def __show_proxy_port_dialog(self):
-        """弹出代理监听设置对话框"""
+        """弹出抓包通道设置对话框"""
         w = ProxyPortDialog(
             self.controller.current_port,
             self.window(),
@@ -236,11 +266,23 @@ class CapturesInterface(QWidget):
             block_global=self.controller.block_global,
             block_private=self.controller.block_private,
             lan_address=self.controller.lan_address(),
+            use_system_proxy=self.controller.system_proxy_enabled(),
+            use_local=self.controller.use_local,
+            local_spec=self.controller.local_spec,
+            use_wireguard=self.controller.use_wireguard,
+            wireguard_config=self.controller.wireguard_client_config,
         )
         if not w.exec():
             return
         try:
-            # 一次提交四项：控制器自己判断哪些真的变了、哪些需要重启内核。
+            # 顺序有讲究：先提交通道（校验失败就整体中止，且抓包中重启端点前
+            # 内核意图值必须先更新，否则重启会带上旧 spec），再提交端点/来源限制。
+            self.controller.update_channels(
+                use_system_proxy=w.get_use_system_proxy(),
+                use_local=w.get_use_local(),
+                local_spec=w.get_local_spec(),
+                use_wireguard=w.get_use_wireguard(),
+            )
             self.controller.update_proxy_settings(
                 listen_host=w.get_listen_host(),
                 listen_port=w.get_port(),
@@ -248,8 +290,11 @@ class CapturesInterface(QWidget):
                 block_private=w.get_block_private(),
             )
         except (RuntimeError, ValueError) as exc:
-            show_warning(self.tr("Proxy settings not applied"), str(exc), self.window())
+            show_warning(
+                self.tr("Capture settings not applied"), str(exc), self.window()
+            )
             return
+        # 监听端点也可能顺带变了（端口在对话框里可改），读回刷新。
         self._ui_state = replace(
             self._ui_state,
             endpoint=self.controller.local_endpoint,
@@ -351,6 +396,11 @@ class CapturesInterface(QWidget):
             self.controller.toggle_capture()
 
     def _refresh_command_bar(self) -> None:
+        self._ui_state = replace(
+            self._ui_state,
+            channels_summary=self._channels_summary(),
+            channel_issue=self._channel_issue(),
+        )
         self.command_bar.set_state(self._ui_state, self.filter_panel.isVisible())
         self.content.set_capture_context(
             capture_state=self._ui_state.capture_state,
@@ -358,6 +408,34 @@ class CapturesInterface(QWidget):
             total_count=self._ui_state.total_count,
             shown_count=self._ui_state.shown_count,
             active_filter_count=self._ui_state.active_filter_count,
+        )
+
+    def _channels_summary(self) -> str:
+        """抓包会话开启时端点位置要显示的通道并集；未开启返回空串。"""
+        if self._ui_state.capture_state not in (
+            CaptureState.STARTING,
+            CaptureState.RUNNING,
+            CaptureState.STOPPING,
+        ):
+            return ""
+        parts: list[str] = []
+        if self.controller.system_proxy_enabled():
+            parts.append(self.tr("System proxy"))
+        if self.controller.use_local:
+            spec = self.controller.local_spec
+            label = self.tr("Local redirect")
+            parts.append(f"{label} ({spec})" if spec else label)
+        if self.controller.use_wireguard:
+            parts.append(self.tr("WireGuard :{}").format(WIREGUARD_PORT))
+        return " · ".join(parts)
+
+    def _channel_issue(self) -> str:
+        errors = self.controller.channel_errors
+        if not errors:
+            return ""
+        names = {"local": self.tr("Local redirect"), "wireguard": self.tr("WireGuard")}
+        return "; ".join(
+            f"{names.get(key, key)}: {message}" for key, message in errors.items()
         )
 
     def stop_capture(self):
@@ -387,6 +465,11 @@ class CaptureUiState:
     # endpoint 恒为本机环回端点；这一位单独说明「局域网设备也能连进来」。
     # 两者不能合并：把局域网地址显示成端点会误导用户去改系统代理。
     lan_exposed: bool = False
+    # 抓包会话开启时端点位置改显通道并集（System proxy · Local redirect · …）；
+    # 未开启时为空，命令栏回落到 endpoint。
+    channels_summary: str = ""
+    # 通道健康检查发现的问题（如 UAC 拒绝），非空时以 ⚠ 标注并进提示。
+    channel_issue: str = ""
 
 
 class CaptureFilterPanel(MultiFilterManager):
@@ -562,35 +645,35 @@ class CaptureCommandBar(QWidget):
                 self.tr("Idle"),
                 "#8a8a8a",
                 FluentIcon.PLAY,
-                self.tr("Start capturing system traffic"),
+                self.tr("Start capturing"),
                 True,
             ),
             CaptureState.STARTING: (
                 self.tr("Starting"),
                 "#d99a00",
                 FluentIcon.PLAY,
-                self.tr("Attaching to the system proxy"),
+                self.tr("Starting the capture session"),
                 False,
             ),
             CaptureState.RUNNING: (
                 self.tr("Capturing"),
                 "#2e9b4d",
                 FluentIcon.PAUSE,
-                self.tr("Stop capturing system traffic"),
+                self.tr("Stop capturing"),
                 True,
             ),
             CaptureState.STOPPING: (
                 self.tr("Stopping"),
                 "#d99a00",
                 FluentIcon.PAUSE,
-                self.tr("Restoring the system proxy"),
+                self.tr("Stopping the capture session"),
                 False,
             ),
             CaptureState.FAILED: (
                 self.tr("Failed"),
                 "#d13438",
                 FluentIcon.PLAY,
-                self.tr("Retry capturing system traffic"),
+                self.tr("Retry capturing"),
                 True,
             ),
         }
@@ -603,14 +686,21 @@ class CaptureCommandBar(QWidget):
         self.control_btn.setToolTip(tooltip)
         self.control_btn.setAccessibleName(tooltip)
 
-        self.endpoint_btn.setText(state.endpoint)
-        self.endpoint_btn.setToolTip(
-            self.tr("This machine connects via {}; LAN devices can connect too").format(
-                state.endpoint
+        # 抓包会话开着时端点位置显示通道并集；未开启显示本机接入端点。
+        # 通道健康有问题（如 UAC 拒绝）时前缀 ⚠ 并把详情放进提示。
+        display = state.channels_summary or state.endpoint
+        if state.channel_issue:
+            self.endpoint_btn.setText(f"⚠ {display}")
+            self.endpoint_btn.setToolTip(state.channel_issue)
+        else:
+            self.endpoint_btn.setText(display)
+            self.endpoint_btn.setToolTip(
+                self.tr(
+                    "This machine connects via {}; LAN devices can connect too"
+                ).format(state.endpoint)
+                if state.lan_exposed
+                else self.tr("This machine connects via {}").format(state.endpoint)
             )
-            if state.lan_exposed
-            else self.tr("This machine connects via {}").format(state.endpoint)
-        )
         if state.shown_count == state.total_count:
             stats_text = self.tr("{} flow(s)").format(state.total_count)
         else:
@@ -644,10 +734,16 @@ class CaptureCommandBar(QWidget):
             return
         compact = width < 900
         very_compact = width < 720
-        endpoint = self._state.endpoint
-        self.endpoint_btn.setText(
-            f":{endpoint.rsplit(':', 1)[-1]}" if compact else endpoint
+        # 抓包会话开着时端点位置是通道摘要，它比端点地址更值得占宽度，不再压缩。
+        base = self._state.channels_summary or self._state.endpoint
+        if self._state.channel_issue:
+            base = f"⚠ {base}"
+        endpoint = (
+            base
+            if self._state.channels_summary
+            else (f":{base.rsplit(':', 1)[-1]}" if compact else base)
         )
+        self.endpoint_btn.setText(endpoint)
         if self._state.shown_count == self._state.total_count:
             stats = (
                 str(self._state.total_count)
@@ -708,6 +804,186 @@ class ClearFlowsDialog(MessageBoxBase):
         self.widget.setMinimumWidth(380)
 
 
+class LocalSpecSelector(ListWidget):
+    """本地重定向进程勾选列表：勾选 = 监听该应用，全不勾 = 全部。
+
+    条目即运行中的用户程序（mitmproxy_rs 枚举，图标 + 名称）。
+    勾选框由 qfw 原生 ListItemDelegate 按 CheckStateRole 绘制（条目带
+    CheckStateRole 数据时才画框）；条目摘掉了 ItemIsUserCheckable，
+    切换统一走 ``itemClicked`` → ``_toggle_item``，避免点勾选框区域时
+    原生切换与 ``_toggle_item`` 双重翻转。
+    展开逻辑（收起/展开与 ▾ 按钮）由对话框层的 local_row 驱动：
+    ``is_expanded``/``toggle_expanded``/``set_expanded``。
+    """
+
+    tokensChanged = Signal(list)
+
+    _ICON_SIDE = 16
+    """进程图标统一边长：既保证各行图标一致，也让无图标行的占位与文字对齐。"""
+
+    _full_height: int = _PICKER_ROW_HEIGHT * 6 + 4
+    """满 6 行的期望高度：__init__ 按实测行重算，sizeHint 拿它报给布局。"""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._targets: list[LocalTarget] | None = None
+        self._icons: dict[str, QIcon] = {}
+
+        self.scrollDelegate.verticalSmoothScroll.setSmoothMode(SmoothMode.NO_SMOOTH)
+        self.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.setUniformItemSizes(True)
+        self.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.setMouseTracking(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setIconSize(QSize(self._ICON_SIDE, self._ICON_SIDE))
+        self.itemClicked.connect(self._toggle_item)
+        self.itemChanged.connect(lambda _item: self.tokensChanged.emit(self.tokens()))
+
+        color = (
+            QColor(Qt.GlobalColor.white)
+            if isDarkTheme()
+            else QColor(Qt.GlobalColor.black)
+        )
+        for name in self._known_names():
+            self.add_token(name, self._icon(name), color)
+
+        # 行高 = 显式 SizeHint(33) + 委托上下 margin(qfw TableItemDelegate +4)。
+        # 期望满 6 行、最少 2 行：窗口不够高时让布局合法压矮列表（内部滚动）。
+        # 固定高度在这里不可用——空间不足那轮分配会把列表压到最小值以下，
+        # QWidget::setGeometry 再按固定值钳回，后续兄弟件却按未钳回的位置摆，
+        # 结果就是列表与下方文案叠画、被盖住的行连点击都被文案吃掉。
+        row_h = (
+            self.sizeHintForIndex(self.model().index(0, 0)).height()
+            if self.count()
+            else _PICKER_ROW_HEIGHT
+        )
+        self._full_height = row_h * 6 + 4
+        self.setMinimumHeight(row_h * 2 + 4)
+        self.setMaximumHeight(self._full_height)
+
+    # —— 对外 API ——
+
+    def is_expanded(self) -> bool:
+        return self.isVisible()
+
+    def set_expanded(self, expanded: bool) -> None:
+        self.setVisible(expanded)
+
+    def tokens(self) -> list[str]:
+        return self._checked_labels()
+
+    def add_token(
+        self, label: str, icon: QIcon | None, color: QColor
+    ) -> QListWidgetItem:
+        item = QListWidgetItem(label, self)
+        item.setIcon(icon if icon is not None else self._blank_icon())
+        # 摘掉 ItemIsUserCheckable：勾选框仅作显示（delegate 按 CheckStateRole
+        # 绘制），切换统一走 itemClicked→_toggle_item，避免点击勾选框区域时
+        # 原生切换与 _toggle_item 双重翻转。
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Unchecked)
+        item.setForeground(color)
+        item.setSizeHint(QSize(0, _PICKER_ROW_HEIGHT))
+        return item
+
+    def set_items_for_testing(self) -> None:
+        """测试注入 ``_targets`` 后调用：清空重建候选条目。"""
+        self.clear()
+        color = (
+            QColor(Qt.GlobalColor.white)
+            if isDarkTheme()
+            else QColor(Qt.GlobalColor.black)
+        )
+        for name in self._known_names():
+            self.add_token(name, self._icon(name), color)
+
+    def set_tokens(self, tokens: list[str]) -> None:
+        """按过滤串回显：对上候选的点亮，对不上的手输 token 也各成一条。"""
+        cleaned = [token.strip() for token in tokens if token.strip()]
+        spec = ",".join(cleaned)
+        color = (
+            QColor(Qt.GlobalColor.white)
+            if isDarkTheme()
+            else QColor(Qt.GlobalColor.black)
+        )
+        for row in range(self.count()):
+            item = self.item(row)
+            target = self._target_by_name(item.text())
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if target and checked_tokens(spec, [target])
+                else Qt.CheckState.Unchecked
+            )
+        matched = {
+            label.lower() for label in checked_tokens(spec, self._ensure_targets())
+        }
+        for token in cleaned:
+            if token.lower() not in matched:
+                self.add_token(token, None, color).setCheckState(Qt.CheckState.Checked)
+
+    # —— 内部 ——
+
+    def sizeHint(self) -> QSize:
+        """基类滚动区的默认 hint 不足 6 行，布局会照着它截；报满高。"""
+        hint = super().sizeHint()
+        hint.setHeight(self._full_height)
+        return hint
+
+    def _toggle_item(self, item: QListWidgetItem) -> None:
+        item.setCheckState(
+            Qt.CheckState.Unchecked
+            if item.checkState() == Qt.CheckState.Checked
+            else Qt.CheckState.Checked
+        )
+
+    def _checked_labels(self) -> list[str]:
+        return [
+            self.item(row).text()
+            for row in range(self.count())
+            if self.item(row).checkState() == Qt.CheckState.Checked
+        ]
+
+    def _known_names(self) -> list[str]:
+        """候选进程名（枚举失败降级为空列表：手输 token 仍可用）。"""
+        try:
+            return [target.display_name for target in self._ensure_targets()]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _ensure_targets(self) -> list[LocalTarget]:
+        if self._targets is None:
+            self._targets = list_local_targets()
+        return self._targets
+
+    def _target_by_name(self, label: str) -> LocalTarget | None:
+        for target in self._ensure_targets():
+            if target.display_name == label:
+                return target
+        return None
+
+    def _icon(self, name: str) -> QIcon:
+        for target in self._ensure_targets():
+            if target.display_name == name:
+                cached = self._icons.get(name)
+                if cached is None:
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(target.icon_png or b"")
+                    cached = QIcon(pixmap)
+                    self._icons[name] = cached
+                return cached
+        return QIcon()
+
+    def _blank_icon(self) -> QIcon:
+        """无图标行的透明占位：让文字起点与有图标行对齐。"""
+        cached = self._icons.get("")
+        if cached is None:
+            pixmap = QPixmap(self._ICON_SIDE, self._ICON_SIDE)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            cached = QIcon(pixmap)
+            self._icons[""] = cached
+        return cached
+
+
 class ProxyPortDialog(MessageBoxBase):
     """代理监听设置：绑定地址、端口、来源限制。
 
@@ -731,6 +1007,11 @@ class ProxyPortDialog(MessageBoxBase):
         block_global: bool = True,
         block_private: bool = False,
         lan_address: str | None = None,
+        use_system_proxy: bool = True,
+        use_local: bool = True,
+        local_spec: str = "",
+        use_wireguard: bool = True,
+        wireguard_config: Callable[[], str] | None = None,
     ):
         """初始化代理监听设置对话框
 
@@ -742,11 +1023,25 @@ class ProxyPortDialog(MessageBoxBase):
             block_global: 当前是否拒绝公网来源
             block_private: 当前是否拒绝局域网来源
             lan_address: 本机局域网 IPv4，None 表示探测失败
+            use_system_proxy: 系统代理通道是否启用
+            use_local: 本地重定向通道是否启用
+            local_spec: 本地重定向的进程过滤串
+            use_wireguard: WireGuard 通道是否启用
+            wireguard_config: 取客户端配置文本的回调（None 表示按钮隐藏）
         """
         super().__init__(parent)
         self._lan_address = lan_address
+        self._wireguard_config = wireguard_config
         self.__init_widget(
-            current_port, is_running, listen_host, block_global, block_private
+            current_port,
+            is_running,
+            listen_host,
+            block_global,
+            block_private,
+            use_system_proxy,
+            use_local,
+            local_spec,
+            use_wireguard,
         )
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -759,10 +1054,20 @@ class ProxyPortDialog(MessageBoxBase):
         listen_host: str,
         block_global: bool,
         block_private: bool,
+        use_system_proxy: bool,
+        use_local: bool,
+        local_spec: str,
+        use_wireguard: bool,
     ):
         """初始化界面组件"""
         self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr("Proxy listener settings"))
+        self.title_label.setText(self.tr("Capture channels"))
+
+        # —— 系统代理通道 ——
+        self.system_proxy_check = CheckBox(
+            self.tr("System proxy (browsers and most desktop apps)"), self
+        )
+        self.system_proxy_check.setChecked(use_system_proxy)
 
         self.host_combo = ComboBox(self)
         self.host_combo.addItems(
@@ -807,9 +1112,37 @@ class ProxyPortDialog(MessageBoxBase):
         self.source_hint = CaptionLabel(self)
         self.source_hint.setWordWrap(True)
 
-        self.restart_hint = CaptionLabel(
-            self.tr("Changes will restart the proxy"), self
+        # —— 本地重定向通道：勾选框 + 文字 + 折叠按钮同行 ——
+        self.local_check = CheckBox(
+            self.tr("Local redirect (zero-config, per-process)"), self
         )
+        self.local_check.setChecked(use_local)
+        self.local_fold_btn = TransparentToolButton(FluentIcon.CHEVRON_RIGHT_MED, self)
+        self.local_fold_btn.setFixedSize(28, 26)
+        self.local_fold_btn.setToolTip(self.tr("Pick processes"))
+        self.local_fold_btn.clicked.connect(self._toggle_process_list)
+
+        self.local_spec_edit = LocalSpecSelector(self)
+        self.local_spec_edit.set_tokens(split_spec(local_spec))
+        self.local_spec_hint = CaptionLabel(self)
+        self.local_spec_hint.setWordWrap(True)
+
+        # —— WireGuard 通道：勾选框 + 文字 + 二维码按钮同行 ——
+        self.wireguard_check = CheckBox(
+            self.tr("WireGuard tunnel (phones and other devices)"), self
+        )
+        self.wireguard_check.setChecked(use_wireguard)
+        self.wireguard_hint = CaptionLabel(self)
+        self.wireguard_hint.setWordWrap(True)
+        self.wireguard_config_btn = TransparentToolButton(FluentIcon.QRCODE, self)
+        self.wireguard_config_btn.setToolTip(self.tr("View client configuration"))
+        self.wireguard_config_btn.setAccessibleName(
+            self.tr("View client configuration")
+        )
+        self.wireguard_config_btn.setFixedSize(28, 26)
+        self.wireguard_config_btn.setVisible(self._wireguard_config is not None)
+
+        self.restart_hint = CaptionLabel(self.tr("Changes apply immediately"), self)
         self.restart_hint.setVisible(is_running)
 
     def __init_layout(self):
@@ -826,25 +1159,83 @@ class ProxyPortDialog(MessageBoxBase):
         lan_row.addStretch(1)
         form.addRow(self.lan_label, lan_row)
 
-        # 两个开关与「监听地址」是兄弟关系，不做嵌套：它们各自独立生效，
-        # 视觉上嵌进地址下面会暗示「只有选某个地址才存在」，那是错的。
+        # 通道行：勾选框 + 文字同行，右缘放各自的参数按钮（▾ / 二维码）。
+        local_row = QHBoxLayout()
+        local_row.setSpacing(6)
+        local_row.addWidget(self.local_check, 1)
+        local_row.addWidget(self.local_fold_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        wireguard_row = QHBoxLayout()
+        wireguard_row.setSpacing(6)
+        wireguard_row.addWidget(self.wireguard_check, 1)
+        wireguard_row.addWidget(
+            self.wireguard_config_btn, 0, Qt.AlignmentFlag.AlignVCenter
+        )
+
         layout = QVBoxLayout()
         layout.setSpacing(8)
         layout.addWidget(self.title_label)
+        layout.addWidget(self.system_proxy_check)
         layout.addLayout(form)
         layout.addWidget(self.local_hint)
         layout.addWidget(self.source_title)
         layout.addWidget(self.block_global_check)
         layout.addWidget(self.block_private_check)
         layout.addWidget(self.source_hint)
+        layout.addLayout(local_row)
+        layout.addWidget(self.local_spec_edit)
+        layout.addWidget(self.local_spec_hint)
+        layout.addLayout(wireguard_row)
+        layout.addWidget(self.wireguard_hint)
         layout.addWidget(self.restart_hint)
         self.viewLayout.addLayout(layout)
-        self.widget.setMinimumWidth(400)
+        self.widget.setMinimumWidth(440)
 
     def __connect_signal_to_slot(self):
         self.host_combo.currentIndexChanged.connect(self._sync_exposure)
         self.port_spin.valueChanged.connect(self._sync_exposure)
         self.lan_copy_btn.clicked.connect(self._copy_lan_address)
+        self.local_check.toggled.connect(self._sync_exposure)
+        self.wireguard_check.toggled.connect(self._sync_exposure)
+        self.wireguard_config_btn.clicked.connect(self._show_wireguard_config)
+
+    def get_use_system_proxy(self) -> bool:
+        """「开始抓包」时是否挂系统代理。"""
+        return self.system_proxy_check.isChecked()
+
+    def get_use_local(self) -> bool:
+        """是否启用本地重定向通道。"""
+        return self.local_check.isChecked()
+
+    def get_local_spec(self) -> str:
+        """本地重定向的进程过滤串（原样返回，校验交给控制器）。"""
+        return ",".join(self.local_spec_edit.tokens())
+
+    def get_use_wireguard(self) -> bool:
+        """是否启用 WireGuard 通道。"""
+        return self.wireguard_check.isChecked()
+
+    def _show_wireguard_config(self) -> None:
+        if self._wireguard_config is None:
+            return
+        try:
+            config = self._wireguard_config()
+        except Exception as exc:  # noqa: BLE001
+            show_warning(
+                self.tr("WireGuard configuration unavailable"),
+                str(exc),
+                parent=self,
+            )
+            return
+        dialog = WireGuardConfigDialog(config, self.window())
+        dialog.exec()
+
+    def _toggle_process_list(self) -> None:
+        expanded = not self.local_spec_edit.isVisible()
+        self.local_spec_edit.setVisible(expanded)
+        self.local_fold_btn.setIcon(
+            FluentIcon.CHEVRON_DOWN_MED if expanded else FluentIcon.CHEVRON_RIGHT_MED
+        )
 
     def get_port(self) -> int:
         """获取用户设置的端口号
@@ -867,9 +1258,11 @@ class ProxyPortDialog(MessageBoxBase):
         return self.block_private_check.isChecked()
 
     def _sync_exposure(self):
-        """按当前选择刷新提示文案与来源限制的可用性。"""
+        """按当前选择刷新提示文案与各参数区的可用性。"""
         exposed = self.get_listen_host() == ANY_HOST
         port = self.port_spin.value()
+        wireguard_on = self.get_use_wireguard()
+        local_on = self.get_use_local()
 
         self.local_hint.setText(
             self.tr(
@@ -896,13 +1289,42 @@ class ProxyPortDialog(MessageBoxBase):
 
         # 环回监听时两个开关都是空转：外部来源根本到不了 socket，而环回来源被
         # 原生 Block 无条件放行。置灰但保留勾选状态，切回局域网时用户的偏好还在。
+        # wireguard 开着时 block_private 必须让路：隧道客户端全部来自 10.0.0.x，
+        # 原生 Block 会把它们当「局域网来源」全杀（内核侧已自动豁免，这里同步置灰
+        # 免得用户以为勾选生效了）。
         self.block_global_check.setEnabled(exposed)
-        self.block_private_check.setEnabled(exposed)
-        self.source_hint.setVisible(not exposed)
+        self.block_private_check.setEnabled(exposed and not wireguard_on)
+        self.source_hint.setVisible(not exposed or wireguard_on)
         if not exposed:
             self.source_hint.setText(
                 self.tr("No effect while listening on loopback only")
             )
+        elif wireguard_on:
+            self.source_hint.setText(
+                self.tr(
+                    "Reject-LAN is paused while the WireGuard tunnel is on: "
+                    "tunnel clients connect from the 10.0.0.x network."
+                )
+            )
+
+        # 进程列表随通道勾选显隐；展开态由 local_row 的 ▾ 按钮控制。
+        self.local_spec_edit.setVisible(local_on and self.local_spec_edit.is_expanded())
+        self.local_fold_btn.setVisible(local_on)
+        self.local_spec_hint.setVisible(local_on)
+        self.local_spec_hint.setText(
+            self.tr(
+                "Leave the list empty to capture every process; expand the "
+                "list to tick the ones to capture. Starting this channel may "
+                "ask for administrator approval (UAC)."
+            )
+        )
+        self.wireguard_hint.setText(
+            self.tr(
+                "Listens on UDP {}; copy the client configuration to your device "
+                "after starting a capture."
+            ).format(WIREGUARD_PORT)
+        )
+        self.wireguard_config_btn.setEnabled(wireguard_on)
 
     def _copy_lan_address(self):
         if not self._lan_address:
@@ -913,3 +1335,69 @@ class ProxyPortDialog(MessageBoxBase):
         clipboard.setText(f"{self._lan_address}:{self.port_spin.value()}")
         self.lan_copy_btn.setIcon(FluentIcon.ACCEPT)
         QTimer.singleShot(1200, lambda: self.lan_copy_btn.setIcon(FluentIcon.COPY))
+
+
+class WireGuardConfigDialog(MessageBoxBase):
+    """WireGuard 客户端配置预览：扫码导入 + 只读文本，确认键即复制。
+
+    二维码直接从传入的配置文本派生（同一段内容两种呈现，永不各说一套）；
+    扫不上码的人仍可手动复制。QR 矩阵不含静区，绘制时按规范补 4 模块。
+    """
+
+    QUIET_ZONE = 4
+    """QR 规范静区（模块数）。"""
+
+    def __init__(self, config: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.title_label = SubtitleLabel(self)
+        self.title_label.setText(self.tr("WireGuard client configuration"))
+
+        self.desc_label = CaptionLabel(self)
+        self.desc_label.setWordWrap(True)
+        self.desc_label.setText(
+            self.tr(
+                "Import this profile in the WireGuard app on your device; it "
+                "routes all of that device's traffic through Ferret."
+            )
+        )
+
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.desc_label)
+        try:
+            qr = self._render_qr(qr_matrix(config))
+        except ValueError:
+            # 文本超容量等编码失败不应挡住手动复制这条退路。
+            qr = None
+        if qr is not None:
+            self.qr_label = QLabel(self)
+            self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.qr_label.setPixmap(qr)
+            layout.addWidget(self.qr_label)
+        self.viewLayout.addLayout(layout)
+        self.widget.setMinimumWidth(460)
+
+        self.hideYesButton()
+
+    def _render_qr(self, matrix: list[list[bool]]) -> QPixmap:
+        """布尔矩阵 → 位图。3px/模块 + 4 模块静区：手机取景足够大、又不过分占屏。"""
+        scale = 3
+        quiet = self.QUIET_ZONE
+        size = (len(matrix) + quiet * 2) * scale
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.white)
+        painter = QPainter(pixmap)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for y, row in enumerate(matrix):
+            for x, dark in enumerate(row):
+                if dark:
+                    painter.fillRect(
+                        (x + quiet) * scale,
+                        (y + quiet) * scale,
+                        scale,
+                        scale,
+                        Qt.GlobalColor.black,
+                    )
+        painter.end()
+        return pixmap

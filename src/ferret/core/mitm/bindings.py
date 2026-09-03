@@ -140,8 +140,12 @@ from mitmproxy.net.http.http1.assemble import (
 )
 from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
+from mitmproxy.proxy.mode_servers import LocalRedirectorInstance
+from mitmproxy.proxy.mode_specs import ProxyMode
 from mitmproxy.utils import emoji, human
 from mitmproxy.websocket import WebSocketData, WebSocketMessage
+from mitmproxy_rs import process_info as rs_process_info
+from mitmproxy_rs import wireguard as rs_wireguard
 from wsproto.frame_protocol import Opcode
 
 tlsconfig_module: Any = _tlsconfig_module
@@ -172,6 +176,7 @@ __all__ = [
     "HTTPFlow",
     "Headers",
     "Intercept",
+    "LocalRedirectorInstance",
     "MapLocal",
     "MapRemote",
     "Master",
@@ -181,6 +186,7 @@ __all__ = [
     "Opcode",
     "Options",
     "OptionsError",
+    "ProxyMode",
     "Proxyserver",
     "ReadFile",
     "ReplayHandler",
@@ -207,6 +213,8 @@ __all__ = [
     "parse_map_local_spec",
     "parse_map_remote_spec",
     "parse_modify_spec",
+    "rs_process_info",
+    "rs_wireguard",
     "server_hooks",
     "status_codes",
     "tlsconfig_module",

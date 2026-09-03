@@ -125,6 +125,38 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 抓包通道的启用开关（见 core/mitm/modes.py）。持久化决定的是「点击开始抓包
+    # 时开启哪些通道」—— 应用启动本身零抓包动作（内核 regular 空转），所以这里
+    # 落盘的是偏好而不是运行态。默认全开：三条通道都要经过一次显式点击才生效。
+    system_proxy_enabled = ConfigItem(
+        group="Proxy",
+        name="SystemProxyEnabled",
+        default=True,
+        validator=BoolValidator(),
+    )
+
+    local_enabled = ConfigItem(
+        group="Proxy",
+        name="LocalEnabled",
+        default=True,
+        validator=BoolValidator(),
+    )
+
+    # 本地重定向的进程过滤串，语法同上游 `local:` spec（进程名 / PID，逗号分隔，
+    # `!` 取反）。留空 = 截全部本机进程；ferret 自身 PID 由上游自动排除。
+    local_spec = ConfigItem(
+        group="Proxy",
+        name="LocalSpec",
+        default="",
+    )
+
+    wireguard_enabled = ConfigItem(
+        group="Proxy",
+        name="WireGuardEnabled",
+        default=True,
+        validator=BoolValidator(),
+    )
+
     # 网关规则，存 list[dict]（见 core/mitm/gateway.py 的 GatewayRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

@@ -22,6 +22,7 @@ from ferret.core.mitm.intercept import (
     fake_response,
 )
 from ferret.core.mitm.io import FlowFile
+from ferret.core.mitm.modes import validate_local_spec, wireguard_client_config
 from ferret.core.mitm.rewrite import RewriteRule
 from ferret.core.mitm.runtime import MitmRuntime
 from ferret.core.mitm.sse import SseEvent
@@ -31,7 +32,7 @@ from ferret.core.network import LOOPBACK_HOST, detect_lan_address
 # 改个名，免得和下面同名的 MitmFacade.is_lan_exposed 属性看混。
 # ruff 默认 combine-as-imports = false，`as` 导入只能单独成句。
 from ferret.core.network import is_lan_exposed as host_is_lan_exposed
-from ferret.core.settings import get_sessions_dir
+from ferret.core.settings import get_certs_dir, get_sessions_dir
 
 
 # 同一句在下面出现两次，写成函数而不是常量：模块级求值赶在翻译器安装之前
@@ -101,6 +102,61 @@ class MitmFacade:
     @property
     def is_running(self) -> bool:
         return self.runtime.is_running
+
+    # —— 抓包通道（local / wireguard；regular 恒在，见 core/mitm/modes.py）——
+
+    @property
+    def use_local(self) -> bool:
+        return self.runtime.use_local
+
+    @property
+    def local_spec(self) -> str:
+        return self.runtime.local_spec
+
+    @property
+    def use_wireguard(self) -> bool:
+        return self.runtime.use_wireguard
+
+    def set_channels(
+        self,
+        *,
+        use_local: bool | None = None,
+        local_spec: str | None = None,
+        use_wireguard: bool | None = None,
+    ) -> None:
+        """Switch the local-redirect / WireGuard channels; hot-applies when running."""
+        self.runtime.apply_channels(
+            use_local=use_local, local_spec=local_spec, use_wireguard=use_wireguard
+        )
+
+    def engage_channels(self) -> None:
+        """Open the capture session: pull the enabled channels into the mode list."""
+        self.runtime.set_channels_engaged(True)
+
+    def disengage_channels(self) -> None:
+        """Close the capture session: back to regular-only, interception off."""
+        self.runtime.set_channels_engaged(False)
+
+    def validate_local_spec(self, local_spec: str) -> None:
+        """Raise ``ValueError`` with a displayable message if the filter is invalid."""
+        validate_local_spec(local_spec)
+
+    def channel_health(self) -> dict[str, bool | str]:
+        """Per-channel liveness of the running kernel; ``{}`` when it is not running."""
+        if not self.runtime.is_running:
+            return {}
+        return self.runtime.call(self.runtime.channel_health)
+
+    def wireguard_client_config(self) -> str:
+        """The client profile for the WireGuard tunnel, ready to import on a phone.
+
+        配置文件由上游在隧道启动时写进 confdir；隧道从未开过时抛
+        ``FileNotFoundError``，调用方转成「先开一次抓包」的提示。
+        """
+        return wireguard_client_config(
+            get_certs_dir() / "wireguard.conf",
+            self.lan_address(),
+        )
 
     @property
     def gateway_rules(self) -> list[GatewayRule]:

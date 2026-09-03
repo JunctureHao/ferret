@@ -25,7 +25,16 @@ class ProxySettingsSeedingTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
-    ITEMS = ("listen_host", "listen_port", "block_global", "block_private")
+    ITEMS = (
+        "listen_host",
+        "listen_port",
+        "block_global",
+        "block_private",
+        "system_proxy_enabled",
+        "local_enabled",
+        "local_spec",
+        "wireguard_enabled",
+    )
 
     def setUp(self) -> None:
         # 绝不能碰用户真实的 config.json。qconfig.load 改的是全局 CONFIG，
@@ -96,6 +105,22 @@ class ProxySettingsSeedingTests(unittest.TestCase):
         self.assertTrue(app_runtime.mitm.is_lan_exposed)
         self.assertEqual(app_runtime.mitm.local_client_host, LOOPBACK_HOST)
         self.assertEqual(app_runtime.mitm.listen_host, "0.0.0.0")
+
+    def test_channel_flags_default_to_all_on(self) -> None:
+        """三条通道默认全勾：点「开始抓包」就开整个会话（应用启动仍零动作）。"""
+        runtime = self.build().mitm_runtime
+        self.assertTrue(runtime.use_local)
+        self.assertTrue(runtime.use_wireguard)
+        self.assertFalse(runtime.channels_engaged)
+
+    def test_a_broken_local_spec_converges_to_capture_everything(self) -> None:
+        """坏过滤串退回「截全部」比让启动失败友好得多 —— 与地址收敛同一思路。"""
+        self.load({"LocalSpec": "a,,b"})
+        self.assertEqual(self.build().mitm_runtime.local_spec, "")
+
+    def test_a_valid_local_spec_reaches_the_kernel_untouched(self) -> None:
+        self.load({"LocalSpec": "curl,!1234"})
+        self.assertEqual(self.build().mitm_runtime.local_spec, "curl,!1234")
 
 
 if __name__ == "__main__":

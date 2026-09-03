@@ -9,10 +9,155 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
-from ferret.apps.capture.views import ProxyPortDialog
+from ferret.apps.capture.views import (
+    LocalSpecSelector,
+    ProxyPortDialog,
+    WireGuardConfigDialog,
+)
+from ferret.core.mitm.modes import LocalTarget
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
+
+
+def _target(name: str) -> LocalTarget:
+    return LocalTarget(
+        display_name=name, executable=rf"C:\app\{name.lower()}.exe", icon_png=None
+    )
+
+
+class LocalSpecSelectorTests(unittest.TestCase):
+    """本地重定向进程勾选列表：tokens 单一来源、勾选契约、显隐由对话框驱动。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.selector = LocalSpecSelector()
+        # 构造时枚举的是真实进程；注入测试桩后重建候选条目。
+        self.selector._targets = [_target("Chrome"), _target("钉钉")]
+        self.selector.set_items_for_testing()
+        self.selector.resize(360, self.selector.height())
+        self.addCleanup(self.selector.deleteLater)
+        self.changes: list[list[str]] = []
+        self.selector.tokensChanged.connect(self.changes.append)
+
+    def _items(self) -> list:
+        return [self.selector.item(row) for row in range(self.selector.count())]
+
+    def _find(self, text: str):
+        for item in self._items():
+            if item.text() == text:
+                return item
+        return None
+
+    def test_set_tokens_checks_candidates_and_adds_manual(self) -> None:
+        """初始 tokens 回显：对上候选的勾选，对不上的手输 token 也成一条。"""
+        self.selector.set_tokens(["Chrome", "!123"])
+        labels = {item.text() for item in self._items()}
+        self.assertIn("Chrome", labels)
+        self.assertIn("!123", labels)
+        self.assertEqual(self.selector.tokens(), ["Chrome", "!123"])
+        self.assertEqual(self.changes[-1], ["Chrome", "!123"])
+
+    def test_toggle_emits_tokens(self) -> None:
+        self.selector.set_tokens([])
+        changes: list[list[str]] = []
+        self.selector.itemChanged.connect(
+            lambda _i: changes.append(self.selector.tokens())
+        )
+
+        item = self._find("Chrome")
+        item.setCheckState(Qt.CheckState.Checked)
+
+        self.assertEqual(changes[-1], ["Chrome"])
+
+    def test_empty_selection_means_capture_everything(self) -> None:
+        """全不勾 = 全部：tokens 为空串，过滤串语义由上游处理。"""
+        self.selector.set_tokens(["Chrome"])
+        self._find("Chrome").setCheckState(Qt.CheckState.Unchecked)
+        self.assertEqual(self.selector.tokens(), [])
+
+    def test_clicking_row_toggles_check_state(self) -> None:
+        """点行任意处切换勾选（itemClicked → _toggle_item 路径）。"""
+        self.selector.set_tokens([])
+        item = self._find("Chrome")
+        item.setSelected(True)
+        self.selector._toggle_item(item)
+        self.assertEqual(item.checkState(), Qt.CheckState.Checked)
+        self.selector._toggle_item(item)
+        self.assertEqual(item.checkState(), Qt.CheckState.Unchecked)
+
+    def _indicator_pixel(self, item) -> QColor:
+        """渲染整列，取指定行左侧原生勾选框内的采样点颜色。"""
+        pm = QPixmap(self.selector.size())
+        pm.fill(Qt.GlobalColor.transparent)
+        self.selector.render(pm)
+        rect = self.selector.visualItemRect(item)
+        vp = self.selector.viewport().geometry()
+        # qfw TableItemDelegate 在左侧 x+15 处画 19px 勾选框；采样点避开中央
+        # 对勾字形的镂空（白勾间隙会透出底色），取框右下内侧。
+        x = vp.x() + rect.left() + 15 + 15
+        y = vp.y() + rect.center().y() + 6
+        return pm.toImage().pixelColor(x, y)
+
+    def test_checked_row_paints_filled_indicator(self) -> None:
+        """勾选状态必须画出实色指示器：勾选框由 qfw 原生 delegate 按
+        CheckStateRole 绘制（跟随主题色），勾选态填充不透明、未勾选态近透明。"""
+        self.selector.set_tokens([])
+        item = self._find("Chrome")
+        unchecked = self._indicator_pixel(item)
+        item.setCheckState(Qt.CheckState.Checked)
+        checked = self._indicator_pixel(item)
+        self.assertNotEqual(checked.name(), unchecked.name())
+        self.assertGreater(checked.alpha(), 200)
+        self.assertLess(unchecked.alpha(), 200)
+
+    def test_items_have_no_native_check_indicator(self) -> None:
+        """ItemIsUserCheckable 必须保持摘除：勾选框仅作显示（delegate 按
+        CheckStateRole 绘制），切换统一走 itemClicked→_toggle_item，避免
+        点击勾选框区域时原生切换与 _toggle_item 双重翻转。"""
+        self.selector.set_tokens(["curl"])
+        for item in self._items():
+            self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+
+    def test_visibility_is_driven_by_the_dialog(self) -> None:
+        """列表显隐由对话框驱动：set_expanded/is_expanded 语义。"""
+        self.selector.set_expanded(True)
+        self.assertTrue(self.selector.is_expanded())
+        self.selector.set_expanded(False)
+        self.assertFalse(self.selector.is_expanded())
+        # 显隐不影响 tokens。
+        self.selector.set_tokens(["Chrome"])
+        self.assertEqual(self.selector.tokens(), ["Chrome"])
+
+
+class WireGuardConfigDialogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.host.resize(900, 600)
+        self.host.show()
+        self.app.processEvents()
+        self.addCleanup(self._destroy_host)
+
+    def _destroy_host(self) -> None:
+        self.host.close()
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def test_config_renders_qr_bitmap(self) -> None:
+        """合法配置 → QR 位图渲染进对话框。"""
+        dlg = WireGuardConfigDialog("[Interface]\nPrivateKey = abc\n", self.host)
+        self.addCleanup(dlg.deleteLater)
+        self.assertTrue(dlg.qr_label.pixmap() is not None)
+        self.assertGreater(dlg.qr_label.pixmap().width(), 0)
 
 
 class ProxyPortDialogTests(unittest.TestCase):
@@ -44,11 +189,108 @@ class ProxyPortDialogTests(unittest.TestCase):
             "block_global": True,
             "block_private": False,
             "lan_address": "192.168.1.9",
+            "use_system_proxy": True,
+            "use_local": True,
+            "local_spec": "",
+            "use_wireguard": True,
+            "wireguard_config": lambda: "[Interface]",
         }
         values.update(overrides)
         dlg = ProxyPortDialog(**values)
         self.addCleanup(dlg.deleteLater)
         return dlg
+
+    def test_process_list_visibility_follows_the_local_channel(self) -> None:
+        """进程列表显隐：初始收起（use_local=True 但未展开）；▾ 按钮驱动开合；
+        取消勾选通道则整体隐藏。"""
+        dlg = self.dialog(use_local=True)
+        dlg.show()
+        self.app.processEvents()
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+
+        dlg.local_fold_btn.click()
+        self.app.processEvents()
+        self.assertTrue(dlg.local_spec_edit.isVisible())
+
+        dlg.local_fold_btn.click()
+        self.app.processEvents()
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+
+        dlg.local_check.setChecked(False)
+        self.app.processEvents()
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+        self.assertFalse(dlg.local_fold_btn.isVisible())
+
+    def _expanded_dialog_at(
+        self, width: int, height: int, rows: int
+    ) -> ProxyPortDialog:
+        """矮窗口 + 展开的进程列表：复现「窗口不够高」那一档真实布局。"""
+        self.host.resize(width, height)
+        self.app.processEvents()
+        dlg = self.dialog()
+        dlg.local_spec_edit._targets = [_target(f"P{i}") for i in range(rows)]
+        dlg.local_spec_edit.set_items_for_testing()
+        dlg.show()
+        self.app.processEvents()
+        dlg.local_fold_btn.click()
+        self.app.processEvents()
+        return dlg
+
+    def test_short_window_shrinks_the_list_instead_of_overlapping(self) -> None:
+        """窗口不够高时列表必须可压矮：固定高度会被布局分配不足后由 widget
+        钳回，下方兄弟件却按未钳回位置摆放——列表与文案叠画。"""
+        dlg = self._expanded_dialog_at(962, 768, 8)
+        lst = dlg.local_spec_edit
+        self.assertFalse(lst.geometry().intersects(dlg.local_spec_hint.geometry()))
+        self.assertFalse(lst.geometry().intersects(dlg.wireguard_check.geometry()))
+        self.assertLess(lst.height(), lst._full_height)
+
+    def test_every_visible_row_receives_the_click(self) -> None:
+        """被透明文案盖住的行点不到（点击被上层兄弟件吞掉）：断言矮窗口下
+        每个可见行中心的最高层控件仍是列表视口。"""
+        dlg = self._expanded_dialog_at(962, 768, 4)
+        lst = dlg.local_spec_edit
+        for row in range(lst.count()):
+            rect = lst.visualItemRect(lst.item(row))
+            self.assertTrue(rect.isValid(), f"row {row}")
+            receiver = QApplication.widgetAt(lst.viewport().mapToGlobal(rect.center()))
+            self.assertIs(receiver, lst.viewport(), f"row {row}")
+
+    def test_wireguard_row_has_the_qr_button_inline(self) -> None:
+        """二维码按钮与勾选框同行：wireguard_check 与按钮在同一 parent 行布局。"""
+        dlg = self.dialog()
+        self.assertIs(
+            dlg.wireguard_config_btn.parentWidget(), dlg.wireguard_check.parentWidget()
+        )
+
+    def test_channel_getters_round_trip_the_incoming_values(self) -> None:
+        dlg = self.dialog(
+            use_system_proxy=False,
+            use_local=True,
+            local_spec="curl,python",
+            use_wireguard=False,
+        )
+        # 注入确定性的候选集：真实枚举可能把 "python" 规范化成 "Python"。
+        dlg.local_spec_edit._targets = [_target("Chrome"), _target("钉钉")]
+        dlg.local_spec_edit.set_items_for_testing()
+        dlg.local_spec_edit.set_tokens(["curl", "python"])
+        self.assertFalse(dlg.get_use_system_proxy())
+        self.assertTrue(dlg.get_use_local())
+        self.assertEqual(dlg.get_local_spec(), "curl,python")
+        self.assertFalse(dlg.get_use_wireguard())
+
+    def test_wireguard_toggle_greys_out_block_private(self) -> None:
+        """隧道客户端全在 10.0.0.x：block_private 开着会全杀，UI 必须置灰说明。"""
+        dlg = self.dialog(listen_host=ANY_HOST)
+        self.assertFalse(dlg.block_private_check.isEnabled())
+        self.assertIn("WireGuard", dlg.source_hint.text())
+
+        dlg.wireguard_check.setChecked(False)
+        self.assertTrue(dlg.block_private_check.isEnabled())
+
+    def test_wireguard_config_button_hidden_without_a_callback(self) -> None:
+        dlg = self.dialog(wireguard_config=None)
+        self.assertFalse(dlg.wireguard_config_btn.isVisible())
 
     def test_getters_round_trip_the_incoming_values(self) -> None:
         dlg = self.dialog(
@@ -117,7 +359,10 @@ class ProxyPortDialogTests(unittest.TestCase):
     def test_source_switches_are_greyed_but_keep_their_state_on_loopback(self) -> None:
         """置灰不等于清空：切回局域网时用户的偏好还得在。"""
         dlg = self.dialog(
-            listen_host=LOOPBACK_HOST, block_global=True, block_private=True
+            listen_host=LOOPBACK_HOST,
+            block_global=True,
+            block_private=True,
+            use_wireguard=False,
         )
         self.assertFalse(dlg.block_global_check.isEnabled())
         self.assertFalse(dlg.block_private_check.isEnabled())
@@ -130,7 +375,8 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.assertTrue(dlg.get_block_global())
         self.assertTrue(dlg.get_block_private())
 
-    def test_ineffective_hint_shows_only_on_loopback(self) -> None:
+    def test_ineffective_hint_shows_only_when_block_is_moot(self) -> None:
+        """提示只在该勾选「确实无效」时出现：环回监听、或 block_private 为隧道让路。"""
         dlg = self.dialog(listen_host=LOOPBACK_HOST)
         dlg.show()
         self.app.processEvents()
@@ -138,6 +384,7 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.assertTrue(dlg.source_hint.text())
 
         dlg.host_combo.setCurrentIndex(1)
+        dlg.wireguard_check.setChecked(False)
         self.app.processEvents()
         self.assertFalse(dlg.source_hint.isVisible())
 
