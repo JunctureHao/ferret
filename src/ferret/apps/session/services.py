@@ -73,7 +73,7 @@ class SessionRepository:
     ) -> SessionMeta:
         stat = path.stat()
         modified = datetime.fromtimestamp(stat.st_mtime).astimezone()
-        created = datetime.fromtimestamp(stat.st_ctime).astimezone()
+        created = datetime.fromtimestamp(stat.st_birthtime).astimezone()
         return SessionMeta(
             schema_version=1,
             session_id=path.name,
