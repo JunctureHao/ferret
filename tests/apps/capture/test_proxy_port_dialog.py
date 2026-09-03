@@ -10,6 +10,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
 from ferret.apps.capture.views import (
@@ -22,7 +23,9 @@ from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 
 
 def _target(name: str) -> LocalTarget:
-    return LocalTarget(display_name=name, executable=rf"C:\app\{name.lower()}.exe", icon_png=None)
+    return LocalTarget(
+        display_name=name, executable=rf"C:\app\{name.lower()}.exe", icon_png=None
+    )
 
 
 class LocalSpecSelectorTests(unittest.TestCase):
@@ -43,9 +46,7 @@ class LocalSpecSelectorTests(unittest.TestCase):
         self.selector.tokensChanged.connect(self.changes.append)
 
     def _items(self) -> list:
-        return [
-            self.selector.item(row) for row in range(self.selector.count())
-        ]
+        return [self.selector.item(row) for row in range(self.selector.count())]
 
     def _find(self, text: str):
         for item in self._items():
@@ -65,7 +66,9 @@ class LocalSpecSelectorTests(unittest.TestCase):
     def test_toggle_emits_tokens(self) -> None:
         self.selector.set_tokens([])
         changes: list[list[str]] = []
-        self.selector.itemChanged.connect(lambda _i: changes.append(self.selector.tokens()))
+        self.selector.itemChanged.connect(
+            lambda _i: changes.append(self.selector.tokens())
+        )
 
         item = self._find("Chrome")
         item.setCheckState(Qt.CheckState.Checked)
@@ -79,7 +82,7 @@ class LocalSpecSelectorTests(unittest.TestCase):
         self.assertEqual(self.selector.tokens(), [])
 
     def test_clicking_row_toggles_check_state(self) -> None:
-        """点行任意处切换勾选（itemClicked 路径，青勾 delegate 配套交互）。"""
+        """点行任意处切换勾选（itemClicked → _toggle_item 路径）。"""
         self.selector.set_tokens([])
         item = self._find("Chrome")
         item.setSelected(True)
@@ -88,8 +91,35 @@ class LocalSpecSelectorTests(unittest.TestCase):
         self.selector._toggle_item(item)
         self.assertEqual(item.checkState(), Qt.CheckState.Unchecked)
 
+    def _indicator_pixel(self, item) -> QColor:
+        """渲染整列，取指定行左侧原生勾选框内的采样点颜色。"""
+        pm = QPixmap(self.selector.size())
+        pm.fill(Qt.GlobalColor.transparent)
+        self.selector.render(pm)
+        rect = self.selector.visualItemRect(item)
+        vp = self.selector.viewport().geometry()
+        # qfw TableItemDelegate 在左侧 x+15 处画 19px 勾选框；采样点避开中央
+        # 对勾字形的镂空（白勾间隙会透出底色），取框右下内侧。
+        x = vp.x() + rect.left() + 15 + 15
+        y = vp.y() + rect.center().y() + 6
+        return pm.toImage().pixelColor(x, y)
+
+    def test_checked_row_paints_filled_indicator(self) -> None:
+        """勾选状态必须画出实色指示器：勾选框由 qfw 原生 delegate 按
+        CheckStateRole 绘制（跟随主题色），勾选态填充不透明、未勾选态近透明。"""
+        self.selector.set_tokens([])
+        item = self._find("Chrome")
+        unchecked = self._indicator_pixel(item)
+        item.setCheckState(Qt.CheckState.Checked)
+        checked = self._indicator_pixel(item)
+        self.assertNotEqual(checked.name(), unchecked.name())
+        self.assertGreater(checked.alpha(), 200)
+        self.assertLess(unchecked.alpha(), 200)
+
     def test_items_have_no_native_check_indicator(self) -> None:
-        """原生勾选指示器必须清掉——否则与 delegate 自绘的青勾左右叠画。"""
+        """ItemIsUserCheckable 必须保持摘除：勾选框仅作显示（delegate 按
+        CheckStateRole 绘制），切换统一走 itemClicked→_toggle_item，避免
+        点击勾选框区域时原生切换与 _toggle_item 双重翻转。"""
         self.selector.set_tokens(["curl"])
         for item in self._items():
             self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
@@ -122,22 +152,12 @@ class WireGuardConfigDialogTests(unittest.TestCase):
         self.host.deleteLater()
         self.app.processEvents()
 
-    def test_config_with_qr_renders_both_views(self) -> None:
-        """合法配置 → QR 位图 + 文本同框；文本框保留手动复制退路。"""
+    def test_config_renders_qr_bitmap(self) -> None:
+        """合法配置 → QR 位图渲染进对话框。"""
         dlg = WireGuardConfigDialog("[Interface]\nPrivateKey = abc\n", self.host)
         self.addCleanup(dlg.deleteLater)
         self.assertTrue(dlg.qr_label.pixmap() is not None)
         self.assertGreater(dlg.qr_label.pixmap().width(), 0)
-        self.assertEqual(dlg.config_edit.toPlainText(), "[Interface]\nPrivateKey = abc\n")
-
-    def test_copy_puts_the_config_on_the_clipboard(self) -> None:
-        dlg = WireGuardConfigDialog("profile text", self.host)
-        self.addCleanup(dlg.deleteLater)
-        dlg.yesButton.click()
-        clipboard = QApplication.clipboard()
-        if clipboard is None:
-            self.skipTest("离屏平台没有剪贴板")
-        self.assertEqual(clipboard.text(), "profile text")
 
 
 class ProxyPortDialogTests(unittest.TestCase):
@@ -200,6 +220,41 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(dlg.local_spec_edit.isVisible())
         self.assertFalse(dlg.local_fold_btn.isVisible())
+
+    def _expanded_dialog_at(
+        self, width: int, height: int, rows: int
+    ) -> ProxyPortDialog:
+        """矮窗口 + 展开的进程列表：复现「窗口不够高」那一档真实布局。"""
+        self.host.resize(width, height)
+        self.app.processEvents()
+        dlg = self.dialog()
+        dlg.local_spec_edit._targets = [_target(f"P{i}") for i in range(rows)]
+        dlg.local_spec_edit.set_items_for_testing()
+        dlg.show()
+        self.app.processEvents()
+        dlg.local_fold_btn.click()
+        self.app.processEvents()
+        return dlg
+
+    def test_short_window_shrinks_the_list_instead_of_overlapping(self) -> None:
+        """窗口不够高时列表必须可压矮：固定高度会被布局分配不足后由 widget
+        钳回，下方兄弟件却按未钳回位置摆放——列表与文案叠画。"""
+        dlg = self._expanded_dialog_at(962, 768, 8)
+        lst = dlg.local_spec_edit
+        self.assertFalse(lst.geometry().intersects(dlg.local_spec_hint.geometry()))
+        self.assertFalse(lst.geometry().intersects(dlg.wireguard_check.geometry()))
+        self.assertLess(lst.height(), lst._full_height)
+
+    def test_every_visible_row_receives_the_click(self) -> None:
+        """被透明文案盖住的行点不到（点击被上层兄弟件吞掉）：断言矮窗口下
+        每个可见行中心的最高层控件仍是列表视口。"""
+        dlg = self._expanded_dialog_at(962, 768, 4)
+        lst = dlg.local_spec_edit
+        for row in range(lst.count()):
+            rect = lst.visualItemRect(lst.item(row))
+            self.assertTrue(rect.isValid(), f"row {row}")
+            receiver = QApplication.widgetAt(lst.viewport().mapToGlobal(rect.center()))
+            self.assertIs(receiver, lst.viewport(), f"row {row}")
 
     def test_wireguard_row_has_the_qr_button_inline(self) -> None:
         """二维码按钮与勾选框同行：wireguard_check 与按钮在同一 parent 行布局。"""

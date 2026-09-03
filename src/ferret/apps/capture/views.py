@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QSizePolicy,
-    QStyleOptionViewItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -33,10 +32,10 @@ from qfluentwidgets import (
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
-    ListItemDelegate,
     ListWidget,
     MessageBoxBase,
     RoundMenu,
+    SmoothMode,
     SpinBox,
     StrongBodyLabel,
     SubtitleLabel,
@@ -805,63 +804,38 @@ class ClearFlowsDialog(MessageBoxBase):
         self.widget.setMinimumWidth(380)
 
 
-class _CheckDelegate(ListItemDelegate):
-    """列表条目委托：继承 qfw 的悬停高亮，右缘补 Fluent 风格勾选框。
-
-    勾选指示器：勾选 = 主题青色圆角方块 + 白勾（白勾照抄上游
-    ``CheckIndicatorMenuItemDelegate`` 的 FIF.ACCEPT 渲染），未勾选 = 空轮廓。
-    文本走 Qt 标准的 DisplayRole 绘制，不受弹窗调色板问题影响。
-    """
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self._accept = FluentIcon.ACCEPT
-
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        super().paint(painter, option, index)
-        checked = index.data(Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Checked
-        rect = option.rect
-        side = 16
-        box = QRectF(rect.right() - side - 12, rect.center().y() - side / 2, side, side)
-        painter.save()
-        painter.setRenderHints(QPainter.RenderHint.Antialiasing)
-        if checked:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#009faa"))
-            painter.drawRoundedRect(box, 4, 4)
-            painter.setOpacity(0.9)
-            self._accept.render(painter, box.adjusted(3, 3, -3, -3))
-        else:
-            border = QColor(255, 255, 255, 46) if isDarkTheme() else QColor(0, 0, 0, 26)
-            painter.setPen(border)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(box, 4, 4)
-        painter.restore()
-
-
 class LocalSpecSelector(ListWidget):
     """本地重定向进程勾选列表：勾选 = 监听该应用，全不勾 = 全部。
 
-    条目即运行中的用户程序（mitmproxy_rs 枚举，图标 + 名称 + 青勾 delegate）。
+    条目即运行中的用户程序（mitmproxy_rs 枚举，图标 + 名称）。
+    勾选框由 qfw 原生 ListItemDelegate 按 CheckStateRole 绘制（条目带
+    CheckStateRole 数据时才画框）；条目摘掉了 ItemIsUserCheckable，
+    切换统一走 ``itemClicked`` → ``_toggle_item``，避免点勾选框区域时
+    原生切换与 ``_toggle_item`` 双重翻转。
     展开逻辑（收起/展开与 ▾ 按钮）由对话框层的 local_row 驱动：
     ``is_expanded``/``toggle_expanded``/``set_expanded``。
     """
 
     tokensChanged = Signal(list)
 
+    _ICON_SIDE = 16
+    """进程图标统一边长：既保证各行图标一致，也让无图标行的占位与文字对齐。"""
+
+    _full_height: int = _PICKER_ROW_HEIGHT * 6 + 4
+    """满 6 行的期望高度：__init__ 按实测行重算，sizeHint 拿它报给布局。"""
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._targets: list[LocalTarget] | None = None
         self._icons: dict[str, QIcon] = {}
 
-        self.setItemDelegate(_CheckDelegate(self))
+        self.scrollDelegate.verticalSmoothScroll.setSmoothMode(SmoothMode.NO_SMOOTH)
         self.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.setUniformItemSizes(True)
         self.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self.setMouseTracking(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setStyleSheet("QListWidget { background: transparent; border: none; }")
-        self.setFixedHeight(_PICKER_ROW_HEIGHT * 6 + 4)
+        self.setIconSize(QSize(self._ICON_SIDE, self._ICON_SIDE))
         self.itemClicked.connect(self._toggle_item)
         self.itemChanged.connect(lambda _item: self.tokensChanged.emit(self.tokens()))
 
@@ -872,6 +846,20 @@ class LocalSpecSelector(ListWidget):
         )
         for name in self._known_names():
             self.add_token(name, self._icon(name), color)
+
+        # 行高 = 显式 SizeHint(33) + 委托上下 margin(qfw TableItemDelegate +4)。
+        # 期望满 6 行、最少 2 行：窗口不够高时让布局合法压矮列表（内部滚动）。
+        # 固定高度在这里不可用——空间不足那轮分配会把列表压到最小值以下，
+        # QWidget::setGeometry 再按固定值钳回，后续兄弟件却按未钳回的位置摆，
+        # 结果就是列表与下方文案叠画、被盖住的行连点击都被文案吃掉。
+        row_h = (
+            self.sizeHintForIndex(self.model().index(0, 0)).height()
+            if self.count()
+            else _PICKER_ROW_HEIGHT
+        )
+        self._full_height = row_h * 6 + 4
+        self.setMinimumHeight(row_h * 2 + 4)
+        self.setMaximumHeight(self._full_height)
 
     # —— 对外 API ——
 
@@ -888,10 +876,12 @@ class LocalSpecSelector(ListWidget):
         self, label: str, icon: QIcon | None, color: QColor
     ) -> QListWidgetItem:
         item = QListWidgetItem(label, self)
-        if icon is not None:
-            item.setIcon(icon)
-        # 清掉默认 flags 里的 ItemIsUserCheckable：原生勾选框会与自绘青勾叠画。
+        item.setIcon(icon if icon is not None else self._blank_icon())
+        # 摘掉 ItemIsUserCheckable：勾选框仅作显示（delegate 按 CheckStateRole
+        # 绘制），切换统一走 itemClicked→_toggle_item，避免点击勾选框区域时
+        # 原生切换与 _toggle_item 双重翻转。
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Unchecked)
         item.setForeground(color)
         item.setSizeHint(QSize(0, _PICKER_ROW_HEIGHT))
         return item
@@ -932,6 +922,12 @@ class LocalSpecSelector(ListWidget):
                 self.add_token(token, None, color).setCheckState(Qt.CheckState.Checked)
 
     # —— 内部 ——
+
+    def sizeHint(self) -> QSize:
+        """基类滚动区的默认 hint 不足 6 行，布局会照着它截；报满高。"""
+        hint = super().sizeHint()
+        hint.setHeight(self._full_height)
+        return hint
 
     def _toggle_item(self, item: QListWidgetItem) -> None:
         item.setCheckState(
@@ -976,6 +972,16 @@ class LocalSpecSelector(ListWidget):
                     self._icons[name] = cached
                 return cached
         return QIcon()
+
+    def _blank_icon(self) -> QIcon:
+        """无图标行的透明占位：让文字起点与有图标行对齐。"""
+        cached = self._icons.get("")
+        if cached is None:
+            pixmap = QPixmap(self._ICON_SIDE, self._ICON_SIDE)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            cached = QIcon(pixmap)
+            self._icons[""] = cached
+        return cached
 
 
 class ProxyPortDialog(MessageBoxBase):
@@ -1111,7 +1117,7 @@ class ProxyPortDialog(MessageBoxBase):
             self.tr("Local redirect (zero-config, per-process)"), self
         )
         self.local_check.setChecked(use_local)
-        self.local_fold_btn = TransparentToolButton(FluentIcon.CHEVRON_DOWN_MED, self)
+        self.local_fold_btn = TransparentToolButton(FluentIcon.CHEVRON_RIGHT_MED, self)
         self.local_fold_btn.setFixedSize(28, 26)
         self.local_fold_btn.setToolTip(self.tr("Pick processes"))
         self.local_fold_btn.clicked.connect(self._toggle_process_list)
@@ -1228,7 +1234,7 @@ class ProxyPortDialog(MessageBoxBase):
         expanded = not self.local_spec_edit.isVisible()
         self.local_spec_edit.setVisible(expanded)
         self.local_fold_btn.setIcon(
-            FluentIcon.CARE_UP_SOLID if expanded else FluentIcon.CHEVRON_DOWN_MED
+            FluentIcon.CHEVRON_DOWN_MED if expanded else FluentIcon.CHEVRON_RIGHT_MED
         )
 
     def get_port(self) -> int:
