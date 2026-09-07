@@ -6,10 +6,11 @@
 `ComposeResult.detail` 里的时序与字节键。发送前右侧整页显示空态提示。
 """
 
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from PySide6.QtCore import Qt, QTimer, Slot
+from PySide6.QtCore import QCoreApplication, Qt, QTimer, Slot
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QStackedWidget,
     QVBoxLayout,
@@ -19,12 +20,14 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     ComboBox,
+    EditableComboBox,
     FluentIcon,
     InfoBadge,
     InfoLevel,
     LineEdit,
     PillToolButton,
     PrimaryToolButton,
+    ToolButton,
     ToolTipFilter,
 )
 
@@ -44,11 +47,12 @@ from ferret.apps.common.flow.fields import (
     format_time,
 )
 from ferret.apps.common.http_methods import METHODS
-from ferret.apps.common.info_bar import show_error
+from ferret.apps.common.info_bar import show_error, show_success
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.compose.controllers import ComposeController
-from ferret.core.mitm import ComposeResult, human
+from ferret.apps.compose.curl_import import parse_curl
+from ferret.core.mitm import ComposeResult, RequestEdit, human
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 # 请求体「数据类型」下拉：(显示名, 高亮语言, 默认 Content-Type)。
@@ -58,6 +62,20 @@ BODY_KINDS: tuple[tuple[str, Language, str], ...] = (
     ("XML", Language.XML, "application/xml"),
     ("Text", Language.HTTP, "text/plain"),
 )
+
+# 只存标记：模块级求值赶在翻译器安装之前。与断点面板同一个锁模式，
+# 文案各自一份（发送语义不同：那边是「放行」，这边是「发送」）。
+_BINARY_HINT = QT_TRANSLATE_NOOP(
+    "ComposeView",
+    "This content is not valid UTF-8 (an archive, an image, or a non-UTF-8 charset), "
+    "so it is locked read-only; it goes out unchanged when sent.",
+)
+
+
+def _body_lang(text: str) -> Language:
+    """prefill 时按内容推断高亮语言：只在 JSON 与通用 HTTP 词法器之间二选一。"""
+    return Language.JSON if text.lstrip()[:1] in ("{", "[") else Language.HTTP
+
 
 # 「性能」页的两组卡片：键全部来自 `build_flow_detail` 的既有字段，渲染直接复用
 # 概览页的声明式规格 + FieldCard（时间/流量两组与概览的 Timing/Size 同源，只是
@@ -124,7 +142,9 @@ _PERF_SECTIONS: tuple[Section, ...] = (
     Section(
         title=QT_TRANSLATE_NOOP("ComposePerf", "Traffic"),
         fields=(
-            Field(QT_TRANSLATE_NOOP("ComposePerf", "Request"), _size_of("req_total_size")),
+            Field(
+                QT_TRANSLATE_NOOP("ComposePerf", "Request"), _size_of("req_total_size")
+            ),
             Field(
                 QT_TRANSLATE_NOOP("ComposePerf", "- Request headers"),
                 _size_of("req_headers_size"),
@@ -137,7 +157,9 @@ _PERF_SECTIONS: tuple[Section, ...] = (
                 QT_TRANSLATE_NOOP("ComposePerf", "- Request body decoded"),
                 _decoded_size("req_wire_size", "req_decoded_size"),
             ),
-            Field(QT_TRANSLATE_NOOP("ComposePerf", "Response"), _size_of("res_total_size")),
+            Field(
+                QT_TRANSLATE_NOOP("ComposePerf", "Response"), _size_of("res_total_size")
+            ),
             Field(
                 QT_TRANSLATE_NOOP("ComposePerf", "- Response headers"),
                 _size_of("res_headers_size"),
@@ -171,11 +193,15 @@ class ComposeInterface(QWidget):
     # ── 组件 ──────────────────────────────────
 
     def __init_widget(self):
-        # 顶栏。方法只可从固定词表下拉选择（不可输入）。
-        self.method_combo = ComboBox(self)
+        # 顶栏。方法用可编辑下拉：prefill 可能带来词表外的方法（PROPFIND 等）。
+        self.method_combo = EditableComboBox(self)
         self.method_combo.addItems(METHODS)
-        self.method_combo.setText("GET")
+        self.method_combo.setCurrentText("GET")
         self.method_combo.setFixedWidth(110)
+
+        # 二进制体直通：prefill 进非 UTF-8 内容时锁只读，原始字节存这里原样发出。
+        self._raw_body: bytes = b""
+        self._binary = False
 
         self.url_edit = LineEdit(self)
         self.url_edit.setPlaceholderText("https://example.com/api")
@@ -208,6 +234,14 @@ class ComposeInterface(QWidget):
         self.send_btn.setFixedWidth(96)
         self.send_btn.setToolTip(self.tr("Send this request"))
 
+        # cURL 粘贴导入：读剪贴板灌表单，解析错误就地 show_error（v1 不做
+        # 粘贴编辑对话框）。
+        self.paste_curl_btn = ToolButton(FluentIcon.PASTE, self)
+        self.paste_curl_btn.setToolTip(
+            self.tr("Import a curl command from the clipboard")
+        )
+        self.paste_curl_btn.installEventFilter(ToolTipFilter(self.paste_curl_btn, 700))
+
         # 左侧：请求详情（参数/请求头/请求体，复用详情面板的可编辑组件）。
         self.request_panel = TabPanel(self)
         self.request_panel.setTabFontSize(12)
@@ -226,7 +260,19 @@ class ComposeInterface(QWidget):
 
         self.request_panel.addTab("Params", self.params_card, self.tr("Params"))
         self.request_panel.addTab("Headers", self.headers_card, self.tr("Headers"))
-        self.request_panel.addTab("Body", self.body_panel, self.tr("Body"))
+        # 二进制锁的提示条压在体编辑器下方（与断点面板的 body_box 同一个模式）。
+        self.body_hint = CaptionLabel(
+            QCoreApplication.translate("ComposeView", _BINARY_HINT), self
+        )
+        self.body_hint.setWordWrap(True)
+        self.body_hint.hide()
+        self.body_box = QWidget(self)
+        body_layout = QVBoxLayout(self.body_box)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(4)
+        body_layout.addWidget(self.body_panel, 1)
+        body_layout.addWidget(self.body_hint)
+        self.request_panel.addTab("Body", self.body_box, self.tr("Body"))
         self._sync_body_kind(0)
         # 请求头(N)：条数挂标签，随编辑实时变（参数变化实时写回 URL，见下）。
         self.headers_card.changed.connect(self._update_header_count)
@@ -284,6 +330,7 @@ class ComposeInterface(QWidget):
         top.setSpacing(8)
         top.addWidget(self.method_combo)
         top.addWidget(self.url_edit, stretch=1)
+        top.addWidget(self.paste_curl_btn)
         top.addWidget(self.send_btn)
 
         # 跟随全局布局：设置里水平 → 左右排，垂直 → 上下排（本页不反转）。
@@ -306,6 +353,7 @@ class ComposeInterface(QWidget):
 
     def __connect_signal_to_slot(self):
         self.send_btn.clicked.connect(self._on_send)
+        self.paste_curl_btn.clicked.connect(self._on_paste_curl)
         self.url_edit.returnPressed.connect(self._on_send)
         self.body_kind_combo.currentIndexChanged.connect(self._sync_body_kind)
         self.controller.sending_changed.connect(self._on_sending_changed)
@@ -347,7 +395,9 @@ class ComposeInterface(QWidget):
         """
         pairs = [(k, v) for k, v in self.params_card.items() if k.strip()]
         if pairs:
-            self.url_edit.setText(self._merge_query(self.url_edit.text().strip(), pairs))
+            self.url_edit.setText(
+                self._merge_query(self.url_edit.text().strip(), pairs)
+            )
 
     def _merge_query(self, url: str, pairs: list[tuple[str, str]]) -> str:
         """参数合并进 URL 查询串（与断点面板 `_merge_query` 同一套端口规范：
@@ -377,9 +427,68 @@ class ComposeInterface(QWidget):
     def _collect_url(self) -> str:
         """发送时的 URL = URL 栏 + 参数页合并。参数页是权威 query：编辑页语义上
         「参数」就是 URL 的查询串，两边各存一份只会互相打脸。"""
-        return self._merge_query(
-            self.url_edit.text().strip(), self.params_card.items()
-        )
+        return self._merge_query(self.url_edit.text().strip(), self.params_card.items())
+
+    def prefill(self, edit: RequestEdit) -> None:
+        """把一份请求草稿灌进表单（右键「Edit in Compose」/ cURL 导入）。
+
+        静默覆盖正在编辑的内容：compose 页没有「未保存草稿」概念，加确认框
+        成本大于收益。响应区复位——旧结果不属于这张新表单。
+        """
+        # setText 而不是 setCurrentText：后者的实现只认词表内项（findText 落空
+        # 就静默不动），PROPFIND 这类词表外方法会留在旧值上。
+        self.method_combo.setText(edit.method)
+        self.url_edit.setText(edit.url)
+        # query 拆进参数页（断点面板 `RequestPanel.load` 同款）：URL 栏留整串，
+        # 参数页是权威源，发送时再合并回去。
+        parts = urlsplit(edit.url)
+        self.params_card.set_items(parse_qsl(parts.query, keep_blank_values=True))
+        self.headers_card.set_items(list(edit.headers))
+        self._load_body(edit.content)
+        self.response_stack.setCurrentWidget(self.empty_hint)
+        self.status_badge.hide()
+
+    def _load_body(self, content: bytes) -> None:
+        """UTF-8 可解码 → 进编辑器；不可解码 → 二进制锁，原样直通发送。"""
+        self._raw_body = content
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            # 严格解码故意不加兜底：能显示的一定能一字节不差地发出去。
+            self._binary = True
+            text = ""
+        else:
+            self._binary = False
+        lang = _body_lang(text)
+        self.body_panel.set_text(text, lang)
+        # 同步「数据类型」下拉：它驱动高亮语言，不能让它和实际高亮打架。
+        self.body_kind_combo.setCurrentIndex(0 if lang is Language.JSON else 2)
+        self.body_hint.setVisible(self._binary)
+        self.body_panel.set_read_only(self._binary)
+
+    @Slot()
+    def _on_paste_curl(self) -> None:
+        text = QApplication.clipboard().text().strip()
+        # 空剪贴板 / 非 curl 开头在这里挡；语法细节错误由解析器报。
+        if not text:
+            show_error(
+                self.tr("Import failed"), self.tr("The clipboard is empty"), self
+            )
+            return
+        if not text.lower().startswith(("curl ", "curl.exe")):
+            show_error(
+                self.tr("Import failed"),
+                self.tr("The clipboard does not contain a curl command"),
+                self,
+            )
+            return
+        try:
+            edit = parse_curl(text)
+        except ValueError as exc:
+            show_error(self.tr("Import failed"), str(exc), self)
+            return
+        self.prefill(edit)
+        show_success(self.tr("Success"), self.tr("Request imported from curl"), self)
 
     @Slot()
     def _on_send(self):
@@ -393,7 +502,7 @@ class ComposeInterface(QWidget):
             method,
             url,
             self._collect_headers(),
-            self.body_panel.plain_text(),
+            self._raw_body if self._binary else self.body_panel.plain_text(),
             record=self.record_btn.isChecked(),
         )
 

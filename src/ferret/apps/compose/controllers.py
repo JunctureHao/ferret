@@ -32,19 +32,24 @@ class ComposeController(QObject):
         method: str,
         url: str,
         headers: list[tuple[str, str]],
-        body: str,
+        body: bytes | str,
         *,
         record: bool,
     ) -> None:
-        """发起一次发送；在途未完成时直接忽略（按钮已被禁用，这是双保险）。"""
+        """发起一次发送；在途未完成时直接忽略（按钮已被禁用，这是双保险）。
+
+        body 收 bytes 是二进制直通（prefill 锁只读的那类内容），原样下发；
+        str 走既有的 UTF-8 编码。facade 本就两个都收。
+        """
         if self._inflight_id:
             return
+        content = body if isinstance(body, bytes) else body.encode("utf-8")
         try:
             flow_id = self._mitm.send_custom_request(
                 method,
                 url,
                 headers,
-                body.encode("utf-8") if body else b"",
+                content,
                 record=record,
             )
         except (ValueError, RuntimeError, TimeoutError) as exc:

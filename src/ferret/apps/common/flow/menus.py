@@ -29,6 +29,9 @@ class FlowContextMenu(RoundMenu):
     delete_requested = Signal(int)  # 删除请求信号
     replay_file_requested = Signal()  # 从文件回放请求信号
     block_host_requested = Signal(str)  # 屏蔽此主机请求信号（携带 host）
+    # 「在 Compose 中编辑」请求信号（携带 flow id）。载荷是 id 不是 flow：
+    # handler 只拿 id 去 facade 提取，活 flow 引用不进 Qt 槽。
+    edit_in_compose_requested = Signal(str)
     comment_requested = Signal()
 
     def __init__(
@@ -66,12 +69,20 @@ class FlowContextMenu(RoundMenu):
         self.row_data = row_data
         self.flows = selected_flows or []
         self._refresh_replay_label()
+        # 多选禁用（「编辑并重发」语义不明）、CONNECT 禁用（隧道请求没有可编辑的
+        # 报文形态）。判据都来自既有入参，不新读活 flow。
+        self.edit_in_compose_action.setEnabled(
+            len(self.flows) == 1 and self.row_data.get("Method") != "CONNECT"
+        )
         self.export_menu.refresh_selection_labels()
 
     def __init_widget(self):
         """初始化界面组件"""
         self.client_replay_action = BaseAction(
             parent=self, icon=FluentIcon.SYNC, text=self.tr("Replay")
+        )
+        self.edit_in_compose_action = BaseAction(
+            parent=self, icon=FluentIcon.EDIT, text=self.tr("Edit in Compose")
         )
         self.replay_from_file_action = BaseAction(
             parent=self, icon=FluentIcon.FOLDER, text=self.tr("Replay from file...")
@@ -101,6 +112,8 @@ class FlowContextMenu(RoundMenu):
         if self.capabilities.can_replay:
             self.addAction(self.client_replay_action)
             self.addAction(self.replay_from_file_action)
+        if self.capabilities.can_edit_compose:
+            self.addAction(self.edit_in_compose_action)
         self.addMenu(self.export_menu)
         if self.capabilities.can_block:
             self.addAction(self.block_host_action)
@@ -112,6 +125,9 @@ class FlowContextMenu(RoundMenu):
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
         self.client_replay_action.triggered.connect(self.__on_client_replay_triggered)
+        self.edit_in_compose_action.triggered.connect(
+            self.__on_edit_in_compose_triggered
+        )
         self.replay_from_file_action.triggered.connect(self.replay_file_requested.emit)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.block_host_action.triggered.connect(self.__on_block_host_triggered)
@@ -157,6 +173,13 @@ class FlowContextMenu(RoundMenu):
     def __on_block_host_triggered(self):
         """把当前行的主机交给屏蔽规则页（由主窗口牵线到 BlockListController）。"""
         self.block_host_requested.emit(self.row_data.get("Host", ""))
+
+    @Slot()
+    def __on_edit_in_compose_triggered(self):
+        """把当前行交给 compose 页（由主窗口牵线：提取 → prefill → 切页）。"""
+        flow_id = self.row_data.get("id", "")
+        if flow_id:
+            self.edit_in_compose_requested.emit(flow_id)
 
     @Slot()
     def __show_url_window(self):

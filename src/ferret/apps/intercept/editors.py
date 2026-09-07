@@ -242,7 +242,9 @@ class RequestPanel(PhasePanel):
     def load(self, flow: HTTPFlow) -> None:
         """URL 整串进地址栏，query 同时解析进参数页 —— 写回时参数页说了算。"""
         request = flow.request
-        self.method_combo.setCurrentText(request.method)
+        # setText 而不是 setCurrentText：后者只认词表内项（findText 落空就静默
+        # 不动），词表外方法（PROPFIND 等）会显示成上一条的旧值并照样写回。
+        self.method_combo.setText(request.method)
         self.url_edit.setText(request.url)
         parts = urlsplit(request.url)
         self.params_panel.set_items(parse_qsl(parts.query, keep_blank_values=True))
