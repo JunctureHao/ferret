@@ -80,29 +80,29 @@ class FlowContextMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.client_replay_action = BaseAction(
-            parent=self, icon=FluentIcon.SYNC, text=self.tr("Replay")
+            parent=self, icon=FluentIcon.SYNC, text=self.tr("重发")
         )
         self.edit_in_compose_action = BaseAction(
-            parent=self, icon=FluentIcon.EDIT, text=self.tr("Edit in Compose")
+            parent=self, icon=FluentIcon.EDIT, text=self.tr("在 Compose 中编辑")
         )
         self.replay_from_file_action = BaseAction(
-            parent=self, icon=FluentIcon.FOLDER, text=self.tr("Replay from file...")
+            parent=self, icon=FluentIcon.FOLDER, text=self.tr("从文件回放…")
         )
         self.delete_action = BaseAction(
             parent=self,
             icon=FluentIcon.DELETE,
-            text=self.tr("Delete"),
+            text=self.tr("删除"),
             shortcut=QKeySequence.StandardKey.Delete,
         )
         self.block_host_action = BaseAction(
             parent=self,
             icon=FluentIcon.CANCEL_MEDIUM,
-            text=self.tr("Block this host"),
+            text=self.tr("屏蔽此主机"),
         )
         self.comment_action = BaseAction(
             parent=self,
             icon=FluentIcon.TAG,
-            text=self.tr("Comment..."),
+            text=self.tr("备注..."),
         )
         self.export_menu = FlowExportMenu(self, self.controller)
         self.view_menu = FlowSubViewMenu(self)
@@ -139,9 +139,9 @@ class FlowContextMenu(RoundMenu):
         """根据当前选中数量刷新重发动作文案：单选=重发，多选=重发 N 条。"""
         count = len(self.flows)
         if count <= 1:
-            self.client_replay_action.setText(self.tr("Replay"))
+            self.client_replay_action.setText(self.tr("重发"))
         else:
-            self.client_replay_action.setText(self.tr("Replay {} flows").format(count))
+            self.client_replay_action.setText(self.tr("重发 {} 条").format(count))
 
     @Slot()
     def __on_comment_triggered(self) -> None:
@@ -157,12 +157,12 @@ class FlowContextMenu(RoundMenu):
         try:
             self.controller.set_flow_comment(flow_id, dialog.comment())
             show_success(
-                self.tr("Success"),
-                self.tr("Comment saved"),
+                self.tr("成功"),
+                self.tr("备注已保存"),
                 self.main_window,
             )
         except (ValueError, RuntimeError) as exc:
-            show_warning(self.tr("Failed to save comment"), str(exc), self.main_window)
+            show_warning(self.tr("备注保存失败"), str(exc), self.main_window)
 
     @Slot()
     def __on_delete_triggered(self):
@@ -189,7 +189,7 @@ class FlowContextMenu(RoundMenu):
         msg = TextCopyDialog(url, "URL", self.main_window)
         if msg.exec():
             show_success(
-                self.tr("Success"), self.tr("URL copied to clipboard"), self.main_window
+                self.tr("成功"), self.tr("URL 已复制到剪贴板"), self.main_window
             )
 
     @Slot()
@@ -210,7 +210,7 @@ class FlowContextMenu(RoundMenu):
             if flow_id:
                 self.controller.replay_flow(flow_id)
         except (ValueError, RuntimeError) as exc:
-            show_warning(self.tr("Replay failed"), str(exc), self.main_window)
+            show_warning(self.tr("回放失败"), str(exc), self.main_window)
 
 
 class FlowExportMenu(RoundMenu):
@@ -229,66 +229,66 @@ class FlowExportMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.setIcon(FluentIcon.SAVE)
-        self.setTitle(self.tr("Export"))
+        self.setTitle(self.tr("导出"))
 
         self.curl_action = BaseAction(
             parent=self,
             icon=FluentIcon.COPY,
-            text=self.tr("Copy as cURL"),
+            text=self.tr("复制 cURL"),
             shortcut=QKeySequence("Ctrl+Shift+C"),
         )
         self.httpie_action = BaseAction(
             parent=self,
             icon=FluentIcon.CODE,
-            text=self.tr("Copy as HTTPie"),
+            text=self.tr("复制 HTTPie"),
         )
         self.raw_request_action = BaseAction(
             parent=self,
             icon=FluentIcon.DOCUMENT,
-            text=self.tr("Copy raw request"),
+            text=self.tr("复制原始请求"),
         )
         self.raw_response_action = BaseAction(
             parent=self,
             icon=FluentIcon.DOCUMENT,
-            text=self.tr("Copy raw response"),
+            text=self.tr("复制原始响应"),
         )
         self.raw_flow_action = BaseAction(
             parent=self,
             icon=FluentIcon.DOCUMENT,
-            text=self.tr("Copy raw flow"),
+            text=self.tr("复制原始流量"),
         )
         self.save_request_body_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("Save request body..."),
+            text=self.tr("另存请求体为文件…"),
         )
         self.save_response_body_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("Save response body..."),
+            text=self.tr("另存响应体为文件…"),
         )
         self.save_raw_request_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("Save raw request..."),
+            text=self.tr("另存原始请求为文件…"),
         )
         self.save_raw_response_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("Save raw response..."),
+            text=self.tr("另存原始响应为文件…"),
         )
         self.save_raw_flow_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("Save raw flow..."),
+            text=self.tr("另存原始流量为文件…"),
         )
         self.har_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("Export as HAR"),
+            text=self.tr("导出为 HAR"),
         )
         self.save_flows_action = BaseAction(
-            parent=self, icon=FluentIcon.SAVE, text=self.tr("Export as FLOW")
+            parent=self, icon=FluentIcon.SAVE, text=self.tr("导出为 FLOW")
         )
 
     def __init_action(self):
@@ -344,13 +344,11 @@ class FlowExportMenu(RoundMenu):
         """和重发一致：两个文件导出都作用于整个选区，把条数写进文案避免歧义。"""
         count = len(self.context_menu.flows)
         if count <= 1:
-            self.har_action.setText(self.tr("Export as HAR"))
-            self.save_flows_action.setText(self.tr("Export as FLOW"))
+            self.har_action.setText(self.tr("导出为 HAR"))
+            self.save_flows_action.setText(self.tr("导出为 FLOW"))
         else:
-            self.har_action.setText(self.tr("Export {} flows as HAR").format(count))
-            self.save_flows_action.setText(
-                self.tr("Export {} flows as FLOW").format(count)
-            )
+            self.har_action.setText(self.tr("导出 {} 条为 HAR").format(count))
+            self.save_flows_action.setText(self.tr("导出 {} 条为 FLOW").format(count))
 
     def __flow_id(self) -> str:
         """从上下文行数据取出 flow id"""
@@ -361,10 +359,8 @@ class FlowExportMenu(RoundMenu):
         flow_id = self.__flow_id()
         if not flow_id or not self.controller:
             show_warning(
-                self.tr("Warning"),
-                self.tr(
-                    "Export failed: the request is unfinished or the controller is unavailable"
-                ),
+                self.tr("警告"),
+                self.tr("导出失败：请求尚未完成或控制器不可用"),
                 self.main_window,
             )
             return
@@ -379,19 +375,16 @@ class FlowExportMenu(RoundMenu):
 
         if not text:
             show_warning(
-                self.tr("Warning"),
-                self.tr(
-                    "The %s command is not ready yet, wait for the request to finish"
-                )
-                % label,
+                self.tr("警告"),
+                self.tr("%s 命令尚未生成，请等待请求完成") % label,
                 self.main_window,
             )
             return
 
         QApplication.clipboard().setText(text)
         show_success(
-            self.tr("Success"),
-            self.tr("%s copied to clipboard") % label,
+            self.tr("成功"),
+            self.tr("%s 已复制到剪贴板") % label,
             self.main_window,
         )
 
@@ -400,28 +393,26 @@ class FlowExportMenu(RoundMenu):
         flow_id = self.__flow_id()
         if not flow_id or not self.controller:
             show_warning(
-                self.tr("Warning"),
-                self.tr(
-                    "Export failed: the request is unfinished or the controller is unavailable"
-                ),
+                self.tr("警告"),
+                self.tr("导出失败：请求尚未完成或控制器不可用"),
                 self.main_window,
             )
             return
 
         if kind == "raw_request":
             data = self.controller.get_raw_request(flow_id)
-            label = self.tr("Raw request")
+            label = self.tr("原始请求")
         elif kind == "raw_response":
             data = self.controller.get_raw_response(flow_id)
-            label = self.tr("Raw response")
+            label = self.tr("原始响应")
         else:
             data = self.controller.get_raw_flow(flow_id)
-            label = self.tr("Raw flow")
+            label = self.tr("原始流量")
 
         if not data:
             show_warning(
-                self.tr("Warning"),
-                self.tr("%s is not ready yet, wait for the request to finish") % label,
+                self.tr("警告"),
+                self.tr("%s 尚未生成，请等待请求完成") % label,
                 self.main_window,
             )
             return
@@ -434,8 +425,8 @@ class FlowExportMenu(RoundMenu):
 
         QApplication.clipboard().setText(text)
         show_success(
-            self.tr("Success"),
-            self.tr("%s copied to clipboard") % label,
+            self.tr("成功"),
+            self.tr("%s 已复制到剪贴板") % label,
             self.main_window,
         )
 
@@ -464,10 +455,8 @@ class FlowExportMenu(RoundMenu):
         flow_id = self.__flow_id()
         if not flow_id or not self.controller:
             show_warning(
-                self.tr("Warning"),
-                self.tr(
-                    "Export failed: the request is unfinished or the controller is unavailable"
-                ),
+                self.tr("警告"),
+                self.tr("导出失败：请求尚未完成或控制器不可用"),
                 self.main_window,
             )
             return
@@ -490,8 +479,8 @@ class FlowExportMenu(RoundMenu):
 
         if not data:
             show_warning(
-                self.tr("Warning"),
-                self.tr("The body is empty or the response is pending"),
+                self.tr("警告"),
+                self.tr("暂无可保存的内容，报文体为空或响应尚未到达"),
                 self.main_window,
             )
             return
@@ -499,9 +488,9 @@ class FlowExportMenu(RoundMenu):
         suggested = self.__default_save_name(kind)
         path, _ = QFileDialog.getSaveFileName(
             self.main_window,
-            self.tr("Save to file"),
+            self.tr("保存到文件"),
             suggested,
-            self.tr("All files (*)"),
+            self.tr("所有文件 (*)"),
         )
         # 用户取消返回空串，必须挡在写之前（同 __export_file 的坑：空路径会让
         # write_bytes 落到目录上抛 PermissionError，界面毫无反馈）。
@@ -514,12 +503,12 @@ class FlowExportMenu(RoundMenu):
         try:
             Path(path).write_bytes(data)
         except Exception as exc:  # noqa: BLE001
-            show_error(self.tr("Save failed"), str(exc), self.main_window)
+            show_error(self.tr("保存失败"), str(exc), self.main_window)
             return
 
         show_success(
-            self.tr("Success"),
-            self.tr("Saved to {}").format(Path(path).name),
+            self.tr("成功"),
+            self.tr("已保存到 {}").format(Path(path).name),
             self.main_window,
         )
 
@@ -559,28 +548,26 @@ class FlowExportMenu(RoundMenu):
         页和只读会话页（无 master）走同一条路径。
         """
         if not self.controller:
-            show_warning(
-                self.tr("Warning"), self.tr("Controller unavailable"), self.main_window
-            )
+            show_warning(self.tr("警告"), self.tr("控制器不可用"), self.main_window)
             return
 
         flows = list(self.context_menu.flows)
         if not flows:
             show_warning(
-                self.tr("Warning"),
-                self.tr("Select the flows you want to export first"),
+                self.tr("警告"),
+                self.tr("请先选中要导出的流量"),
                 self.main_window,
             )
             return
 
         if kind == "har":
-            title = self.tr("Export HAR")
+            title = self.tr("导出 HAR")
             suffix = ".har"
-            name_filter = self.tr("HAR files (*.har)")
+            name_filter = self.tr("HAR 文件 (*.har)")
         else:
-            title = self.tr("Export Flow")
+            title = self.tr("导出 Flow")
             suffix = ".flow"
-            name_filter = self.tr("Flow files (*.flow)")
+            name_filter = self.tr("Flow 文件 (*.flow)")
 
         path, _ = QFileDialog.getSaveFileName(
             self.main_window,
@@ -601,12 +588,12 @@ class FlowExportMenu(RoundMenu):
             else:
                 self.controller.save_flows(flows, path)
         except Exception as exc:  # noqa: BLE001
-            show_error(self.tr("Export failed"), str(exc), self.main_window)
+            show_error(self.tr("导出失败"), str(exc), self.main_window)
             return
 
         show_success(
-            self.tr("Success"),
-            self.tr("Exported {} flow(s) to {}").format(len(flows), Path(path).name),
+            self.tr("成功"),
+            self.tr("已导出 {} 条流量到 {}").format(len(flows), Path(path).name),
             self.main_window,
         )
 
@@ -640,7 +627,7 @@ class FlowSubViewMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.setIcon(FluentIcon.VIEW)
-        self.setTitle(self.tr("View"))
+        self.setTitle(self.tr("查看"))
         self.url_action = BaseAction(
             parent=self,
             icon=FluentIcon.LINK,

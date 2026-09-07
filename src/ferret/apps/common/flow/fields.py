@@ -13,12 +13,12 @@
 
 字段标签在这里**只做标记、不求值**：类体和模块级一样在导入期跑完，而
 `core/application.py` 在顶层就 import 了 MainWindow —— 那时翻译器还没装，
-求值出来的文案会永久冻结成英文。求值统一走 `field_label()` / `section_title()`。
+求值出来的文案会永久冻结成中文。求值统一走 `field_label()` / `section_title()`。
 值那一侧是 lambda，调用时才跑，所以可以直接写 `QCoreApplication.translate`。
 
 没被 `QT_TRANSLATE_NOOP` 包住的标签（``Code`` / ``SNI`` / ``Common Name`` 之类）是
 **故意**不译的专有名词，和搬过来之前保持一致：`translate()` 查不到就原样返回源文本，
-所以它们照旧显示英文，也不会进 `zh_CN.ts`。
+所以它们照旧显示原文，也不会进 `en_GB.ts`。
 
 翻译 context 统一是 ``"FlowFields"``，而且**必须逐字写成字面量** ——
 `tests/core/test_i18n.py` 的 `test_translate_always_names_its_context_literally` 只给
@@ -226,7 +226,7 @@ def _marker(value: object) -> str:
     """
     if not value:
         return "-"
-    return QCoreApplication.translate("FlowFields", "Marked")
+    return QCoreApplication.translate("FlowFields", "标记")
 
 
 def _size_of(*keys: str) -> Callable[[dict], object]:
@@ -265,9 +265,9 @@ def _any_present(*keys: str) -> Callable[[dict], bool]:
 # 早先还挂着 ``request_headers`` / ``response_headers`` 两条，配的是产出侧同样
 # 永远进不去的两条分支 —— 两边一起清掉了。
 _STATE_LABELS: dict[str, str] = {
-    "request": QT_TRANSLATE_NOOP("FlowFields", "Request sent"),
-    "complete": QT_TRANSLATE_NOOP("FlowFields", "Completed"),
-    "error": QT_TRANSLATE_NOOP("FlowFields", "Error"),
+    "request": QT_TRANSLATE_NOOP("FlowFields", "请求已发送"),
+    "complete": QT_TRANSLATE_NOOP("FlowFields", "已完成"),
+    "error": QT_TRANSLATE_NOOP("FlowFields", "错误"),
 }
 
 
@@ -277,7 +277,7 @@ def _state(data: dict) -> str:
         _STATE_LABELS,
         data.get("state", ""),
         "FlowFields",
-        QCoreApplication.translate("FlowFields", "Unknown"),
+        QCoreApplication.translate("FlowFields", "未知"),
     )
 
 
@@ -298,35 +298,35 @@ def _code_with_reason(data: dict) -> object:
 # `Via` / `Address` 只有后端产出（前端那侧 `Client.address` 是 `peername` 的废弃
 # 别名，产出侧刻意没写），前端渲染时这两行自然缺席 —— 一张表管两侧。
 _CONN_PEER_FIELDS: tuple[tuple[str, str], ...] = (
-    (QT_TRANSLATE_NOOP("FlowFields", "Client address"), "Client Address"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Client port"), "Client Port"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Server address"), "Server Address"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Server port"), "Server Port"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Requested address"), "Address"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Upstream proxy"), "Via"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Connection state"), "Connection State"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Transport"), "Transport Protocol"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Connection error"), "Connection Error"),
+    (QT_TRANSLATE_NOOP("FlowFields", "客户端 地址"), "Client Address"),
+    (QT_TRANSLATE_NOOP("FlowFields", "客户端 端口"), "Client Port"),
+    (QT_TRANSLATE_NOOP("FlowFields", "服务器地址"), "Server Address"),
+    (QT_TRANSLATE_NOOP("FlowFields", "服务端 端口"), "Server Port"),
+    (QT_TRANSLATE_NOOP("FlowFields", "请求地址"), "Address"),
+    (QT_TRANSLATE_NOOP("FlowFields", "上游代理"), "Via"),
+    (QT_TRANSLATE_NOOP("FlowFields", "连接状态"), "Connection State"),
+    (QT_TRANSLATE_NOOP("FlowFields", "传输协议"), "Transport Protocol"),
+    (QT_TRANSLATE_NOOP("FlowFields", "连接错误"), "Connection Error"),
 )
 
 # 证书的「主体」「签发者」两个小节共用的六项，只差 ``Subject`` / ``Issuer`` 键前缀。
 _CERT_NAME_FIELDS: tuple[tuple[str, str], ...] = (
     ("Common Name", "Common Name"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Country"), "Country"),
-    (QT_TRANSLATE_NOOP("FlowFields", "State or province"), "State"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Locality"), "Locality"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Organization"), "Organization"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Organizational unit"), "Organizational Unit"),
+    (QT_TRANSLATE_NOOP("FlowFields", "国家"), "Country"),
+    (QT_TRANSLATE_NOOP("FlowFields", "省（州）"), "State"),
+    (QT_TRANSLATE_NOOP("FlowFields", "地区"), "Locality"),
+    (QT_TRANSLATE_NOOP("FlowFields", "组织"), "Organization"),
+    (QT_TRANSLATE_NOOP("FlowFields", "单位"), "Organizational Unit"),
 )
 
 # TLS 两张卡共用的六项，只差 ``TLS`` / ``Client TLS`` 键前缀。
 _TLS_FIELDS: tuple[tuple[str, str], ...] = (
-    (QT_TRANSLATE_NOOP("FlowFields", "Version"), "Version"),
+    (QT_TRANSLATE_NOOP("FlowFields", "版本"), "Version"),
     ("SNI", "SNI"),
     ("ALPN", "ALPN Offers"),
-    (QT_TRANSLATE_NOOP("FlowFields", "ALPN selected"), "ALPN Selected"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Cipher list"), "Cipher List"),
-    (QT_TRANSLATE_NOOP("FlowFields", "Cipher selected"), "Cipher"),
+    (QT_TRANSLATE_NOOP("FlowFields", "选择ALPN"), "ALPN Selected"),
+    (QT_TRANSLATE_NOOP("FlowFields", "加密算法列表"), "Cipher List"),
+    (QT_TRANSLATE_NOOP("FlowFields", "选择算法"), "Cipher"),
 )
 
 # 值是列表、需要 `_join` 拍平的那两项。
@@ -452,219 +452,221 @@ def _tls_section(title: str, prefix: str, keys: tuple[str, ...]) -> Section:
 # 概览的完整规格：声明顺序就是渲染顺序，一个顶层分组一张卡。
 SECTIONS: tuple[Section, ...] = (
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Summary"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "概要"),
         fields=(
-            Field(QT_TRANSLATE_NOOP("FlowFields", "State"), _state),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Method"), "Method"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "状态"), _state),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "方法"), "Method"),
             Field("URL", "URL"),
             Field("Code", _code_with_reason),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Protocol"), "Protocol"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "协议"), "Protocol"),
             Field("Content Type", "Response Content-Type"),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Content encoding"),
+                QT_TRANSLATE_NOOP("FlowFields", "内容编码"),
                 "Response Content-Encoding",
             ),
             Field("Keep Alive", "Keep Alive"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Proxy protocol"), "Proxy Protocol"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Server address"), "Server Address"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "代理协议"), "Proxy Protocol"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "服务器地址"), "Server Address"),
         ),
     ),
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Timing"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "耗时"),
         when=_any_present(*_TIME_KEYS),
         fields=(
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Flow created"),
+                QT_TRANSLATE_NOOP("FlowFields", "流量创建"),
                 "Flow Created",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Client TLS handshake"),
+                QT_TRANSLATE_NOOP("FlowFields", "客户端 TLS 握手"),
                 "Front TLS Handshake",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Request start"),
+                QT_TRANSLATE_NOOP("FlowFields", "请求开始"),
                 "req_time",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Request end"),
+                QT_TRANSLATE_NOOP("FlowFields", "请求结束"),
                 "req_timestamp_end",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Request duration"),
+                QT_TRANSLATE_NOOP("FlowFields", "请求时长"),
                 "req_duration",
                 fmt=_ms,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "TCP handshake"),
+                QT_TRANSLATE_NOOP("FlowFields", "TCP 握手"),
                 "Back TCP Handshake",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Server TLS handshake"),
+                QT_TRANSLATE_NOOP("FlowFields", "服务端 TLS 握手"),
                 "Back TLS Handshake",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Response start"),
+                QT_TRANSLATE_NOOP("FlowFields", "响应开始"),
                 "res_timestamp_start",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Response end"),
+                QT_TRANSLATE_NOOP("FlowFields", "响应结束"),
                 "res_time",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Response duration"),
+                QT_TRANSLATE_NOOP("FlowFields", "响应时长"),
                 "res_duration",
                 fmt=_ms,
             ),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Total duration"), "Duration"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "总时长"), "Duration"),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Client connection end"),
+                QT_TRANSLATE_NOOP("FlowFields", "客户端连接结束"),
                 "Front Connection End",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Server connection end"),
+                QT_TRANSLATE_NOOP("FlowFields", "服务端连接结束"),
                 "Back Connection End",
                 fmt=format_time,
             ),
         ),
     ),
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Size"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "大小"),
         when=_any_present(*_SIZE_KEYS),
         fields=(
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Request"),
+                QT_TRANSLATE_NOOP("FlowFields", "请求"),
                 _size_of("req_total_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "- Request headers"),
+                QT_TRANSLATE_NOOP("FlowFields", "- 请求头"),
                 _size_of("req_headers_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "- Request body on the wire"),
+                QT_TRANSLATE_NOOP("FlowFields", "- 请求体（线上）"),
                 _size_of("req_wire_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "- Request body decoded"),
+                QT_TRANSLATE_NOOP("FlowFields", "- 请求体（解压后）"),
                 _decoded_size("req_wire_size", "req_decoded_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Response"),
+                QT_TRANSLATE_NOOP("FlowFields", "响应"),
                 _size_of("res_total_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "- Response headers"),
+                QT_TRANSLATE_NOOP("FlowFields", "- 响应头"),
                 _size_of("res_headers_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "- Response body on the wire"),
+                QT_TRANSLATE_NOOP("FlowFields", "- 响应体（线上）"),
                 _size_of("res_wire_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "- Response body decoded"),
+                QT_TRANSLATE_NOOP("FlowFields", "- 响应体（解压后）"),
                 _decoded_size("res_wire_size", "res_decoded_size"),
             ),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Total"), _size_of("total_size")),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "总计"), _size_of("total_size")),
         ),
     ),
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Connection"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "连接"),
         collapsed=True,
         when=_any_value("Connection ID", "Connection Time"),
         fields=(
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Time"), "Connection Time"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Proxy mode"), "Client Proxy Mode"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "时间"), "Connection Time"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "代理模式"), "Client Proxy Mode"),
             _peer_section(
-                QT_TRANSLATE_NOOP("FlowFields", "Frontend"), "Front", "Connection ID"
+                QT_TRANSLATE_NOOP("FlowFields", "前端"), "Front", "Connection ID"
             ),
             _peer_section(
-                QT_TRANSLATE_NOOP("FlowFields", "Backend"), "Back", "Back Connection ID"
+                QT_TRANSLATE_NOOP("FlowFields", "后端"), "Back", "Back Connection ID"
             ),
         ),
     ),
-    _tls_section(QT_TRANSLATE_NOOP("FlowFields", "TLS · server"), "TLS", _TLS_KEYS),
+    _tls_section(QT_TRANSLATE_NOOP("FlowFields", "TLS · 服务端"), "TLS", _TLS_KEYS),
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "TLS · client"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "TLS · 客户端"),
         collapsed=True,
         when=_any_value(*_CLIENT_TLS_KEYS, "Client Mitm Certificate"),
         fields=(
             *_tls_section("", "Client TLS", _CLIENT_TLS_KEYS).fields,
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Mitm certificate"),
+                QT_TRANSLATE_NOOP("FlowFields", "中间人证书"),
                 "Client Mitm Certificate",
             ),
         ),
     ),
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Server certificate"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "服务端证书"),
         collapsed=True,
         when=_any_value(*_CERT_KEYS),
         fields=(
             _cert_name_section("Subject", "Subject"),
-            _cert_name_section(QT_TRANSLATE_NOOP("FlowFields", "Issuer"), "Issuer"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Not before"), "Not Before"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Not after"), "Not After"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Expired"), "Certificate Expired"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Is CA"), "Certificate Is CA"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Public key"), "Certificate Key"),
+            _cert_name_section(QT_TRANSLATE_NOOP("FlowFields", "签发者"), "Issuer"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "开始时间"), "Not Before"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "截止时间"), "Not After"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "已过期"), "Certificate Expired"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "是否 CA"), "Certificate Is CA"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "公钥"), "Certificate Key"),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Alt names"),
+                QT_TRANSLATE_NOOP("FlowFields", "备用名称"),
                 "Certificate Alt Names",
                 fmt=_join,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Chain depth"),
+                QT_TRANSLATE_NOOP("FlowFields", "证书链层数"),
                 "Certificate Chain Depth",
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Chain"), "Certificate Chain", fmt=_join
+                QT_TRANSLATE_NOOP("FlowFields", "证书链"),
+                "Certificate Chain",
+                fmt=_join,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Fingerprint"),
+                QT_TRANSLATE_NOOP("FlowFields", "指纹"),
                 "Fingerprint SHA256",
                 mono=True,
             ),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Serial number"),
+                QT_TRANSLATE_NOOP("FlowFields", "序列号"),
                 "Serial Number Hex",
                 mono=True,
             ),
         ),
     ),
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Error"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "错误"),
         when=_any_value("Error Message"),
         fields=(
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Message"), "Error Message"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "错误信息"), "Error Message"),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Time"), "Error Time", fmt=format_time
+                QT_TRANSLATE_NOOP("FlowFields", "时间"), "Error Time", fmt=format_time
             ),
         ),
     ),
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "Flow metadata"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "流量元数据"),
         collapsed=True,
         when=_any_value("Flow ID"),
         fields=(
             Field("ID", "Flow ID", mono=True),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Type"), "Flow Type"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "State version"), "Flow Version"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Live"), "live"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Intercepted"), "Intercepted"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Modified"), "Modified"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Replay"), "is_replay"),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Marked"), "marked", fmt=_marker),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "Comment"), "comment"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "类型"), "Flow Type"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "状态版本"), "Flow Version"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "存活"), "live"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "已拦截"), "Intercepted"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "已修改"), "Modified"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "重放"), "is_replay"),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "标记"), "marked", fmt=_marker),
+            Field(QT_TRANSLATE_NOOP("FlowFields", "备注"), "comment"),
             Field(
-                QT_TRANSLATE_NOOP("FlowFields", "Metadata"), "Flow Metadata", fmt=_pairs
+                QT_TRANSLATE_NOOP("FlowFields", "元数据"), "Flow Metadata", fmt=_pairs
             ),
         ),
     ),
@@ -710,7 +712,7 @@ class FieldCard(QWidget):
 
         self.copy_button = TransparentToolButton(FluentIcon.COPY, self.header)
         self.copy_button.setToolTip(
-            QCoreApplication.translate("FlowFields", "Copy this group")
+            QCoreApplication.translate("FlowFields", "复制本组")
         )
         self.copy_button.clicked.connect(self.copy_to_clipboard)
         header_layout.addWidget(self.copy_button)

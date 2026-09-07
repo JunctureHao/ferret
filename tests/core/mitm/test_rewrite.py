@@ -146,9 +146,9 @@ class RewriteRuleSpecTests(unittest.TestCase):
 
     def test_each_field_is_blamed_for_its_own_error(self) -> None:
         """两栏的报错不能互相错怪：正则写一半时用户改的是「原始 URL」那一栏。"""
-        with self.assertRaisesRegex(ValueError, "Invalid match value"):
+        with self.assertRaisesRegex(ValueError, "无效的匹配值"):
             rule(RewriteLogic.REGEX, "bad(", "http://x.com/").to_spec()
-        with self.assertRaisesRegex(ValueError, "Invalid rewrite target"):
+        with self.assertRaisesRegex(ValueError, "无效的重写目标"):
             rule(RewriteLogic.REGEX, "ok.com", BACKSLASH + "1").to_spec()
 
     def test_equals_requires_an_absolute_replacement_url(self) -> None:
@@ -570,7 +570,7 @@ class MapLocalSpecTests(unittest.TestCase):
         """原生 resolve(strict=True) 的失败会连坐整批规则，必须自己先拦。"""
         with self.assertRaises(ValueError) as ctx:
             self.rule(replacement=os.path.join(self.dir, "nope.json")).to_spec()
-        self.assertIn("The local path does not exist", str(ctx.exception))
+        self.assertIn("本地路径不存在或不可访问", str(ctx.exception))
 
     def test_a_blank_path_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -579,7 +579,7 @@ class MapLocalSpecTests(unittest.TestCase):
     def test_a_broken_url_regex_is_blamed_on_the_match_value(self) -> None:
         with self.assertRaises(ValueError) as ctx:
             self.rule(logic=RewriteLogic.REGEX, value="bad(").to_spec()
-        self.assertIn("Invalid match value", str(ctx.exception))
+        self.assertIn("无效的匹配值", str(ctx.exception))
 
     def test_the_separator_avoids_the_path(self) -> None:
         """Windows 路径里带 ``:`` 和 ``/``，分隔符必须挑一个都没出现的字符。"""

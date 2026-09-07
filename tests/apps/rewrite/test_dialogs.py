@@ -96,9 +96,9 @@ class LayoutPerKindTests(DialogHost):
 
     def test_the_labels_follow_the_kind(self) -> None:
         cases = {
-            RewriteKind.MAP_LOCAL: ("", "Local file or folder"),
-            RewriteKind.MODIFY_REQUEST_HEADER: ("Header name", "Header value"),
-            RewriteKind.MODIFY_RESPONSE_BODY: ("Body pattern", "New content"),
+            RewriteKind.MAP_LOCAL: ("", "本地文件或目录"),
+            RewriteKind.MODIFY_REQUEST_HEADER: ("头名称", "头值"),
+            RewriteKind.MODIFY_RESPONSE_BODY: ("体正则", "新内容"),
         }
         for kind, (target, replacement) in cases.items():
             with self.subTest(kind=kind):
@@ -113,7 +113,7 @@ class LayoutPerKindTests(DialogHost):
         dlg = self.dialog()
         self.pick(dlg, RewriteKind.MODIFY_REQUEST_HEADER)
         self.assertIn("@", dlg.hint_label.text())
-        self.assertIn("remove only", dlg.hint_label.text())
+        self.assertIn("只删不加", dlg.hint_label.text())
 
     def test_body_kinds_spell_out_the_whole_body_pattern(self) -> None:
         """「体正则留空」到底下发了什么，只能明说 —— 否则和「还没填」分不开。"""
@@ -125,9 +125,9 @@ class LayoutPerKindTests(DialogHost):
         """其余五类的匹配栏只用来挑流量，措辞不能讲「替换」。"""
         dlg = self.dialog()
         self.pick(dlg, RewriteKind.MAP_REMOTE)
-        self.assertIn("Replaces this text", dlg.hint_label.text())
+        self.assertIn("把 URL 中出现的这段文本换成重写目标", dlg.hint_label.text())
         self.pick(dlg, RewriteKind.MODIFY_REQUEST_HEADER)
-        self.assertIn("Matches when", dlg.hint_label.text())
+        self.assertIn("URL 中出现这段文本即命中", dlg.hint_label.text())
 
     def test_the_value_placeholder_follows_the_logic(self) -> None:
         dlg = self.dialog()
@@ -238,7 +238,7 @@ class ValidationGateTests(DialogHost):
     def test_a_blank_form_cannot_be_saved(self) -> None:
         dlg = self.dialog()
         self.assertFalse(dlg.yesButton.isEnabled())
-        self.assertEqual(dlg.preview_label.text(), "Match value cannot be empty")
+        self.assertEqual(dlg.preview_label.text(), "匹配值不能为空")
 
     def test_a_complete_map_remote_rule_previews_both_halves(self) -> None:
         dlg = self.dialog()
@@ -246,8 +246,8 @@ class ValidationGateTests(DialogHost):
         dlg.value_edit.setText("https://api.example.com/v1/user")
         dlg.replacement_edit.setText("http://127.0.0.1:8000/v1/user")
         self.assertTrue(dlg.yesButton.isEnabled())
-        self.assertIn("Match pattern: ", dlg.preview_label.text())
-        self.assertIn("Rewrite to: ", dlg.preview_label.text())
+        self.assertIn("匹配正则：", dlg.preview_label.text())
+        self.assertIn("替换为：", dlg.preview_label.text())
 
     def test_map_remote_needs_a_full_url_when_matching_the_whole_url(self) -> None:
         """否则是 `request.url` 的 setter 在钩子里对着真实流量抛。"""
@@ -256,7 +256,7 @@ class ValidationGateTests(DialogHost):
         dlg.value_edit.setText("https://api.example.com/v1/user")
         dlg.replacement_edit.setText("127.0.0.1:8000")
         self.assertFalse(dlg.yesButton.isEnabled())
-        self.assertIn("must be a full URL", dlg.preview_label.text())
+        self.assertIn("必须是带协议和主机名的完整 URL", dlg.preview_label.text())
 
     def test_map_local_rejects_a_path_that_is_not_there_yet(self) -> None:
         """原生 `parse_map_local_spec` 用 `resolve(strict=True)`，路径必须当下存在。"""
@@ -265,7 +265,7 @@ class ValidationGateTests(DialogHost):
         dlg.value_edit.setText("api.example.com")
         dlg.replacement_edit.setText("D:/definitely/not/here.json")
         self.assertFalse(dlg.yesButton.isEnabled())
-        self.assertIn("The local path does not exist", dlg.preview_label.text())
+        self.assertIn("本地路径不存在或不可访问", dlg.preview_label.text())
 
     def test_map_local_accepts_a_real_file_and_previews_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -276,7 +276,7 @@ class ValidationGateTests(DialogHost):
             dlg.value_edit.setText("api.example.com")
             dlg.replacement_edit.setText(str(path))
             self.assertTrue(dlg.yesButton.isEnabled())
-            self.assertIn("Local path: ", dlg.preview_label.text())
+            self.assertIn("本地路径：", dlg.preview_label.text())
 
     def test_a_header_rule_needs_a_name_but_not_a_value(self) -> None:
         """头值留空 = 只删不加，是合法且有意义的（原生 pop 完不 add 回去）。"""
@@ -286,7 +286,7 @@ class ValidationGateTests(DialogHost):
         self.assertFalse(dlg.yesButton.isEnabled())
         dlg.target_edit.setText("User-Agent")
         self.assertTrue(dlg.yesButton.isEnabled())
-        self.assertIn("(remove this header)", dlg.preview_label.text())
+        self.assertIn("（删除该头）", dlg.preview_label.text())
 
     def test_a_body_rule_needs_neither_column_filled(self) -> None:
         """空正则 = 整体替换，空内容 = 清空 body。"""
@@ -303,7 +303,7 @@ class ValidationGateTests(DialogHost):
         dlg.value_edit.setText("bad(")
         dlg.replacement_edit.setText("http://127.0.0.1:8000/x")
         self.assertFalse(dlg.yesButton.isEnabled())
-        self.assertIn("Invalid match value", dlg.preview_label.text())
+        self.assertIn("无效的匹配值", dlg.preview_label.text())
 
     def test_a_broken_backreference_blames_the_replacement(self) -> None:
         """原生从不校验 replacement，坏反向引用要等钩子里那句 `re.sub` 才炸。"""
@@ -312,7 +312,7 @@ class ValidationGateTests(DialogHost):
         dlg.value_edit.setText(r"^https://api\.example\.com/(.*)")
         dlg.replacement_edit.setText(r"http://127.0.0.1:8000/\9")
         self.assertFalse(dlg.yesButton.isEnabled())
-        self.assertIn("Invalid rewrite target", dlg.preview_label.text())
+        self.assertIn("无效的重写目标", dlg.preview_label.text())
 
     def test_typing_in_the_multiline_editor_revalidates(self) -> None:
         """多行编辑器发的是自己的 `changed`，不是 `textChanged` —— 得单独连。"""

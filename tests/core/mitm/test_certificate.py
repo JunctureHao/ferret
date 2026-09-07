@@ -294,8 +294,8 @@ class InstallTests(ServiceTestCase):
         self.certutil.addstore_code = CANCELLED
         with self.assertRaises(CertificateCancelled) as ctx:
             self.service.install()
-        self.assertIn("cancelled", str(ctx.exception))
-        self.assertNotIn("Could not install", str(ctx.exception))
+        self.assertIn("安装证书已取消", str(ctx.exception))
+        self.assertNotIn("安装证书失败", str(ctx.exception))
         # 仍然是 CertificateError 的子类：老的 except 分支不会漏接。
         self.assertIsInstance(ctx.exception, CertificateError)
 
@@ -363,7 +363,7 @@ class UninstallTests(ServiceTestCase):
         self.certutil.delstore_deletes = False
         with self.assertRaises(CertificateError) as ctx:
             self.service.uninstall()
-        self.assertIn("still left in the system trust store", str(ctx.exception))
+        self.assertIn("系统信任库中仍有残留证书", str(ctx.exception))
         self.assertEqual(self.certutil.count("-delstore"), _MAX_DELETE_ROUNDS)
 
     def test_uninstall_succeeds_at_round_limit(self) -> None:

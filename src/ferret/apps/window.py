@@ -106,38 +106,34 @@ class MainWindow(FluentWindow):
         self.__connect_signal_to_slot()
 
     def __init_navigation(self):
+        self.addSubInterface(self.captures_interface, FluentIcon.WIFI, self.tr("捕获"))
+
         self.addSubInterface(
-            self.captures_interface, FluentIcon.WIFI, self.tr("Captures")
+            self.sessions_interface, FluentIcon.HISTORY, self.tr("会话")
         )
 
+        self.addSubInterface(self.gateway_interface, FluentIcon.VPN, self.tr("网关"))
+
         self.addSubInterface(
-            self.sessions_interface, FluentIcon.HISTORY, self.tr("Sessions")
+            self.rewrite_interface, FluentIcon.PENCIL_INK, self.tr("重写")
         )
 
-        self.addSubInterface(self.gateway_interface, FluentIcon.VPN, self.tr("Gateway"))
+        self.addSubInterface(self.intercept_interface, BaseIcon.BUG, self.tr("断点"))
 
         self.addSubInterface(
-            self.rewrite_interface, FluentIcon.PENCIL_INK, self.tr("Rewrite")
-        )
-
-        self.addSubInterface(
-            self.intercept_interface, BaseIcon.BUG, self.tr("Intercept")
-        )
-
-        self.addSubInterface(
-            self.compose_interface, FluentIcon.SEND, self.tr("Compose")
+            self.compose_interface, FluentIcon.SEND, self.tr("请求编辑")
         )
 
         self.addSubInterface(
             self.certificate_interface,
             FluentIcon.CERTIFICATE,
-            self.tr("Certificate"),
+            self.tr("证书"),
         )
 
         self.addSubInterface(
             self.settings_interface,
             FluentIcon.SETTING,
-            self.tr("Settings"),
+            self.tr("设置"),
             NavigationItemPosition.BOTTOM,
         )
 
@@ -171,7 +167,7 @@ class MainWindow(FluentWindow):
         """
         self.tray_icon.showMessage(
             APP_NAME,
-            self.tr("Intercepted {} flow(s), waiting to be handled").format(count),
+            self.tr("断点拦下 {} 条流量，等待处理").format(count),
             QIcon(":/icon"),
             5000,
         )
@@ -186,7 +182,7 @@ class MainWindow(FluentWindow):
         try:
             edit = self.captures_interface.controller.request_edit(flow_id)
         except (ValueError, RuntimeError) as exc:
-            show_warning(self.tr("Edit in Compose failed"), str(exc), self)
+            show_warning(self.tr("在 Compose 中编辑失败"), str(exc), self)
             return
         self.compose_interface.prefill(edit)
         self.switchTo(self.compose_interface)
@@ -248,7 +244,7 @@ class SystemTray(QSystemTrayIcon):
     def __init_tray_menu(self):
         self.quit_action = BaseAction(
             icon=FluentIcon.POWER_BUTTON,
-            text=self.tr("Quit"),
+            text=self.tr("退出"),
             parent=self,
             triggered=self._on_quit,
         )
@@ -277,7 +273,7 @@ class PinButton(FluentTitleBarButton):
 
     def __init_widget(self):
         """初始化组件"""
-        self.setToolTip(self.tr("Pin window"))
+        self.setToolTip(self.tr("置顶"))
         self.installEventFilter(ToolTipFilter(self, 1000, ToolTipPosition.TOP))
 
     def __init_shortcut(self):
@@ -300,7 +296,7 @@ class PinButton(FluentTitleBarButton):
         """更新 UI"""
         if self._is_pinned:
             self.setIcon(FluentIcon.UNPIN)
-            self.setToolTip(self.tr("Unpin window") + f" ({self._shortcut})")
+            self.setToolTip(self.tr("取消置顶") + f" ({self._shortcut})")
         else:
             self.setIcon(FluentIcon.PIN)
-            self.setToolTip(self.tr("Pin window") + f" ({self._shortcut})")
+            self.setToolTip(self.tr("置顶") + f" ({self._shortcut})")

@@ -29,62 +29,62 @@ from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 # 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在下面那几个
 # `*_label()` 里做（见 `ferret.utils.i18n`）。
 LAYER_LABELS: dict[GatewayLayer, str] = {
-    GatewayLayer.L4: QT_TRANSLATE_NOOP("GatewayLayer", "Transport layer"),
-    GatewayLayer.L7: QT_TRANSLATE_NOOP("GatewayLayer", "Application layer"),
+    GatewayLayer.L4: QT_TRANSLATE_NOOP("GatewayLayer", "传输层"),
+    GatewayLayer.L7: QT_TRANSLATE_NOOP("GatewayLayer", "应用层"),
 }
 
 POLICY_LABELS: dict[GatewayPolicy, str] = {
-    GatewayPolicy.ALLOW_ONLY: QT_TRANSLATE_NOOP("GatewayPolicy", "Allow only"),
-    GatewayPolicy.BYPASS: QT_TRANSLATE_NOOP("GatewayPolicy", "Bypass"),
-    GatewayPolicy.BLOCK: QT_TRANSLATE_NOOP("GatewayPolicy", "Block"),
-    GatewayPolicy.BLOCK_OUT: QT_TRANSLATE_NOOP("GatewayPolicy", "Block (outbound)"),
-    GatewayPolicy.BLOCK_IN: QT_TRANSLATE_NOOP("GatewayPolicy", "Block (inbound)"),
-    GatewayPolicy.SUSPEND_OUT: QT_TRANSLATE_NOOP("GatewayPolicy", "Suspend (outbound)"),
-    GatewayPolicy.SUSPEND_IN: QT_TRANSLATE_NOOP("GatewayPolicy", "Suspend (inbound)"),
+    GatewayPolicy.ALLOW_ONLY: QT_TRANSLATE_NOOP("GatewayPolicy", "仅允许"),
+    GatewayPolicy.BYPASS: QT_TRANSLATE_NOOP("GatewayPolicy", "绕行"),
+    GatewayPolicy.BLOCK: QT_TRANSLATE_NOOP("GatewayPolicy", "屏蔽"),
+    GatewayPolicy.BLOCK_OUT: QT_TRANSLATE_NOOP("GatewayPolicy", "屏蔽（出）"),
+    GatewayPolicy.BLOCK_IN: QT_TRANSLATE_NOOP("GatewayPolicy", "屏蔽（入）"),
+    GatewayPolicy.SUSPEND_OUT: QT_TRANSLATE_NOOP("GatewayPolicy", "挂起（出）"),
+    GatewayPolicy.SUSPEND_IN: QT_TRANSLATE_NOOP("GatewayPolicy", "挂起（入）"),
 }
 
 # 策略说明。措辞对齐 core/mitm/gateway.py 里各策略实际落地的机制，别写成愿望。
 POLICY_HINTS: dict[GatewayPolicy, str] = {
     GatewayPolicy.ALLOW_ONLY: QT_TRANSLATE_NOOP(
         "GatewayPolicy",
-        "Allow list: only matching traffic is captured, everything else is bypassed (not dropped).",
+        "白名单：只抓取命中的流量，其余一律绕行（不是丢弃）。",
     ),
     GatewayPolicy.BYPASS: QT_TRANSLATE_NOOP(
         "GatewayPolicy",
-        "Matching traffic still reaches the server, but it is not captured and never enters the flow list.",
+        "命中的流量照常发往服务器，但不抓包、不进流量列表。",
     ),
     GatewayPolicy.BLOCK: QT_TRANSLATE_NOOP(
         "GatewayPolicy",
-        "Matching connections never reach the server and leave no flow record.",
+        "命中的连接到不了服务器，也不会产生流量记录。",
     ),
     GatewayPolicy.BLOCK_OUT: QT_TRANSLATE_NOOP(
         "GatewayPolicy",
-        "Hold the request back from the server and answer the client with the response below.",
+        "拦住发往服务器的请求，直接按下面的响应回给客户端。",
     ),
     GatewayPolicy.BLOCK_IN: QT_TRANSLATE_NOOP(
         "GatewayPolicy",
-        "The server response already arrived, but it is not forwarded to the client; the connection is closed instead.",
+        "服务器的响应已经回来了，但不转发给客户端，直接断开。",
     ),
     GatewayPolicy.SUSPEND_OUT: QT_TRANSLATE_NOOP(
         "GatewayPolicy",
-        "Hold the request before it is sent to fake a timeout; the connection stays open until the rule changes or the master switch goes off.",
+        "请求发出前挂住不放，模拟超时；不断连，直到规则变更或关掉总开关。",
     ),
     GatewayPolicy.SUSPEND_IN: QT_TRANSLATE_NOOP(
         "GatewayPolicy",
-        "Hold the response instead of forwarding it to fake a timeout; the connection stays open until the rule changes or the master switch goes off.",
+        "响应回来后挂住不转发，模拟超时；不断连，直到规则变更或关掉总开关。",
     ),
 }
 
 FIELD_LABELS: dict[GatewayField, str] = {
-    GatewayField.HOST: QT_TRANSLATE_NOOP("GatewayField", "Host"),
-    GatewayField.METHOD: QT_TRANSLATE_NOOP("GatewayField", "Method"),
+    GatewayField.HOST: QT_TRANSLATE_NOOP("GatewayField", "主机"),
+    GatewayField.METHOD: QT_TRANSLATE_NOOP("GatewayField", "方法"),
 }
 
 # 与抓包过滤条的措辞保持一致（apps/capture/services.py 的 _condition_to_expr）。
 LOGIC_LABELS: dict[GatewayLogic, str] = {
-    GatewayLogic.CONTAINS: QT_TRANSLATE_NOOP("GatewayLogic", "Contains"),
-    GatewayLogic.EQUALS: QT_TRANSLATE_NOOP("GatewayLogic", "Equals"),
-    GatewayLogic.REGEX: QT_TRANSLATE_NOOP("GatewayLogic", "Regex"),
+    GatewayLogic.CONTAINS: QT_TRANSLATE_NOOP("GatewayLogic", "包含"),
+    GatewayLogic.EQUALS: QT_TRANSLATE_NOOP("GatewayLogic", "等于"),
+    GatewayLogic.REGEX: QT_TRANSLATE_NOOP("GatewayLogic", "正则表达式"),
 }
 
 # 前四条是 HTTP 的 reason phrase，本身就是协议原文，不翻；最后一条不是状态码，是
@@ -94,7 +94,7 @@ STATUS_LABELS: dict[int, str] = {
     404: "404 Not Found",
     451: "451 Unavailable For Legal Reasons",
     502: "502 Bad Gateway",
-    GATEWAY_STATUS_CLOSE: QT_TRANSLATE_NOOP("GatewayStatus", "{} Close the connection"),
+    GATEWAY_STATUS_CLOSE: QT_TRANSLATE_NOOP("GatewayStatus", "{} 直接断开连接"),
 }
 
 STATUS_CHOICES: list[int] = [403, 404, 451, 502, GATEWAY_STATUS_CLOSE]
@@ -145,9 +145,7 @@ def rule_summary(rule: GatewayRule) -> str:
     except ValueError as exc:
         return str(exc)
     # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
-    matched = QCoreApplication.translate("GatewayRule", "Match pattern: {}").format(
-        pattern
-    )
+    matched = QCoreApplication.translate("GatewayRule", "匹配正则：{}").format(pattern)
     return f"{policy_hint(rule.policy)}\n{matched}"
 
 
@@ -157,13 +155,13 @@ class GatewayRuleTableModel(QAbstractTableModel):
 
     # 同理只做标记：类体也是导入期就求值的。求值在 `headerData()` 里做。
     HEADERS: ClassVar[list[str]] = [
-        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "Enabled"),
-        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "Layer"),
-        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "Policy"),
-        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "Match on"),
-        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "Condition"),
-        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "Value"),
-        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "Response"),
+        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "启用"),
+        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "层"),
+        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "策略"),
+        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "匹配对象"),
+        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "条件"),
+        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "值"),
+        QT_TRANSLATE_NOOP("GatewayRuleTableModel", "响应"),
     ]
 
     enabled_toggled = Signal(int, bool)

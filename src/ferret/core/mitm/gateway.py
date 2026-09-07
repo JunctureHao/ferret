@@ -141,7 +141,7 @@ class GatewayRule:
         value = self.value.strip()
         if not value:
             raise ValueError(
-                QCoreApplication.translate("GatewayRule", "Match value cannot be empty")
+                QCoreApplication.translate("GatewayRule", "匹配值不能为空")
             )
         if self.logic == GatewayLogic.REGEX:
             return value
@@ -169,7 +169,7 @@ class GatewayRule:
             # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
             raise ValueError(
                 QCoreApplication.translate(
-                    "GatewayRule", "Invalid regular expression: {}"
+                    "GatewayRule", "无效的正则表达式：{}"
                 ).format(exc)
             ) from exc
 
@@ -182,20 +182,16 @@ class GatewayRule:
         translate = QCoreApplication.translate
         if self.policy not in LAYER_POLICIES[self.layer]:
             raise ValueError(
-                translate("GatewayRule", "{} does not support the {} policy").format(
+                translate("GatewayRule", "{} 不支持策略 {}").format(
                     self.layer, self.policy
                 )
             )
         if self.layer == GatewayLayer.L4 and self.field != GatewayField.HOST:
             # 连接还没有 HTTP 语义，拿不到方法。
-            raise ValueError(
-                translate(
-                    "GatewayRule", "Transport-layer rules can only match on the host"
-                )
-            )
+            raise ValueError(translate("GatewayRule", "传输层规则只能按主机匹配"))
         if self.policy in _NEEDS_STATUS and not 100 <= self.status_code <= 599:
             raise ValueError(
-                translate("GatewayRule", "Invalid HTTP status code: {}").format(
+                translate("GatewayRule", "无效的 HTTP 状态码：{}").format(
                     self.status_code
                 )
             )

@@ -120,7 +120,7 @@ class ConstructionTests(InterceptWindowTestCase):
         """队列空着的时候不许自己冒出来 —— 它是跟主窗口一起建的，不是用户叫的。"""
         win = self.window()
         self.assertFalse(win.isVisible())
-        self.assertEqual(win.windowTitle(), "Breakpoints")
+        self.assertEqual(win.windowTitle(), "断点")
 
     def test_the_window_has_no_qt_parent(self) -> None:
         """`updateFrameless()` 不补 `Qt.Window`：给了 Qt 父对象就退化成子控件。"""
@@ -174,7 +174,7 @@ class PopUpTests(InterceptWindowTestCase):
     def test_the_title_counts_the_queue(self) -> None:
         win = self.window()
         self.controller.emit_flows([flow_to(), flow_to()])
-        self.assertEqual(win.windowTitle(), "Breakpoints · 2 pending")
+        self.assertEqual(win.windowTitle(), "断点 · 2 条待处理")
 
     def test_an_emptied_queue_hides_the_window(self) -> None:
         """不留一个空窗挡着主窗口。"""
@@ -182,7 +182,7 @@ class PopUpTests(InterceptWindowTestCase):
         self.controller.emit_flows([flow_to()])
         self.controller.emit_flows([])
         self.assertFalse(win.isVisible())
-        self.assertEqual(win.windowTitle(), "Breakpoints")
+        self.assertEqual(win.windowTitle(), "断点")
 
     def test_emptying_and_refilling_pops_up_again(self) -> None:
         """空→非空的边沿可以再来一次，不是一次性的。"""

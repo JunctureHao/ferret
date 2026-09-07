@@ -96,18 +96,18 @@ class InterceptRuleDialog(MessageBoxBase):
         self.preview_label = CaptionLabel(self)
         self.preview_label.setWordWrap(True)
 
-        self.yesButton.setText(self.tr("Save"))
-        self.cancelButton.setText(self.tr("Cancel"))
+        self.yesButton.setText(self.tr("保存"))
+        self.cancelButton.setText(self.tr("取消"))
 
         QTimer.singleShot(0, self.value_edit.setFocus)
 
     def __init_layout(self):
         form = QFormLayout()
         form.setSpacing(8)
-        form.addRow(BodyLabel(self.tr("Match on"), self), self.field_combo)
-        form.addRow(BodyLabel(self.tr("Condition"), self), self.logic_combo)
-        form.addRow(BodyLabel(self.tr("Match value"), self), self.value_edit)
-        form.addRow(BodyLabel(self.tr("Phase"), self), self.phase_combo)
+        form.addRow(BodyLabel(self.tr("匹配对象"), self), self.field_combo)
+        form.addRow(BodyLabel(self.tr("条件"), self), self.logic_combo)
+        form.addRow(BodyLabel(self.tr("匹配值"), self), self.value_edit)
+        form.addRow(BodyLabel(self.tr("阶段"), self), self.phase_combo)
 
         layout = QVBoxLayout()
         layout.setSpacing(8)
@@ -168,9 +168,7 @@ class InterceptRuleDialog(MessageBoxBase):
             self.yesButton.setEnabled(False)
             return
         # 预览给的是真正要下发的那截表达式，多条规则会被 `|` 连起来。
-        self.preview_label.setText(
-            self.tr("Match expression: {}").format(rule.expression)
-        )
+        self.preview_label.setText(self.tr("匹配表达式：{}").format(rule.expression))
         self.yesButton.setEnabled(True)
 
 
@@ -196,20 +194,18 @@ class HeldFlowsCloseDialog(MessageBoxBase):
         self.choice = HeldFlowsChoice.CANCEL
 
         self.title_label = SubtitleLabel(
-            self.tr("{} flow(s) are still held").format(flow_count), self
+            self.tr("还有 {} 条流量挂着").format(flow_count), self
         )
         self.desc_label = BodyLabel(
             self.tr(
-                "Held traffic never times out on its own, so the client keeps "
-                "waiting. If you keep it held, the “Held queue” button on the "
-                "breakpoint page opens this window again."
+                "挂起中的流量不会自己超时放行，客户端会一直等。保持挂起的话，可以从断点页的「拦截队列」再打开这个窗口。"
             ),
             self,
         )
         self.desc_label.setWordWrap(True)
 
-        self.yesButton.setText(self.tr("Keep held and hide"))
-        self.cancelButton.setText(self.tr("Cancel"))
+        self.yesButton.setText(self.tr("保持挂起并隐藏"))
+        self.cancelButton.setText(self.tr("取消"))
 
         layout = QVBoxLayout()
         layout.setSpacing(8)

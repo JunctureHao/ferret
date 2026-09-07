@@ -201,11 +201,11 @@ class WebsocketBubbleTests(unittest.TestCase):
         self.assertFalse(down.align_right)
 
     def test_direction_words_stay_searchable(self) -> None:
-        """方向词从界面撤下后仍进搜索串 —— 输 "client →" 只看上行。"""
+        """方向词从界面撤下后仍进搜索串 —— 输 "客户端 →" 只看上行。"""
         self.pane.show_websocket(
             [frame(0, from_client=True), frame(1, from_client=False)], WsClose()
         )
-        self.pane.filter_input.setText("client →")
+        self.pane.filter_input.setText("客户端 →")
 
         up, down = bubbles_of(self.pane)
         self.assertFalse(up.isHidden())
@@ -382,9 +382,9 @@ class SortButtonTests(unittest.TestCase):
 
     def test_the_tooltip_follows_the_order(self) -> None:
         self.pane.sort_btn.setChecked(True)
-        self.assertEqual(self.pane.sort_btn.toolTip(), "Oldest first")
+        self.assertEqual(self.pane.sort_btn.toolTip(), "最早在上")
         self.pane.sort_btn.setChecked(False)
-        self.assertEqual(self.pane.sort_btn.toolTip(), "Newest first")
+        self.assertEqual(self.pane.sort_btn.toolTip(), "最新在上")
 
 
 class FrameLimitTests(unittest.TestCase):
@@ -507,7 +507,7 @@ class CloseInfoTests(unittest.TestCase):
 
         self.assertEqual(len(notes), 1)
         text = notes[0].label.text()
-        self.assertIn("Closed by client", text)
+        self.assertIn("客户端关闭", text)
         self.assertIn("1000", text)
         self.assertIn("done", text)
 
@@ -516,7 +516,7 @@ class CloseInfoTests(unittest.TestCase):
             [frame(0)], WsClose(closed_by_client=False, close_code=1006)
         )
         notes = notes_of(self.pane)
-        self.assertIn("Closed by server", notes[0].label.text())
+        self.assertIn("服务端关闭", notes[0].label.text())
 
     def test_a_close_arriving_later_replaces_the_note_in_place(self) -> None:
         """`websocket_end` 可能晚于 `set_data` 到达，重复调用原地更新。"""
@@ -709,14 +709,14 @@ class FilterTests(unittest.TestCase):
         self.assertEqual(len(bubbles_of(self.pane)), 2)
 
     def test_the_direction_words_are_searchable(self) -> None:
-        """输 "client" 只看上行帧 —— 排查订阅流时最快的切法。"""
-        self.pane.filter_input.setText("client")
+        """输 "客户端" 只看上行帧 —— 排查订阅流时最快的切法。"""
+        self.pane.filter_input.setText("客户端")
 
         up, down = bubbles_of(self.pane)
-        # 两个方向文字里都含 "client"，但上行是 "Client → Server"。
+        # 两个方向文字里都含 "客户端"，但上行是 "客户端 → 服务端"。
         self.assertFalse(up.isHidden())
         self.assertFalse(down.isHidden())
-        self.pane.filter_input.setText("client →")
+        self.pane.filter_input.setText("客户端 →")
         self.assertFalse(up.isHidden())
         self.assertTrue(down.isHidden())
 

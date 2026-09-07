@@ -217,7 +217,7 @@ class CookieWidget(QWidget):
 
         self.copy_button = TransparentToolButton(self)
         self.copy_button.setIcon(FluentIcon.COPY)
-        self.copy_button.setToolTip(self.tr("Copy cookies"))
+        self.copy_button.setToolTip(self.tr("复制 Cookie"))
         self.copy_button.installEventFilter(
             ToolTipFilter(self.copy_button, 1000, ToolTipPosition.TOP)
         )
@@ -271,16 +271,12 @@ class CookieWidget(QWidget):
     def __on_copy(self):
         """复制 Cookie 到剪贴板"""
         if not self.cookies:
-            show_warning(
-                self.tr("Notice"), self.tr("No cookies to copy"), self.window()
-            )
+            show_warning(self.tr("提示"), self.tr("没有可复制的 Cookie"), self.window())
             return
 
         cookie_str = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
         QApplication.clipboard().setText(cookie_str)
-        show_success(
-            self.tr("Success"), self.tr("Cookies copied to clipboard"), self.window()
-        )
+        show_success(self.tr("成功"), self.tr("Cookie 已复制到剪贴板"), self.window())
 
 
 class BodyPane(QStackedWidget):
@@ -303,7 +299,7 @@ class BodyPane(QStackedWidget):
             self.form_panel.set_read_only(True)
             self.addWidget(self.form_panel)
 
-        self.empty_label = SubtitleLabel(self.tr("No data"))
+        self.empty_label = SubtitleLabel(self.tr("无任何数据"))
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.addWidget(self.empty_label)
 
@@ -343,7 +339,7 @@ class CommentPane(QWidget):
 
         self.edit = ToolPlainTextEdit()
         self.save_button = TransparentToolButton(FluentIcon.SAVE)
-        self.save_button.setToolTip(self.tr("Save comment"))
+        self.save_button.setToolTip(self.tr("保存备注"))
         self.save_button.setEnabled(False)
         self.save_button.installEventFilter(
             ToolTipFilter(self.save_button, 1000, ToolTipPosition.TOP)
@@ -476,9 +472,9 @@ class ResponsePane(TabPanel):
         self.raw_edit.set_read_only(True)
 
         if with_raw:
-            self.addTab("Raw", self.raw_edit, self.tr("Raw"))
-        self.addTab("Headers", self.header_card, self.tr("Headers"))
-        self.addTab("Body", self.body_pane, self.tr("Body"))
+            self.addTab("Raw", self.raw_edit, self.tr("原始"))
+        self.addTab("Headers", self.header_card, self.tr("响应头"))
+        self.addTab("Body", self.body_pane, self.tr("响应体"))
 
         # contentview 的视图名（JSON / gRPC / Multipart Form …）。改造前是把它
         # 拼进 Body 标签的文字里再 `adjustSize()`，标签宽度跟着每条流量跳；挪成
@@ -507,7 +503,7 @@ class ResponsePane(TabPanel):
             "get_raw_response",
         )
         self.setTabText(
-            "Headers", self.tr("Headers ({count})").format(count=len(headers))
+            "Headers", self.tr("响应头 ({count})").format(count=len(headers))
         )
 
     def _set_body_view(self, view: str) -> None:
@@ -553,7 +549,7 @@ class FlowDataPanel(QWidget):
         # 空
         self.empty_page = QWidget()
         self.empty_label = SubtitleLabel(self.empty_page)
-        self.empty_label.setText(self.tr("Nothing to show"))
+        self.empty_label.setText(self.tr("什么都没有"))
         self.empty_close_button = TransparentToolButton(self.empty_page)  # 空页面的 X
         self.empty_close_button.setIcon(FluentIcon.CLOSE)
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -584,13 +580,13 @@ class FlowDataPanel(QWidget):
 
         self.comment_pane = CommentPane()
 
-        self.req_tabs.addTab("Overview", self.overview, self.tr("Overview"))
-        self.req_tabs.addTab("Raw", self.req_raw, self.tr("Raw"))
-        self.req_tabs.addTab("Headers", self.req_headers, self.tr("Headers"))
-        self.req_tabs.addTab("Body", self.req_body, self.tr("Body"))
-        self.req_tabs.addTab("Query", self.query_widget, self.tr("Query"))
-        self.req_tabs.addTab("Cookies", self.cookie_card, self.tr("Cookies"))
-        self.req_tabs.addTab("Comment", self.comment_pane, self.tr("Comment"))
+        self.req_tabs.addTab("Overview", self.overview, self.tr("概览"))
+        self.req_tabs.addTab("Raw", self.req_raw, self.tr("原始"))
+        self.req_tabs.addTab("Headers", self.req_headers, self.tr("请求头"))
+        self.req_tabs.addTab("Body", self.req_body, self.tr("请求体"))
+        self.req_tabs.addTab("Query", self.query_widget, self.tr("查询参数"))
+        self.req_tabs.addTab("Cookies", self.cookie_card, self.tr("Cookie"))
+        self.req_tabs.addTab("Comment", self.comment_pane, self.tr("备注"))
 
         # 请求体视图名徽标 + 「…」动作菜单，插在弹簧之后、动作区之前，
         # 与右栏的徽标/× 同一条边。
@@ -599,13 +595,13 @@ class FlowDataPanel(QWidget):
         self.req_body_badge.hide()
         self.req_tabs.tab_layout.insertWidget(2, self.req_body_badge)
         self.more_button = TransparentToolButton(FluentIcon.MORE, self.req_tabs)
-        self.more_button.setToolTip(self.tr("More actions"))
+        self.more_button.setToolTip(self.tr("更多操作"))
         self.req_tabs.tab_layout.insertWidget(3, self.more_button)
 
         # —— 右栏（响应区）：「消息」由本面板追加 ——
         self.res_pane = ResponsePane(controller=self.controller)
         self.messages = MessagesPane()
-        self.res_pane.addTab("Messages", self.messages, self.tr("Messages"))
+        self.res_pane.addTab("Messages", self.messages, self.tr("消息"))
         self.res_pane.setTabVisible("Messages", False)
         # 帧数/事件数挂在「消息」标签右侧。qfw 的 `InfoBadgeManager` 会把徽标
         # 半压在标签文字上，这里换 `PivotBadgeAnchor` 完全外挂；徽标挂 `res_pane`
@@ -629,17 +625,17 @@ class FlowDataPanel(QWidget):
         # （`MitmFacade._mutate` 内核没跑就抛），动作按能力门控。cURL/raw/HAR
         # 那套导出是右键菜单 `FlowExportMenu` 的领地，这里不重复。
         self.copy_url_action = BaseAction(
-            icon=FluentIcon.LINK, text=self.tr("Copy URL"), parent=self
+            icon=FluentIcon.LINK, text=self.tr("复制 URL"), parent=self
         )
         self.replay_action = BaseAction(
-            icon=FluentIcon.SYNC, text=self.tr("Replay"), parent=self
+            icon=FluentIcon.SYNC, text=self.tr("重发"), parent=self
         )
         self.mark_action = BaseAction(
-            icon=BaseIcon.BOOKMARK_ADD, text=self.tr("Mark"), parent=self
+            icon=BaseIcon.BOOKMARK_ADD, text=self.tr("标记"), parent=self
         )
         self.mark_action.setCheckable(True)
         self.comment_action = BaseAction(
-            icon=FluentIcon.EDIT, text=self.tr("Comment"), parent=self
+            icon=FluentIcon.EDIT, text=self.tr("备注"), parent=self
         )
 
         self.detail_page = QWidget()
@@ -811,15 +807,15 @@ class FlowDataPanel(QWidget):
         """复制到剪贴板；没内容就说清是「还没有」而不是静默无反应。"""
         if not text:
             show_warning(
-                self.tr("Nothing to copy"),
-                self.tr("%s is not ready yet") % label,
+                self.tr("没有可复制的内容"),
+                self.tr("%s 还没有准备好") % label,
                 self.window(),
             )
             return
         QApplication.clipboard().setText(str(text))
         show_success(
-            self.tr("Success"),
-            self.tr("%s copied to clipboard") % label,
+            self.tr("成功"),
+            self.tr("%s 已复制到剪贴板") % label,
             self.window(),
         )
 
@@ -832,7 +828,7 @@ class FlowDataPanel(QWidget):
         try:
             self.controller.replay_flow(flow_id)
         except (AttributeError, ValueError, RuntimeError) as exc:
-            show_warning(self.tr("Replay failed"), str(exc), self.window())
+            show_warning(self.tr("重发失败"), str(exc), self.window())
 
     # —— 标记与备注 ——
 
@@ -849,7 +845,7 @@ class FlowDataPanel(QWidget):
         try:
             self.controller.set_flow_marked(flow_id, marked)
         except (AttributeError, ValueError, RuntimeError) as exc:
-            show_warning(self.tr("Failed to mark"), str(exc), self.window())
+            show_warning(self.tr("标记失败"), str(exc), self.window())
             self.__set_mark_checked(bool(self.datas.get("marked")))
             return
         self.__store("marked", marked)
@@ -884,9 +880,9 @@ class FlowDataPanel(QWidget):
         try:
             self.controller.set_flow_comment(flow_id, comment)
         except (AttributeError, ValueError, RuntimeError) as exc:
-            show_warning(self.tr("Failed to save comment"), str(exc), self.window())
+            show_warning(self.tr("备注保存失败"), str(exc), self.window())
             return
-        show_success(self.tr("Success"), self.tr("Comment saved"), self.window())
+        show_success(self.tr("成功"), self.tr("备注已保存"), self.window())
         self.__store("comment", comment)
         self.comment_pane.mark_saved(comment)
 
@@ -1076,13 +1072,13 @@ class FlowDataPanel(QWidget):
         cookies = data.get("Request Cookies", {})
         self.cookie_widget.set_cookies(cookies)
         self.req_tabs.setTabText(
-            "Headers", self.tr("Headers ({count})").format(count=len(headers))
+            "Headers", self.tr("请求头 ({count})").format(count=len(headers))
         )
         self.req_tabs.setTabText(
-            "Query", self.tr("Query ({count})").format(count=len(query))
+            "Query", self.tr("查询参数 ({count})").format(count=len(query))
         )
         self.req_tabs.setTabText(
-            "Cookies", self.tr("Cookies ({count})").format(count=len(cookies))
+            "Cookies", self.tr("Cookie ({count})").format(count=len(cookies))
         )
         self.req_tabs.setTabVisible("Query", bool(query))
         self.req_tabs.setTabVisible("Cookies", bool(cookies))

@@ -9,7 +9,7 @@
 * `FieldCard` / `OverviewPane` 只剩「一串 Row 怎么摆进网格」与折叠。
 
 翻译器**故意不装**，和 `tests/core/test_i18n.py` 同一个理由：unittest 一个进程跑完所有
-用例，装上去会污染别处断言英文文案的用例。`translate()` 查不到就原样返回源文本，正好用来
+用例，装上去会污染别处断言中文源文案的用例。`translate()` 查不到就原样返回源文本，正好用来
 验标记本身有没有被求值成别的东西。译文是否补齐由 `tests/core/test_i18n.py` 双向盯着。
 """
 
@@ -107,15 +107,15 @@ class FieldValueTests(unittest.TestCase):
 
     def test_size_fields_count_a_missing_key_as_zero(self) -> None:
         """只抓到请求的流量照旧显示 ``0b`` 的响应大小，不是整行消失。"""
-        total = find_field("Total")
+        total = find_field("总计")
         self.assertEqual(field_value(total, {}), "0b")
         self.assertEqual(
-            field_value(find_field("Request"), {"req_total_size": 384}), "384b"
+            field_value(find_field("请求"), {"req_total_size": 384}), "384b"
         )
 
     def test_the_decoded_row_only_shows_up_when_it_differs_from_the_wire(self) -> None:
         """没压缩的报文两个口径一样大，并排列两行相同的值只是噪音。"""
-        decoded = find_field("- Response body decoded")
+        decoded = find_field("- 响应体（解压后）")
         same = {"res_wire_size": 900, "res_decoded_size": 900}
         self.assertIsNone(field_value(decoded, same))
         gzipped = {"res_wire_size": 900, "res_decoded_size": 4096}
@@ -126,41 +126,41 @@ class FieldValueTests(unittest.TestCase):
         """两个口径各有各的行，谁也不冒充「大小」 —— 混成一个数才是原来的毛病。"""
         data = {"res_wire_size": 900, "res_decoded_size": 4096}
         self.assertEqual(
-            field_value(find_field("- Response body on the wire"), data), "900b"
+            field_value(find_field("- 响应体（线上）"), data), "900b"
         )
         self.assertEqual(
-            field_value(find_field("- Response body decoded"), data), "4.0k"
+            field_value(find_field("- 响应体（解压后）"), data), "4.0k"
         )
 
 
 class LabelTests(unittest.TestCase):
-    """标记求值。没装翻译器时 Qt 原样返回源文本，所以这里断言的是英文。"""
+    """标记求值。没装翻译器时 Qt 原样返回源文本，所以这里断言的是中文源文本。"""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
     def test_markers_evaluate_to_their_source_text_without_a_translator(self) -> None:
-        self.assertEqual(field_label(Field("Server address", "x")), "Server address")
-        self.assertEqual(section_title(find_section("Connection")), "Connection")
+        self.assertEqual(field_label(Field("服务器地址", "x")), "服务器地址")
+        self.assertEqual(section_title(find_section("连接")), "连接")
 
     def test_a_section_without_a_title_evaluates_to_nothing(self) -> None:
         """最外层那批平级字段就是靠空标题挂上去的，不能求值成「查不到」的占位符。"""
         self.assertEqual(section_title(Section(title="", fields=())), "")
 
     def test_state_resolves_unknown_states_instead_of_echoing_them(self) -> None:
-        state = find_field("State")
-        self.assertEqual(field_value(state, {"state": "complete"}), "Completed")
-        self.assertEqual(field_value(state, {"state": "nonsense"}), "Unknown")
-        self.assertEqual(field_value(state, {}), "Unknown")
+        state = find_field("状态")
+        self.assertEqual(field_value(state, {"state": "complete"}), "已完成")
+        self.assertEqual(field_value(state, {"state": "nonsense"}), "未知")
+        self.assertEqual(field_value(state, {}), "未知")
 
     def test_the_marker_row_reads_as_a_state_not_as_an_emoji_shortcode(self) -> None:
         """`flow.marked` 存的是 `:default:` 这样的短码，铺在卡片上没人认得。
 
         界面上标记只有「有 / 没有」两种，短码本身没有信息量。"""
-        marked = find_field("Marked")
-        self.assertEqual(field_value(marked, {"marked": MARKER_DEFAULT}), "Marked")
-        self.assertEqual(field_value(marked, {"marked": ":skull:"}), "Marked")
+        marked = find_field("标记")
+        self.assertEqual(field_value(marked, {"marked": MARKER_DEFAULT}), "标记")
+        self.assertEqual(field_value(marked, {"marked": ":skull:"}), "标记")
         # 没标记就整行不出现，而不是显示一个「没标记」—— 九成流量都没标记，
         # 每张卡片上挂一行「没标记」是纯噪音。
         self.assertIsNone(field_value(marked, {"marked": ""}))
@@ -190,24 +190,24 @@ class SectionRowsTests(unittest.TestCase):
         ]
 
     def test_an_empty_dict_only_yields_what_it_can_answer(self) -> None:
-        summary = find_section("Summary")
-        self.assertEqual(self.flatten(summary, {}), [("State", "Unknown", False)])
+        summary = find_section("概要")
+        self.assertEqual(self.flatten(summary, {}), [("状态", "未知", False)])
 
     def test_a_group_with_nothing_to_show_yields_no_rows_at_all(self) -> None:
         """整组空就返回空表 —— 卡片那侧据此整张隐藏，标题不会孤零零留着。"""
-        for title in ("TLS · server", "Connection", "Timing"):
+        for title in ("TLS · 服务端", "连接", "耗时"):
             with self.subTest(title=title):
                 self.assertEqual(
                     section_rows(find_section(title), {"Method": "GET"}), []
                 )
 
     def test_a_group_appears_once_its_condition_holds(self) -> None:
-        rows = self.flatten(find_section("TLS · server"), {"TLS Version": "TLSv1.3"})
-        self.assertIn(("Version", "TLSv1.3", False), rows)
+        rows = self.flatten(find_section("TLS · 服务端"), {"TLS Version": "TLSv1.3"})
+        self.assertIn(("版本", "TLSv1.3", False), rows)
 
     def test_a_groups_condition_outranks_its_own_fields(self) -> None:
         """连接组只看 ID/时间 —— 光有前后端地址时整组不露面，和搬过来之前一致。"""
-        connection = find_section("Connection")
+        connection = find_section("连接")
         self.assertEqual(
             section_rows(connection, {"Front Client Address": "127.0.0.1"}), []
         )
@@ -215,12 +215,12 @@ class SectionRowsTests(unittest.TestCase):
     def test_a_subgroup_becomes_a_heading_row_followed_by_its_own_rows(self) -> None:
         """次级小节不另开一张卡：一行跨两列的小标题，后面跟自己的行。"""
         rows = self.flatten(
-            find_section("Server certificate"),
+            find_section("服务端证书"),
             {"Subject Common Name": "example.com", "Not Before": "2026-01-01"},
         )
         self.assertIn(("Subject", "", True), rows)
         self.assertIn(("Common Name", "example.com", False), rows)
-        self.assertIn(("Not before", "2026-01-01", False), rows)
+        self.assertIn(("开始时间", "2026-01-01", False), rows)
         # 小标题行永远没有值。
         self.assertEqual([row for row in rows if row[2] and row[1]], [])
 
@@ -231,18 +231,18 @@ class SectionRowsTests(unittest.TestCase):
         只有有效期的证书就只显示有效期，不再凭空多出主体和签发者两个小节。
         """
         rows = self.flatten(
-            find_section("Server certificate"), {"Not Before": "2026-01-01"}
+            find_section("服务端证书"), {"Not Before": "2026-01-01"}
         )
-        self.assertIn(("Not before", "2026-01-01", False), rows)
+        self.assertIn(("开始时间", "2026-01-01", False), rows)
         self.assertNotIn(("Subject", "", True), rows)
-        self.assertNotIn(("Issuer", "", True), rows)
+        self.assertNotIn(("签发者", "", True), rows)
         self.assertEqual([row for row in rows if row[1] == "-"], [])
 
     def test_top_level_fields_keep_their_own_group(self) -> None:
         """空标题的分组照旧把字段原样交回 —— 卡片标题为空，行还在。"""
-        summary = find_section("Summary")
+        summary = find_section("概要")
         rows = self.flatten(summary, {"Method": "GET", "Status Code": 200})
-        self.assertIn(("Method", "GET", False), rows)
+        self.assertIn(("方法", "GET", False), rows)
         self.assertIn(("Code", "200", False), rows)
 
 
@@ -264,7 +264,7 @@ class FieldCardTests(unittest.TestCase):
         return FieldCard(find_section(title), self.host)
 
     def test_a_card_with_nothing_to_show_hides_itself(self) -> None:
-        card = self.card("TLS · server")
+        card = self.card("TLS · 服务端")
         card.set_data({"Method": "GET"})
         self.assertEqual(card.rows(), [])
         self.assertTrue(card.isHidden())
@@ -273,15 +273,15 @@ class FieldCardTests(unittest.TestCase):
         self.assertFalse(card.isHidden())
 
     def test_set_data_rebuilds_the_grid_instead_of_appending(self) -> None:
-        card = self.card("Summary")
+        card = self.card("概要")
         card.set_data({"Method": "GET"})
         first = card.grid.count()
         card.set_data({"Method": "POST"})
         self.assertEqual(card.grid.count(), first)
-        self.assertIn(("Method", "POST"), [(r.label, r.value) for r in card.rows()])
+        self.assertIn(("方法", "POST"), [(r.label, r.value) for r in card.rows()])
 
     def test_a_heading_row_spans_both_columns(self) -> None:
-        card = self.card("Server certificate")
+        card = self.card("服务端证书")
         card.set_data({"Subject Common Name": "example.com"})
         rows = card.rows()
         self.assertTrue([row for row in rows if row.heading])
@@ -297,7 +297,7 @@ class FieldCardTests(unittest.TestCase):
 
     def test_every_card_can_collapse_not_just_the_ones_declared_collapsed(self) -> None:
         """只有部分卡能点等于让人去记哪几张能点 —— 折叠给每张卡，`collapsed` 只定初始态。"""
-        card = self.card("Summary")
+        card = self.card("概要")
         self.assertTrue(card.is_expanded())
         card.toggle()
         self.assertFalse(card.is_expanded())
@@ -307,7 +307,7 @@ class FieldCardTests(unittest.TestCase):
 
     def test_collapsed_state_does_not_depend_on_the_panel_being_shown(self) -> None:
         """`isVisible()` 连祖先一起算 —— 面板还没 show 时不能被当成「卡是收起的」。"""
-        card = self.card("Summary")
+        card = self.card("概要")
         self.assertFalse(card.isVisible())
         self.assertTrue(card.is_expanded())
 
@@ -318,7 +318,7 @@ class FieldCardTests(unittest.TestCase):
 
     def test_clicking_the_header_row_toggles_the_group(self) -> None:
         """组头整行可点 —— 箭头按钮只补一个视觉锚点，命中区域不能只有图标那么大。"""
-        card = self.card("Summary")
+        card = self.card("概要")
         from PySide6.QtCore import QEvent, QPoint, Qt
         from PySide6.QtGui import QMouseEvent
 
@@ -335,7 +335,7 @@ class FieldCardTests(unittest.TestCase):
         self.assertEqual(card.is_expanded(), not before)
 
     def test_copying_a_group_writes_label_colon_value_per_line(self) -> None:
-        card = self.card("Server certificate")
+        card = self.card("服务端证书")
         card.set_data(
             {"Subject Common Name": "example.com", "Not Before": "2026-01-01"}
         )
@@ -371,16 +371,16 @@ class OverviewPaneTests(unittest.TestCase):
     def test_an_empty_dict_leaves_only_the_cards_that_can_answer(self) -> None:
         self.pane.set_data({})
         titles = [card.section.title for card in self.pane.visible_cards()]
-        self.assertEqual(titles, ["Summary"])
+        self.assertEqual(titles, ["概要"])
 
     def test_set_data_replaces_the_previous_flow(self) -> None:
         self.pane.set_data({"TLS Version": "TLSv1.3"})
         self.assertIn(
-            "TLS · server", [c.section.title for c in self.pane.visible_cards()]
+            "TLS · 服务端", [c.section.title for c in self.pane.visible_cards()]
         )
         self.pane.set_data({"Method": "GET"})
         self.assertNotIn(
-            "TLS · server", [c.section.title for c in self.pane.visible_cards()]
+            "TLS · 服务端", [c.section.title for c in self.pane.visible_cards()]
         )
 
 

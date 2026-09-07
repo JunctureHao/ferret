@@ -79,9 +79,7 @@ class UiBridgeAddon:
     def running(self) -> None:
         if not self._master.proxyserver.listen_addrs():
             raise RuntimeError(
-                QCoreApplication.translate(
-                    "MitmRuntime", "The proxy could not start listening on its port"
-                )
+                QCoreApplication.translate("MitmRuntime", "代理端口监听失败")
             )
         self._bridge._master_running.emit(self._generation)
 
@@ -251,9 +249,9 @@ class _MitmThread(QThread):
         except OSError as exc:
             # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
             raise RuntimeError(
-                QCoreApplication.translate(
-                    "MitmRuntime", "Port {} is already in use"
-                ).format(self.runtime.listen_port)
+                QCoreApplication.translate("MitmRuntime", "端口 {} 已被占用").format(
+                    self.runtime.listen_port
+                )
             ) from exc
 
     def request_shutdown(self) -> None:
@@ -542,7 +540,7 @@ class MitmRuntime(QObject):
             raise RuntimeError(
                 QCoreApplication.translate(
                     "MitmRuntime",
-                    "The mitmproxy core did not stop in time, so it cannot restart",
+                    "mitmproxy 内核停止超时，无法重启",
                 )
             )
         self.start()
@@ -759,9 +757,7 @@ class MitmRuntime(QObject):
         loop = thread.loop if thread is not None else None
         if not self.is_running or master is None or loop is None:
             raise RuntimeError(
-                QCoreApplication.translate(
-                    "MitmRuntime", "The mitmproxy core is not running"
-                )
+                QCoreApplication.translate("MitmRuntime", "mitmproxy 内核未运行")
             )
         try:
             current_loop = asyncio.get_running_loop()
@@ -782,9 +778,7 @@ class MitmRuntime(QObject):
         except FutureTimeoutError as exc:
             future.cancel()
             raise TimeoutError(
-                QCoreApplication.translate(
-                    "MitmRuntime", "The mitmproxy task timed out"
-                )
+                QCoreApplication.translate("MitmRuntime", "mitmproxy 任务执行超时")
             ) from exc
 
     def _on_flow_suspended(self, flow: Any) -> None:

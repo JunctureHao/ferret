@@ -41,13 +41,13 @@ class WiringTests(unittest.TestCase):
         self.assertEqual(constants, set(_SYSTEM_PROXY_ERRORS))
 
     def test_a_package_error_is_lookable_up_in_the_mapping(self) -> None:
-        """未装翻译器时 `resolve_marker` 原样回英文源文本 —— 映射表键值同文。"""
+        """未装翻译器时 `resolve_marker` 原样回中文源文本 —— 键是包的英文常量，值是中文源文案。"""
         from ferret.utils.i18n import resolve_marker
 
         resolved = resolve_marker(
             _SYSTEM_PROXY_ERRORS, ERR_SET_FAILED, "CaptureController", fallback=""
         )
-        self.assertEqual(resolved, ERR_SET_FAILED)
+        self.assertEqual(resolved, "设置系统代理失败")
 
 
 if __name__ == "__main__":

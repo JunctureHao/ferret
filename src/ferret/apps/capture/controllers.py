@@ -36,15 +36,9 @@ log = get_logger("mitmproxy")
 # 当前语言。键是包的对账常量，值是 QT_TRANSLATE_NOOP 标记 —— 模块级不许直接
 # translate（AGENTS.md §7），用点经 `resolve_marker` 求值。
 _SYSTEM_PROXY_ERRORS = {
-    ERR_INVALID_ADDRESS: QT_TRANSLATE_NOOP(
-        "CaptureController", "Invalid system proxy address"
-    ),
-    ERR_RESTORE_FAILED: QT_TRANSLATE_NOOP(
-        "CaptureController", "Restoring the previous system proxy failed"
-    ),
-    ERR_SET_FAILED: QT_TRANSLATE_NOOP(
-        "CaptureController", "Setting the system proxy failed"
-    ),
+    ERR_INVALID_ADDRESS: QT_TRANSLATE_NOOP("CaptureController", "无效的系统代理地址"),
+    ERR_RESTORE_FAILED: QT_TRANSLATE_NOOP("CaptureController", "恢复原系统代理失败"),
+    ERR_SET_FAILED: QT_TRANSLATE_NOOP("CaptureController", "设置系统代理失败"),
 }
 
 # local / wireguard 通道的启动失败没有异常类型可对账（原生 proxyserver 把实例
@@ -55,20 +49,16 @@ _CHANNEL_ERROR_MARKERS = (
         "as administrator",
         QT_TRANSLATE_NOOP(
             "CaptureController",
-            "The local redirector needs administrator approval (UAC)",
+            "本地重定向需要管理员授权（UAC）",
         ),
     ),
     (
         "spawn more than one local redirector",
-        QT_TRANSLATE_NOOP(
-            "CaptureController", "The local redirector is already running"
-        ),
+        QT_TRANSLATE_NOOP("CaptureController", "本地重定向已在运行"),
     ),
     (
         "wireguard",
-        QT_TRANSLATE_NOOP(
-            "CaptureController", "The WireGuard tunnel could not be started"
-        ),
+        QT_TRANSLATE_NOOP("CaptureController", "WireGuard 隧道启动失败"),
     ),
 )
 
@@ -295,9 +285,7 @@ class CaptureController(QObject):
             detach_ok = self._system_proxy.detach()
             self._sysproxy_attached = False
             if not detach_ok:
-                self._last_error = self.tr(
-                    "Failed to restore the original system proxy"
-                )
+                self._last_error = self.tr("恢复原系统代理失败")
                 self._set_capture_state(CaptureState.FAILED)
                 self.captureStateChanged.emit(False)
                 return
@@ -552,9 +540,7 @@ class CaptureController(QObject):
             detach_ok = self._system_proxy.detach()
             self._sysproxy_attached = False
             if not detach_ok:
-                self._last_error = self.tr(
-                    "Failed to restore the original system proxy"
-                )
+                self._last_error = self.tr("恢复原系统代理失败")
                 self._set_capture_state(CaptureState.FAILED)
                 self.captureStateChanged.emit(False)
                 return
@@ -615,7 +601,7 @@ class CaptureController(QObject):
             CaptureState.STARTING,
             CaptureState.RUNNING,
         ):
-            self._on_runtime_failed(self.tr("The mitmproxy core has stopped"))
+            self._on_runtime_failed(self.tr("mitmproxy 内核已停止"))
 
     def _on_flow_added(self, flow: object) -> None:
         """写入闸门：闸门关着时新 flow 不进流量表。

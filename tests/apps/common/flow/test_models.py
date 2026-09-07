@@ -121,7 +121,7 @@ class FlowTableModelTests(unittest.TestCase):
         error = tflow.tflow(err=True)
         model = self.model_with(pending, error)
 
-        self.assertEqual(model.data(model.index(0, 3)), "Pending")
+        self.assertEqual(model.data(model.index(0, 3)), "等待中")
         self.assertEqual(model.data(model.index(0, 3), STATUS_KIND_ROLE), "pending")
         self.assertEqual(model.data(model.index(1, 3)), "Error")
         self.assertEqual(model.data(model.index(1, 3), STATUS_KIND_ROLE), "error")
@@ -216,9 +216,9 @@ class FlowTableModelTests(unittest.TestCase):
         model = self.model_with(tflow.tflow(resp=True))
         tooltip = model.data(model.index(0, 5), Qt.ItemDataRole.ToolTipRole)
 
-        self.assertIn("wire", tooltip)
-        self.assertIn("Request", tooltip)
-        self.assertIn("Response", tooltip)
+        self.assertIn("线上", tooltip)
+        self.assertIn("请求", tooltip)
+        self.assertIn("响应", tooltip)
 
 
 if __name__ == "__main__":

@@ -165,7 +165,7 @@ class StatusFlowTests(ComposeInterfaceTestCase):
     def test_sending_disables_the_button_and_shows_a_hint(self) -> None:
         self.controller.sending_changed.emit(True)
         self.assertFalse(self.page.send_btn.isEnabled())
-        self.assertEqual(self.page.status_label.text(), "Sending…")
+        self.assertEqual(self.page.status_label.text(), "发送中…")
         self.assertTrue(self.page.status_badge.isHidden())
 
     def test_a_result_lands_in_the_status_line_and_the_response_pane(self) -> None:
@@ -190,12 +190,12 @@ class StatusFlowTests(ComposeInterfaceTestCase):
 
         cards = self.page.perf_overview.visible_cards()
         titles = [card.section.title for card in cards]
-        self.assertIn("Time", titles)
-        self.assertIn("Traffic", titles)
-        timing = next(card for card in cards if card.section.title == "Time")
+        self.assertIn("时间", titles)
+        self.assertIn("流量", titles)
+        timing = next(card for card in cards if card.section.title == "时间")
         rows = {(row.label, row.value) for row in timing.rows()}
         self.assertIn(("Flow ID", result.detail["Flow ID"]), rows)
-        self.assertIn(("Total duration", "12 ms"), rows)
+        self.assertIn(("总耗时", "12 ms"), rows)
 
     def test_an_error_result_paints_the_badge_red(self) -> None:
         self.controller.result_ready.emit(

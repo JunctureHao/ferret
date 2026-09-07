@@ -39,7 +39,7 @@ from ferret.core.settings import get_certs_dir, get_sessions_dir
 # 同一句在下面出现两次，写成函数而不是常量：模块级求值赶在翻译器安装之前
 # （`core/application.py` 顶层就 import 了主窗口），译文会永久冻结成英文。
 def _not_running() -> str:
-    return QCoreApplication.translate("MitmFacade", "The mitmproxy core is not running")
+    return QCoreApplication.translate("MitmFacade", "mitmproxy 内核未运行")
 
 
 # 「已标记」写进 `flow.marked` 的值。和原生 `flow.mark.toggle` 用的是同一个
@@ -312,7 +312,7 @@ class MitmFacade:
         """
         if marked and marked not in emoji.emoji:
             raise ValueError(
-                QCoreApplication.translate("MitmFacade", "Unknown marker value: %s")
+                QCoreApplication.translate("MitmFacade", "无法识别的标记值：%s")
                 % marked
             )
 
@@ -363,9 +363,7 @@ class MitmFacade:
                 # 找不到（None）和不是 HTTP 流量，对界面是同一件事：那行已经没了。
                 # 所以是 ValueError 而不是 TypeError —— 这是运行期状态，不是调用错误。
                 raise ValueError(  # noqa: TRY004
-                    QCoreApplication.translate(
-                        "MitmFacade", "That flow is no longer in the list"
-                    )
+                    QCoreApplication.translate("MitmFacade", "这条流量已不在列表中")
                 )
             mutate(flow)
             # 原生 `View.update` 会发 sig_view_update → UiBridgeAddon → Qt 信号，
@@ -444,9 +442,7 @@ class MitmFacade:
                 # ValueError 是有意的：与 `replay_flow` 同一条「找不到」契约，
                 # 调用方只捕一个异常族（TRY004 想要 TypeError，那是给参数用的）。
                 raise ValueError(  # noqa: TRY004
-                    QCoreApplication.translate(
-                        "MitmFacade", "That flow could not be found"
-                    )
+                    QCoreApplication.translate("MitmFacade", "找不到指定的 Flow")
                 )
             return build_request_edit(flow)
 
@@ -611,21 +607,21 @@ class MitmFacade:
         flow = self.get_flow(flow_id)
         if flow is None:
             raise ValueError(
-                QCoreApplication.translate("MitmFacade", "That flow could not be found")
+                QCoreApplication.translate("MitmFacade", "找不到指定的 Flow")
             )
         self.replay_flows([flow])
 
     def replay_flows(self, flows: list[HTTPFlow]) -> None:
         if not flows:
             raise ValueError(
-                QCoreApplication.translate("MitmFacade", "There is no flow to resend")
+                QCoreApplication.translate("MitmFacade", "没有可重发的 Flow")
             )
         master = self.runtime.master
         if not self.runtime.is_running or master is None:
             raise RuntimeError(
                 QCoreApplication.translate(
                     "MitmFacade",
-                    "The mitmproxy core is not running, so nothing can be replayed",
+                    "mitmproxy 内核未运行，无法回放",
                 )
             )
 
@@ -641,9 +637,7 @@ class MitmFacade:
                 replay_flows.append(replay)
             if not replay_flows:
                 raise ValueError(
-                    QCoreApplication.translate(
-                        "MitmFacade", "There is nothing left to replay"
-                    )
+                    QCoreApplication.translate("MitmFacade", "无可回放的 Flow")
                 )
             self.view.add(replay_flows)
             master.client_playback.start_replay(replay_flows)
@@ -666,19 +660,15 @@ class MitmFacade:
         响应 / 错误落地后经 `MitmRuntime.compose_result` 信号回报编辑页。
         """
         if not method.strip():
-            raise ValueError(
-                QCoreApplication.translate("MitmFacade", "The HTTP method is empty")
-            )
+            raise ValueError(QCoreApplication.translate("MitmFacade", "HTTP 方法为空"))
         if not url.strip():
-            raise ValueError(
-                QCoreApplication.translate("MitmFacade", "The URL is empty")
-            )
+            raise ValueError(QCoreApplication.translate("MitmFacade", "URL 为空"))
         master = self.runtime.master
         if not self.runtime.is_running or master is None:
             raise RuntimeError(
                 QCoreApplication.translate(
                     "MitmFacade",
-                    "The mitmproxy core is not running, so nothing can be sent",
+                    "mitmproxy 内核未运行，无法发送",
                 )
             )
 
@@ -700,7 +690,7 @@ class MitmFacade:
             raise RuntimeError(
                 QCoreApplication.translate(
                     "MitmFacade",
-                    "The mitmproxy core is not running, so nothing can be replayed",
+                    "mitmproxy 内核未运行，无法回放",
                 )
             )
         self.runtime.call(
@@ -714,7 +704,7 @@ class MitmFacade:
             raise RuntimeError(
                 QCoreApplication.translate(
                     "MitmFacade",
-                    "The mitmproxy core is not running, so the file cannot be read",
+                    "mitmproxy 内核未运行，无法读取文件",
                 )
             )
 

@@ -33,51 +33,37 @@ from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 # 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在下面那几个函数里做
 # （见 `ferret.utils.i18n`）。
 KIND_LABELS: dict[RewriteKind, str] = {
-    RewriteKind.MAP_REMOTE: QT_TRANSLATE_NOOP("RewriteKind", "Redirect (remote)"),
-    RewriteKind.MAP_LOCAL: QT_TRANSLATE_NOOP("RewriteKind", "Redirect (local)"),
-    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP(
-        "RewriteKind", "Request header"
-    ),
-    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP(
-        "RewriteKind", "Response header"
-    ),
-    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteKind", "Request body"),
-    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP("RewriteKind", "Response body"),
+    RewriteKind.MAP_REMOTE: QT_TRANSLATE_NOOP("RewriteKind", "重定向（远程）"),
+    RewriteKind.MAP_LOCAL: QT_TRANSLATE_NOOP("RewriteKind", "重定向（本地）"),
+    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP("RewriteKind", "请求头"),
+    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP("RewriteKind", "响应头"),
+    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteKind", "请求体"),
+    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP("RewriteKind", "响应体"),
 }
 
 # 「目标」一栏在六种类型里指三样不同的东西，列头只能给个中性名字，具体含义靠这里
 # 的行内文案和对话框的动态标签讲清楚。
 TARGET_LABELS: dict[RewriteKind, str] = {
-    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP(
-        "RewriteFields", "Header name"
-    ),
-    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP(
-        "RewriteFields", "Header name"
-    ),
-    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteFields", "Body pattern"),
-    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP(
-        "RewriteFields", "Body pattern"
-    ),
+    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP("RewriteFields", "头名称"),
+    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP("RewriteFields", "头名称"),
+    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteFields", "体正则"),
+    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP("RewriteFields", "体正则"),
 }
 
 REPLACEMENT_LABELS: dict[RewriteKind, str] = {
-    RewriteKind.MAP_REMOTE: QT_TRANSLATE_NOOP("RewriteFields", "Rewrite to"),
-    RewriteKind.MAP_LOCAL: QT_TRANSLATE_NOOP("RewriteFields", "Local file or folder"),
-    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP(
-        "RewriteFields", "Header value"
-    ),
-    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP(
-        "RewriteFields", "Header value"
-    ),
-    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteFields", "New content"),
-    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP("RewriteFields", "New content"),
+    RewriteKind.MAP_REMOTE: QT_TRANSLATE_NOOP("RewriteFields", "重写为"),
+    RewriteKind.MAP_LOCAL: QT_TRANSLATE_NOOP("RewriteFields", "本地文件或目录"),
+    RewriteKind.MODIFY_REQUEST_HEADER: QT_TRANSLATE_NOOP("RewriteFields", "头值"),
+    RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP("RewriteFields", "头值"),
+    RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteFields", "新内容"),
+    RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP("RewriteFields", "新内容"),
 }
 
 # 与屏蔽页、抓包过滤条的措辞保持一致。
 LOGIC_LABELS: dict[RewriteLogic, str] = {
-    RewriteLogic.CONTAINS: QT_TRANSLATE_NOOP("RewriteLogic", "Contains"),
-    RewriteLogic.EQUALS: QT_TRANSLATE_NOOP("RewriteLogic", "Equals"),
-    RewriteLogic.REGEX: QT_TRANSLATE_NOOP("RewriteLogic", "Regex"),
+    RewriteLogic.CONTAINS: QT_TRANSLATE_NOOP("RewriteLogic", "包含"),
+    RewriteLogic.EQUALS: QT_TRANSLATE_NOOP("RewriteLogic", "等于"),
+    RewriteLogic.REGEX: QT_TRANSLATE_NOOP("RewriteLogic", "正则表达式"),
 }
 
 
@@ -95,7 +81,7 @@ def target_field_label(kind: RewriteKind) -> str:
         TARGET_LABELS,
         kind,
         "RewriteFields",
-        QCoreApplication.translate("RewriteFields", "Target"),
+        QCoreApplication.translate("RewriteFields", "目标"),
     )
 
 
@@ -105,7 +91,7 @@ def replacement_field_label(kind: RewriteKind) -> str:
         REPLACEMENT_LABELS,
         kind,
         "RewriteFields",
-        QCoreApplication.translate("RewriteFields", "Rewrite to"),
+        QCoreApplication.translate("RewriteFields", "重写为"),
     )
 
 
@@ -137,14 +123,14 @@ def replacement_display(rule: RewriteRule) -> str:
             # 原生 `ModifySpec.read_replacement` 会把 `@` 之后的部分当文件路径读取；
             # 重定向两类没有这层语义，`@` 在它们那儿就是普通字符。
             # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
-            return QCoreApplication.translate(
-                "RewriteRule", "Read from file {}"
-            ).format(rule.replacement[1:])
+            return QCoreApplication.translate("RewriteRule", "读取文件 {}").format(
+                rule.replacement[1:]
+            )
         return rule.replacement
     if rule.kind in HEADER_KINDS:
-        return QCoreApplication.translate("RewriteRule", "(remove this header)")
+        return QCoreApplication.translate("RewriteRule", "（删除该头）")
     if rule.kind in BODY_KINDS:
-        return QCoreApplication.translate("RewriteRule", "(clear)")
+        return QCoreApplication.translate("RewriteRule", "（清空）")
     return ""
 
 
@@ -163,16 +149,12 @@ def rule_summary(rule: RewriteRule) -> str:
             path = rule.replacement.strip()
             if not path:
                 raise ValueError(
-                    QCoreApplication.translate(
-                        "RewriteRule", "The local file or folder cannot be empty."
-                    )
+                    QCoreApplication.translate("RewriteRule", "本地文件或目录不能为空")
                 )
             return f"{subject}  →  {path}"
         if rule.kind in HEADER_KINDS and not rule.target.strip():
             raise ValueError(
-                QCoreApplication.translate(
-                    "RewriteRule", "The header name cannot be empty."
-                )
+                QCoreApplication.translate("RewriteRule", "请求头/响应头名称不能为空")
             )
     except ValueError as exc:
         return str(exc)
@@ -185,12 +167,12 @@ class RewriteRuleTableModel(QAbstractTableModel):
 
     # 同理只做标记：类体也是导入期就求值的。求值在 `headerData()` 里做。
     HEADERS: ClassVar[list[str]] = [
-        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Enabled"),
-        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Type"),
-        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Condition"),
-        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Match URL"),
-        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Target"),
-        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "Rewrite to"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "启用"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "类型"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "匹配方式"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "匹配 URL"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "目标"),
+        QT_TRANSLATE_NOOP("RewriteRuleTableModel", "重写为"),
     ]
 
     enabled_toggled = Signal(int, bool)

@@ -458,7 +458,7 @@ class RealFacadeTests(ConfigSandbox):
         self.assertFalse(self.controller.add_rule(BROKEN))
         self.assertEqual(self.runtime.intercept_rules, self.controller.rules)
         self.assertEqual(len(self.controller.rules), 1)
-        self.assertIn("Invalid match value", failures[-1][1])
+        self.assertIn("无效的匹配值", failures[-1][1])
 
     def test_a_broken_rule_is_not_compiled_while_the_switch_is_off(self) -> None:
         """总开关关掉时下发的是 ``intercept=None``，一条表达式都不编译。

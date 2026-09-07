@@ -304,7 +304,7 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
         "Request Body Pretty": body_info["pretty"],
         "Request Body View": body_info["view"],
         "Request Body Syntax": body_info["syntax"],
-        "Status Code": QCoreApplication.translate("FlowDetail", "Pending..."),
+        "Status Code": QCoreApplication.translate("FlowDetail", "等待中..."),
         "Keep Alive": keep_alive,
         # `Flow ID` 是新键。改造前叫 `Connection ID`，存的却是 `flow.id` —— 名字
         # 占着连接的位置，真正的 `Connection.id` 反而无处可放。

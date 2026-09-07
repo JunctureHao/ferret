@@ -90,9 +90,9 @@ def validate_mode_specs(specs: list[str]) -> None:
         except ValueError as exc:
             # exc 是 mitmproxy 的技术性报错原文（英文、不可译），整句外壳在这里翻译。
             raise ValueError(
-                QCoreApplication.translate(
-                    "CaptureModes", "Invalid capture channel: {}"
-                ).format(exc)
+                QCoreApplication.translate("CaptureModes", "抓包通道无效：{}").format(
+                    exc
+                )
             ) from exc
 
 

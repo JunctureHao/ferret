@@ -139,8 +139,7 @@ def _pick_separator(*parts: str) -> str:
     raise ValueError(
         QCoreApplication.translate(
             "RewriteRule",
-            "No separator is left for this rule; simplify the match value or the "
-            "rewrite target",
+            "无法为该规则挑选分隔符，请简化匹配值或重写目标",
         )
     )
 
@@ -183,9 +182,7 @@ def _validate_template(subject: str, template: str) -> None:
     except (re.error, IndexError) as exc:
         # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
         raise ValueError(
-            QCoreApplication.translate(
-                "RewriteRule", "Invalid rewrite target: {}"
-            ).format(exc)
+            QCoreApplication.translate("RewriteRule", "无效的重写目标：{}").format(exc)
         ) from exc
 
 
@@ -213,7 +210,7 @@ class RewriteRule:
         value = self.value.strip()
         if not value:
             raise ValueError(
-                QCoreApplication.translate("RewriteRule", "Match value cannot be empty")
+                QCoreApplication.translate("RewriteRule", "匹配值不能为空")
             )
         if self.logic == RewriteLogic.REGEX:
             return value
@@ -230,9 +227,7 @@ class RewriteRule:
             # ValueError("No hostname given") —— 而那是在 addon 钩子里、对着真实
             # 流量抛的。重定向本来就得有目标，索性在这里就拦掉。
             raise ValueError(
-                QCoreApplication.translate(
-                    "RewriteRule", "Rewrite target cannot be empty"
-                )
+                QCoreApplication.translate("RewriteRule", "重写目标不能为空")
             )
         if self.logic == RewriteLogic.REGEX:
             # 正则模式保留反向引用（\1 / \g<name>），原样交给 re.sub。
@@ -273,9 +268,9 @@ class RewriteRule:
         if self.kind in BODY_KINDS:
             return self._body_spec()
         raise ValueError(
-            QCoreApplication.translate(
-                "RewriteRule", "Unsupported rewrite type: {}"
-            ).format(self.kind)
+            QCoreApplication.translate("RewriteRule", "暂不支持的重写类型：{}").format(
+                self.kind
+            )
         )
 
     def _compile_subject(self) -> str:
@@ -290,9 +285,9 @@ class RewriteRule:
             re.compile(subject)
         except re.error as exc:
             raise ValueError(
-                QCoreApplication.translate(
-                    "RewriteRule", "Invalid match value: {}"
-                ).format(exc)
+                QCoreApplication.translate("RewriteRule", "无效的匹配值：{}").format(
+                    exc
+                )
             ) from exc
         return subject
 
@@ -309,7 +304,7 @@ class RewriteRule:
         except ValueError as exc:
             raise ValueError(
                 QCoreApplication.translate(
-                    "RewriteRule", "Could not build a valid filter for this rule: {}"
+                    "RewriteRule", "无法为该规则生成合法的过滤器：{}"
                 ).format(exc)
             ) from exc
         return expr
@@ -335,7 +330,7 @@ class RewriteRule:
                 raise ValueError(
                     QCoreApplication.translate(
                         "RewriteRule",
-                        "The rewrite target must be a full URL with a scheme and a host",
+                        "重写目标必须是带协议和主机名的完整 URL",
                     )
                 )
         _validate_template(subject, template)
@@ -350,8 +345,7 @@ class RewriteRule:
             raise ValueError(
                 QCoreApplication.translate(
                     "RewriteRule",
-                    "Could not build a valid rewrite expression; simplify the match "
-                    "value or the rewrite target",
+                    "无法为该规则生成合法的重写表达式，请简化匹配值或重写目标",
                 )
             )
         return spec
@@ -361,9 +355,7 @@ class RewriteRule:
         path = self.replacement.strip()
         if not path:
             raise ValueError(
-                QCoreApplication.translate(
-                    "RewriteRule", "The local file or folder cannot be empty"
-                )
+                QCoreApplication.translate("RewriteRule", "本地文件或目录不能为空")
             )
         # 原生 parse_map_local_spec 用 `resolve(strict=True)`：路径必须**当下存在**，
         # 不存在整批规则会一起回滚。先自己解析一次，好把错怪到这一栏上。
@@ -373,7 +365,7 @@ class RewriteRule:
             raise ValueError(
                 QCoreApplication.translate(
                     "RewriteRule",
-                    "The local path does not exist or is unreadable: {} ({})",
+                    "本地路径不存在或不可访问：{}（{}）",
                 ).format(path, exc)
             ) from exc
         # 和 map_remote 同为两段式，所以本地路径也得避开分隔符。
@@ -384,8 +376,7 @@ class RewriteRule:
             raise ValueError(
                 QCoreApplication.translate(
                     "RewriteRule",
-                    "Could not build a valid rewrite expression; simplify the match "
-                    "value or the local path",
+                    "无法为该规则生成合法的重写表达式，请简化匹配值或本地路径",
                 )
             )
         return spec
@@ -394,15 +385,11 @@ class RewriteRule:
         name = self.target.strip()
         if not name:
             raise ValueError(
-                QCoreApplication.translate(
-                    "RewriteRule", "The header name cannot be empty"
-                )
+                QCoreApplication.translate("RewriteRule", "请求头/响应头名称不能为空")
             )
         if "\n" in name or "\r" in name:
             raise ValueError(
-                QCoreApplication.translate(
-                    "RewriteRule", "The header name cannot contain line breaks"
-                )
+                QCoreApplication.translate("RewriteRule", "请求头/响应头名称不能含换行")
             )
         flow_filter = self._flow_filter()
         subject = escape_escaped_str(name)
@@ -418,8 +405,7 @@ class RewriteRule:
             raise ValueError(
                 QCoreApplication.translate(
                     "RewriteRule",
-                    "Could not build a valid rewrite expression; simplify the match "
-                    "value or the header name",
+                    "无法为该规则生成合法的重写表达式，请简化匹配值或头名称",
                 )
             )
         return spec
@@ -436,8 +422,7 @@ class RewriteRule:
             raise ValueError(
                 QCoreApplication.translate(
                     "RewriteRule",
-                    "Could not build a valid rewrite expression; simplify the match "
-                    "value or the body pattern",
+                    "无法为该规则生成合法的重写表达式，请简化匹配值或体正则",
                 )
             )
         return spec
@@ -454,7 +439,7 @@ class RewriteRule:
         except ValueError as exc:
             raise ValueError(
                 QCoreApplication.translate(
-                    "RewriteRule", "Invalid rewrite expression: {}"
+                    "RewriteRule", "重写表达式不合法：{}"
                 ).format(exc)
             ) from exc
 

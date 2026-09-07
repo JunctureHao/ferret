@@ -334,7 +334,7 @@ class DetailShapeTests(unittest.TestCase):
         data = build_flow_detail(flow)
 
         self.assertEqual(data["state"], "request")
-        self.assertEqual(data["Status Code"], "Pending...")
+        self.assertEqual(data["Status Code"], "等待中...")
         self.assertNotIn("curl_command", data)
 
     def test_an_errored_flow_carries_the_reason_text(self) -> None:

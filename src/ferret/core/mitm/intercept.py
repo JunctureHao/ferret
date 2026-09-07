@@ -142,9 +142,7 @@ class InterceptRule:
         value = self.value.strip()
         if not value:
             raise ValueError(
-                QCoreApplication.translate(
-                    "InterceptRule", "Match value cannot be empty"
-                )
+                QCoreApplication.translate("InterceptRule", "匹配值不能为空")
             )
         if self.logic == InterceptLogic.REGEX:
             return value
@@ -191,9 +189,9 @@ class InterceptRule:
         except ValueError as exc:
             # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
             raise ValueError(
-                QCoreApplication.translate(
-                    "InterceptRule", "Invalid match value: {}"
-                ).format(exc)
+                QCoreApplication.translate("InterceptRule", "无效的匹配值：{}").format(
+                    exc
+                )
             ) from exc
 
     def to_dict(self) -> dict[str, Any]:
@@ -277,7 +275,7 @@ def intercept_expression(rules: Iterable[InterceptRule]) -> str | None:
             raise ValueError(
                 QCoreApplication.translate(
                     "InterceptRule",
-                    "These breakpoint rules cannot be combined: {}",
+                    "断点规则无法合并：{}",
                 ).format(exc)
             ) from exc
     return expression
@@ -484,7 +482,7 @@ def _checked_status(status_code: int) -> int:
     if not 100 <= status_code <= 599:
         raise ValueError(
             QCoreApplication.translate(
-                "InterceptEdit", "Invalid HTTP status code: {}"
+                "InterceptEdit", "无效的 HTTP 状态码：{}"
             ).format(status_code)
         )
     return status_code
@@ -520,9 +518,7 @@ def apply_request_edit(flow: HTTPFlow, edit: RequestEdit) -> None:
     request = flow.request
     if request is None:
         raise ValueError(
-            QCoreApplication.translate(
-                "InterceptEdit", "This flow has no request to edit"
-            )
+            QCoreApplication.translate("InterceptEdit", "这条流量没有请求可改")
         )
     # 所有校验都跑在 `backup()` 之前，中途一个字段都不写。原生 `Flow.modified()` 的
     # 真实语义是「有备份可撤销」（它拿 ``_backup`` 和 ``get_state()`` 比，而后者必然多
@@ -532,16 +528,12 @@ def apply_request_edit(flow: HTTPFlow, edit: RequestEdit) -> None:
     method = edit.method.strip().upper()
     if not method:
         raise ValueError(
-            QCoreApplication.translate(
-                "InterceptEdit", "The request method cannot be empty"
-            )
+            QCoreApplication.translate("InterceptEdit", "请求方法不能为空")
         )
     url = edit.url.strip()
     if not url:
         raise ValueError(
-            QCoreApplication.translate(
-                "InterceptEdit", "The request URL cannot be empty"
-            )
+            QCoreApplication.translate("InterceptEdit", "请求 URL 不能为空")
         )
     # `request.url` 的 setter 就是 `url.parse` 加四个字段赋值，先解一次等价于预检，
     # 把「URL 不合法」挡在动手之前。
@@ -564,9 +556,7 @@ def apply_response_edit(flow: HTTPFlow, edit: ResponseEdit) -> None:
     response = flow.response
     if response is None:
         raise ValueError(
-            QCoreApplication.translate(
-                "InterceptEdit", "This flow has no response to edit yet"
-            )
+            QCoreApplication.translate("InterceptEdit", "这条流量还没有响应可改")
         )
     # 同 `apply_request_edit`：校验全部先于 `backup()`，失败的保存不留「已编辑」痕迹。
     status_code = _checked_status(edit.status_code)
@@ -592,7 +582,7 @@ def fake_response(flow: HTTPFlow, edit: ResponseEdit) -> None:
         raise ValueError(
             QCoreApplication.translate(
                 "InterceptEdit",
-                "This flow already has a response; edit the response instead",
+                "这条流量已经有响应，请直接编辑响应",
             )
         )
     status_code = _checked_status(edit.status_code)

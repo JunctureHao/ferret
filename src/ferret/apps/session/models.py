@@ -26,8 +26,8 @@ class SessionSource(StrEnum):
 # 文案在这里只做标记、不求值 —— 模块级求值赶在翻译器安装之前（`core/application.py`
 # 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在 `data()` 里做。
 _SOURCE_LABELS: dict[SessionSource, str] = {
-    SessionSource.CAPTURE: QT_TRANSLATE_NOOP("SessionSource", "Capture"),
-    SessionSource.IMPORT: QT_TRANSLATE_NOOP("SessionSource", "Import"),
+    SessionSource.CAPTURE: QT_TRANSLATE_NOOP("SessionSource", "抓包"),
+    SessionSource.IMPORT: QT_TRANSLATE_NOOP("SessionSource", "导入"),
 }
 
 
@@ -47,11 +47,11 @@ class SessionMeta:
 class SessionTableModel(QAbstractTableModel):
     # 同理只做标记：类体也是导入期就求值的。求值在 `headerData()` 里做。
     HEADERS: ClassVar[list[str]] = [
-        QT_TRANSLATE_NOOP("SessionTableModel", "Name"),
-        QT_TRANSLATE_NOOP("SessionTableModel", "Modified"),
-        QT_TRANSLATE_NOOP("SessionTableModel", "Flows"),
-        QT_TRANSLATE_NOOP("SessionTableModel", "Size"),
-        QT_TRANSLATE_NOOP("SessionTableModel", "Source"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "名称"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "修改时间"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "流量数"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "大小"),
+        QT_TRANSLATE_NOOP("SessionTableModel", "来源"),
     ]
     SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 

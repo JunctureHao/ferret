@@ -82,7 +82,7 @@ class CertificateInterfaceTests(unittest.TestCase):
         self.assertFalse(self.page.detail_card.isVisibleTo(self.page))
         self.assertTrue(self.page.install_btn.isEnabled())
         self.assertFalse(self.page.uninstall_btn.isEnabled())
-        self.assertEqual(self.page.status_title.text(), "No CA certificate yet")
+        self.assertEqual(self.page.status_title.text(), "尚未生成 CA 证书")
 
     def test_trusted_state_fills_the_detail_grid(self) -> None:
         self.show(TrustState.TRUSTED, info=make_info())
@@ -93,7 +93,7 @@ class CertificateInterfaceTests(unittest.TestCase):
 
     def test_stale_state_relabels_install_as_reinstall(self) -> None:
         self.show(TrustState.STALE, info=make_info())
-        self.assertEqual(self.page.install_btn.text(), "Reinstall")
+        self.assertEqual(self.page.install_btn.text(), "重新安装")
         self.assertTrue(self.page.install_btn.isEnabled())
         self.assertTrue(self.page.uninstall_btn.isEnabled())
 

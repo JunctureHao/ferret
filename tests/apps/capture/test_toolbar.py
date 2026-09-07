@@ -40,21 +40,21 @@ class CaptureCommandBarTests(unittest.TestCase):
 
     def test_lifecycle_states_update_text_and_control(self) -> None:
         self.bar.set_state(self.state(), False)
-        self.assertEqual(self.bar.state_label.text(), "Idle")
+        self.assertEqual(self.bar.state_label.text(), "未捕获系统流量")
         self.assertTrue(self.bar.control_btn.isEnabled())
-        self.assertEqual(self.bar.control_btn.toolTip(), "Start capturing")
+        self.assertEqual(self.bar.control_btn.toolTip(), "开始抓包")
 
         self.bar.set_state(self.state(capture_state=CaptureState.STARTING), False)
-        self.assertEqual(self.bar.state_label.text(), "Starting")
+        self.assertEqual(self.bar.state_label.text(), "启动中")
         self.assertFalse(self.bar.control_btn.isEnabled())
 
         self.bar.set_state(self.state(capture_state=CaptureState.RUNNING), False)
-        self.assertEqual(self.bar.state_label.text(), "Capturing")
+        self.assertEqual(self.bar.state_label.text(), "正在捕获")
         self.assertTrue(self.bar.control_btn.isEnabled())
-        self.assertEqual(self.bar.control_btn.toolTip(), "Stop capturing")
+        self.assertEqual(self.bar.control_btn.toolTip(), "停止抓包")
 
         self.bar.set_state(self.state(capture_state=CaptureState.FAILED), False)
-        self.assertEqual(self.bar.state_label.text(), "Failed")
+        self.assertEqual(self.bar.state_label.text(), "启动失败")
         self.assertTrue(self.bar.control_btn.isEnabled())
 
     def test_counts_filter_badge_and_clear_state_are_distinct(self) -> None:
@@ -67,11 +67,11 @@ class CaptureCommandBarTests(unittest.TestCase):
             ),
             True,
         )
-        self.assertEqual(self.bar.stats_label.text(), "12 / 43 flow(s)")
+        self.assertEqual(self.bar.stats_label.text(), "12 / 43 条")
         self.assertEqual(self.bar.filter_badge.text(), "3")
         self.assertTrue(self.bar.filter_badge.isVisible())
         self.assertTrue(self.bar.captures_delete_btn.isEnabled())
-        self.assertIn("2 selected", self.bar.stats_label.toolTip())
+        self.assertIn("已选 2 条", self.bar.stats_label.toolTip())
 
     def test_compact_mode_shortens_endpoint_and_count(self) -> None:
         self.bar.set_state(self.state(total_count=43, shown_count=12), False)

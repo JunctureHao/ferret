@@ -63,7 +63,7 @@ from ferret.core.mitm import HTTPFlow
 # 写成函数：模块级求值赶在翻译器安装之前（`core/application.py` 顶层就 import 了
 # 主窗口，那时 `_init_i18n()` 还没跑）。
 def _title() -> str:
-    return QCoreApplication.translate("InterceptWindow", "Breakpoints")
+    return QCoreApplication.translate("InterceptWindow", "断点")
 
 
 class InterceptWindow(FluentWidget):
@@ -160,11 +160,9 @@ class InterceptWindow(FluentWidget):
         # 底部状态条：待处理数 + 当前选中 + 「放行全部」。批量动作原来只有右键菜单，
         # 给一个看得见的入口。
         self.status_label = CaptionLabel(self)
-        self.release_all_button = PushButton(
-            FluentIcon.SEND, self.tr("Release all"), self
-        )
+        self.release_all_button = PushButton(FluentIcon.SEND, self.tr("放行全部"), self)
         self.release_all_button.setToolTip(
-            self.tr("Release every held flow without applying any edits")
+            self.tr("放行全部挂起的流量，不套用任何编辑")
         )
         self.status_bar = QWidget(self)
         status_layout = QHBoxLayout(self.status_bar)
@@ -179,12 +177,9 @@ class InterceptWindow(FluentWidget):
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label = BodyLabel(self.tr("Nothing is held right now"), page)
+        label = BodyLabel(self.tr("当前没有被拦下的流量"), page)
         hint = CaptionLabel(
-            self.tr(
-                "Traffic that matches a breakpoint rule stops here and waits "
-                "until you release it"
-            ),
+            self.tr("命中断点规则的流量会停在这里，等你改完再放行"),
             page,
         )
         layout.addStretch(1)
@@ -198,7 +193,7 @@ class InterceptWindow(FluentWidget):
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint = CaptionLabel(self.tr("Select a held flow to edit it"), page)
+        hint = CaptionLabel(self.tr("选择一条挂起的流量进行编辑"), page)
         layout.addStretch(1)
         layout.addWidget(hint, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addStretch(1)
@@ -249,7 +244,7 @@ class InterceptWindow(FluentWidget):
             self.setWindowTitle(_title())
             return
         # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
-        self.setWindowTitle(self.tr("Breakpoints · {} pending").format(count))
+        self.setWindowTitle(self.tr("断点 · {} 条待处理").format(count))
 
     # —— 队列辅助 ——
 
@@ -400,12 +395,12 @@ class InterceptWindow(FluentWidget):
             return
         menu = RoundMenu(parent=self.flow_table)
         release_action = BaseAction(
-            icon=FluentIcon.SEND, text=self.tr("Release"), parent=menu
+            icon=FluentIcon.SEND, text=self.tr("放行"), parent=menu
         )
         release_action.triggered.connect(self._on_release)
         menu.addAction(release_action)
         drop_action = BaseAction(
-            icon=FluentIcon.CANCEL, text=self.tr("Drop"), parent=menu
+            icon=FluentIcon.CANCEL, text=self.tr("丢弃"), parent=menu
         )
         drop_action.triggered.connect(self._on_drop)
         menu.addAction(drop_action)
@@ -418,11 +413,11 @@ class InterceptWindow(FluentWidget):
         count = self.flow_model.rowCount()
         flow = self._current_flow()
         if flow is not None:
-            summary = self.tr("{} pending · editing {}").format(
+            summary = self.tr("{} 条待处理 · 正在编辑 {}").format(
                 count, flow.request.pretty_url
             )
         elif count:
-            summary = self.tr("{} pending").format(count)
+            summary = self.tr("{} 条待处理").format(count)
         else:
             summary = ""
         self.status_label.setText(summary)
@@ -465,4 +460,4 @@ class InterceptWindow(FluentWidget):
     @Slot(str)
     def _on_operation_succeeded(self, message: str):
         if self.isVisible():
-            show_success(self.tr("Success"), message, self)
+            show_success(self.tr("成功"), message, self)

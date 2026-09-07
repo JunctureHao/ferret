@@ -32,48 +32,48 @@ class SettingsInterface(ScrollArea):
         self.expand_layout = ExpandLayout(self.scroll_widget)
 
         self.setting_label = TitleLabel(self)
-        self.setting_label.setText(self.tr("Settings"))
+        self.setting_label.setText(self.tr("设置"))
 
         # 分组
         self.personalization_group = SettingCardGroup(
-            title=self.tr("Personalization"), parent=self.scroll_widget
+            title=self.tr("个性化"), parent=self.scroll_widget
         )
 
         self.theme_card = OptionsSettingCard(
             configItem=CONFIG.themeMode,
             icon=FluentIcon.BRUSH,
-            title=self.tr("Application theme"),
-            content=self.tr("Customize the look of your application"),
-            texts=[self.tr("Light"), self.tr("Dark"), self.tr("Use system setting")],
+            title=self.tr("应用主题"),
+            content=self.tr("自定义应用外观"),
+            texts=[self.tr("浅色"), self.tr("深色"), self.tr("使用系统设置")],
             parent=self.personalization_group,
         )
         self.theme_color_card = CustomColorSettingCard(
             configItem=CONFIG.themeColor,
             icon=FluentIcon.PALETTE,
-            title=self.tr("Theme color"),
-            content=self.tr("Change the theme color of you application"),
+            title=self.tr("主题颜色"),
+            content=self.tr("更改应用的主题颜色"),
             parent=self.personalization_group,
         )
         self.zoom_card = OptionsSettingCard(
             configItem=CONFIG.dpi_scale,
             icon=FluentIcon.ZOOM,
-            title=self.tr("Interface zoom"),
-            content=self.tr("Change the size of widgets and fonts"),
+            title=self.tr("界面缩放"),
+            content=self.tr("调整控件和字体的大小"),
             texts=[
                 "100%",
                 "125%",
                 "150%",
                 "175%",
                 "200%",
-                self.tr("Use system setting"),
+                self.tr("使用系统设置"),
             ],
             parent=self.personalization_group,
         )
         self.language_card = ComboBoxSettingCard(
             configItem=CONFIG.language,
             icon=FluentIcon.LANGUAGE,
-            title=self.tr("Language"),
-            content=self.tr("Set your preferred language for UI"),
+            title=self.tr("语言"),
+            content=self.tr("选择界面所使用的语言"),
             # 语言名一律用**该语言自己的写法**，所以这两条不进翻译目录 —— 看不懂当前
             # 界面语言的人，也得能在这里认出自己的语言（Windows 设置同样这么做）。
             texts=["简体中文", "English"],
@@ -81,22 +81,20 @@ class SettingsInterface(ScrollArea):
         )
 
         # Main Panel
-        self.main_panel_group = SettingCardGroup(
-            self.tr("Main Panel"), self.scroll_widget
-        )
+        self.main_panel_group = SettingCardGroup(self.tr("主面板"), self.scroll_widget)
         self.minimize_to_tray_card = SwitchSettingCard(
             FluentIcon.MINIMIZE,
-            self.tr("Minimize to tray after closing"),
-            self.tr("application will continue to run in the background"),
+            self.tr("关闭后最小化至托盘"),
+            self.tr("应用程序将继续在后台运行"),
             configItem=CONFIG.minimize_to_tray,
             parent=self.main_panel_group,
         )
         self.layout_card = ComboBoxSettingCard(
             configItem=CONFIG.layout,
             icon=FluentIcon.LAYOUT,
-            title=self.tr("Layout"),
-            content=self.tr("Where the detail panel sits next to the flow table"),
-            texts=[self.tr("Horizontal"), self.tr("Vertical")],
+            title=self.tr("布局"),
+            content=self.tr("切换表格信息中详细面板布局"),
+            texts=[self.tr("水平"), self.tr("垂直")],
             parent=self.main_panel_group,
         )
 
@@ -147,7 +145,7 @@ class SettingsInterface(ScrollArea):
         """show restart tooltip"""
         InfoBar.warning(
             title="",
-            content=self.tr("Configuration takes effect after restart"),
+            content=self.tr("配置将在重启后生效"),
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.BOTTOM,

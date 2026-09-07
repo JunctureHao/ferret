@@ -154,17 +154,17 @@ class Application:
     def _init_i18n(self):
         """装 qfluentwidgets 的翻译，以及 ferret 自己的业务翻译目录。
 
-        **英文是源语言**：代码里每个 `tr()` / `QCoreApplication.translate()` 的字面量
-        本身就是英文，所以选英文时**不该有** `en_GB.qm`，也不装业务翻译器 —— 少一层查表，
-        `tr()` 直接返回源文本。其余语言才去 `:/i18n/<locale>.qm` 找目录（`zh_CN.qm` 由
+        **简体中文是源语言**：代码里每个 `tr()` / `QCoreApplication.translate()` 的
+        字面量本身就是中文，所以选中文时**不装**业务翻译器 —— 少一层查表，`tr()`
+        直接返回源文本。其余语言才去 `:/i18n/<locale>.qm` 找目录（`en_GB.qm` 由
         `python -m ferret.utils.scripts` 编出来再 rcc 进 `core/resources_rc.py`）。
 
         翻译器必须存成实例属性：Qt 只持弱引用，一被 GC 回收，界面立刻退回源文本。
 
         这一步排在 `_create_window()` 之前，但**挡不住模块级求值** —— 本模块顶层就
         `from ferret.apps.window import MainWindow`，所有 apps 模块在这里之前已经导入完毕。
-        模块级/类体求值出来的译文会永久冻结成英文，所以那些文案一律存 `QT_TRANSLATE_NOOP`
-        标记、到使用点才 `translate`（见 `ferret.utils.i18n`）。
+        模块级/类体求值出来的译文会永久冻结成中文，所以那些文案一律存
+        `QT_TRANSLATE_NOOP` 标记、到使用点才 `translate`（见 `ferret.utils.i18n`）。
         """
         if self.app is None:
             raise RuntimeError("QApplication 尚未创建，无法安装翻译器")
@@ -182,7 +182,7 @@ class Application:
         self.app.installTranslator(fluent_translator)
         self.translators.append(fluent_translator)
 
-        if locale.language() == QLocale.Language.English:
+        if locale.language() == QLocale.Language.Chinese:
             return
 
         setting_translator = QTranslator()
@@ -190,10 +190,10 @@ class Application:
             self.app.installTranslator(setting_translator)
             self.translators.append(setting_translator)
         else:
-            # 目录没编进资源（漏跑 lrelease 或 rcc）。界面会整体退回英文源文本 ——
+            # 目录没编进资源（漏跑 lrelease 或 rcc）。界面会整体退回中文源文本 ——
             # 静默失效很难查，所以留一条日志。
             logger.warning(
-                "翻译目录 :/i18n/%s.qm 加载失败，界面将显示英文源文本", locale.name()
+                "翻译目录 :/i18n/%s.qm 加载失败，界面将显示中文源文本", locale.name()
             )
 
     def _create_window(self):

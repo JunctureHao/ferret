@@ -1,16 +1,15 @@
-"""翻译目录的守卫：漏译、化石条目、忘跑 rcc，这三件事都不报错，只会静默变英文。
+"""翻译目录的守卫：漏译、化石条目、忘跑 rcc，这三件事都不报错，只会静默变中文。
 
-源语言是**英文** —— 代码里每个 `tr()` 字面量本身就是英文，查不到译文时 Qt 原样返回源
-文本。所以漏一条译文的表现是「界面上突然冒出一个英文词」，而测试、ruff、ty 全绿。截图
-里导航栏那五个英文词（`sessions`/`gateway`/…）就是这么来的：`zh_CN.ts` 里根本没有那几条
-source。这个文件是为了让下一次同类事故变成一条红色断言。
+源语言是**简体中文** —— 代码里每个 `tr()` 字面量本身就是中文，查不到译文时 Qt
+原样返回源文本。所以漏一条译文的表现是「英文界面突然冒出一个中文词」，而测试、
+ruff、ty 全绿。这个文件是为了让下一次同类事故变成一条红色断言。
 
 三层各挡一件事：
 
-* `CatalogTests` —— 代码里的字面量与 `zh_CN.ts` **双向**对齐（漏译 + 化石），外加
+* `CatalogTests` —— 代码里的字面量与 `en_GB.ts` **双向**对齐（漏译 + 化石），外加
   `<location>` 必须指向真实文件（重构完忘跑 lupdate 的现场）、`#:` 注释不许漏成
   译者说明；
-* `CompiledCatalogTests` —— `.ts` 里每一条都能从 `:/i18n/zh_CN.qm` 原样读回来，专抓
+* `CompiledCatalogTests` —— `.ts` 里每一条都能从 `:/i18n/en_GB.qm` 原样读回来，专抓
   「改了 ts 但没跑 lrelease / rcc」；
 * `ExtractableTests` —— 写法本身得是 lupdate 认的形式（f-string、`tr(变量)` 提取不到）。
 
@@ -32,7 +31,7 @@ from ferret.core import resources_rc  # noqa: F401  注册 :/i18n/*.qm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = PROJECT_ROOT / "src" / "ferret"
-TS_PATH = SRC_DIR / "resources" / "i18n" / "zh_CN.ts"
+TS_PATH = SRC_DIR / "resources" / "i18n" / "en_GB.ts"
 
 #: 这个生成物喂给 lupdate 会让它以 0xC0000409 崩掉（3.6 MB），流水线里也是排除它的。
 GENERATED = {"resources_rc.py"}
@@ -91,10 +90,10 @@ def source_literals() -> list[tuple[str, str]]:
 
 
 class CatalogTests(unittest.TestCase):
-    """`zh_CN.ts` 与代码双向对齐。
+    """`en_GB.ts` 与代码双向对齐。
 
     单向不够：只查「代码里的都有译文」挡得住漏译，但改过文案的旧条目会一直躺在目录里，
-    下次谁想搬运译文就会照着一条早已不存在的英文抄。所以两个方向都断言。
+    下次谁想搬运译文就会照着一条早已不存在的中文抄。所以两个方向都断言。
     """
 
     @classmethod
@@ -110,7 +109,7 @@ class CatalogTests(unittest.TestCase):
         self.assertGreater(len(self.entries), 400)
 
     def test_every_literal_has_a_non_empty_translation(self) -> None:
-        """漏译在运行时静默退回英文源文本，这条断言是唯一的警报。"""
+        """漏译在运行时静默退回中文源文本，这条断言是唯一的警报。"""
         translated = {
             msg.findtext("source")
             for _ctx, msg in self.entries
@@ -118,7 +117,7 @@ class CatalogTests(unittest.TestCase):
         }
         for text, where in source_literals():
             with self.subTest(source=text, at=where):
-                self.assertIn(text, translated, f"{where} 缺中文译文")
+                self.assertIn(text, translated, f"{where} 缺英文译文")
 
     def test_no_catalog_entry_outlived_its_source(self) -> None:
         """反向：目录里不该留下代码中已经没有的 source。
@@ -193,11 +192,11 @@ class CompiledCatalogTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
         cls.translator = QTranslator()
-        cls.loaded = cls.translator.load(":/i18n/zh_CN.qm")
+        cls.loaded = cls.translator.load(":/i18n/en_GB.qm")
 
     def test_the_compiled_catalog_ships_in_the_resources(self) -> None:
         """没跑 rcc、或者 rcc 又写去了没人 import 的路径，都会挂在这。"""
-        self.assertTrue(self.loaded, ":/i18n/zh_CN.qm 加载失败，请重跑流水线")
+        self.assertTrue(self.loaded, ":/i18n/en_GB.qm 加载失败，请重跑流水线")
 
     def test_the_compiled_catalog_matches_the_source_catalog(self) -> None:
         for ctx in ET.parse(TS_PATH).getroot():
@@ -211,21 +210,21 @@ class CompiledCatalogTests(unittest.TestCase):
                         f"{name} / {source!r} 与编译产物不一致，请重跑流水线",
                     )
 
-    def test_the_navigation_labels_read_as_chinese(self) -> None:
-        """截图里露出问题的就是这七条，逐字钉住。"""
+    def test_the_navigation_labels_translate_to_english(self) -> None:
+        """导航七条逐字钉住（中文源 → 英文译文，源语言翻转后的方向）。"""
         expected = {
-            "Captures": "捕获",
-            "Sessions": "会话",
-            "Gateway": "网关",
-            "Rewrite": "重写",
-            "Intercept": "断点",
-            "Certificate": "证书",
-            "Settings": "设置",
+            "捕获": "Captures",
+            "会话": "Sessions",
+            "网关": "Gateway",
+            "重写": "Rewrite",
+            "断点": "Intercept",
+            "证书": "Certificate",
+            "设置": "Settings",
         }
-        for source, chinese in expected.items():
+        for source, english in expected.items():
             with self.subTest(source=source):
                 self.assertEqual(
-                    self.translator.translate("MainWindow", source), chinese
+                    self.translator.translate("MainWindow", source), english
                 )
 
     def test_a_marker_table_entry_survives_the_whole_pipeline(self) -> None:
@@ -235,8 +234,8 @@ class CompiledCatalogTests(unittest.TestCase):
         这句文案只写在 `core/mitm/certificate.py` 的模块级常量 `EXPORT_FORMATS` 里。
         """
         self.assertEqual(
-            self.translator.translate("CertExportFormat", "PEM certificate (.pem)"),
-            "PEM 证书 (.pem)",
+            self.translator.translate("CertExportFormat", "PEM 证书 (.pem)"),
+            "PEM certificate (.pem)",
         )
 
 

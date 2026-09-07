@@ -44,7 +44,7 @@ class MultiFilterManagerTests(unittest.TestCase):
         row = self.manager._rows()[0]
         row.value_input.setText("application/json")
         self.assertEqual(self.manager.active_condition_count(), 1)
-        self.assertEqual(self.manager.summary_label.text(), "1 active condition(s)")
+        self.assertEqual(self.manager.summary_label.text(), "1 个有效条件")
 
         row.check_box.setChecked(False)
         self.assertEqual(self.manager.active_condition_count(), 0)

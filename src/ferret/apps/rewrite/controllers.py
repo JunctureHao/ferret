@@ -57,23 +57,21 @@ class RewriteController(QObject):
         return None
 
     def add_rule(self, rule: RewriteRule) -> bool:
-        return self._commit([*self._rules, rule], self.tr("Rewrite rule added"))
+        return self._commit([*self._rules, rule], self.tr("已添加重写规则"))
 
     def update_rule(self, index: int, rule: RewriteRule) -> bool:
         if not (0 <= index < len(self._rules)):
             return False
         rules = list(self._rules)
         rules[index] = rule
-        return self._commit(rules, self.tr("Rewrite rule updated"))
+        return self._commit(rules, self.tr("已更新重写规则"))
 
     def remove_rules(self, indexes: list[int]) -> bool:
         dropped = {i for i in indexes if 0 <= i < len(self._rules)}
         if not dropped:
             return False
         rules = [r for i, r in enumerate(self._rules) if i not in dropped]
-        return self._commit(
-            rules, self.tr("Deleted {} rewrite rule(s)").format(len(dropped))
-        )
+        return self._commit(rules, self.tr("已删除 {} 条重写规则").format(len(dropped)))
 
     def set_enabled(self, index: int, enabled: bool) -> bool:
         rule = self.rule_at(index)
@@ -100,9 +98,7 @@ class RewriteController(QObject):
         except (ValueError, RuntimeError, TimeoutError) as exc:
             self._rules = previous
             self.rules_changed.emit(list(previous))
-            self.operation_failed.emit(
-                self.tr("The rules did not take effect"), str(exc)
-            )
+            self.operation_failed.emit(self.tr("规则未生效"), str(exc))
             return False
         self._rules = rules
         # QConfig.set 开头会比较 item.value == value，必须传新 list 才会落盘。

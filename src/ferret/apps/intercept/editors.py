@@ -33,8 +33,7 @@ from ferret.utils.i18n import QT_TRANSLATE_NOOP
 # 只存标记：模块级求值赶在翻译器安装之前，`self.tr(变量)` 也提取不到。
 _BINARY_HINT = QT_TRANSLATE_NOOP(
     "MessageEditor",
-    "This content is not valid UTF-8 (an archive, an image, or a non-UTF-8 charset), "
-    "so it is locked read-only; it goes out unchanged when released.",
+    "这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；放行时按原样发出。",
 )
 
 
@@ -90,22 +89,20 @@ class PhasePanel(QWidget):
 
         self.release_button = PrimaryToolButton(FluentIcon.SEND, self)
         self.release_button.setToolTip(
-            QCoreApplication.translate(
-                "MessageEditor", "Write the edits back and release this flow"
-            )
+            QCoreApplication.translate("MessageEditor", "写回改动并放行这条流量")
         )
         self.release_button.setAccessibleName(
-            QCoreApplication.translate("MessageEditor", "Release")
+            QCoreApplication.translate("MessageEditor", "放行")
         )
         self.release_button.clicked.connect(self.releaseRequested)
         self.drop_button = ToolButton(FluentIcon.CANCEL, self)
         self.drop_button.setToolTip(
             QCoreApplication.translate(
-                "MessageEditor", "Kill this flow; the client receives nothing at all"
+                "MessageEditor", "断开这条流量，客户端什么都收不到"
             )
         )
         self.drop_button.setAccessibleName(
-            QCoreApplication.translate("MessageEditor", "Drop")
+            QCoreApplication.translate("MessageEditor", "丢弃")
         )
         self.drop_button.clicked.connect(self.dropRequested)
 
@@ -207,7 +204,7 @@ class RequestPanel(PhasePanel):
 
     def _update_header_count(self, count: int) -> None:
         self.detail.setTabText(
-            "Headers", self.tr("Request headers ({count})").format(count=count)
+            "Headers", self.tr("请求头 ({count})").format(count=count)
         )
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -228,9 +225,9 @@ class RequestPanel(PhasePanel):
         header = self._build_header(self.method_combo, self.url_edit, stretch_last=True)
 
         self.detail = self._build_detail()
-        self.detail.addTab("Params", self.params_panel, self.tr("Params"))
-        self.detail.addTab("Headers", self.headers_panel, self.tr("Headers"))
-        self.detail.addTab("Body", self.body_box, self.tr("Body"))
+        self.detail.addTab("Params", self.params_panel, self.tr("参数"))
+        self.detail.addTab("Headers", self.headers_panel, self.tr("请求头"))
+        self.detail.addTab("Body", self.body_box, self.tr("请求体"))
         self.detail.setCurrentTab("Params")
 
         layout = QVBoxLayout(self)
@@ -278,7 +275,7 @@ class ResponsePanel(PhasePanel):
 
     def _update_header_count(self, count: int) -> None:
         self.detail.setTabText(
-            "Headers", self.tr("Response headers ({count})").format(count=count)
+            "Headers", self.tr("响应头 ({count})").format(count=count)
         )
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -292,8 +289,8 @@ class ResponsePanel(PhasePanel):
         header = self._build_header(self.code_edit)
 
         self.detail = self._build_detail()
-        self.detail.addTab("Headers", self.headers_panel, self.tr("Headers"))
-        self.detail.addTab("Body", self.body_box, self.tr("Body"))
+        self.detail.addTab("Headers", self.headers_panel, self.tr("响应头"))
+        self.detail.addTab("Body", self.body_box, self.tr("响应体"))
         self.detail.setCurrentTab("Headers")
 
         layout = QVBoxLayout(self)

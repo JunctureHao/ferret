@@ -122,7 +122,7 @@ class InterceptRuleExpressionTests(unittest.TestCase):
         built = rule(logic=InterceptLogic.REGEX, value="(unclosed")
         with self.assertRaises(ValueError) as ctx:
             built.validate()
-        self.assertIn("Invalid match value", str(ctx.exception))
+        self.assertIn("无效的匹配值", str(ctx.exception))
 
     def test_every_phase_matches_the_right_half(self) -> None:
         """段外并列 = 隐式 AND；三种 phase 的组合交给原生解析并验证语义。"""

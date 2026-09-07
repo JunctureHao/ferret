@@ -83,9 +83,9 @@ class LabelTests(unittest.TestCase):
                 self.assertIn(phase_hint(phase), rule_summary(make_rule(phase=phase)))
 
     def test_rule_summary_explains_an_unusable_rule(self) -> None:
-        self.assertEqual(rule_summary(make_rule("")), "Match value cannot be empty")
+        self.assertEqual(rule_summary(make_rule("")), "匹配值不能为空")
         self.assertIn(
-            "Invalid match value",
+            "无效的匹配值",
             rule_summary(make_rule("bad(", logic=InterceptLogic.REGEX)),
         )
 
@@ -218,7 +218,7 @@ class InterceptRuleTableModelTests(unittest.TestCase):
         """规则选阶段。值是最长的一列、要占满剩余宽度，所以阶段排在它前面。"""
         self.assertEqual(
             InterceptRuleTableModel.HEADERS,
-            ["Enabled", "Match on", "Condition", "Phase", "Value"],
+            ["启用", "匹配对象", "条件", "阶段", "值"],
         )
 
 
@@ -304,8 +304,8 @@ class HeldFlowTableModelTests(unittest.TestCase):
     def test_the_phase_column_reflects_where_the_flow_is_held(self) -> None:
         """阶段列读 `flow.response is None`：BOTH 规则同一条流会先后停两次。"""
         role = Qt.ItemDataRole.DisplayRole
-        self.assertEqual(self.model.data(self.model.index(0, 2), role), "Request")
-        self.assertEqual(self.model.data(self.model.index(1, 2), role), "Response")
+        self.assertEqual(self.model.data(self.model.index(0, 2), role), "请求")
+        self.assertEqual(self.model.data(self.model.index(1, 2), role), "响应")
 
     def test_user_role_returns_the_flow(self) -> None:
         self.assertIs(

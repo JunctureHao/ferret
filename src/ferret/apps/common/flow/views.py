@@ -407,21 +407,21 @@ class FlowViewerPane(OrientationSplitter):
         self.panel.setVisible(False)
         if total > 0:
             self.empty_state.set_text(
-                self.tr("No matches"),
-                self.tr("{} active condition(s)").format(filters),
+                self.tr("没有匹配结果"),
+                self.tr("当前有 {} 个有效条件").format(filters),
             )
         elif state in ("running", "starting"):
             self.empty_state.set_text(
-                self.tr("Waiting for traffic"),
+                self.tr("等待流量"),
                 str(self._capture_context["endpoint"]),
             )
         else:
             subtitle = (
-                self.tr("Proxy stopped")
+                self.tr("代理已停止")
                 if self._capture_mode
-                else self.tr("This session has no HTTP traffic")
+                else self.tr("当前会话没有 HTTP 流量")
             )
-            self.empty_state.set_text(self.tr("No traffic yet"), subtitle)
+            self.empty_state.set_text(self.tr("暂无流量"), subtitle)
 
 
 class FlowEmptyState(QWidget):
@@ -444,7 +444,7 @@ class FlowEmptyState(QWidget):
         layout.addWidget(self.title)
         layout.addWidget(self.subtitle)
         layout.addStretch(1)
-        self.set_text(self.tr("No traffic yet"), self.tr("Proxy stopped"))
+        self.set_text(self.tr("暂无流量"), self.tr("代理已停止"))
 
     def set_text(self, title: str, subtitle: str) -> None:
         self.title.setText(title)

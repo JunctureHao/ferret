@@ -90,23 +90,21 @@ class InterceptController(QObject):
     # —— 规则 ——
 
     def add_rule(self, rule: InterceptRule) -> bool:
-        return self._commit([*self._rules, rule], self.tr("Breakpoint rule added"))
+        return self._commit([*self._rules, rule], self.tr("已添加断点规则"))
 
     def update_rule(self, index: int, rule: InterceptRule) -> bool:
         if not (0 <= index < len(self._rules)):
             return False
         rules = list(self._rules)
         rules[index] = rule
-        return self._commit(rules, self.tr("Breakpoint rule updated"))
+        return self._commit(rules, self.tr("已更新断点规则"))
 
     def remove_rules(self, indexes: list[int]) -> bool:
         dropped = {i for i in indexes if 0 <= i < len(self._rules)}
         if not dropped:
             return False
         rules = [r for i, r in enumerate(self._rules) if i not in dropped]
-        return self._commit(
-            rules, self.tr("{} breakpoint rule(s) deleted").format(len(dropped))
-        )
+        return self._commit(rules, self.tr("已删除 {} 条断点规则").format(len(dropped)))
 
     def set_enabled(self, index: int, enabled: bool) -> bool:
         rule = self.rule_at(index)
@@ -124,13 +122,13 @@ class InterceptController(QObject):
             self._mitm.set_intercept_enabled(enabled)
         except (ValueError, RuntimeError, TimeoutError) as exc:
             self.enabled_changed.emit(self._enabled)
-            self.operation_failed.emit(self.tr("Master switch not applied"), str(exc))
+            self.operation_failed.emit(self.tr("总开关未生效"), str(exc))
             return False
         self._enabled = enabled
         CONFIG.set(CONFIG.intercept_enabled, enabled)
         self.enabled_changed.emit(enabled)
         self.operation_succeeded.emit(
-            self.tr("Breakpoints on") if enabled else self.tr("Breakpoints off")
+            self.tr("断点已开启") if enabled else self.tr("断点已关闭")
         )
         return True
 
@@ -141,7 +139,7 @@ class InterceptController(QObject):
         except (ValueError, RuntimeError, TimeoutError) as exc:
             self._rules = previous
             self.rules_changed.emit(list(previous))
-            self.operation_failed.emit(self.tr("Rules not applied"), str(exc))
+            self.operation_failed.emit(self.tr("规则未生效"), str(exc))
             return False
         self._rules = rules
         # QConfig.set 开头会比较 item.value == value，必须传新 list 才会落盘。
@@ -194,11 +192,11 @@ class InterceptController(QObject):
         try:
             count = self._mitm.release_all_intercepted()
         except (RuntimeError, TimeoutError) as exc:
-            self.operation_failed.emit(self.tr("Release failed"), str(exc))
+            self.operation_failed.emit(self.tr("放行失败"), str(exc))
             return False
         self.refresh_flows()
         if count:
-            self.operation_succeeded.emit(self.tr("Released {} flow(s)").format(count))
+            self.operation_succeeded.emit(self.tr("已放行 {} 条").format(count))
         return bool(count)
 
     def _resume(self, flow_ids: list[str], *, kill: bool) -> bool:
@@ -212,22 +210,18 @@ class InterceptController(QObject):
             )
         except (RuntimeError, TimeoutError) as exc:
             # 整句分支写死，不拿动词去拼：别的语言语序不同，拼出来的句子没法翻。
-            title = self.tr("Drop failed") if kill else self.tr("Release failed")
+            title = self.tr("丢弃失败") if kill else self.tr("放行失败")
             self.operation_failed.emit(title, str(exc))
             return False
         self.refresh_flows()
         if count:
-            done = (
-                self.tr("Dropped {} flow(s)")
-                if kill
-                else self.tr("Released {} flow(s)")
-            )
+            done = self.tr("已丢弃 {} 条") if kill else self.tr("已放行 {} 条")
             self.operation_succeeded.emit(done.format(count))
         return bool(count)
 
     def revert_flow(self, flow_id: str) -> bool:
         return self._mutate(
-            lambda: self._mitm.revert_flow(flow_id), self.tr("Edits reverted")
+            lambda: self._mitm.revert_flow(flow_id), self.tr("已撤销编辑")
         )
 
     def apply_request(
@@ -235,7 +229,7 @@ class InterceptController(QObject):
     ) -> bool:
         return self._mutate(
             lambda: self._mitm.apply_request_edits(flow_id, edit, release=release),
-            self.tr("Released") if release else self.tr("Request edits applied"),
+            self.tr("已放行") if release else self.tr("已应用请求改动"),
         )
 
     def apply_response(
@@ -243,14 +237,14 @@ class InterceptController(QObject):
     ) -> bool:
         return self._mutate(
             lambda: self._mitm.apply_response_edits(flow_id, edit, release=release),
-            self.tr("Released") if release else self.tr("Response edits applied"),
+            self.tr("已放行") if release else self.tr("已应用响应改动"),
         )
 
     def fake_response(self, flow_id: str, edit: ResponseEdit) -> bool:
         """请求期直接返回：构造一条响应回给客户端，不发往服务器（顺手放行）。"""
         return self._mutate(
             lambda: self._mitm.fake_response(flow_id, edit),
-            self.tr("Answered with the faked response"),
+            self.tr("已直接返回伪造响应"),
         )
 
     def _mutate(self, action, message: str) -> bool:
@@ -258,7 +252,7 @@ class InterceptController(QObject):
         try:
             action()
         except (ValueError, RuntimeError, TimeoutError) as exc:
-            self.operation_failed.emit(self.tr("Operation failed"), str(exc))
+            self.operation_failed.emit(self.tr("操作失败"), str(exc))
             return False
         self.refresh_flows()
         self.operation_succeeded.emit(message)

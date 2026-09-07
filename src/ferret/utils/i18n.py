@@ -2,7 +2,7 @@
 
 界面文案在**模块级或类体里求值就废了** —— `core/application.py` 在顶层就
 `from ferret.apps.window import MainWindow`，那一刻 `_init_i18n()` 还没装翻译器，
-求出来的字符串会永久冻结在源语言（英文）上，切中文再也换不回来。所以这类表只能存
+求出来的字符串会永久冻结在源语言（中文）上，切英文再也换不回来。所以这类表只能存
 **标记**，等到使用点才用 `QCoreApplication.translate(context, marked)` 求值。
 
 标记必须写成 `QT_TRANSLATE_NOOP("Context", "text")`：`pyside6-lupdate` 认的是调用点

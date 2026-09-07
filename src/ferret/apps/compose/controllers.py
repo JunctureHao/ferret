@@ -53,7 +53,7 @@ class ComposeController(QObject):
                 record=record,
             )
         except (ValueError, RuntimeError, TimeoutError) as exc:
-            self.send_failed.emit(self.tr("Send failed"), str(exc))
+            self.send_failed.emit(self.tr("发送失败"), str(exc))
             return
         self._inflight_id = flow_id
         self.sending_changed.emit(True)

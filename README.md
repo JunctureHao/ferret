@@ -16,7 +16,7 @@ uv run ferret
 
 # 翻译指令
 
-界面文案以**英文为源语言**，中文由 `src/ferret/resources/i18n/zh_CN.ts` 提供。改过任何
+界面文案以**简体中文为源语言**（代码里直接写中文），英文由 `src/ferret/resources/i18n/en_GB.ts` 提供。改过任何
 界面文案或用户可见报错之后跑一次（lupdate → lrelease → rcc 一条链，产物是
 `src/ferret/core/resources_rc.py`）：
 
@@ -25,7 +25,7 @@ uv run python -m ferret.utils.scripts
 ```
 
 新提取的条目会是 `type="unfinished"`，补完 `<translation>` 再跑一次即可。少跑这一步不会
-报错，界面只会静默显示英文 —— `tests/core/test_i18n.py` 会替你抓住。详见 `AGENTS.md` §7。
+报错，英文界面只会静默显示中文 —— `tests/core/test_i18n.py` 会替你抓住。详见 `AGENTS.md` §7。
 
 # 内置 Addon 功能对照（对比 mitmproxy）
 

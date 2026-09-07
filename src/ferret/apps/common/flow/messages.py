@@ -184,21 +184,21 @@ class MessagesPane(QWidget):
 
         self.filter_input = LineEdit(self)
         self.filter_input.setFixedWidth(200)
-        self.filter_input.setPlaceholderText(self.tr("Filter messages..."))
+        self.filter_input.setPlaceholderText(self.tr("过滤消息…"))
         self.filter_input.setClearButtonEnabled(True)
 
         self.sort_btn = TransparentToolButton(FluentIcon.DOWN, self)
         self.sort_btn.setCheckable(True)
         self.sort_btn.setFixedSize(28, 28)
         self.sort_btn.setIconSize(QSize(16, 16))
-        self.sort_btn.setToolTip(self.tr("Newest first"))
-        self.sort_btn.setAccessibleName(self.tr("Toggle message order"))
+        self.sort_btn.setToolTip(self.tr("最新在上"))
+        self.sort_btn.setAccessibleName(self.tr("切换消息顺序"))
 
         self.clear_btn = TransparentToolButton(FluentIcon.DELETE, self)
         self.clear_btn.setFixedSize(28, 28)
         self.clear_btn.setIconSize(QSize(16, 16))
-        self.clear_btn.setToolTip(self.tr("Clear the displayed messages"))
-        self.clear_btn.setAccessibleName(self.tr("Clear the displayed messages"))
+        self.clear_btn.setToolTip(self.tr("清空显示的消息"))
+        self.clear_btn.setAccessibleName(self.tr("清空显示的消息"))
 
         self.stream = ChatStream(self)
 
@@ -278,7 +278,7 @@ class MessagesPane(QWidget):
             return
         self.__reset()
         self._applicable = False
-        self.placeholder.setText(self.tr("This flow carries no messages"))
+        self.placeholder.setText(self.tr("这条流量没有消息"))
         self.pages.setCurrentIndex(_PAGE_PLACEHOLDER)
 
     def show_websocket(self, frames: list[WsFrame], close: WsClose) -> None:
@@ -357,9 +357,9 @@ class MessagesPane(QWidget):
 
     def __frame_bubble(self, frame: WsFrame) -> Bubble:
         direction = (
-            self.tr("Client → Server")
+            self.tr("客户端 → 服务端")
             if frame.from_client
-            else self.tr("Server → Client")
+            else self.tr("服务端 → 客户端")
         )
         if frame.is_text:
             content = frame.text()
@@ -386,7 +386,7 @@ class MessagesPane(QWidget):
             if bubble.is_expanded:
                 dump = hex_dump(frame.content)
                 if frame.size > HEX_DUMP_LIMIT:
-                    note = self.tr("Showing the first {} of {} bytes")
+                    note = self.tr("仅显示前 {} 字节，共 {} 字节")
                     dump = f"{dump}\n{note.format(HEX_DUMP_LIMIT, frame.size)}"
                 bubble.set_content(dump)
             else:
@@ -432,11 +432,11 @@ class MessagesPane(QWidget):
 
     def __close_text(self, close: WsClose) -> str:
         if close.closed_by_client is None:
-            parts = [self.tr("Closed")]
+            parts = [self.tr("已关闭")]
         elif close.closed_by_client:
-            parts = [self.tr("Closed by client")]
+            parts = [self.tr("客户端关闭")]
         else:
-            parts = [self.tr("Closed by server")]
+            parts = [self.tr("服务端关闭")]
         if close.close_code is not None:
             parts.append(str(close.close_code))
         if close.close_reason:
@@ -453,5 +453,5 @@ class MessagesPane(QWidget):
         # 图标跟着方向走：逆序（最新在上）朝上，正序朝下 —— 只换 tooltip 的话
         # 按钮看起来像没反应。
         self.sort_btn.setIcon(FluentIcon.UP if checked else FluentIcon.DOWN)
-        tip = self.tr("Oldest first") if checked else self.tr("Newest first")
+        tip = self.tr("最早在上") if checked else self.tr("最新在上")
         self.sort_btn.setToolTip(tip)

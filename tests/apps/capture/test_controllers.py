@@ -420,7 +420,7 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller._check_channel_health()
 
         error = controller.channel_errors.get("local", "")
-        self.assertIn("administrator approval (UAC)", error)
+        self.assertIn("管理员授权（UAC）", error)
         self.assertNotIn("Failed to start", error)
 
     def test_channel_health_is_polled_only_while_capturing(self) -> None:

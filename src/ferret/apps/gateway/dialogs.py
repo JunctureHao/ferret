@@ -59,11 +59,11 @@ _PLACEHOLDERS: dict[GatewayField, str] = {
 _LAYER_HINTS: dict[GatewayLayer, str] = {
     GatewayLayer.L4: QT_TRANSLATE_NOOP(
         "GatewayRuleDialog",
-        "Acts on the connection: matching traffic never becomes a flow record. Fully effective for HTTPS/CONNECT only.",
+        "作用在连接上，命中的流量压根不会成为一条记录。仅对 HTTPS/CONNECT 完整生效。",
     ),
     GatewayLayer.L7: QT_TRANSLATE_NOOP(
         "GatewayRuleDialog",
-        "Acts on each HTTP flow and can match on the method; blocked or suspended traffic still leaves a record in the list.",
+        "作用在每条 HTTP 流量上，可以按方法匹配，屏蔽/挂起时列表里仍会留下记录。",
     ),
 }
 
@@ -168,8 +168,8 @@ class GatewayRuleDialog(MessageBoxBase):
         self.preview_label = CaptionLabel(self)
         self.preview_label.setWordWrap(True)
 
-        self.yesButton.setText(self.tr("Save"))
-        self.cancelButton.setText(self.tr("Cancel"))
+        self.yesButton.setText(self.tr("保存"))
+        self.cancelButton.setText(self.tr("取消"))
 
         self._sync_fields()
         QTimer.singleShot(0, self.value_edit.setFocus)
@@ -177,10 +177,10 @@ class GatewayRuleDialog(MessageBoxBase):
     def __init_layout(self):
         form = QFormLayout()
         form.setSpacing(8)
-        form.addRow(BodyLabel(self.tr("Match on"), self), self.field_combo)
-        form.addRow(BodyLabel(self.tr("Condition"), self), self.logic_combo)
-        form.addRow(BodyLabel(self.tr("Value"), self), self.value_edit)
-        self.status_row_label = BodyLabel(self.tr("Response"), self)
+        form.addRow(BodyLabel(self.tr("匹配对象"), self), self.field_combo)
+        form.addRow(BodyLabel(self.tr("条件"), self), self.logic_combo)
+        form.addRow(BodyLabel(self.tr("值"), self), self.value_edit)
+        self.status_row_label = BodyLabel(self.tr("响应"), self)
         form.addRow(self.status_row_label, self.status_combo)
 
         layout = QVBoxLayout()
@@ -310,5 +310,5 @@ class GatewayRuleDialog(MessageBoxBase):
             self.preview_label.setText(str(exc))
             self.yesButton.setEnabled(False)
             return
-        self.preview_label.setText(self.tr("Match pattern: {}").format(rule.pattern))
+        self.preview_label.setText(self.tr("匹配正则：{}").format(rule.pattern))
         self.yesButton.setEnabled(True)

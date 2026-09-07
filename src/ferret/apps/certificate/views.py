@@ -129,7 +129,7 @@ class CertificateStatusCard(SettingCard):
         self.busy_ring.setVisible(False)
 
         self.refresh_btn = TransparentToolButton(FluentIcon.SYNC, self)
-        self.refresh_btn.setToolTip(self.tr("Re-check"))
+        self.refresh_btn.setToolTip(self.tr("重新检测"))
 
         self.hBoxLayout.addWidget(self.busy_ring, 0, Qt.AlignmentFlag.AlignRight)
         self.hBoxLayout.addSpacing(12)
@@ -228,20 +228,12 @@ class CertificateInterface(ScrollArea):
 
         self.scroll_widget = QWidget()
         self.expand_layout = ExpandLayout(self.scroll_widget)
-        self.certificate_label = TitleLabel(self.tr("Certificate"), self)
+        self.certificate_label = TitleLabel(self.tr("证书"), self)
 
-        self.status_group = SettingCardGroup(
-            self.tr("Install state"), self.scroll_widget
-        )
-        self.detail_group = SettingCardGroup(
-            self.tr("Certificate details"), self.scroll_widget
-        )
-        self.export_group = SettingCardGroup(
-            self.tr("Export certificate"), self.scroll_widget
-        )
-        self.maintain_group = SettingCardGroup(
-            self.tr("Maintenance"), self.scroll_widget
-        )
+        self.status_group = SettingCardGroup(self.tr("安装状态"), self.scroll_widget)
+        self.detail_group = SettingCardGroup(self.tr("证书详情"), self.scroll_widget)
+        self.export_group = SettingCardGroup(self.tr("导出证书"), self.scroll_widget)
+        self.maintain_group = SettingCardGroup(self.tr("维护"), self.scroll_widget)
 
         self.__init_cards()
         self.__init_widget()
@@ -254,23 +246,17 @@ class CertificateInterface(ScrollArea):
     def __init_cards(self) -> None:
         self.status_card = CertificateStatusCard(self.status_group)
         self.install_card = PrimaryPushSettingCard(
-            self.tr("Install certificate"),
+            self.tr("安装证书"),
             FluentIcon.ADD_TO,
-            self.tr("Install into the system trust store"),
-            self.tr(
-                "Writes to the current user's Trusted Root Certification Authorities, "
-                "no administrator rights needed."
-            ),
+            self.tr("安装到系统信任库"),
+            self.tr("写入当前用户的「受信任的根证书颁发机构」，无需管理员权限。"),
             self.status_group,
         )
         self.uninstall_card = PushSettingCard(
-            self.tr("Uninstall"),
+            self.tr("卸载"),
             FluentIcon.DELETE,
-            self.tr("Remove from the system trust store"),
-            self.tr(
-                "Also clears the same-named older certificates left behind by earlier "
-                "regenerations."
-            ),
+            self.tr("从系统信任库移除"),
+            self.tr("连历次重新生成留下的同名旧证书一并清理。"),
             self.status_group,
         )
 
@@ -280,7 +266,7 @@ class CertificateInterface(ScrollArea):
         # 求值必须推到这里（详见 `core/mitm/certificate.py`）。
         self.export_cards: list[PushSettingCard] = [
             PushSettingCard(
-                self.tr("Export"),
+                self.tr("导出"),
                 FluentIcon.DOCUMENT,
                 QCoreApplication.translate("CertExportFormat", fmt.label),
                 QCoreApplication.translate("CertExportFormat", fmt.hint),
@@ -290,19 +276,16 @@ class CertificateInterface(ScrollArea):
         ]
 
         self.regenerate_card = PushSettingCard(
-            self.tr("Regenerate"),
+            self.tr("重新生成"),
             FluentIcon.UPDATE,
-            self.tr("Regenerate the CA certificate"),
-            self.tr(
-                "Generates a new private key and certificate. Every device that imported "
-                "the old one has to import it again."
-            ),
+            self.tr("重新生成 CA 证书"),
+            self.tr("生成新的私钥与证书，所有已导入旧证书的设备都要重新导入。"),
             self.maintain_group,
         )
         self.open_dir_card = PushSettingCard(
-            self.tr("Open folder"),
+            self.tr("打开目录"),
             FluentIcon.FOLDER,
-            self.tr("Certificate folder"),
+            self.tr("证书目录"),
             str(self.controller.certs_dir),
             self.maintain_group,
         )
@@ -317,7 +300,7 @@ class CertificateInterface(ScrollArea):
         )
         # 标题和说明的 minimumSizeHint 都会顺着布局一路顶宽，把右侧按钮挤出视口，
         # 所以两者都放开压缩——挤不下时宁可截字，也不能吃掉按钮。标题也得算进来：
-        # 英文源文本比中文长一截（「安装到系统信任库」98px vs 490px），只压说明
+        # 英文译文比中文源长一截（「安装到系统信任库」98px vs 490px），只压说明
         # 的话窄视口下按钮照样出界。
         for card in action_cards:
             _shrinkable(card.titleLabel)
@@ -395,9 +378,7 @@ class CertificateInterface(ScrollArea):
     def _on_state_changed(self, state: CertificateState) -> None:
         self.status_card.set_status(STATE_ICONS[state.trust], state.title, state.detail)
         self.install_btn.setText(
-            self.tr("Reinstall")
-            if state.needs_reinstall
-            else self.tr("Install certificate")
+            self.tr("重新安装") if state.needs_reinstall else self.tr("安装证书")
         )
         self.detail_group.setVisible(state.info is not None)
         if state.info is not None:
@@ -426,7 +407,7 @@ class CertificateInterface(ScrollArea):
 
     @Slot(str)
     def _on_operation_succeeded(self, message: str) -> None:
-        show_success(self.tr("Certificate"), message, self)
+        show_success(self.tr("证书"), message, self)
 
     # --- 用户操作 ---
 
@@ -444,7 +425,7 @@ class CertificateInterface(ScrollArea):
     def _on_export(self, fmt: CertExportFormat) -> None:
         target, _ = QFileDialog.getSaveFileName(
             self,
-            self.tr("Export certificate"),
+            self.tr("导出证书"),
             str(Path.home() / fmt.filename),
             QCoreApplication.translate("CertExportFormat", fmt.file_filter),
         )

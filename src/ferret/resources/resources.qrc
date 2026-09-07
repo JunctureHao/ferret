@@ -3,7 +3,7 @@
         <file alias="icon">icon.png</file>
     </qresource>
     <qresource>
-        <file>i18n/zh_CN.qm</file>
+        <file>i18n/en_GB.qm</file>
 
         <file>icons/Location_black.svg</file>
         <file>icons/Location_white.svg</file>

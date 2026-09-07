@@ -42,22 +42,20 @@ _SUSPEND_MARKS: frozenset[str] = frozenset(str(policy) for policy in SUSPEND_POL
 # 文案在这里只做标记、不求值 —— 模块级求值赶在翻译器安装之前（`core/application.py`
 # 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在 `gateway_note()` 里做。
 _GATEWAY_TOOLTIPS: dict[str, str] = {
-    str(GatewayPolicy.BLOCK): QT_TRANSLATE_NOOP(
-        "FlowTableModel", "blocked by the gateway"
-    ),
+    str(GatewayPolicy.BLOCK): QT_TRANSLATE_NOOP("FlowTableModel", "已被网关屏蔽"),
     str(GatewayPolicy.BLOCK_OUT): QT_TRANSLATE_NOOP(
-        "FlowTableModel", "blocked by the gateway: the request never left"
+        "FlowTableModel", "已被网关屏蔽：请求没有发往服务器"
     ),
     str(GatewayPolicy.BLOCK_IN): QT_TRANSLATE_NOOP(
         "FlowTableModel",
-        "blocked by the gateway: the response never reached the client",
+        "已被网关屏蔽：响应没有转发给客户端",
     ),
     str(GatewayPolicy.SUSPEND_OUT): QT_TRANSLATE_NOOP(
-        "FlowTableModel", "suspended by the gateway: the request has not been sent"
+        "FlowTableModel", "网关挂起中：请求没有发出"
     ),
     str(GatewayPolicy.SUSPEND_IN): QT_TRANSLATE_NOOP(
         "FlowTableModel",
-        "suspended by the gateway: the response is not being forwarded",
+        "网关挂起中：响应没有转发给客户端",
     ),
 }
 
@@ -87,15 +85,15 @@ def gateway_note(flow: HTTPFlow) -> str:
         # 网关的挂起标记比断点更具体（能说清是请求还是响应停住了），优先用它。
         note = _GATEWAY_TOOLTIPS.get(policy)
         if note is None:
-            return translate("FlowTableModel", "handled by the gateway")
+            return translate("FlowTableModel", "已被网关处理")
         return translate("FlowTableModel", note)
     if flow.intercepted:
         # 断点不写 metadata，只能问原生状态。
-        return translate("FlowTableModel", "held at a breakpoint, waiting for you")
+        return translate("FlowTableModel", "断点拦下，等你处理")
     # blocklisted 是原生 BlockList addon 的标记。网关已经取代了它，只有从旧会话
     # 文件读回来的 flow 才会带（metadata 随 flow 一起存档）。
     if flow.metadata.get("blocklisted"):
-        return translate("FlowTableModel", "blocked by a blocklist rule")
+        return translate("FlowTableModel", "已被屏蔽规则拦截")
     return ""
 
 
@@ -201,11 +199,11 @@ class FlowTableModel(QAbstractTableModel):
                 # 挂起优先于响应码：挂起（入）时响应已经回来了，但客户端一个字节
                 # 都没拿到，显示 200 会骗人。真实码进悬浮提示。
                 if is_suspended(flow):
-                    return self.tr("Suspended")
+                    return self.tr("挂起中")
                 if flow.error:
                     return "Error"
                 if flow.response is None:
-                    return self.tr("Pending")
+                    return self.tr("等待中")
                 return flow.response.status_code
             if column_name == "Type":
                 return self._mime_label(self._mime(flow))
@@ -264,7 +262,7 @@ class FlowTableModel(QAbstractTableModel):
                 if note:
                     return note
             if column_name == "Type":
-                return self._mime(flow) or self.tr("Unknown content type")
+                return self._mime(flow) or self.tr("未知内容类型")
             if column_name == "Size":
                 return self._size_tooltip(flow)
             if column_name == "Time":
@@ -390,9 +388,9 @@ class FlowTableModel(QAbstractTableModel):
         「解压后」是另一行，两处口径在 `wire_size()` 上是同一个函数。
         """
         translate = QCoreApplication.translate
-        request = translate("FlowTableModel", "Request")
-        response = translate("FlowTableModel", "Response")
-        note = translate("FlowTableModel", "Body bytes on the wire (compressed)")
+        request = translate("FlowTableModel", "请求")
+        response = translate("FlowTableModel", "响应")
+        note = translate("FlowTableModel", "报文体的线上字节（压缩后）")
         return "\n".join(
             (
                 f"{request}: {human.pretty_size(wire_size(flow.request))}",
@@ -422,9 +420,9 @@ class FlowTableModel(QAbstractTableModel):
         # 标签单独取：lupdate 的 Python 解析器不往 f-string 里看，写成
         # f"{translate(...)}: …" 这三条就一条都提不出来（实测填译文时才发现）。
         translate = QCoreApplication.translate
-        started = translate("FlowTableModel", "Started")
-        ended = translate("FlowTableModel", "Ended")
-        elapsed = translate("FlowTableModel", "Elapsed")
+        started = translate("FlowTableModel", "开始")
+        ended = translate("FlowTableModel", "结束")
+        elapsed = translate("FlowTableModel", "耗时")
         duration_text = format_duration(cls._duration_ms(flow)) or "—"
         return "\n".join(
             (

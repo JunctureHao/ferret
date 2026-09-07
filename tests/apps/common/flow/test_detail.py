@@ -193,13 +193,13 @@ class FlowDataPanelTests(unittest.TestCase):
         """会话页是只读的：重放/标记/备注弹窗一律不出现，复制两样保留。"""
         readonly = FlowDataPanel(self.host, None, READONLY_CAPABILITIES)
         readonly_names = [a.text() for a in readonly._more_actions()]
-        self.assertNotIn("Replay", readonly_names)
-        self.assertNotIn("Mark", readonly_names)
-        self.assertNotIn("Comment", readonly_names)
-        self.assertIn("Copy URL", readonly_names)
+        self.assertNotIn("重发", readonly_names)
+        self.assertNotIn("标记", readonly_names)
+        self.assertNotIn("备注", readonly_names)
+        self.assertIn("复制 URL", readonly_names)
 
         names = [a.text() for a in self.panel._more_actions()]
-        for expected in ("Replay", "Mark", "Comment"):
+        for expected in ("重发", "标记", "备注"):
             self.assertIn(expected, names)
 
     def test_the_copy_action_goes_dead_when_there_is_nothing_to_copy(self) -> None:

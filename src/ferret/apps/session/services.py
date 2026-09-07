@@ -18,22 +18,20 @@ def normalize_session_name(value: str) -> str:
     name = " ".join(value.strip().split())
     if not name:
         raise ValueError(
-            QCoreApplication.translate(
-                "SessionRepository", "The session name cannot be empty"
-            )
+            QCoreApplication.translate("SessionRepository", "会话名称不能为空")
         )
     if len(name) > 80:
         raise ValueError(
             QCoreApplication.translate(
                 "SessionRepository",
-                "The session name cannot be longer than 80 characters",
+                "会话名称不能超过 80 个字符",
             )
         )
     if any(char in name for char in '<>:"/\\|?*'):
         raise ValueError(
             QCoreApplication.translate(
                 "SessionRepository",
-                "The session name holds characters a file name cannot hold",
+                "会话名称包含文件名不允许的字符",
             )
         )
     return name
@@ -106,20 +104,20 @@ class SessionRepository:
         if not source_path.exists():
             raise FileNotFoundError(
                 QCoreApplication.translate(
-                    "SessionRepository", "Source file not found: {}"
+                    "SessionRepository", "源文件不存在: {}"
                 ).format(source_path)
             )
         if source_path.resolve().parent == self.root.resolve():
             raise ValueError(
                 QCoreApplication.translate(
                     "SessionRepository",
-                    "Files inside the session folder cannot be imported",
+                    "不能导入会话目录中的内部文件",
                 )
             )
         if not self._read_http(source_path):
             raise ValueError(
                 QCoreApplication.translate(
-                    "SessionRepository", "This file holds no importable HTTP traffic"
+                    "SessionRepository", "该文件中没有可导入的 HTTP 流量"
                 )
             )
         stem = normalize_session_name(name or source_path.stem)
@@ -144,7 +142,7 @@ class SessionRepository:
         if not path.exists():
             raise FileNotFoundError(
                 QCoreApplication.translate(
-                    "SessionRepository", "Session not found: {}"
+                    "SessionRepository", "会话不存在: {}"
                 ).format(session_id)
             )
         return self._meta(path)
@@ -154,7 +152,7 @@ class SessionRepository:
         if not path.exists():
             raise FileNotFoundError(
                 QCoreApplication.translate(
-                    "SessionRepository", "Session file not found: {}"
+                    "SessionRepository", "会话文件不存在: {}"
                 ).format(session_id)
             )
         return self._read_http(path)
@@ -164,7 +162,7 @@ class SessionRepository:
         if not source.exists():
             raise FileNotFoundError(
                 QCoreApplication.translate(
-                    "SessionRepository", "Session not found: {}"
+                    "SessionRepository", "会话不存在: {}"
                 ).format(session_id)
             )
         destination = self._unique_path(normalize_session_name(name))
@@ -181,7 +179,7 @@ class SessionRepository:
         if not source.exists():
             raise FileNotFoundError(
                 QCoreApplication.translate(
-                    "SessionRepository", "Session file not found: {}"
+                    "SessionRepository", "会话文件不存在: {}"
                 ).format(session_id)
             )
         destination = Path(destination)

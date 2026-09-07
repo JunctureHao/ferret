@@ -67,8 +67,7 @@ BODY_KINDS: tuple[tuple[str, Language, str], ...] = (
 # 文案各自一份（发送语义不同：那边是「放行」，这边是「发送」）。
 _BINARY_HINT = QT_TRANSLATE_NOOP(
     "ComposeView",
-    "This content is not valid UTF-8 (an archive, an image, or a non-UTF-8 charset), "
-    "so it is locked read-only; it goes out unchanged when sent.",
+    "这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；发送时按原样发出。",
 )
 
 
@@ -83,96 +82,92 @@ def _body_lang(text: str) -> Language:
 # 积木，直接借力，不再抄一份。
 _PERF_SECTIONS: tuple[Section, ...] = (
     Section(
-        title=QT_TRANSLATE_NOOP("ComposePerf", "Time"),
+        title=QT_TRANSLATE_NOOP("ComposePerf", "时间"),
         fields=(
             Field("Flow ID", "Flow ID", mono=True),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Flow created"),
+                QT_TRANSLATE_NOOP("ComposePerf", "流量创建"),
                 "Flow Created",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Client TLS handshake"),
+                QT_TRANSLATE_NOOP("ComposePerf", "客户端 TLS 握手"),
                 "Front TLS Handshake",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Request start"),
+                QT_TRANSLATE_NOOP("ComposePerf", "请求开始"),
                 "req_time",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Request end"),
+                QT_TRANSLATE_NOOP("ComposePerf", "请求结束"),
                 "req_timestamp_end",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Request duration"),
+                QT_TRANSLATE_NOOP("ComposePerf", "请求时长"),
                 "req_duration",
                 fmt=_ms,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "TCP handshake"),
+                QT_TRANSLATE_NOOP("ComposePerf", "TCP 握手"),
                 "Back TCP Handshake",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Server TLS handshake"),
+                QT_TRANSLATE_NOOP("ComposePerf", "服务端 TLS 握手"),
                 "Back TLS Handshake",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Response start"),
+                QT_TRANSLATE_NOOP("ComposePerf", "响应开始"),
                 "res_timestamp_start",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Response end"),
+                QT_TRANSLATE_NOOP("ComposePerf", "响应结束"),
                 "res_time",
                 fmt=format_time,
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Response duration"),
+                QT_TRANSLATE_NOOP("ComposePerf", "响应时长"),
                 "res_duration",
                 fmt=_ms,
             ),
-            Field(QT_TRANSLATE_NOOP("ComposePerf", "Total duration"), "Duration"),
+            Field(QT_TRANSLATE_NOOP("ComposePerf", "总耗时"), "Duration"),
         ),
     ),
     Section(
-        title=QT_TRANSLATE_NOOP("ComposePerf", "Traffic"),
+        title=QT_TRANSLATE_NOOP("ComposePerf", "流量"),
         fields=(
+            Field(QT_TRANSLATE_NOOP("ComposePerf", "请求"), _size_of("req_total_size")),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Request"), _size_of("req_total_size")
-            ),
-            Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "- Request headers"),
+                QT_TRANSLATE_NOOP("ComposePerf", "- 请求头"),
                 _size_of("req_headers_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "- Request body on the wire"),
+                QT_TRANSLATE_NOOP("ComposePerf", "- 请求体（线上）"),
                 _size_of("req_wire_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "- Request body decoded"),
+                QT_TRANSLATE_NOOP("ComposePerf", "- 请求体（解压）"),
                 _decoded_size("req_wire_size", "req_decoded_size"),
             ),
+            Field(QT_TRANSLATE_NOOP("ComposePerf", "响应"), _size_of("res_total_size")),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "Response"), _size_of("res_total_size")
-            ),
-            Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "- Response headers"),
+                QT_TRANSLATE_NOOP("ComposePerf", "- 响应头"),
                 _size_of("res_headers_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "- Response body on the wire"),
+                QT_TRANSLATE_NOOP("ComposePerf", "- 响应体（线上）"),
                 _size_of("res_wire_size"),
             ),
             Field(
-                QT_TRANSLATE_NOOP("ComposePerf", "- Response body decoded"),
+                QT_TRANSLATE_NOOP("ComposePerf", "- 响应体（解压）"),
                 _decoded_size("res_wire_size", "res_decoded_size"),
             ),
-            Field(QT_TRANSLATE_NOOP("ComposePerf", "Total"), _size_of("total_size")),
+            Field(QT_TRANSLATE_NOOP("ComposePerf", "总计"), _size_of("total_size")),
         ),
     ),
 )
@@ -216,9 +211,7 @@ class ComposeInterface(QWidget):
         self.record_btn.setFixedSize(30, 25)
         self.record_btn.setToolTip(
             self.tr(
-                "Record to flow list; when off, the request is still sent through "
-                "the proxy core (rewrite/gateway/intercept rules apply) but does "
-                "not appear in the flow list"
+                "进入流量列表；关闭时请求仍会经过代理内核发出（重写/网关/断点规则照常生效），但不会出现在流量列表中"
             )
         )
         self.record_btn.installEventFilter(ToolTipFilter(self.record_btn, 700))
@@ -232,14 +225,12 @@ class ComposeInterface(QWidget):
         # 它是这一页唯一的主动作，宽出周围一圈才镇得住顶栏。
         self.send_btn = PrimaryToolButton(FluentIcon.SEND, self)
         self.send_btn.setFixedWidth(96)
-        self.send_btn.setToolTip(self.tr("Send this request"))
+        self.send_btn.setToolTip(self.tr("发送这条请求"))
 
         # cURL 粘贴导入：读剪贴板灌表单，解析错误就地 show_error（v1 不做
         # 粘贴编辑对话框）。
         self.paste_curl_btn = ToolButton(FluentIcon.PASTE, self)
-        self.paste_curl_btn.setToolTip(
-            self.tr("Import a curl command from the clipboard")
-        )
+        self.paste_curl_btn.setToolTip(self.tr("从剪贴板导入 cURL 命令"))
         self.paste_curl_btn.installEventFilter(ToolTipFilter(self.paste_curl_btn, 700))
 
         # 左侧：请求详情（参数/请求头/请求体，复用详情面板的可编辑组件）。
@@ -253,13 +244,11 @@ class ComposeInterface(QWidget):
         self.body_kind_combo = ComboBox(self)
         self.body_kind_combo.addItems([kind for kind, _, _ in BODY_KINDS])
         self.body_kind_combo.setFixedWidth(96)
-        self.body_panel.text.tool_layout.addWidget(
-            BodyLabel(self.tr("Content type"), self)
-        )
+        self.body_panel.text.tool_layout.addWidget(BodyLabel(self.tr("数据类型"), self))
         self.body_panel.text.tool_layout.addWidget(self.body_kind_combo)
 
-        self.request_panel.addTab("Params", self.params_card, self.tr("Params"))
-        self.request_panel.addTab("Headers", self.headers_card, self.tr("Headers"))
+        self.request_panel.addTab("Params", self.params_card, self.tr("参数"))
+        self.request_panel.addTab("Headers", self.headers_card, self.tr("请求头"))
         # 二进制锁的提示条压在体编辑器下方（与断点面板的 body_box 同一个模式）。
         self.body_hint = CaptionLabel(
             QCoreApplication.translate("ComposeView", _BINARY_HINT), self
@@ -272,7 +261,7 @@ class ComposeInterface(QWidget):
         body_layout.setSpacing(4)
         body_layout.addWidget(self.body_panel, 1)
         body_layout.addWidget(self.body_hint)
-        self.request_panel.addTab("Body", self.body_box, self.tr("Body"))
+        self.request_panel.addTab("Body", self.body_box, self.tr("请求体"))
         self._sync_body_kind(0)
         # 请求头(N)：条数挂标签，随编辑实时变（参数变化实时写回 URL，见下）。
         self.headers_card.changed.connect(self._update_header_count)
@@ -303,14 +292,14 @@ class ComposeInterface(QWidget):
         perf_layout.addWidget(status_row)
         perf_layout.addWidget(self.perf_overview, 1)
 
-        self.response_pane.addTab("Perf", perf_page, self.tr("Performance"))
+        self.response_pane.addTab("Perf", perf_page, self.tr("性能"))
 
         # 初始空态提示（右侧整页）：第一次出结果前显示。与 flow 表格的
         # FlowEmptyState 同一个模式 —— QStackedWidget 整页切换，不用 hide()
         # 叠加（悬空子控件会浮在左上角）。
         self.empty_hint = QWidget(self)
         hint_label = CaptionLabel(
-            self.tr("Edit the request on the left and hit Send"), self.empty_hint
+            self.tr("在左侧编辑请求，然后点击「发送」"), self.empty_hint
         )
         hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint_layout = QVBoxLayout(self.empty_hint)
@@ -382,7 +371,7 @@ class ComposeInterface(QWidget):
         """`请求头(N)`：条数挂标签，随编辑实时变。"""
         count = len([k for k, _ in self.headers_card.items() if k.strip()])
         self.request_panel.setTabText(
-            "Headers", self.tr("Request headers ({count})").format(count=count)
+            "Headers", self.tr("请求头 ({count})").format(count=count)
         )
 
     @Slot()
@@ -471,31 +460,29 @@ class ComposeInterface(QWidget):
         text = QApplication.clipboard().text().strip()
         # 空剪贴板 / 非 curl 开头在这里挡；语法细节错误由解析器报。
         if not text:
-            show_error(
-                self.tr("Import failed"), self.tr("The clipboard is empty"), self
-            )
+            show_error(self.tr("导入失败"), self.tr("剪贴板是空的"), self)
             return
         if not text.lower().startswith(("curl ", "curl.exe")):
             show_error(
-                self.tr("Import failed"),
-                self.tr("The clipboard does not contain a curl command"),
+                self.tr("导入失败"),
+                self.tr("剪贴板里没有 cURL 命令"),
                 self,
             )
             return
         try:
             edit = parse_curl(text)
         except ValueError as exc:
-            show_error(self.tr("Import failed"), str(exc), self)
+            show_error(self.tr("导入失败"), str(exc), self)
             return
         self.prefill(edit)
-        show_success(self.tr("Success"), self.tr("Request imported from curl"), self)
+        show_success(self.tr("成功"), self.tr("已从 cURL 导入请求"), self)
 
     @Slot()
     def _on_send(self):
         method = self.method_combo.currentText().strip()
         url = self._collect_url()
         if not url:
-            show_error(self.tr("Send failed"), self.tr("The URL is empty"), self)
+            show_error(self.tr("发送失败"), self.tr("URL 为空"), self)
             return
 
         self.controller.send(
@@ -511,13 +498,13 @@ class ComposeInterface(QWidget):
         self.send_btn.setDisabled(sending)
         if sending:
             self.status_badge.hide()
-            self.status_label.setText(self.tr("Sending…"))
+            self.status_label.setText(self.tr("发送中…"))
 
     @Slot(object)
     def _on_result(self, result: ComposeResult):
         detail = result.detail
         if result.error:
-            show_error(self.tr("Request failed"), result.error, self)
+            show_error(self.tr("请求失败"), result.error, self)
         self.response_stack.setCurrentWidget(self.response_pane)
         self.response_pane.set_data(detail)
         self.perf_overview.set_data(detail)

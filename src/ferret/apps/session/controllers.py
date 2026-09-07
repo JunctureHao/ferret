@@ -165,7 +165,7 @@ class SessionController(QObject):
         def _on_failed(msg: str):
             if on_failure:
                 on_failure(msg)
-            self.operation_failed.emit(self.tr("Operation failed"), msg)
+            self.operation_failed.emit(self.tr("操作失败"), msg)
 
         def _on_finished():
             self._set_task_active(False)
@@ -183,7 +183,7 @@ class SessionController(QObject):
     def save_capture(self, name: str, flows: list[HTTPFlow]) -> None:
         def _on_created(meta: SessionMeta):
             self.session_created.emit(meta)
-            self.operation_succeeded.emit(self.tr("Session saved"))
+            self.operation_succeeded.emit(self.tr("会话已保存"))
 
         self._run(
             self._repo.create,
@@ -197,7 +197,7 @@ class SessionController(QObject):
     def import_session(self, path: Path) -> None:
         def _on_imported(meta: SessionMeta):
             self.session_created.emit(meta)
-            self.operation_succeeded.emit(self.tr("Session imported"))
+            self.operation_succeeded.emit(self.tr("会话已导入"))
 
         self._run(
             self._repo.import_file,
@@ -227,7 +227,7 @@ class SessionController(QObject):
     def rename_session(self, session_id: str, name: str) -> None:
         def _on_renamed(meta: SessionMeta):
             self.session_updated.emit(session_id, meta)
-            self.operation_succeeded.emit(self.tr("Session renamed"))
+            self.operation_succeeded.emit(self.tr("会话已重命名"))
 
         self._run(
             self._repo.rename,
@@ -246,7 +246,7 @@ class SessionController(QObject):
             for sid in session_ids:
                 self.session_deleted.emit(sid)  # N 次（表格逐行删）
             self.operation_succeeded.emit(  # 1 次（只弹一个框）
-                self.tr("Session deleted")
+                self.tr("会话已删除")
             )
 
         self._run(
@@ -261,8 +261,6 @@ class SessionController(QObject):
             self._repo.export,
             session_id,
             Path(path),
-            on_success=lambda _: self.operation_succeeded.emit(
-                self.tr("Session exported")
-            ),
+            on_success=lambda _: self.operation_succeeded.emit(self.tr("会话已导出")),
             write=True,
         )

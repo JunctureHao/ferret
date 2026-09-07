@@ -27,9 +27,9 @@ from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 # 规则表单的阶段下拉与规则表的「阶段」列共用这一份词；队列那侧不再标阶段（列已撤，
 # 停在哪个阶段由编辑区标签直接体现）。
 PHASE_LABELS: dict[InterceptPhase, str] = {
-    InterceptPhase.BOTH: QT_TRANSLATE_NOOP("InterceptPhase", "Request & response"),
-    InterceptPhase.REQUEST: QT_TRANSLATE_NOOP("InterceptPhase", "Request"),
-    InterceptPhase.RESPONSE: QT_TRANSLATE_NOOP("InterceptPhase", "Response"),
+    InterceptPhase.BOTH: QT_TRANSLATE_NOOP("InterceptPhase", "请求和响应"),
+    InterceptPhase.REQUEST: QT_TRANSLATE_NOOP("InterceptPhase", "请求"),
+    InterceptPhase.RESPONSE: QT_TRANSLATE_NOOP("InterceptPhase", "响应"),
 }
 
 # 按阶段说明会停几次、每一次能改什么。措辞对齐实际下发的表达式（`InterceptRule.expression`
@@ -37,44 +37,44 @@ PHASE_LABELS: dict[InterceptPhase, str] = {
 PHASE_HINTS: dict[InterceptPhase, str] = {
     InterceptPhase.BOTH: QT_TRANSLATE_NOOP(
         "InterceptRule",
-        "Matching traffic is held twice: once before the request goes out, and once again after the response comes back; only the request can be edited at the first stop, and only the response at the second.",
+        "命中的流量会拦两次：请求发出前停一次（这时只能改请求），响应回来后再停一次（这时只能改响应）。",
     ),
     InterceptPhase.REQUEST: QT_TRANSLATE_NOOP(
         "InterceptRule",
-        "Matching traffic is held once, before the request goes out; only the request can be edited there.",
+        "命中的流量只在请求发出前停一次，这时只能改请求。",
     ),
     InterceptPhase.RESPONSE: QT_TRANSLATE_NOOP(
         "InterceptRule",
-        "Matching traffic is held once, after the response comes back; only the response can be edited there.",
+        "命中的流量只在响应回来后停一次，这时只能改响应。",
     ),
 }
 
 
 FIELD_LABELS: dict[InterceptField, str] = {
     InterceptField.URL: QT_TRANSLATE_NOOP("InterceptField", "URL"),
-    InterceptField.HOST: QT_TRANSLATE_NOOP("InterceptField", "Host"),
-    InterceptField.METHOD: QT_TRANSLATE_NOOP("InterceptField", "Method"),
+    InterceptField.HOST: QT_TRANSLATE_NOOP("InterceptField", "主机"),
+    InterceptField.METHOD: QT_TRANSLATE_NOOP("InterceptField", "方法"),
 }
 
 # 与网关页、重写页的措辞逐字一致（三页各有自己的 context，译文必须填同一个词）。
 # 只存标记：模块级求值赶在翻译器安装之前，求值推到 `logic_label()`。
 LOGIC_LABELS: dict[InterceptLogic, str] = {
-    InterceptLogic.CONTAINS: QT_TRANSLATE_NOOP("InterceptLogic", "Contains"),
-    InterceptLogic.EQUALS: QT_TRANSLATE_NOOP("InterceptLogic", "Equals"),
-    InterceptLogic.REGEX: QT_TRANSLATE_NOOP("InterceptLogic", "Regex"),
+    InterceptLogic.CONTAINS: QT_TRANSLATE_NOOP("InterceptLogic", "包含"),
+    InterceptLogic.EQUALS: QT_TRANSLATE_NOOP("InterceptLogic", "等于"),
+    InterceptLogic.REGEX: QT_TRANSLATE_NOOP("InterceptLogic", "正则表达式"),
 }
 
 # 主机与方法走原生 ~d / ~m，两个都不带端口；URL 走 ~u，含协议、端口和查询串。
 FIELD_HINTS: dict[InterceptField, str] = {
     InterceptField.URL: QT_TRANSLATE_NOOP(
         "InterceptField",
-        "Matches the whole URL, including scheme, port and query string.",
+        "匹配完整 URL（含协议、端口与查询串）。",
     ),
     InterceptField.HOST: QT_TRANSLATE_NOOP(
-        "InterceptField", "Matches the host name without the port; case-insensitive."
+        "InterceptField", "匹配主机名，不含端口；忽略大小写。"
     ),
     InterceptField.METHOD: QT_TRANSLATE_NOOP(
-        "InterceptField", "Matches the request method; case-insensitive."
+        "InterceptField", "匹配请求方法；忽略大小写。"
     ),
 }
 
@@ -112,9 +112,9 @@ def rule_summary(rule: InterceptRule) -> str:
     except ValueError as exc:
         return str(exc)
     # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
-    expression = QCoreApplication.translate(
-        "InterceptRule", "Match expression: {}"
-    ).format(rule.expression)
+    expression = QCoreApplication.translate("InterceptRule", "匹配表达式：{}").format(
+        rule.expression
+    )
     return f"{phase_hint(rule.phase)}\n{expression}"
 
 
@@ -128,11 +128,11 @@ class InterceptRuleTableModel(QAbstractTableModel):
 
     # 同理只做标记：类体也是导入期就求值的。求值在 `headerData()` 里做。
     HEADERS: ClassVar[list[str]] = [
-        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Enabled"),
-        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Match on"),
-        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Condition"),
-        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Phase"),
-        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "Value"),
+        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "启用"),
+        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "匹配对象"),
+        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "条件"),
+        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "阶段"),
+        QT_TRANSLATE_NOOP("InterceptRuleTableModel", "值"),
     ]
 
     enabled_toggled = Signal(int, bool)
@@ -291,9 +291,9 @@ class HeldFlowTableModel(QAbstractTableModel):
     """
 
     HEADERS: ClassVar[list[str]] = [
-        QT_TRANSLATE_NOOP("HeldFlowTableModel", "Method"),
+        QT_TRANSLATE_NOOP("HeldFlowTableModel", "方法"),
         QT_TRANSLATE_NOOP("HeldFlowTableModel", "URL"),
-        QT_TRANSLATE_NOOP("HeldFlowTableModel", "Phase"),
+        QT_TRANSLATE_NOOP("HeldFlowTableModel", "阶段"),
     ]
 
     # 「阶段」列的序号。
@@ -303,8 +303,8 @@ class HeldFlowTableModel(QAbstractTableModel):
     # （三元表达式塞在 translate 实参里 lupdate 也提取不到）。`PHASE_COLUMN` 的
     # 序号含义见类 docstring，这里不再重复。
     PHASE_MARKS: ClassVar[dict[bool, str]] = {
-        True: QT_TRANSLATE_NOOP("HeldFlowTableModel", "Response"),
-        False: QT_TRANSLATE_NOOP("HeldFlowTableModel", "Request"),
+        True: QT_TRANSLATE_NOOP("HeldFlowTableModel", "响应"),
+        False: QT_TRANSLATE_NOOP("HeldFlowTableModel", "请求"),
     }
 
     def __init__(self, parent: QObject | None = None):

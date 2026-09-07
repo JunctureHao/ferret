@@ -62,7 +62,7 @@ class InterceptDialogTests(unittest.TestCase):
     def test_a_blank_form_cannot_be_saved(self) -> None:
         dlg = self.dialog()
         self.assertFalse(dlg.yesButton.isEnabled())
-        self.assertEqual(dlg.preview_label.text(), "Match value cannot be empty")
+        self.assertEqual(dlg.preview_label.text(), "匹配值不能为空")
 
     def test_a_filled_form_previews_the_pushed_down_expression(self) -> None:
         dlg = self.dialog()
@@ -115,7 +115,7 @@ class InterceptDialogTests(unittest.TestCase):
         self.choose(dlg, logic=InterceptLogic.REGEX)
         dlg.value_edit.setText("bad(")
         self.assertFalse(dlg.yesButton.isEnabled())
-        self.assertIn("Invalid match value", dlg.preview_label.text())
+        self.assertIn("无效的匹配值", dlg.preview_label.text())
 
     def test_the_placeholder_follows_the_field_logic_pair(self) -> None:
         dlg = self.dialog()
@@ -126,18 +126,18 @@ class InterceptDialogTests(unittest.TestCase):
         dlg = self.dialog()
         self.choose(dlg, field=InterceptField.HOST)
         hint = dlg.hint_label.text()
-        # 默认「请求和响应」要说清会停两次；字段提示照旧跟在后面。
-        self.assertIn("held twice", hint)
-        self.assertIn("without the port", hint)
+        # 默认「请求和响应」要说清会拦两次；字段提示照旧跟在后面。
+        self.assertIn("拦两次", hint)
+        self.assertIn("不含端口", hint)
 
     def test_the_hint_changes_with_the_phase(self) -> None:
         """选了只停一次，就不能还挂着「会停两次」的说明。"""
         dlg = self.dialog()
         self.choose(dlg, phase=InterceptPhase.REQUEST)
-        self.assertIn("held once", dlg.hint_label.text())
-        self.assertNotIn("held twice", dlg.hint_label.text())
+        self.assertIn("停一次", dlg.hint_label.text())
+        self.assertNotIn("拦两次", dlg.hint_label.text())
         self.choose(dlg, phase=InterceptPhase.RESPONSE)
-        self.assertIn("held once", dlg.hint_label.text())
+        self.assertIn("停一次", dlg.hint_label.text())
 
     def test_changing_a_choice_revalidates(self) -> None:
         """换字段/条件会换掉下发的表达式，闸门和预览都得跟着重算。"""

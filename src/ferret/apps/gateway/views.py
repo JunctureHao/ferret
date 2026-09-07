@@ -90,32 +90,30 @@ class GatewayInterface(QWidget):
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(6)
 
-        self.add_btn = PushButton(FluentIcon.ADD, self.tr("Add rule"), bar)
+        self.add_btn = PushButton(FluentIcon.ADD, self.tr("新增规则"), bar)
 
         self.search_edit = LineEdit(bar)
-        self.search_edit.setPlaceholderText(self.tr("Search rules"))
+        self.search_edit.setPlaceholderText(self.tr("搜索规则"))
         self.search_edit.setFixedHeight(32)
         self.search_edit.setClearButtonEnabled(True)
 
         self.edit_btn = TransparentToolButton(FluentIcon.EDIT, bar)
         self.edit_btn.setFixedSize(32, 32)
         self.edit_btn.setIconSize(QSize(18, 18))
-        self.edit_btn.setToolTip(self.tr("Edit") + " (F2)")
+        self.edit_btn.setToolTip(self.tr("编辑") + " (F2)")
         self.edit_btn.setEnabled(False)
 
         self.delete_btn = TransparentToolButton(FluentIcon.DELETE, bar)
         self.delete_btn.setFixedSize(32, 32)
         self.delete_btn.setIconSize(QSize(18, 18))
-        self.delete_btn.setToolTip(self.tr("Delete"))
+        self.delete_btn.setToolTip(self.tr("删除"))
         self.delete_btn.setEnabled(False)
 
         self.enable_switch = SwitchButton(bar, IndicatorPosition.LEFT)
-        self.enable_switch.setOnText(self.tr("Enabled"))
-        self.enable_switch.setOffText(self.tr("Disabled"))
+        self.enable_switch.setOnText(self.tr("已启用"))
+        self.enable_switch.setOffText(self.tr("已停用"))
         self.enable_switch.setToolTip(
-            self.tr(
-                "Gateway master switch. Turning it off disables every rule and releases suspended traffic at once."
-            )
+            self.tr("网关总开关。关闭后所有规则一律不生效，挂起中的流量立即放行")
         )
         self._sync_switch(self.controller.enabled)
 
@@ -131,14 +129,12 @@ class GatewayInterface(QWidget):
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label = BodyLabel(self.tr("No gateway rules yet"), page)
+        label = BodyLabel(self.tr("暂无网关规则"), page)
         hint = CaptionLabel(
-            self.tr(
-                "Traffic matched by host or method can skip capture, get blocked, or hang unanswered."
-            ),
+            self.tr("按主机或方法命中的流量可以不抓包、拦下来、或挂住不放"),
             page,
         )
-        add_btn = PushButton(FluentIcon.ADD, self.tr("Add rule"), page)
+        add_btn = PushButton(FluentIcon.ADD, self.tr("新增规则"), page)
         layout.addStretch(1)
         layout.addWidget(label, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint, 0, Qt.AlignmentFlag.AlignCenter)
@@ -229,7 +225,7 @@ class GatewayInterface(QWidget):
 
     @Slot(str)
     def _on_operation_succeeded(self, message: str):
-        show_success(self.tr("Success"), message, self.window())
+        show_success(self.tr("成功"), message, self.window())
 
     @Slot(str)
     def _on_search_changed(self, text: str):
@@ -238,7 +234,7 @@ class GatewayInterface(QWidget):
 
     @Slot()
     def _on_add(self):
-        dialog = GatewayRuleDialog(self.tr("New gateway rule"), parent=self.window())
+        dialog = GatewayRuleDialog(self.tr("新增网关规则"), parent=self.window())
         if dialog.exec():
             self.controller.add_rule(dialog.get_rule())
 
@@ -255,7 +251,7 @@ class GatewayInterface(QWidget):
         if rule is None:
             return
         dialog = GatewayRuleDialog(
-            self.tr("Edit gateway rule"), rule=rule, parent=self.window()
+            self.tr("编辑网关规则"), rule=rule, parent=self.window()
         )
         if dialog.exec():
             self.controller.update_rule(rows[0], dialog.get_rule())
@@ -276,7 +272,7 @@ class GatewayInterface(QWidget):
             row = rows[0]
             rule = self.controller.rule_at(row)
             edit_action = BaseAction(
-                icon=FluentIcon.EDIT, text=self.tr("Edit"), parent=menu
+                icon=FluentIcon.EDIT, text=self.tr("编辑"), parent=menu
             )
             edit_action.triggered.connect(self._on_edit)
             menu.addAction(edit_action)
@@ -284,7 +280,7 @@ class GatewayInterface(QWidget):
                 target = not rule.enabled
                 toggle_action = BaseAction(
                     icon=FluentIcon.VIEW if target else FluentIcon.HIDE,
-                    text=self.tr("Enable") if target else self.tr("Disable"),
+                    text=self.tr("启用") if target else self.tr("停用"),
                     parent=menu,
                 )
                 toggle_action.triggered.connect(
@@ -295,19 +291,19 @@ class GatewayInterface(QWidget):
             # 是有语义的操作，不只是排版。
             total = len(self.controller.rules)
             up_action = BaseAction(
-                icon=FluentIcon.UP, text=self.tr("Move up"), parent=menu
+                icon=FluentIcon.UP, text=self.tr("上移"), parent=menu
             )
             up_action.setEnabled(row > 0)
             up_action.triggered.connect(lambda: self.controller.move_rule(row, -1))
             menu.addAction(up_action)
             down_action = BaseAction(
-                icon=FluentIcon.DOWN, text=self.tr("Move down"), parent=menu
+                icon=FluentIcon.DOWN, text=self.tr("下移"), parent=menu
             )
             down_action.setEnabled(row < total - 1)
             down_action.triggered.connect(lambda: self.controller.move_rule(row, 1))
             menu.addAction(down_action)
         delete_action = BaseAction(
-            icon=FluentIcon.DELETE, text=self.tr("Delete"), parent=menu
+            icon=FluentIcon.DELETE, text=self.tr("删除"), parent=menu
         )
         delete_action.triggered.connect(self._on_delete)
         menu.addAction(delete_action)

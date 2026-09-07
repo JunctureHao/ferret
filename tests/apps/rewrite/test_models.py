@@ -121,7 +121,7 @@ class RewriteRuleTableModelTests(unittest.TestCase):
     def test_tooltip_explains_an_unusable_rule(self) -> None:
         self.model.set_rules([make_rule("https://a.com/x", replacement="")])
         tooltip = self.model.data(self.model.index(0, 3), Qt.ItemDataRole.ToolTipRole)
-        self.assertEqual(tooltip, "Rewrite target cannot be empty")
+        self.assertEqual(tooltip, "重写目标不能为空")
 
     def test_user_role_returns_the_rule(self) -> None:
         rule = self.model.data(self.model.index(1, 0), Qt.ItemDataRole.UserRole)

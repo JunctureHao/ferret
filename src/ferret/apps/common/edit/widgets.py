@@ -272,17 +272,17 @@ SORT_TRANSITION = {
     SortState.ORIGINAL: (
         SortState.ASCENDING,
         BaseIcon.CHEVRON_UP,
-        QT_TRANSLATE_NOOP("ItemTableToolWidget", "Ascending"),
+        QT_TRANSLATE_NOOP("ItemTableToolWidget", "升序"),
     ),
     SortState.ASCENDING: (
         SortState.DESCENDING,
         BaseIcon.CHEVRON_DOWN,
-        QT_TRANSLATE_NOOP("ItemTableToolWidget", "Descending"),
+        QT_TRANSLATE_NOOP("ItemTableToolWidget", "降序"),
     ),
     SortState.DESCENDING: (
         SortState.ORIGINAL,
         FluentIcon.SCROLL,
-        QT_TRANSLATE_NOOP("ItemTableToolWidget", "Original order"),
+        QT_TRANSLATE_NOOP("ItemTableToolWidget", "原始顺序"),
     ),
 }
 
@@ -314,23 +314,23 @@ class ItemTableToolWidget(SimpleCardWidget):
         self.add_row_button = TransparentTooltipButton(
             FluentIcon.ADD, self._tool_widget
         )
-        self.add_row_button.setToolTip(self.tr("Add row"))
+        self.add_row_button.setToolTip(self.tr("新增行"))
         self.remove_row_button = TransparentTooltipButton(
             FluentIcon.DELETE, self._tool_widget
         )
-        self.remove_row_button.setToolTip(self.tr("Delete selected rows"))
+        self.remove_row_button.setToolTip(self.tr("删除选中行"))
         self.copy_plain_button = TransparentTooltipButton(
             FluentIcon.COPY, self._tool_widget
         )
-        self.copy_plain_button.setToolTip(self.tr("Copy"))
+        self.copy_plain_button.setToolTip(self.tr("复制"))
         self.sort_order_button = TransparentTooltipButton(
             FluentIcon.SCROLL, self._tool_widget
         )
-        self.sort_order_button.setToolTip(self.tr("Sort"))
+        self.sort_order_button.setToolTip(self.tr("排序"))
         self.copy_json_button = TransparentTooltipButton(
             FluentIcon.CODE, self._tool_widget
         )
-        self.copy_json_button.setToolTip(self.tr("Copy as JSON"))
+        self.copy_json_button.setToolTip(self.tr("复制JSON"))
         self._apply_editable()
 
     def __init_layout(self):
@@ -380,7 +380,7 @@ class ItemTableToolWidget(SimpleCardWidget):
         self._table_widget.set_rows(self._original)
         self._sort_state = SortState.ORIGINAL
         self.sort_order_button.setIcon(FluentIcon.SCROLL)
-        self.sort_order_button.setToolTip(self.tr("Sort"))
+        self.sort_order_button.setToolTip(self.tr("排序"))
 
     # —— 数据获取 ——
 
@@ -396,8 +396,8 @@ class ItemTableToolWidget(SimpleCardWidget):
     def remove_selected_rows(self):
         if not self._table_widget.remove_selected_rows():
             show_warning(
-                self.tr("Notice"),
-                self.tr("Select the rows you want to delete first"),
+                self.tr("提示"),
+                self.tr("请先选中要删除的行"),
                 self.window(),
             )
 
@@ -406,10 +406,10 @@ class ItemTableToolWidget(SimpleCardWidget):
         if not self._editable:
             return
         menu = RoundMenu(parent=self._table_widget)
-        menu.addAction(BaseAction(FluentIcon.ADD, self.tr("Add row"), self.add_row))
+        menu.addAction(BaseAction(FluentIcon.ADD, self.tr("新增行"), self.add_row))
         remove = BaseAction(
             FluentIcon.DELETE,
-            self.tr("Delete selected rows"),
+            self.tr("删除选中行"),
             self.remove_selected_rows,
         )
         remove.setEnabled(bool(self._table_widget.selectedIndexes()))
@@ -423,17 +423,15 @@ class ItemTableToolWidget(SimpleCardWidget):
     def _copy_to_clipboard(self, text: str, success_message: str):
         """通用剪贴板复制方法"""
         if not text:
-            show_warning(self.tr("Notice"), self.tr("Nothing to copy"), self.window())
+            show_warning(self.tr("提示"), self.tr("没有可复制的内容"), self.window())
             return
         QApplication.clipboard().setText(text)
-        show_success(self.tr("Success"), success_message, self.window())
+        show_success(self.tr("成功"), success_message, self.window())
 
     @Slot()
     def handle_copy_plain_button_clicked(self):
         """复制为 Key: Value 格式（每行一个）"""
-        self._copy_to_clipboard(
-            items_to_text(self.items()), self.tr("Copied to clipboard")
-        )
+        self._copy_to_clipboard(items_to_text(self.items()), self.tr("已复制到剪贴板"))
 
     @Slot()
     def handle_copy_json_button_clicked(self):
@@ -452,7 +450,7 @@ class ItemTableToolWidget(SimpleCardWidget):
             else:
                 payload[key] = [existing, value]
         text = json.dumps(payload, indent=2, ensure_ascii=False)
-        self._copy_to_clipboard(text, self.tr("JSON copied to clipboard"))
+        self._copy_to_clipboard(text, self.tr("JSON 已复制到剪贴板"))
 
     @Slot()
     def handle_sort_order_button_clicked(self):
@@ -504,29 +502,29 @@ class ToolPlainTextEdit(SimpleCardWidget):
         self.code_widget = CodeEditor(self)
 
         self._btn_copy = TransparentTooltipButton(FluentIcon.COPY, self)
-        self._btn_copy.setToolTip(self.tr("Copy"))
+        self._btn_copy.setToolTip(self.tr("复制"))
         self._btn_wrap = TransparentTooltipButton(BaseIcon.LINE_BREAK, self)
-        self._btn_wrap.setToolTip(self.tr("Word wrap"))
+        self._btn_wrap.setToolTip(self.tr("换行"))
         self._btn_search = TransparentTooltipButton(BaseIcon.DOCUMENT_SEARCH, self)
-        self._btn_search.setToolTip(self.tr("Find"))
+        self._btn_search.setToolTip(self.tr("查找"))
 
         # 查找栏：默认隐藏，点击"查找"按钮时展开
         self._search_bar = SearchLineEdit(self)
-        self._search_bar.setPlaceholderText(self.tr("Find..."))
+        self._search_bar.setPlaceholderText(self.tr("查找..."))
         self._search_bar.setFixedHeight(30)  # 与工具栏按钮同高
         self._search_bar.setVisible(False)
         self._search_prev = TransparentTooltipButton(FluentIcon.UP, self)
-        self._search_prev.setToolTip(self.tr("Previous"))
+        self._search_prev.setToolTip(self.tr("上一个"))
         self._search_prev.setFixedSize(22, 22)
         self._search_prev.setIconSize(QSize(12, 12))
         self._search_prev.setVisible(False)
         self._search_next = TransparentTooltipButton(FluentIcon.DOWN, self)
-        self._search_next.setToolTip(self.tr("Next"))
+        self._search_next.setToolTip(self.tr("下一个"))
         self._search_next.setFixedSize(22, 22)
         self._search_next.setIconSize(QSize(12, 12))
         self._search_next.setVisible(False)
         self._search_close = TransparentTooltipButton(FluentIcon.CLOSE, self)
-        self._search_close.setToolTip(self.tr("Close"))
+        self._search_close.setToolTip(self.tr("关闭"))
         self._search_close.setFixedSize(22, 22)
         self._search_close.setIconSize(QSize(12, 12))
         self._search_close.setVisible(False)
@@ -580,10 +578,10 @@ class ToolPlainTextEdit(SimpleCardWidget):
         """复制编辑器中的原始文本"""
         text = self.code_widget.toPlainText()
         if not text:
-            show_warning(self.tr("Notice"), self.tr("Nothing to copy"), self.window())
+            show_warning(self.tr("提示"), self.tr("没有可复制的内容"), self.window())
             return
         QApplication.clipboard().setText(text)
-        show_success(self.tr("Success"), self.tr("Copied to clipboard"), self.window())
+        show_success(self.tr("成功"), self.tr("已复制到剪贴板"), self.window())
 
     @Slot()
     def handle_btn_wrap_clicked(self):
@@ -660,7 +658,7 @@ class ToolPlainTextEdit(SimpleCardWidget):
             self._apply_search_highlight()
             self._goto_current()
         else:
-            self._search_status.setText(self.tr("No matches"))
+            self._search_status.setText(self.tr("无匹配"))
             self.code_widget.setExtraSelections([])
 
     def search_next(self):
@@ -775,9 +773,9 @@ class ItemDualPanel(QWidget):
         self.stack.addWidget(self.table)
 
         self._btn_text = TransparentTooltipButton(BaseIcon.CONVERT_TO_TEXT, self)
-        self._btn_text.setToolTip(self.tr("Text view"))
+        self._btn_text.setToolTip(self.tr("文本模式"))
         self._btn_table = TransparentTooltipButton(BaseIcon.CONVERT_TO_TABLE, self)
-        self._btn_table.setToolTip(self.tr("Table view"))
+        self._btn_table.setToolTip(self.tr("表格模式"))
 
     def __init_layout(self):
         self.main_layout = QVBoxLayout(self)
@@ -845,7 +843,7 @@ class JsonTreeWidget(TreeWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setHeaderLabels([self.tr("Key"), self.tr("Value")])
+        self.setHeaderLabels([self.tr("键"), self.tr("值")])
         self.setColumnWidth(0, 120)  # 键列初始宽度
         self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -970,9 +968,9 @@ class JsonDualPanel(QWidget):
         self.stack.addWidget(self.tree)
 
         self._btn_text = TransparentTooltipButton(BaseIcon.CONVERT_TO_TEXT, self)
-        self._btn_text.setToolTip(self.tr("Text view"))
+        self._btn_text.setToolTip(self.tr("文本模式"))
         self._btn_tree = TransparentTooltipButton(BaseIcon.CONVERT_TO_TABLE, self)
-        self._btn_tree.setToolTip(self.tr("Tree view"))
+        self._btn_tree.setToolTip(self.tr("树形模式"))
 
     def __init_layout(self):
         self.main_layout = QVBoxLayout(self)

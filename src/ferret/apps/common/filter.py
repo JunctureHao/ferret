@@ -51,7 +51,7 @@ class FilterRow(QWidget):
         self.check_box.setFixedWidth(20)
 
         field_labels = {
-            "all": self.tr("All"),
+            "all": self.tr("全部"),
             "URL": "URL",
             "Method": "Method",
             "Header": "Header",
@@ -68,12 +68,12 @@ class FilterRow(QWidget):
         # 存下来给 `_sync_field_mode` 复用。刻意留在方法里现算、不提到模块级：模块级
         # 会在 import 时求值，那会儿翻译器还没装上（AGENTS.md §7）。
         self._logic_labels = {
-            "contains": self.tr("Contains"),
-            "excludes": self.tr("Excludes"),
-            "regex": self.tr("Regex"),
-            "equals": self.tr("Equals"),
-            "is": self.tr("Is"),
-            "is not": self.tr("Is not"),
+            "contains": self.tr("包含"),
+            "excludes": self.tr("不包含"),
+            "regex": self.tr("正则表达式"),
+            "equals": self.tr("等于"),
+            "is": self.tr("是"),
+            "is not": self.tr("不是"),
         }
         self.logic_box = ComboBox(self)
         self.logic_box.setMinimumWidth(104)
@@ -81,8 +81,8 @@ class FilterRow(QWidget):
         for logic in FILTER_LOGICS:
             self.logic_box.addItem(self._logic_labels[logic], userData=logic)
 
-        self._value_placeholder = self.tr("Search content...")
-        self._flag_placeholder = self.tr("No value needed")
+        self._value_placeholder = self.tr("搜索内容...")
+        self._flag_placeholder = self.tr("无需填值")
         self.value_input = LineEdit(self)
         self.value_input.setMinimumWidth(160)
         self.value_input.setSizePolicy(
@@ -93,8 +93,8 @@ class FilterRow(QWidget):
         self.remove_btn = TransparentToolButton(FluentIcon.REMOVE_FROM, self)
         self.add_btn = TransparentToolButton(FluentIcon.ADD_TO, self)
         for button, tooltip in (
-            (self.remove_btn, self.tr("Remove condition")),
-            (self.add_btn, self.tr("Add condition")),
+            (self.remove_btn, self.tr("删除条件")),
+            (self.add_btn, self.tr("添加条件")),
         ):
             button.setFixedSize(28, 28)
             button.setIconSize(QSize(16, 16))
@@ -200,13 +200,13 @@ class MultiFilterManager(QWidget):
 
         self.summary_label = CaptionLabel(self)
         self.clear_btn = TransparentPushButton(
-            FluentIcon.CLEAR_SELECTION, self.tr("Clear all"), self
+            FluentIcon.CLEAR_SELECTION, self.tr("清除全部"), self
         )
-        self.close_btn = TransparentPushButton(FluentIcon.UP, self.tr("Collapse"), self)
-        self.clear_btn.setToolTip(self.tr("Clear every filter condition"))
-        self.close_btn.setToolTip(self.tr("Collapse the filter panel"))
-        self.clear_btn.setAccessibleName(self.tr("Clear every filter condition"))
-        self.close_btn.setAccessibleName(self.tr("Collapse the filter panel"))
+        self.close_btn = TransparentPushButton(FluentIcon.UP, self.tr("收起"), self)
+        self.clear_btn.setToolTip(self.tr("清除全部筛选条件"))
+        self.close_btn.setToolTip(self.tr("收起筛选面板"))
+        self.clear_btn.setAccessibleName(self.tr("清除全部筛选条件"))
+        self.close_btn.setAccessibleName(self.tr("收起筛选面板"))
 
     def __init_layout(self):
         root_layout = QVBoxLayout(self)
@@ -331,7 +331,7 @@ class MultiFilterManager(QWidget):
 
     def _update_summary(self) -> None:
         count = self.active_condition_count()
-        self.summary_label.setText(self.tr("{} active condition(s)").format(count))
+        self.summary_label.setText(self.tr("{} 个有效条件").format(count))
         self.clear_btn.setEnabled(count > 0 or len(self._rows()) > 1)
 
     @Slot()

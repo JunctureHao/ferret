@@ -20,7 +20,7 @@ class TextCopyDialog(MessageBoxBase):
         self.edit = TextBrowser(self)
         self.edit.setText(self.content)
 
-        self.yesButton.setText(self.tr("Copy"))
+        self.yesButton.setText(self.tr("复制"))
 
     def __init_layout(self):
         self.viewLayout.addWidget(self.title_label)
@@ -42,15 +42,13 @@ class CommentDialog(MessageBoxBase):
 
     def __init__(self, initial: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.title_label = SubtitleLabel(self.tr("Edit comment"), self)
+        self.title_label = SubtitleLabel(self.tr("编辑备注"), self)
         self.edit = PlainTextEdit(self)
         self.edit.setPlainText(initial)
-        self.edit.setPlaceholderText(
-            self.tr("Add a note to help you identify this flow")
-        )
+        self.edit.setPlaceholderText(self.tr("加条备注，方便回头认出这条流量"))
         self.edit.setFixedHeight(120)
 
-        self.yesButton.setText(self.tr("Save"))
+        self.yesButton.setText(self.tr("保存"))
         self.viewLayout.addWidget(self.title_label)
         self.viewLayout.addWidget(self.edit)
         self.widget.setMinimumWidth(520)

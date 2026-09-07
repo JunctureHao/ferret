@@ -63,15 +63,15 @@ _REPLACEMENT_PLACEHOLDERS: dict[RewriteLogic, str] = {
 _REWRITE_LOGIC_HINTS: dict[RewriteLogic, str] = {
     RewriteLogic.CONTAINS: QT_TRANSLATE_NOOP(
         "RewriteRuleDialog",
-        "Replaces this text wherever it appears in the URL and leaves the rest untouched.",
+        "把 URL 中出现的这段文本换成重写目标，其余部分保持原样。",
     ),
     RewriteLogic.EQUALS: QT_TRANSLATE_NOOP(
         "RewriteRuleDialog",
-        "Applies only when the whole URL matches exactly; the rewrite target must be a full URL with scheme and host.",
+        "整条 URL 完全相同时才生效，重写目标需是带协议和主机名的完整 URL。",
     ),
     RewriteLogic.REGEX: QT_TRANSLATE_NOOP(
         "RewriteRuleDialog",
-        r"Runs a regex substitution over the whole URL; the rewrite target can reference capture groups with \1 or \g<name>.",
+        "对整条 URL 做正则替换，重写目标里可用 \\1、\\g<name> 引用捕获组。",
     ),
 }
 
@@ -80,13 +80,13 @@ _REWRITE_LOGIC_HINTS: dict[RewriteLogic, str] = {
 # （`~u`）上。所以这里的措辞只能讲「命中」，不能讲「替换」。
 _MATCH_LOGIC_HINTS: dict[RewriteLogic, str] = {
     RewriteLogic.CONTAINS: QT_TRANSLATE_NOOP(
-        "RewriteRuleDialog", "Matches when this text appears anywhere in the URL."
+        "RewriteRuleDialog", "URL 中出现这段文本即命中。"
     ),
     RewriteLogic.EQUALS: QT_TRANSLATE_NOOP(
-        "RewriteRuleDialog", "Matches only when the whole URL is exactly the same."
+        "RewriteRuleDialog", "整条 URL 完全相同时才命中。"
     ),
     RewriteLogic.REGEX: QT_TRANSLATE_NOOP(
-        "RewriteRuleDialog", "Matches the whole URL by regex."
+        "RewriteRuleDialog", "按正则匹配整条 URL，命中即生效。"
     ),
 }
 
@@ -94,11 +94,11 @@ _MATCH_LOGIC_HINTS: dict[RewriteLogic, str] = {
 _KIND_HINTS: dict[RewriteKind, str] = {
     RewriteKind.MAP_REMOTE: QT_TRANSLATE_NOOP(
         "RewriteRuleDialog",
-        "Matching requests get a new target address before they go out, and the Host header follows.",
+        "命中的请求在发出前改写目标地址，Host 请求头随之更新。",
     ),
     RewriteKind.MAP_LOCAL: QT_TRANSLATE_NOOP(
         "RewriteRuleDialog",
-        "Matching requests never reach the server; local content answers them instead. The path **must exist right now** (mitmproxy parses it strictly), and a folder is searched by the URL path for a file of the same name.",
+        "命中的请求不再发往服务器，直接用本地内容作答。路径**必须当下存在**（原生按 strict 解析），指向目录时按 URL 路径在目录内取同名文件。",
     ),
 }
 
@@ -109,14 +109,14 @@ _KIND_HINTS: dict[RewriteKind, str] = {
 def _header_hint() -> str:
     return QCoreApplication.translate(
         "RewriteRuleDialog",
-        r"On a match the header is removed first and then added back with the new value; an empty header value means remove only. A header value starting with @ is read as a **file path** (mitmproxy's own semantics, so a header value that really starts with @ cannot be sent). Escapes such as \n and \t are decoded; write \\ for a literal backslash.",
+        "命中时先删掉同名头、再按新值加回去；头值留空 = 只删不加。头值以 @ 开头会被当作**文件路径**读取内容（原生语义，因此无法下发真的以 @ 开头的头值）。\\n、\\t 等转义会被解码，要字面反斜杠请写 \\\\。",
     )
 
 
 def _body_hint() -> str:
     return QCoreApplication.translate(
         "RewriteRuleDialog",
-        r"An empty body pattern replaces the whole body (it sends {} instead); empty new content clears whatever matched. New content is **literal**, so \1 back-references do not work (mitmproxy substitutes with `lambda _: replacement`), and content starting with @ is read as a **file path**. Escapes such as \n and \t are decoded; write \\ for a literal backslash.",
+        "体正则留空 = 整体替换（实际下发 {}）；新内容留空 = 清空匹配到的内容。新内容是**字面量**，不支持 \\1 反向引用（原生用 `lambda _: replacement` 做替换）；以 @ 开头会被当作**文件路径**读取内容。\\n、\\t 等转义会被解码，要字面反斜杠请写 \\\\。",
     ).format(WHOLE_BODY_PATTERN)
 
 
@@ -124,7 +124,7 @@ _TARGET_PLACEHOLDERS: dict[RewriteKind, str] = {
     RewriteKind.MODIFY_REQUEST_HEADER: "User-Agent",
     RewriteKind.MODIFY_RESPONSE_HEADER: "Cache-Control",
     RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP(
-        "RewriteRuleDialog", "Empty = replace the whole body"
+        "RewriteRuleDialog", "留空 = 整体替换"
     ),
     RewriteKind.MODIFY_RESPONSE_BODY: r'"code":\s*\d+',
 }
@@ -183,7 +183,7 @@ class RewriteRuleDialog(MessageBoxBase):
         # 让用户选而不是手打，能挡掉绝大多数「路径不存在」的回滚。
         self.browse_btn = TransparentToolButton(FluentIcon.FOLDER, self)
         self.browse_btn.setFixedSize(32, 32)
-        self.browse_btn.setToolTip(self.tr("Pick a local file or folder"))
+        self.browse_btn.setToolTip(self.tr("选择本地文件或目录"))
 
         # 体内容常是整段 JSON，单行输入框放不下 —— 复用 apps/common/edit 的编辑器
         # （自带复制/换行/查找与高亮），和抓包详情页是同一套控件。
@@ -203,8 +203,8 @@ class RewriteRuleDialog(MessageBoxBase):
         self.preview_label = CaptionLabel(self)
         self.preview_label.setWordWrap(True)
 
-        self.yesButton.setText(self.tr("Save"))
-        self.cancelButton.setText(self.tr("Cancel"))
+        self.yesButton.setText(self.tr("保存"))
+        self.cancelButton.setText(self.tr("取消"))
 
         self._set_replacement_text(self._rule.replacement)
         QTimer.singleShot(0, self.value_edit.setFocus)
@@ -221,9 +221,9 @@ class RewriteRuleDialog(MessageBoxBase):
     def __init_layout(self):
         self.form = QFormLayout()
         self.form.setSpacing(8)
-        self.form.addRow(BodyLabel(self.tr("Type"), self), self.kind_combo)
-        self.form.addRow(BodyLabel(self.tr("Condition"), self), self.logic_combo)
-        self.form.addRow(BodyLabel(self.tr("Match URL"), self), self.value_edit)
+        self.form.addRow(BodyLabel(self.tr("类型"), self), self.kind_combo)
+        self.form.addRow(BodyLabel(self.tr("匹配方式"), self), self.logic_combo)
+        self.form.addRow(BodyLabel(self.tr("匹配 URL"), self), self.value_edit)
         self.form.addRow(self.target_label, self.target_edit)
         self.form.addRow(self.replacement_label, self.replacement_stack)
 
@@ -336,24 +336,24 @@ class RewriteRuleDialog(MessageBoxBase):
         """map_local 既能指向单个文件、也能指向整个目录，所以给两个入口。"""
         menu = RoundMenu(parent=self)
         file_action = BaseAction(
-            icon=FluentIcon.DOCUMENT, text=self.tr("Pick a file"), parent=menu
+            icon=FluentIcon.DOCUMENT, text=self.tr("选择文件"), parent=menu
         )
         file_action.triggered.connect(self._pick_file)
         menu.addAction(file_action)
         dir_action = BaseAction(
-            icon=FluentIcon.FOLDER, text=self.tr("Pick a folder"), parent=menu
+            icon=FluentIcon.FOLDER, text=self.tr("选择目录"), parent=menu
         )
         dir_action.triggered.connect(self._pick_directory)
         menu.addAction(dir_action)
         menu.exec(self.browse_btn.mapToGlobal(self.browse_btn.rect().bottomLeft()))
 
     def _pick_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, self.tr("Pick a local file"))
+        path, _ = QFileDialog.getOpenFileName(self, self.tr("选择本地文件"))
         if path:
             self.replacement_edit.setText(path)
 
     def _pick_directory(self):
-        path = QFileDialog.getExistingDirectory(self, self.tr("Pick a local folder"))
+        path = QFileDialog.getExistingDirectory(self, self.tr("选择本地目录"))
         if path:
             self.replacement_edit.setText(path)
 
@@ -393,18 +393,18 @@ class RewriteRuleDialog(MessageBoxBase):
 
     def _preview_lines(self, rule: RewriteRule) -> list[str]:
         """`to_spec` 已经过了，所以这里取哪个属性都不会再抛。"""
-        lines = [self.tr("Match pattern: {}").format(rule.subject)]
+        lines = [self.tr("匹配正则：{}").format(rule.subject)]
         if rule.kind == RewriteKind.MAP_REMOTE:
-            lines.append(self.tr("Rewrite to: {}").format(rule.template))
+            lines.append(self.tr("替换为：{}").format(rule.template))
         elif rule.kind == RewriteKind.MAP_LOCAL:
-            lines.append(self.tr("Local path: {}").format(rule.replacement.strip()))
+            lines.append(self.tr("本地路径：{}").format(rule.replacement.strip()))
         else:
             # 这两行的措辞由 models 统一给，和表格里那两列逐字一致。
             lines.append(
-                self.tr("{}: {}").format(self.target_label.text(), target_display(rule))
+                self.tr("{}：{}").format(self.target_label.text(), target_display(rule))
             )
             lines.append(
-                self.tr("{}: {}").format(
+                self.tr("{}：{}").format(
                     self.replacement_label.text(), replacement_display(rule)
                 )
             )

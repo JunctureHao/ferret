@@ -228,8 +228,8 @@ class CapturesInterface(QWidget):
         self._refresh_command_bar()
         if capture_state == CaptureState.RUNNING and previous != CaptureState.RUNNING:
             show_success(
-                self.tr("Success"),
-                self.tr("System traffic capture started"),
+                self.tr("成功"),
+                self.tr("已开始捕获系统流量"),
                 parent=self,
             )
         elif capture_state == CaptureState.STOPPED and previous in (
@@ -237,15 +237,14 @@ class CapturesInterface(QWidget):
             CaptureState.STOPPING,
         ):
             show_success(
-                self.tr("Success"),
-                self.tr("System traffic capture stopped"),
+                self.tr("成功"),
+                self.tr("已停止捕获系统流量"),
                 parent=self,
             )
         elif capture_state == CaptureState.FAILED:
             show_warning(
-                self.tr("System traffic capture failed"),
-                self.controller.last_error
-                or self.tr("Check the listen port and the system proxy settings"),
+                self.tr("系统流量捕获失败"),
+                self.controller.last_error or self.tr("请检查监听端口和系统代理设置"),
                 parent=self,
             )
 
@@ -299,9 +298,7 @@ class CapturesInterface(QWidget):
                 block_private=w.get_block_private(),
             )
         except (RuntimeError, ValueError) as exc:
-            show_warning(
-                self.tr("Capture settings not applied"), str(exc), self.window()
-            )
+            show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
             return
         # 监听端点也可能顺带变了（端口在对话框里可改），读回刷新。
         self._ui_state = replace(
@@ -326,36 +323,36 @@ class CapturesInterface(QWidget):
         """用户点击"从文件回放…"：弹文件选择器并调用 controller。"""
         path, _ = QFileDialog.getOpenFileName(
             self.window(),
-            self.tr("Select a .flow file to replay"),
+            self.tr("选择 .flow 文件回放"),
             "",
-            self.tr("Flow files (*.flow)"),
+            self.tr("Flow 文件 (*.flow)"),
         )
         if not path:
             return
         try:
             self.controller.load_replay_file(Path(path))
         except Exception as exc:  # noqa: BLE001
-            show_warning(self.tr("Replay failed"), str(exc), parent=self)
+            show_warning(self.tr("回放失败"), str(exc), parent=self)
 
     @Slot()
     def __on_open_flow_file_requested(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self.window(),
-            self.tr("Load flows into the current list"),
+            self.tr("加载 Flow 到当前列表"),
             "",
-            self.tr("Flow files (*.flow)"),
+            self.tr("Flow 文件 (*.flow)"),
         )
         if not path:
             return
         try:
             count = self.controller.load_flow_file(Path(path))
             show_success(
-                self.tr("Loaded"),
-                self.tr("Loaded {} flow(s)").format(count),
+                self.tr("加载完成"),
+                self.tr("已加载 {} 条").format(count),
                 parent=self,
             )
         except Exception as exc:  # noqa: BLE001
-            show_warning(self.tr("Load failed"), str(exc), parent=self)
+            show_warning(self.tr("加载失败"), str(exc), parent=self)
 
     @Slot()
     def __confirm_clear_flows(self) -> None:
@@ -429,10 +426,10 @@ class CapturesInterface(QWidget):
             return ""
         parts: list[str] = []
         if self.controller.system_proxy_enabled():
-            parts.append(self.tr("System proxy"))
+            parts.append(self.tr("系统代理"))
         if self.controller.use_local:
             spec = self.controller.local_spec
-            label = self.tr("Local redirect")
+            label = self.tr("本地重定向")
             parts.append(f"{label} ({spec})" if spec else label)
         if self.controller.use_wireguard:
             parts.append(self.tr("WireGuard :{}").format(WIREGUARD_PORT))
@@ -442,7 +439,7 @@ class CapturesInterface(QWidget):
         errors = self.controller.channel_errors
         if not errors:
             return ""
-        names = {"local": self.tr("Local redirect"), "wireguard": self.tr("WireGuard")}
+        names = {"local": self.tr("本地重定向"), "wireguard": self.tr("WireGuard")}
         return "; ".join(
             f"{names.get(key, key)}: {message}" for key, message in errors.items()
         )
@@ -543,58 +540,58 @@ class CaptureCommandBar(QWidget):
 
         self.state_dot = BodyLabel("●", self)
         self.state_dot.setFixedWidth(12)
-        self.state_label = StrongBodyLabel(self.tr("Idle"), self)
+        self.state_label = StrongBodyLabel(self.tr("未捕获系统流量"), self)
 
         self.endpoint_label = BodyLabel(self)
         self.endpoint_label.setFixedHeight(28)
-        self.endpoint_label.setAccessibleName(self.tr("Proxy listen address"))
+        self.endpoint_label.setAccessibleName(self.tr("代理监听地址"))
         self.endpoint_label.setFont(self.font())
         # Compatibility alias for callers that read the endpoint text/visibility.
         self.endpoint_btn = self.endpoint_label
 
         # 放开到局域网是个有安全含义的状态，必须常驻可见，不能只藏在设置对话框里。
-        self.exposure_label = CaptionLabel(self.tr("LAN"), self)
+        self.exposure_label = CaptionLabel(self.tr("局域网"), self)
         self.exposure_label.setFixedHeight(28)
-        self.exposure_label.setAccessibleName(self.tr("Reachable from LAN devices"))
+        self.exposure_label.setAccessibleName(self.tr("局域网设备可连接"))
         self.exposure_label.setStyleSheet("color: #c07000;")
         self.exposure_label.setVisible(False)
 
-        self.stats_label = CaptionLabel(self.tr("{} flow(s)").format(0), self)
+        self.stats_label = CaptionLabel(self.tr("{} 条").format(0), self)
 
         self.search_btn = TransparentToolButton(FluentIcon.SEARCH, self)
         self.search_btn.setCheckable(True)
-        self.search_btn.setToolTip(self.tr("Advanced search") + " (Ctrl+F)")
-        self.search_btn.setAccessibleName(self.tr("Advanced search"))
+        self.search_btn.setToolTip(self.tr("高级搜索") + " (Ctrl+F)")
+        self.search_btn.setAccessibleName(self.tr("高级搜索"))
         self.open_btn = TransparentToolButton(FluentIcon.FOLDER, self)
-        self.open_btn.setToolTip(self.tr("Load flows into the current list"))
-        self.open_btn.setAccessibleName(self.tr("Load flows into the current list"))
+        self.open_btn.setToolTip(self.tr("加载 Flow 到当前列表"))
+        self.open_btn.setAccessibleName(self.tr("加载 Flow 到当前列表"))
         self.filter_badge = InfoBadge.attension(
             0, self, self.search_btn, InfoBadgePosition.TOP_RIGHT
         )
         self.filter_badge.hide()
 
         self.proxy_setting_btn = TransparentToolButton(FluentIcon.GLOBE, self)
-        self.proxy_setting_btn.setToolTip(self.tr("Port settings"))
-        self.proxy_setting_btn.setAccessibleName(self.tr("Port settings"))
+        self.proxy_setting_btn.setToolTip(self.tr("端口设置"))
+        self.proxy_setting_btn.setAccessibleName(self.tr("端口设置"))
 
         self.environment_btn = TransparentToolButton(FluentIcon.MORE, self)
-        self.environment_btn.setToolTip(self.tr("Environment settings"))
-        self.environment_btn.setAccessibleName(self.tr("Environment settings"))
+        self.environment_btn.setToolTip(self.tr("环境设置"))
+        self.environment_btn.setAccessibleName(self.tr("环境设置"))
         self.environment_btn.hide()
 
         self.locate_selection_btn = TransparentToolButton(
             BaseIcon.LOCATION_TARGET, self
         )
-        self.locate_selection_btn.setToolTip(self.tr("Locate selection"))
-        self.locate_selection_btn.setAccessibleName(self.tr("Locate selection"))
+        self.locate_selection_btn.setToolTip(self.tr("定位选中"))
+        self.locate_selection_btn.setAccessibleName(self.tr("定位选中"))
 
         self.control_btn = TransparentToolButton(FluentIcon.PLAY, self)
-        self.control_btn.setToolTip(self.tr("Start capturing system traffic"))
-        self.control_btn.setAccessibleName(self.tr("Start capturing system traffic"))
+        self.control_btn.setToolTip(self.tr("开始捕获系统流量"))
+        self.control_btn.setAccessibleName(self.tr("开始捕获系统流量"))
 
         self.captures_delete_btn = TransparentToolButton(FluentIcon.DELETE, self)
-        self.captures_delete_btn.setToolTip(self.tr("Clear current flows"))
-        self.captures_delete_btn.setAccessibleName(self.tr("Clear current flows"))
+        self.captures_delete_btn.setToolTip(self.tr("清空当前流量"))
+        self.captures_delete_btn.setAccessibleName(self.tr("清空当前流量"))
 
         self.separator = VerticalSeparator(self)
         self.separator.setFixedHeight(16)
@@ -656,7 +653,7 @@ class CaptureCommandBar(QWidget):
     @Slot()
     def __show_environment_menu(self) -> None:
         menu = RoundMenu(parent=self)
-        port_action = Action(FluentIcon.GLOBE, self.tr("Port settings"), menu)
+        port_action = Action(FluentIcon.GLOBE, self.tr("端口设置"), menu)
         port_action.triggered.connect(self.portRequested.emit)
         menu.addAction(port_action)
         menu.exec(
@@ -672,38 +669,38 @@ class CaptureCommandBar(QWidget):
         # 提不出来 —— 它只认字面量实参。
         state_ui = {
             CaptureState.STOPPED: (
-                self.tr("Idle"),
+                self.tr("未捕获系统流量"),
                 "#8a8a8a",
                 FluentIcon.PLAY,
-                self.tr("Start capturing"),
+                self.tr("开始抓包"),
                 True,
             ),
             CaptureState.STARTING: (
-                self.tr("Starting"),
+                self.tr("启动中"),
                 "#d99a00",
                 FluentIcon.PLAY,
-                self.tr("Starting the capture session"),
+                self.tr("正在开启抓包会话"),
                 False,
             ),
             CaptureState.RUNNING: (
-                self.tr("Capturing"),
+                self.tr("正在捕获"),
                 "#2e9b4d",
                 FluentIcon.PAUSE,
-                self.tr("Stop capturing"),
+                self.tr("停止抓包"),
                 True,
             ),
             CaptureState.STOPPING: (
-                self.tr("Stopping"),
+                self.tr("停止中"),
                 "#d99a00",
                 FluentIcon.PAUSE,
-                self.tr("Stopping the capture session"),
+                self.tr("正在停止抓包会话"),
                 False,
             ),
             CaptureState.FAILED: (
-                self.tr("Failed"),
+                self.tr("启动失败"),
                 "#d13438",
                 FluentIcon.PLAY,
-                self.tr("Retry capturing"),
+                self.tr("重试抓包"),
                 True,
             ),
         }
@@ -725,21 +722,19 @@ class CaptureCommandBar(QWidget):
         else:
             self.endpoint_btn.setText(display)
             self.endpoint_btn.setToolTip(
-                self.tr(
-                    "This machine connects via {}; LAN devices can connect too"
-                ).format(state.endpoint)
+                self.tr("本机通过 {} 接入；局域网设备也可连接").format(state.endpoint)
                 if state.lan_exposed
-                else self.tr("This machine connects via {}").format(state.endpoint)
+                else self.tr("本机通过 {} 接入").format(state.endpoint)
             )
         if state.shown_count == state.total_count:
-            stats_text = self.tr("{} flow(s)").format(state.total_count)
+            stats_text = self.tr("{} 条").format(state.total_count)
         else:
-            stats_text = self.tr("{} / {} flow(s)").format(
+            stats_text = self.tr("{} / {} 条").format(
                 state.shown_count, state.total_count
             )
         self.stats_label.setText(stats_text)
         self.stats_label.setToolTip(
-            self.tr("{} total, {} shown, {} selected").format(
+            self.tr("共 {} 条，当前显示 {} 条，已选 {} 条").format(
                 state.total_count, state.shown_count, state.selected_count
             )
         )
@@ -778,13 +773,13 @@ class CaptureCommandBar(QWidget):
             stats = (
                 str(self._state.total_count)
                 if compact
-                else self.tr("{} flow(s)").format(self._state.total_count)
+                else self.tr("{} 条").format(self._state.total_count)
             )
         else:
             if compact:
                 stats = f"{self._state.shown_count}/{self._state.total_count}"
             else:
-                stats = self.tr("{} / {} flow(s)").format(
+                stats = self.tr("{} / {} 条").format(
                     self._state.shown_count, self._state.total_count
                 )
         self.stats_label.setText(stats)
@@ -818,14 +813,14 @@ class ClearFlowsDialog(MessageBoxBase):
     def __init__(self, flow_count: int, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.title_label = SubtitleLabel(
-            self.tr("Clear the current {} flow(s)?").format(flow_count), self
+            self.tr("清空当前 {} 条流量？").format(flow_count), self
         )
         self.desc_label = BodyLabel(
-            self.tr("This cannot be undone, but saved sessions are not deleted."), self
+            self.tr("此操作无法撤销，但不会删除已保存的会话。"), self
         )
         self.desc_label.setWordWrap(True)
-        self.yesButton.setText(self.tr("Clear"))
-        self.cancelButton.setText(self.tr("Cancel"))
+        self.yesButton.setText(self.tr("清空"))
+        self.cancelButton.setText(self.tr("取消"))
         layout = QVBoxLayout()
         layout.setSpacing(8)
         layout.addWidget(self.title_label)
@@ -1091,19 +1086,19 @@ class ProxyPortDialog(MessageBoxBase):
     ):
         """初始化界面组件"""
         self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr("Capture channels"))
+        self.title_label.setText(self.tr("抓包通道"))
 
         # —— 系统代理通道 ——
         self.system_proxy_check = CheckBox(
-            self.tr("System proxy (browsers and most desktop apps)"), self
+            self.tr("系统代理（浏览器与多数桌面应用）"), self
         )
         self.system_proxy_check.setChecked(use_system_proxy)
 
         self.host_combo = ComboBox(self)
         self.host_combo.addItems(
             [
-                self.tr("This machine only ({})").format(LOOPBACK_HOST),
-                self.tr("Reachable from LAN ({})").format(ANY_HOST),
+                self.tr("仅本机（{}）").format(LOOPBACK_HOST),
+                self.tr("局域网可访问（{}）").format(ANY_HOST),
             ]
         )
         self.host_combo.setCurrentIndex(
@@ -1123,33 +1118,27 @@ class ProxyPortDialog(MessageBoxBase):
         self.lan_label = BodyLabel(self)
         self.lan_value = CaptionLabel(self)
         self.lan_copy_btn = TransparentToolButton(FluentIcon.COPY, self)
-        self.lan_copy_btn.setToolTip(self.tr("Copy LAN address"))
-        self.lan_copy_btn.setAccessibleName(self.tr("Copy LAN address"))
+        self.lan_copy_btn.setToolTip(self.tr("复制局域网地址"))
+        self.lan_copy_btn.setAccessibleName(self.tr("复制局域网地址"))
         self.lan_copy_btn.setFixedSize(28, 28)
 
-        self.source_title = StrongBodyLabel(self.tr("Source restrictions"), self)
+        self.source_title = StrongBodyLabel(self.tr("来源限制"), self)
         # 文案用「拒绝」而不是「允许」：直接对应原生 Block addon 的语义
         # （勾上 = block_global/block_private 为真 = 杀掉该类来源的连接），
         # 不用在脑子里做一次取反。
-        self.block_global_check = CheckBox(
-            self.tr("Reject connections from the public internet"), self
-        )
+        self.block_global_check = CheckBox(self.tr("拒绝来自公网的连接"), self)
         self.block_global_check.setChecked(block_global)
-        self.block_private_check = CheckBox(
-            self.tr("Reject connections from the LAN"), self
-        )
+        self.block_private_check = CheckBox(self.tr("拒绝来自局域网的连接"), self)
         self.block_private_check.setChecked(block_private)
         self.source_hint = CaptionLabel(self)
         self.source_hint.setWordWrap(True)
 
         # —— 本地重定向通道：勾选框 + 文字 + 折叠按钮同行 ——
-        self.local_check = CheckBox(
-            self.tr("Local redirect (zero-config, per-process)"), self
-        )
+        self.local_check = CheckBox(self.tr("本地重定向（零配置、按进程）"), self)
         self.local_check.setChecked(use_local)
         self.local_fold_btn = TransparentToolButton(FluentIcon.CHEVRON_RIGHT_MED, self)
         self.local_fold_btn.setFixedSize(28, 26)
-        self.local_fold_btn.setToolTip(self.tr("Pick processes"))
+        self.local_fold_btn.setToolTip(self.tr("选择进程"))
         self.local_fold_btn.clicked.connect(self._toggle_process_list)
 
         self.local_spec_edit = LocalSpecSelector(self)
@@ -1158,29 +1147,25 @@ class ProxyPortDialog(MessageBoxBase):
         self.local_spec_hint.setWordWrap(True)
 
         # —— WireGuard 通道：勾选框 + 文字 + 二维码按钮同行 ——
-        self.wireguard_check = CheckBox(
-            self.tr("WireGuard tunnel (phones and other devices)"), self
-        )
+        self.wireguard_check = CheckBox(self.tr("WireGuard 隧道（手机等设备）"), self)
         self.wireguard_check.setChecked(use_wireguard)
         self.wireguard_hint = CaptionLabel(self)
         self.wireguard_hint.setWordWrap(True)
         self.wireguard_config_btn = TransparentToolButton(FluentIcon.QRCODE, self)
-        self.wireguard_config_btn.setToolTip(self.tr("View client configuration"))
-        self.wireguard_config_btn.setAccessibleName(
-            self.tr("View client configuration")
-        )
+        self.wireguard_config_btn.setToolTip(self.tr("查看客户端配置"))
+        self.wireguard_config_btn.setAccessibleName(self.tr("查看客户端配置"))
         self.wireguard_config_btn.setFixedSize(28, 26)
         self.wireguard_config_btn.setVisible(self._wireguard_config is not None)
 
-        self.restart_hint = CaptionLabel(self.tr("Changes apply immediately"), self)
+        self.restart_hint = CaptionLabel(self.tr("更改立即生效"), self)
         self.restart_hint.setVisible(is_running)
 
     def __init_layout(self):
         """初始化布局结构"""
         form = QFormLayout()
         form.setSpacing(8)
-        form.addRow(BodyLabel(self.tr("Listen address"), self), self.host_combo)
-        form.addRow(BodyLabel(self.tr("Port"), self), self.port_spin)
+        form.addRow(BodyLabel(self.tr("监听地址"), self), self.host_combo)
+        form.addRow(BodyLabel(self.tr("端口"), self), self.port_spin)
 
         lan_row = QHBoxLayout()
         lan_row.setSpacing(6)
@@ -1252,7 +1237,7 @@ class ProxyPortDialog(MessageBoxBase):
             config = self._wireguard_config()
         except Exception as exc:  # noqa: BLE001
             show_warning(
-                self.tr("WireGuard configuration unavailable"),
+                self.tr("WireGuard 配置不可用"),
                 str(exc),
                 parent=self,
             )
@@ -1296,8 +1281,7 @@ class ProxyPortDialog(MessageBoxBase):
 
         self.local_hint.setText(
             self.tr(
-                "This machine always connects via {}:{}; changing the listen "
-                "address only affects whether other devices can reach it."
+                "本机始终通过 {}:{} 接入，切换监听地址只影响别的设备能否连进来。"
             ).format(LOOPBACK_HOST, port)
         )
 
@@ -1305,16 +1289,14 @@ class ProxyPortDialog(MessageBoxBase):
         self.lan_value.setVisible(exposed)
         self.lan_copy_btn.setVisible(exposed)
         if exposed:
-            self.lan_label.setText(self.tr("LAN address"))
+            self.lan_label.setText(self.tr("局域网地址"))
             if self._lan_address:
                 self.lan_value.setText(f"{self._lan_address}:{port}")
                 self.lan_copy_btn.setEnabled(True)
             else:
                 # 多网卡 / VPN 场景下探测可能失败。宁可说「未知」，也不要显示一个
                 # Hyper-V 虚拟网卡的地址让用户白试半天。
-                self.lan_value.setText(
-                    self.tr("Not detected — check your system network settings")
-                )
+                self.lan_value.setText(self.tr("未能识别，请在系统网络设置中查看"))
                 self.lan_copy_btn.setEnabled(False)
 
         # 环回监听时两个开关都是空转：外部来源根本到不了 socket，而环回来源被
@@ -1326,14 +1308,11 @@ class ProxyPortDialog(MessageBoxBase):
         self.block_private_check.setEnabled(exposed and not wireguard_on)
         self.source_hint.setVisible(not exposed or wireguard_on)
         if not exposed:
-            self.source_hint.setText(
-                self.tr("No effect while listening on loopback only")
-            )
+            self.source_hint.setText(self.tr("仅本机监听时不生效"))
         elif wireguard_on:
             self.source_hint.setText(
                 self.tr(
-                    "Reject-LAN is paused while the WireGuard tunnel is on: "
-                    "tunnel clients connect from the 10.0.0.x network."
+                    "WireGuard 隧道开启期间「拒绝局域网」暂停生效：隧道客户端来自 10.0.0.x 网段。"
                 )
             )
 
@@ -1343,16 +1322,13 @@ class ProxyPortDialog(MessageBoxBase):
         self.local_spec_hint.setVisible(local_on)
         self.local_spec_hint.setText(
             self.tr(
-                "Leave the list empty to capture every process; expand the "
-                "list to tick the ones to capture. Starting this channel may "
-                "ask for administrator approval (UAC)."
+                "列表留空则截获全部进程；点右侧箭头展开勾选要截获的进程。开启此通道可能请求管理员授权（UAC）。"
             )
         )
         self.wireguard_hint.setText(
-            self.tr(
-                "Listens on UDP {}; copy the client configuration to your device "
-                "after starting a capture."
-            ).format(WIREGUARD_PORT)
+            self.tr("监听 UDP {}；开始抓包后把客户端配置复制到设备。").format(
+                WIREGUARD_PORT
+            )
         )
         self.wireguard_config_btn.setEnabled(wireguard_on)
 
@@ -1380,14 +1356,13 @@ class WireGuardConfigDialog(MessageBoxBase):
     def __init__(self, config: str, parent: QWidget | None = None):
         super().__init__(parent)
         self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr("WireGuard client configuration"))
+        self.title_label.setText(self.tr("WireGuard 客户端配置"))
 
         self.desc_label = CaptionLabel(self)
         self.desc_label.setWordWrap(True)
         self.desc_label.setText(
             self.tr(
-                "Import this profile in the WireGuard app on your device; it "
-                "routes all of that device's traffic through Ferret."
+                "在设备的 WireGuard 应用中导入此配置；该设备的全部流量将经由 Ferret。"
             )
         )
 
