@@ -422,6 +422,12 @@ class CaptureController(QObject):
     def get_raw_flow(self, flow_id: str) -> bytes:
         return self._mitm.get_raw_flow(flow_id)
 
+    def get_request_body(self, flow_id: str) -> bytes:
+        return self._mitm.get_request_body(flow_id)
+
+    def get_response_body(self, flow_id: str) -> bytes:
+        return self._mitm.get_response_body(flow_id)
+
     def export_har(self, flows: list[HTTPFlow], path: str) -> None:
         self._mitm.export_har(flows, path)
 

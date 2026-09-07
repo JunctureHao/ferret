@@ -90,6 +90,15 @@ class SessionViewController(QObject):
             return FlowExporter.raw(flow)
         return b""
 
+    def get_request_body(self, flow_id: str) -> bytes:
+        """会话页没有 mitm 线程，死 flow 直接解 body —— 同 raw 三件的读法。"""
+        flow = self.get_flow(flow_id)
+        return FlowExporter.request_body(flow) if flow else b""
+
+    def get_response_body(self, flow_id: str) -> bytes:
+        flow = self.get_flow(flow_id)
+        return FlowExporter.response_body(flow) if flow else b""
+
     def get_httpie_command(self, flow_id: str) -> str:
         flow = self.get_flow(flow_id)
         if flow:

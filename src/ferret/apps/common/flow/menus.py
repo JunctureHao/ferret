@@ -7,6 +7,7 @@
 import re
 import time
 from pathlib import Path
+from typing import ClassVar
 
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QKeySequence
@@ -256,6 +257,31 @@ class FlowExportMenu(RoundMenu):
             icon=FluentIcon.DOCUMENT,
             text=self.tr("Copy raw flow"),
         )
+        self.save_request_body_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.SAVE,
+            text=self.tr("Save request body..."),
+        )
+        self.save_response_body_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.SAVE,
+            text=self.tr("Save response body..."),
+        )
+        self.save_raw_request_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.SAVE,
+            text=self.tr("Save raw request..."),
+        )
+        self.save_raw_response_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.SAVE,
+            text=self.tr("Save raw response..."),
+        )
+        self.save_raw_flow_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.SAVE,
+            text=self.tr("Save raw flow..."),
+        )
         self.har_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
@@ -274,6 +300,12 @@ class FlowExportMenu(RoundMenu):
         self.addAction(self.raw_response_action)
         self.addAction(self.raw_flow_action)
         self.addSeparator()
+        self.addAction(self.save_request_body_action)
+        self.addAction(self.save_response_body_action)
+        self.addAction(self.save_raw_request_action)
+        self.addAction(self.save_raw_response_action)
+        self.addAction(self.save_raw_flow_action)
+        self.addSeparator()
         self.addAction(self.har_action)
         # 门控从 FlowContextMenu 一起搬过来，保持原来的语义不变
         if self.context_menu.capabilities.can_save_selection:
@@ -290,6 +322,21 @@ class FlowExportMenu(RoundMenu):
             lambda: self.__export_bytes("raw_response")
         )
         self.raw_flow_action.triggered.connect(lambda: self.__export_bytes("raw_flow"))
+        self.save_request_body_action.triggered.connect(
+            lambda: self.__save_bytes("request_body")
+        )
+        self.save_response_body_action.triggered.connect(
+            lambda: self.__save_bytes("response_body")
+        )
+        self.save_raw_request_action.triggered.connect(
+            lambda: self.__save_bytes("raw_request")
+        )
+        self.save_raw_response_action.triggered.connect(
+            lambda: self.__save_bytes("raw_response")
+        )
+        self.save_raw_flow_action.triggered.connect(
+            lambda: self.__save_bytes("raw_flow")
+        )
         self.har_action.triggered.connect(lambda: self.__export_file("har"))
         self.save_flows_action.triggered.connect(lambda: self.__export_file("flow"))
 
@@ -391,6 +438,117 @@ class FlowExportMenu(RoundMenu):
             self.tr("%s copied to clipboard") % label,
             self.main_window,
         )
+
+    # Content-Type（小写、去参数）→ 保存 body 时的默认后缀。不上 mime 库：常见
+    # 网络类型一张小表够用，未知类型给空后缀、让用户自己定，比猜错强。
+    _BODY_SUFFIXES: ClassVar[dict[str, str]] = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "application/json": ".json",
+        "text/html": ".html",
+        "application/pdf": ".pdf",
+        "application/zip": ".zip",
+        "application/xml": ".xml",
+        "text/xml": ".xml",
+        "text/css": ".css",
+        "text/plain": ".txt",
+    }
+
+    def __save_bytes(self, kind: str) -> None:
+        """把当前行的报文 / body 逐字节写成文件（剪贴板是文本管道，二进制会损坏）。
+
+        与剪贴板 raw 组同语义：作用于右键所在行，不随多选变文案。两类口径刻意
+        分开命名——body 是**解压后**内容，raw 是**线上字节**（body 仍压缩态），
+        存出来的东西不同，菜单文案不得混用。
+        """
+        flow_id = self.__flow_id()
+        if not flow_id or not self.controller:
+            show_warning(
+                self.tr("Warning"),
+                self.tr(
+                    "Export failed: the request is unfinished or the controller is unavailable"
+                ),
+                self.main_window,
+            )
+            return
+
+        try:
+            if kind == "request_body":
+                data = self.controller.get_request_body(flow_id)
+            elif kind == "response_body":
+                data = self.controller.get_response_body(flow_id)
+            elif kind == "raw_request":
+                data = self.controller.get_raw_request(flow_id)
+            elif kind == "raw_response":
+                data = self.controller.get_raw_response(flow_id)
+            else:
+                data = self.controller.get_raw_flow(flow_id)
+        except ValueError:
+            # raw_response 对挂起中（response 未到）的流量抛 ValueError；body 两件
+            # 天然回 b""。统一收敛到同一条「暂无可保存内容」警告，比剪贴板老路稳。
+            data = b""
+
+        if not data:
+            show_warning(
+                self.tr("Warning"),
+                self.tr("The body is empty or the response is pending"),
+                self.main_window,
+            )
+            return
+
+        suggested = self.__default_save_name(kind)
+        path, _ = QFileDialog.getSaveFileName(
+            self.main_window,
+            self.tr("Save to file"),
+            suggested,
+            self.tr("All files (*)"),
+        )
+        # 用户取消返回空串，必须挡在写之前（同 __export_file 的坑：空路径会让
+        # write_bytes 落到目录上抛 PermissionError，界面毫无反馈）。
+        if not path:
+            return
+        # 没写后缀就补建议名的后缀；写了就不动（用户自己定的优先）。
+        if not Path(path).suffix and Path(suggested).suffix:
+            path += Path(suggested).suffix
+
+        try:
+            Path(path).write_bytes(data)
+        except Exception as exc:  # noqa: BLE001
+            show_error(self.tr("Save failed"), str(exc), self.main_window)
+            return
+
+        show_success(
+            self.tr("Success"),
+            self.tr("Saved to {}").format(Path(path).name),
+            self.main_window,
+        )
+
+    def __default_save_name(self, kind: str) -> str:
+        """Save 组的默认文件名：`方法_主机` + 角色后缀 / Content-Type 推断后缀。
+
+        Content-Type 从右键时已拉好的详情字典读（``__on_show_context_menu``
+        每次都重新构建），不为起个名再开一次 ``runtime.call``。pending 响应没有
+        Response 段，``.get`` 拿到 None —— 兜底成空串走「未知类型」。
+        """
+        method = self.context_menu.row_data.get("Method") or "GET"
+        host = self.context_menu.row_data.get("Host") or "unknown"
+        base = re.sub(r'[\\/:*?"<>|]', "_", f"{method}_{host}")
+
+        if kind == "request_body":
+            content_type = self.context_menu.row_data.get("Request Content-Type") or ""
+        elif kind == "response_body":
+            content_type = self.context_menu.row_data.get("Response Content-Type") or ""
+        else:
+            content_type = ""
+        mime = content_type.split(";", 1)[0].strip().lower()
+        suffix = self._BODY_SUFFIXES.get(mime, "")
+        if not suffix and "javascript" in mime:
+            suffix = ".js"
+
+        if kind in ("request_body", "response_body"):
+            return base + suffix
+        role = kind.removeprefix("raw_")  # request / response / flow
+        return f"{base}_{role}.txt"
 
     def __export_file(self, kind: str) -> None:
         """把当前选区的流量写成文件（HAR / Flow）。

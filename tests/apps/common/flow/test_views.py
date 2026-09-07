@@ -200,6 +200,13 @@ class FlowContextMenuTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.replay_calls: list = []
                 self.save_calls: list = []
+                self.bodies = {
+                    "request_body": b"content",
+                    "response_body": b"\x00\x01binary",
+                    "raw_request": b"GET /path HTTP/1.1\r\n",
+                    "raw_response": b"HTTP/1.1 200 OK\r\n",
+                    "raw_flow": b"raw-flow-bytes",
+                }
 
             def replay_flow(self, flow_id):
                 self.replay_calls.append(("single", flow_id))
@@ -209,6 +216,21 @@ class FlowContextMenuTests(unittest.TestCase):
 
             def save_flows(self, flows, path):
                 self.save_calls.append((flows, path))
+
+            def get_request_body(self, flow_id):
+                return self.bodies["request_body"]
+
+            def get_response_body(self, flow_id):
+                return self.bodies["response_body"]
+
+            def get_raw_request(self, flow_id):
+                return self.bodies["raw_request"]
+
+            def get_raw_response(self, flow_id):
+                return self.bodies["raw_response"]
+
+            def get_raw_flow(self, flow_id):
+                return self.bodies["raw_flow"]
 
         return StubController()
 
@@ -323,6 +345,91 @@ class FlowContextMenuTests(unittest.TestCase):
         menu.update_context(0, {"id": "flow-1"}, [])
         menu.block_host_action.trigger()
         self.assertEqual(hosts, [""])
+
+    def _save_actions(self, menu):
+        return {
+            "request_body": menu.export_menu.save_request_body_action,
+            "response_body": menu.export_menu.save_response_body_action,
+            "raw_request": menu.export_menu.save_raw_request_action,
+            "raw_response": menu.export_menu.save_raw_response_action,
+            "raw_flow": menu.export_menu.save_raw_flow_action,
+        }
+
+    def test_save_actions_show_under_both_capability_sets(self) -> None:
+        """Save 组不设能力门控：抓包页与只读会话页都拿得到（getter 两页都实现）。"""
+        for capabilities in (self.CAPTURE_CAPABILITIES, self.READONLY_CAPABILITIES):
+            with self.subTest(capabilities=capabilities):
+                menu = self._make_menu(capabilities)
+                actions_text = [
+                    action.text()
+                    for action in menu.export_menu.actions()
+                    if action.text()
+                ]
+                for text in (
+                    "Save request body...",
+                    "Save response body...",
+                    "Save raw request...",
+                    "Save raw response...",
+                    "Save raw flow...",
+                ):
+                    self.assertIn(text, actions_text)
+
+    def test_save_bytes_writes_the_getter_bytes_verbatim(self) -> None:
+        """文件逐字节等于 getter 字节 —— 二进制不变形，本功能的立身之本。"""
+        import tempfile
+        from pathlib import Path
+
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        menu.update_context(0, {"id": "flow-1"}, [])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for kind, action in self._save_actions(menu).items():
+                target = str(Path(tmp) / f"{kind}.bin")
+                with patch(
+                    "ferret.apps.common.flow.menus.QFileDialog.getSaveFileName",
+                    return_value=(target, ""),
+                ):
+                    action.trigger()
+                    self.app.processEvents()
+                self.assertEqual(
+                    Path(target).read_bytes(), menu.controller.bodies[kind]
+                )
+
+    def test_cancelling_the_dialog_has_no_side_effects(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        menu.update_context(0, {"id": "flow-1"}, [])
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "ferret.apps.common.flow.menus.QFileDialog.getSaveFileName",
+            return_value=("", ""),
+        ) as dialog:
+            menu.export_menu.save_response_body_action.trigger()
+            self.app.processEvents()
+            self.assertEqual(dialog.call_count, 1)
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_an_empty_body_warns_without_writing(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        menu.update_context(0, {"id": "flow-1"}, [])
+        menu.controller.bodies["response_body"] = b""
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "ferret.apps.common.flow.menus.QFileDialog.getSaveFileName"
+        ) as dialog, patch(
+            "ferret.apps.common.flow.menus.show_warning"
+        ) as warning:
+            menu.export_menu.save_response_body_action.trigger()
+            self.app.processEvents()
+
+            dialog.assert_not_called()
+            warning.assert_called_once()
+            self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
 if __name__ == "__main__":

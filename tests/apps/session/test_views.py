@@ -1,14 +1,32 @@
 import os
 import unittest
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from mitmproxy.test import tflow
 from PySide6.QtWidgets import QApplication
 
 from ferret.apps.common.flow.views import FlowViewerPane
-from ferret.apps.session.controllers import SessionController
+from ferret.apps.session.controllers import SessionController, SessionViewController
+from ferret.apps.session.models import SessionMeta, SessionSource
 from ferret.apps.session.views import SessionViewerPage
+
+
+def _meta(flow_count: int = 1) -> SessionMeta:
+    return SessionMeta(
+        schema_version=1,
+        session_id="sid",
+        name="capture",
+        path=Path("capture.flow"),
+        created_at=datetime.now(UTC),
+        modified_at=datetime.now(UTC),
+        flow_count=flow_count,
+        file_size=128,
+        source=SessionSource.CAPTURE,
+    )
 
 
 class SessionViewerPageTests(unittest.TestCase):
@@ -56,6 +74,28 @@ class SessionViewerPageTests(unittest.TestCase):
 
         self.assertEqual(page.splitter.sizes()[1], 0)
         page.close()
+
+
+class SessionViewControllerBodyTests(unittest.TestCase):
+    """会话页的 body 两件：死 flow 直读，不依赖任何内核（同 raw 三件的读法）。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_bodies_come_from_the_loaded_flows(self) -> None:
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.content = b"dead-payload"
+        vc = SessionViewController(_meta(), [flow])
+
+        self.assertEqual(vc.get_request_body(flow.id), b"content")
+        self.assertEqual(vc.get_response_body(flow.id), b"dead-payload")
+
+    def test_an_unknown_id_yields_empty_bytes(self) -> None:
+        vc = SessionViewController(_meta(), [tflow.tflow(resp=True)])
+        self.assertEqual(vc.get_request_body("nope"), b"")
+        self.assertEqual(vc.get_response_body("nope"), b"")
 
 
 if __name__ == "__main__":

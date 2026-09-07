@@ -81,6 +81,25 @@ class FlowExporter:
         return _call(partial(export_module.raw, separator=separator), flow)
 
     @staticmethod
+    def request_body(flow: HTTPFlow) -> bytes:
+        """请求体的**解压后**字节（``get_content(strict=False)``，永不抛）。
+
+        与 ``raw_request`` 的线上字节是两个口径：gzip 的 body 这里拿到的是解压
+        内容。挂起请求 / GET 无体 → ``b""``（比 raw 三件的 CommandError 宽容，
+        界面统一走「空数据」警告路径）。
+        """
+        if flow.request is None:
+            return b""
+        return flow.request.get_content(strict=False) or b""
+
+    @staticmethod
+    def response_body(flow: HTTPFlow) -> bytes:
+        """响应体的**解压后**字节；语义与 ``request_body`` 逐字相同。"""
+        if flow.response is None:
+            return b""
+        return flow.response.get_content(strict=False) or b""
+
+    @staticmethod
     def save_har(flows: Sequence[HTTPFlow], path: str) -> None:
         """把流量导出为标准 HAR 文件。
 

@@ -561,6 +561,18 @@ class MitmFacade:
     def get_raw_flow(self, flow_id: str) -> bytes:
         return self._export(flow_id, FlowExporter.raw, b"")
 
+    def get_request_body(self, flow_id: str) -> bytes:
+        """请求体的**解压后**字节；与 ``get_raw_*`` 的线上字节是两个口径。
+
+        解压在 mitm 线程内完成（``get_content`` 摸的是活 message，同
+        ``flow_detail`` 的先例），Qt 侧只拿现成 bytes。无体 / 挂起 → ``b""``。
+        """
+        return self._export(flow_id, FlowExporter.request_body, b"")
+
+    def get_response_body(self, flow_id: str) -> bytes:
+        """响应体的**解压后**字节；语义与 ``get_request_body`` 逐字相同。"""
+        return self._export(flow_id, FlowExporter.response_body, b"")
+
     def export_har(self, flows: list[HTTPFlow], path: str) -> None:
         FlowExporter.save_har(flows, path)
 

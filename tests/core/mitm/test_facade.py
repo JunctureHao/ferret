@@ -241,6 +241,44 @@ class RequestEditTests(unittest.TestCase):
         self.assertEqual(facade.request_edit(self.flow.id).url, self.flow.request.url)
 
 
+class BodyExportTests(unittest.TestCase):
+    """body 两件与 `flow_detail` 同一款线程纪律（AGENTS.md §3）。
+
+    解压在 mitm 线程内完成（`get_content` 摸的是活 message），Qt 侧只拿现成
+    bytes。找不到 id 回 ``b""`` —— 「保存为文件」把空数据收敛成警告而不是异常。
+    """
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+        self.flow = tflow.tflow(resp=True)
+        assert self.flow.response is not None
+        self.flow.response.content = b"payload"
+        self.runtime.view.add([self.flow])
+
+    def test_bodies_are_read_through_the_runtime(self) -> None:
+        calls: list[str] = []
+        inner = self.runtime.call
+
+        def spy(callback, *, timeout: float = 5.0):
+            calls.append("call")
+            return inner(callback, timeout=timeout)
+
+        self.runtime.call = spy  # type: ignore
+        self.assertEqual(self.facade.get_request_body(self.flow.id), b"content")
+        self.assertEqual(self.facade.get_response_body(self.flow.id), b"payload")
+        self.assertEqual(calls, ["call", "call"])
+
+    def test_an_unknown_id_yields_empty_bytes(self) -> None:
+        self.assertEqual(self.facade.get_request_body("nope"), b"")
+        self.assertEqual(self.facade.get_response_body("nope"), b"")
+
+    def test_a_stopped_kernel_still_answers(self) -> None:
+        facade = MitmFacade(MitmRuntime())
+        facade.view.add([self.flow])
+        self.assertEqual(facade.get_response_body(self.flow.id), b"payload")
+
+
 class WebsocketReadTests(unittest.TestCase):
     """取帧刻意**不**走 `_snapshot()`，所以得单独钉一遍它守住了什么。
 
