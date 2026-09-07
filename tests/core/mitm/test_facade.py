@@ -177,6 +177,50 @@ class FlowDetailTests(unittest.TestCase):
         self.assertEqual(facade.flow_detail(self.flow.id)["id"], self.flow.id)
 
 
+class RequestEditTests(unittest.TestCase):
+    """compose 草稿提取：与 `flow_detail` 同一款线程纪律（AGENTS.md §3）。
+
+    不同的是「找不到」的语义：详情面板拿空字典清空自己，prefill 没有空表单这个
+    兜底，必须抛错（措辞与 `replay_flow` 同一条）。
+    """
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+        self.flow = tflow.tflow()
+        self.runtime.view.add([self.flow])
+
+    def test_the_edit_is_built_through_the_runtime(self) -> None:
+        calls: list[str] = []
+        inner = self.runtime.call
+
+        def spy(callback, *, timeout: float = 5.0):
+            calls.append("call")
+            return inner(callback, timeout=timeout)
+
+        self.runtime.call = spy  # type: ignore
+        edit = self.facade.request_edit(self.flow.id)
+
+        self.assertEqual(calls, ["call"])
+        self.assertEqual(edit.method, self.flow.request.method)
+        self.assertEqual(edit.url, self.flow.request.url)
+
+    def test_an_unknown_id_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            self.facade.request_edit("nope")
+
+    def test_a_non_http_flow_raises(self) -> None:
+        tcp = tflow.ttcpflow()
+        self.runtime.view.add([tcp])
+        with self.assertRaises(ValueError):
+            self.facade.request_edit(tcp.id)
+
+    def test_a_stopped_kernel_still_answers(self) -> None:
+        facade = MitmFacade(MitmRuntime())
+        facade.view.add([self.flow])
+        self.assertEqual(facade.request_edit(self.flow.id).url, self.flow.request.url)
+
+
 class WebsocketReadTests(unittest.TestCase):
     """取帧刻意**不**走 `_snapshot()`，所以得单独钉一遍它守住了什么。
 

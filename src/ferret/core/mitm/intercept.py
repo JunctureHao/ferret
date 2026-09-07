@@ -490,6 +490,27 @@ def _checked_status(status_code: int) -> int:
     return status_code
 
 
+def build_request_edit(flow: HTTPFlow) -> RequestEdit:
+    """把活 flow 的请求压成 :class:`RequestEdit`，给 compose 页灌表单用。
+
+    与 `apply_request_edit` 互为逆操作，和上游 `export.cleanup_request` 同一套
+    处理：在**副本**上 decode（去 Content-Encoding，decode 自动摘头），绝不碰活
+    流量 —— `request.copy()` 换的是 message 不是 flow，没有 `_snapshot` 那个 id
+    被换掉的坑。`Host` 头保留：`build_compose_flow` 尊重显式 Host，经 MapRemote
+    改过路由的流量语义不丢；`content-length` 摘掉，compose 发送时原生自动重算。
+    """
+    request = flow.request.copy()
+    request.decode(strict=False)
+    request.headers.pop("content-length", None)
+    return RequestEdit(
+        method=request.method,
+        url=request.url,
+        # 保重复头（Cookie 等）：字典会吃掉同名头，见 `_load_message`。
+        headers=list(request.headers.items(multi=True)),
+        content=request.get_content(strict=False) or b"",
+    )
+
+
 def apply_request_edit(flow: HTTPFlow, edit: RequestEdit) -> None:
     """Write an edited request back onto a held flow. **Runs on the mitm thread.**
 

@@ -21,6 +21,7 @@ from ferret.core.mitm import (
     MitmFacade,
     MitmRuntime,
     MitmRuntimeState,
+    RequestEdit,
     SseEvent,
     View,
     WsClose,
@@ -391,6 +392,9 @@ class CaptureController(QObject):
 
     def flow_detail(self, flow_id: str) -> dict[str, Any]:
         return self._mitm.flow_detail(flow_id)
+
+    def request_edit(self, flow_id: str) -> RequestEdit:
+        return self._mitm.request_edit(flow_id)
 
     def websocket_frames(self, flow_id: str) -> list[WsFrame]:
         return self._mitm.websocket_frames(flow_id)

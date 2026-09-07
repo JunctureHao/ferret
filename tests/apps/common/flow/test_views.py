@@ -277,6 +277,45 @@ class FlowContextMenuTests(unittest.TestCase):
         menu.block_host_action.trigger()
         self.assertEqual(hosts, ["ads.example.com"])
 
+    def test_capture_capabilities_show_edit_in_compose(self) -> None:
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        actions_text = [a.text() for a in menu.actions() if a.text()]
+        self.assertIn("Edit in Compose", actions_text)
+
+    def test_readonly_capabilities_hide_edit_in_compose(self) -> None:
+        menu = self._make_menu(self.READONLY_CAPABILITIES)
+        actions_text = [a.text() for a in menu.actions() if a.text()]
+        self.assertNotIn("Edit in Compose", actions_text)
+
+    def test_edit_in_compose_is_enabled_for_a_single_http_flow(self) -> None:
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        flow = self._make_flow()
+        menu.update_context(0, {"id": flow.id, "Method": "GET"}, [flow])
+        self.assertTrue(menu.edit_in_compose_action.isEnabled())
+
+    def test_edit_in_compose_is_disabled_for_multi_selection(self) -> None:
+        """多选「编辑并重发」语义不明 —— 禁用最诚实。"""
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        flows = [self._make_flow() for _ in range(2)]
+        menu.update_context(0, {"id": flows[0].id, "Method": "GET"}, flows)
+        self.assertFalse(menu.edit_in_compose_action.isEnabled())
+
+    def test_edit_in_compose_is_disabled_for_connect(self) -> None:
+        """CONNECT 是隧道请求，没有可编辑的报文形态。"""
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        flow = self._make_flow()
+        menu.update_context(0, {"id": flow.id, "Method": "CONNECT"}, [flow])
+        self.assertFalse(menu.edit_in_compose_action.isEnabled())
+
+    def test_edit_in_compose_carries_the_flow_id(self) -> None:
+        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
+        flow = self._make_flow()
+        ids: list = []
+        menu.edit_in_compose_requested.connect(ids.append)
+        menu.update_context(0, {"id": flow.id, "Method": "GET"}, [flow])
+        menu.edit_in_compose_action.trigger()
+        self.assertEqual(ids, [flow.id])
+
     def test_block_host_requested_is_empty_without_a_host(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
         hosts: list = []

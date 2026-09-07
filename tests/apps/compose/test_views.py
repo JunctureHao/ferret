@@ -8,17 +8,18 @@ compose 此前没有 UI 测试；这批锁住四件事 —— 页面结构（三
 
 import os
 import unittest
+from collections.abc import Sequence
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.test import tflow
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import ComboBox, InfoLevel
+from qfluentwidgets import EditableComboBox, InfoLevel
 
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.compose.views import ComposeInterface
-from ferret.core.mitm import ComposeResult
+from ferret.core.mitm import ComposeResult, RequestEdit
 
 app = QApplication.instance() or QApplication([])
 
@@ -34,7 +35,7 @@ class FakeController(QObject):
         super().__init__()
         self.calls: list[tuple] = []
 
-    def send(self, method: str, url: str, headers, body: str, *, record: bool):
+    def send(self, method: str, url: str, headers, body: bytes | str, *, record: bool):
         self.calls.append(("send", method, url, tuple(headers), body, record))
 
 
@@ -79,9 +80,7 @@ class ConstructionTests(ComposeInterfaceTestCase):
         )
 
     def test_the_response_side_starts_on_the_empty_hint(self) -> None:
-        self.assertIs(
-            self.page.response_stack.currentWidget(), self.page.empty_hint
-        )
+        self.assertIs(self.page.response_stack.currentWidget(), self.page.empty_hint)
         self.assertTrue(self.page.status_badge.isHidden())
         self.assertEqual(self.page.status_label.text(), "")
 
@@ -92,13 +91,14 @@ class ConstructionTests(ComposeInterfaceTestCase):
         self.assertEqual(self.page.send_btn.maximumSize().width(), 96)
         # 高度不锁死：只加宽，不变高。
         self.assertEqual(
-            self.page.send_btn.maximumSize().height(), 16777215  # Qt 默认上限
+            self.page.send_btn.maximumSize().height(),
+            16777215,  # Qt 默认上限
         )
         self.assertTrue(self.page.send_btn.isEnabled())
 
-    def test_the_method_combo_is_select_only(self) -> None:
-        """方法只可从词表里选，不可自由输入（EditableComboBox 是断点那侧的选择）。"""
-        self.assertIs(type(self.page.method_combo), ComboBox)
+    def test_the_method_combo_accepts_methods_outside_the_vocabulary(self) -> None:
+        """prefill 可能带来词表外的方法（PROPFIND 等），必须显示得出来 —— 可编辑下拉。"""
+        self.assertIs(type(self.page.method_combo), EditableComboBox)
 
     def test_the_splitter_follows_the_global_layout(self) -> None:
         """全局水平 → 本页左右排；全局垂直 → 上下排（本页不反转）。"""
@@ -125,9 +125,7 @@ class UrlMergeTests(ComposeInterfaceTestCase):
         self.page.url_edit.setText("https://api.example.com/v1?keep=1")
         self.page.params_card.set_items([("page", "2")])
         self.page.params_card.changed.emit()
-        self.assertEqual(
-            self.page.url_edit.text(), "https://api.example.com/v1?page=2"
-        )
+        self.assertEqual(self.page.url_edit.text(), "https://api.example.com/v1?page=2")
 
     def test_clearing_params_does_not_touch_the_url_bar(self) -> None:
         """「删光参数」和「还没填」是同一个空列表信号 —— URL 栏原样不动。"""
@@ -176,9 +174,7 @@ class StatusFlowTests(ComposeInterfaceTestCase):
         self.controller.sending_changed.emit(False)
         self.controller.result_ready.emit(success_result())
 
-        self.assertIs(
-            self.page.response_stack.currentWidget(), self.page.response_pane
-        )
+        self.assertIs(self.page.response_stack.currentWidget(), self.page.response_pane)
         self.assertTrue(self.page.send_btn.isEnabled())
         self.assertEqual(self.page.status_badge.text(), "200")
         self.assertEqual(self.page.status_badge.level, InfoLevel.SUCCESS)
@@ -221,6 +217,77 @@ class StatusFlowTests(ComposeInterfaceTestCase):
         self.page.url_edit.setText("   ")
         self.page._on_send()
         self.assertEqual(self.controller.calls, [])
+
+
+class PrefillTests(ComposeInterfaceTestCase):
+    """prefill 把一份 RequestEdit 灌进表单（右键「Edit in Compose」/ cURL 导入）。"""
+
+    # 显式关键字默认值而不是 dict 合并 splat：`**{**fields, **overrides}` 的值
+    # 类型混在一起，ty 没法对上构造器的各参数签名。
+    @staticmethod
+    def edit(
+        *,
+        method: str = "PROPFIND",
+        url: str = "https://api.example.com/v1?page=2",
+        headers: Sequence[tuple[str, str]] | None = None,
+        content: bytes = b'{"a": 1}',
+    ) -> RequestEdit:
+        return RequestEdit(
+            method=method,
+            url=url,
+            headers=(
+                [
+                    ("accept", "application/json"),
+                    ("cookie", "a=1"),
+                    ("cookie", "b=2"),
+                ]
+                if headers is None
+                else list(headers)
+            ),
+            content=content,
+        )
+
+    def test_every_control_lands(self) -> None:
+        self.page.prefill(self.edit())
+        self.assertEqual(self.page.method_combo.currentText(), "PROPFIND")
+        self.assertEqual(self.page.url_edit.text(), "https://api.example.com/v1?page=2")
+        # query 拆进参数页（发送时参数页是权威源，再合并回 URL）。
+        self.assertEqual(self.page.params_card.items(), [("page", "2")])
+        self.assertEqual(
+            self.page.headers_card.items(),
+            [("accept", "application/json"), ("cookie", "a=1"), ("cookie", "b=2")],
+        )
+        self.assertEqual(self.page.body_panel.plain_text(), '{"a": 1}')
+        self.assertFalse(self.page._binary)
+
+    def test_a_binary_body_locks_the_editor_and_goes_out_as_bytes(self) -> None:
+        """非 UTF-8 体：锁只读 + 提示条，发送时原始字节直通。"""
+        payload = b"\x89PNG\r\n\x1a\n\xff"
+        self.page.prefill(self.edit(content=payload))
+        self.assertTrue(self.page._binary)
+        self.assertTrue(self.page.body_panel.text.is_read_only())
+        self.assertFalse(self.page.body_hint.isHidden())
+        self.assertEqual(self.page.body_panel.plain_text(), "")
+
+        self.page._on_send()
+        self.assertEqual(self.controller.calls[0][4], payload)
+
+    def test_a_text_prefill_unlocks_a_previously_binary_body(self) -> None:
+        """上次灌了二进制、这次灌文本：锁必须解开，不然表单永远卡在只读。"""
+        self.page.prefill(self.edit(content=b"\xff\xfe"))
+        self.page.prefill(self.edit(content=b"hello"))
+        self.assertFalse(self.page._binary)
+        self.assertFalse(self.page.body_panel.text.is_read_only())
+        self.assertTrue(self.page.body_hint.isHidden())
+        self.assertEqual(self.page.body_panel.plain_text(), "hello")
+
+    def test_the_response_area_is_reset(self) -> None:
+        """旧结果不属于新表单：prefill 后回到空态，徽标藏起来。"""
+        self.controller.result_ready.emit(success_result())
+        self.assertIs(self.page.response_stack.currentWidget(), self.page.response_pane)
+        self.page.prefill(self.edit())
+        self.assertIs(self.page.response_stack.currentWidget(), self.page.empty_hint)
+        self.assertTrue(self.page.status_badge.isHidden())
 
 
 if __name__ == "__main__":

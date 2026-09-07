@@ -1,6 +1,7 @@
 """Tests for the breakpoint model, its native wiring and the message write-back."""
 
 import asyncio
+import gzip
 import unittest
 from dataclasses import replace
 from typing import Any
@@ -19,6 +20,7 @@ from ferret.core.mitm import (
     InterceptRule,
     RequestEdit,
     ResponseEdit,
+    build_request_edit,
     intercept_expression,
     intercept_option_updates,
     intercept_rules_from_config,
@@ -505,6 +507,48 @@ class InterceptMasterWiringTests(unittest.TestCase):
         """``intercept`` is registered by ``Intercept.load``, not by ``Options``."""
         self.assertIn("intercept", self.master.options)
         self.assertIsNone(self.master.options.intercept)
+
+
+class BuildRequestEditTests(unittest.TestCase):
+    """`build_request_edit` 把活 flow 压成 compose 的草稿，与写回互为逆操作。
+
+    钉四件事：gzip 体解码、Content-Length 摘除、重复头保留、**不改活 flow**。
+    """
+
+    def test_a_gzipped_body_is_decoded(self) -> None:
+        flow = tflow.tflow()
+        flow.request.content = gzip.compress(b'{"a": 1}')
+        flow.request.headers["content-encoding"] = "gzip"
+        edit = build_request_edit(flow)
+        self.assertEqual(edit.content, b'{"a": 1}')
+        self.assertNotIn("content-encoding", dict(edit.headers))
+
+    def test_content_length_is_stripped(self) -> None:
+        """compose 发送时原生自动重算，草稿里留着旧值只会误导。"""
+        flow = tflow.tflow()
+        flow.request.content = b"abcd"
+        edit = build_request_edit(flow)
+        self.assertNotIn("content-length", {key.lower() for key, _ in edit.headers})
+
+    def test_duplicate_headers_survive(self) -> None:
+        flow = tflow.tflow()
+        flow.request.headers["Cookie"] = "a=1"
+        flow.request.headers.add("Cookie", "b=2")
+        edit = build_request_edit(flow)
+        cookies = [value for key, value in edit.headers if key.lower() == "cookie"]
+        self.assertEqual(cookies, ["a=1", "b=2"])
+
+    def test_the_live_flow_is_untouched(self) -> None:
+        """提取在副本上 decode / 摘头 —— 原 flow 的编码与头原样保留。"""
+        flow = tflow.tflow()
+        flow.request.content = gzip.compress(b"payload")
+        flow.request.headers["content-encoding"] = "gzip"
+        before_headers = list(flow.request.headers.items(multi=True))
+        before_content = flow.request.data.content
+        build_request_edit(flow)
+        self.assertEqual(list(flow.request.headers.items(multi=True)), before_headers)
+        self.assertEqual(flow.request.data.content, before_content)
+        self.assertEqual(flow.request.headers["content-encoding"], "gzip")
 
 
 class ApplyRequestEditTests(unittest.TestCase):

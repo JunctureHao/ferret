@@ -19,6 +19,7 @@ from ferret.core.mitm.intercept import (
     ResponseEdit,
     apply_request_edit,
     apply_response_edit,
+    build_request_edit,
     fake_response,
 )
 from ferret.core.mitm.io import FlowFile
@@ -423,6 +424,31 @@ class MitmFacade:
         def build() -> dict[str, Any]:
             flow = self.view.get_by_id(flow_id)
             return build_flow_detail(flow) if isinstance(flow, HTTPFlow) else {}
+
+        return self.runtime.call(build) if self.runtime.is_running else build()
+
+    def request_edit(self, flow_id: str) -> RequestEdit:
+        """一条流量的请求压成 :class:`RequestEdit`，给 compose 页灌表单。
+
+        提取在 mitm 线程内完成（`build_request_edit` 全程只碰副本），交出来的
+        是纯数据值对象。找不到时抛错而不是返回空：prefill 没有「空表单」这个
+        兜底，措辞与 `replay_flow` 一致。
+
+        Raises:
+            ValueError: 这条流量已不在列表中。
+        """
+
+        def build() -> RequestEdit:
+            flow = self.view.get_by_id(flow_id)
+            if not isinstance(flow, HTTPFlow):
+                # ValueError 是有意的：与 `replay_flow` 同一条「找不到」契约，
+                # 调用方只捕一个异常族（TRY004 想要 TypeError，那是给参数用的）。
+                raise ValueError(  # noqa: TRY004
+                    QCoreApplication.translate(
+                        "MitmFacade", "That flow could not be found"
+                    )
+                )
+            return build_request_edit(flow)
 
         return self.runtime.call(build) if self.runtime.is_running else build()
 

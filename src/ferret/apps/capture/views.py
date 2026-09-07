@@ -82,6 +82,8 @@ class CapturesInterface(QWidget):
 
     # 右键「屏蔽此主机」向外转发，由 MainWindow 接到 BlockListController
     block_host_requested = Signal(str)
+    # 右键「在 Compose 中编辑」向外转发（携带 flow id），由 MainWindow 提取并灌表单
+    edit_in_compose_requested = Signal(str)
 
     def __init__(
         self,
@@ -143,6 +145,10 @@ class CapturesInterface(QWidget):
         # 右键"屏蔽此主机"信号 → 冒泡给 MainWindow
         self.content.table.context_menu.block_host_requested.connect(
             self.block_host_requested
+        )
+        # 右键"在 Compose 中编辑"信号 → 冒泡给 MainWindow
+        self.content.table.context_menu.edit_in_compose_requested.connect(
+            self.edit_in_compose_requested
         )
 
         # Controller 状态信号 → UI 更新

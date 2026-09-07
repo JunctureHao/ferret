@@ -19,6 +19,7 @@ from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import CertificateInterface
 from ferret.apps.common.icon import BaseAction, BaseIcon
+from ferret.apps.common.info_bar import show_warning
 from ferret.apps.common.window import center_window
 from ferret.apps.compose.controllers import ComposeController
 from ferret.apps.compose.views import ComposeInterface
@@ -151,6 +152,11 @@ class MainWindow(FluentWindow):
         self.captures_interface.block_host_requested.connect(
             self.gateway_controller.add_host_rule
         )
+        # 同上：apps/capture 不必认识 apps/compose。提取在 mitm 线程上跑
+        # （facade.request_edit），prefill 与切页都在主线程。
+        self.captures_interface.edit_in_compose_requested.connect(
+            self.__edit_in_compose
+        )
         # 同上：断点页和断点窗口互不认识，两个方向都从这里接。
         self.intercept_interface.queue_requested.connect(self.intercept_window.pop_up)
         self.intercept_window.attention_requested.connect(self.__on_intercept_attention)
@@ -174,6 +180,16 @@ class MainWindow(FluentWindow):
     def __on_capture_state_changed(self, state: object) -> None:
         if CaptureState(state) == CaptureState.STOPPED:
             self.session_controller.refresh()
+
+    @Slot(str)
+    def __edit_in_compose(self, flow_id: str) -> None:
+        try:
+            edit = self.captures_interface.controller.request_edit(flow_id)
+        except (ValueError, RuntimeError) as exc:
+            show_warning(self.tr("Edit in Compose failed"), str(exc), self)
+            return
+        self.compose_interface.prefill(edit)
+        self.switchTo(self.compose_interface)
 
     @Slot()
     def __on_activated(self, reason: QSystemTrayIcon.ActivationReason):
