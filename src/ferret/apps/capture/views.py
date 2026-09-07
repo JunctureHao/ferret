@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -52,6 +52,7 @@ from ferret.apps.common.filter import MultiFilterManager
 from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
+from ferret.core.mitm import HTTPFlow
 from ferret.core.mitm.facade import MitmFacade
 from ferret.core.mitm.modes import (
     WIREGUARD_PORT,
@@ -118,6 +119,9 @@ class CapturesInterface(QWidget):
         # Compatibility alias for callers and existing tests.
         self.toolbar = self.command_bar
         self.content = CapturesContentArea(self, self.controller)
+        # View 是 runtime.__init__ 里一次性创建、跨重启复用的持久对象，初始化期
+        # 接一次源即可（比旧 master_ready 单次 emit 还早、还稳）。
+        self.content.table.set_source(_CaptureFlowSource(self.controller))
 
     def __init_layout(self):
         """初始化布局结构"""
@@ -157,7 +161,6 @@ class CapturesInterface(QWidget):
             lambda _on: self._refresh_command_bar()
         )
         self.controller.channels_changed.connect(self._refresh_command_bar)
-        self.controller.master_ready.connect(self.content.table.set_view)
         self.controller.flow_added.connect(self.content.table.on_flow_added)
         self.controller.flow_updated.connect(self.content.table.on_flow_updated)
         self.controller.flow_removed.connect(self.content.table.on_flow_removed)
@@ -447,6 +450,27 @@ class CapturesInterface(QWidget):
     def stop_capture(self):
         """停止抓包（供外部调用，如MainWindow.closeEvent）"""
         self.controller.stop_capture()
+
+
+class _CaptureFlowSource:
+    """FlowSource 适配器：三个操作全部经 facade 投到 mitm 线程执行。
+
+    `FlowTableModel` 只认 `FlowSource` 协议、不认识 facade —— 迭代（过滤后的
+    可见列表，`visible_http_flows`）与 clear/remove 的线程安全由这里保证
+    （AGENTS.md §3：Qt 线程不直连 View）。
+    """
+
+    def __init__(self, controller: CaptureController) -> None:
+        self._controller = controller
+
+    def __iter__(self) -> Iterator[HTTPFlow]:
+        return iter(self._controller.visible_http_flows())
+
+    def clear(self) -> None:
+        self._controller.clear_flows()
+
+    def remove(self, flows: Sequence[HTTPFlow]) -> None:
+        self._controller.remove_flows(list(flows))
 
 
 class CapturesContentArea(FlowViewerPane):

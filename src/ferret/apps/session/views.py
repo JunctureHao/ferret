@@ -446,7 +446,8 @@ class SessionViewerPage(QWidget):
         self.name_label.setText(f"{meta.name}  ·  {flows}  ·  ")
 
         self.splitter.set_controller(vc)
-        self.table.set_view(vc.view)
+        # 会话 flow 从文件读回、没有 mitm 线程：View 本体直接当数据源，无需适配。
+        self.table.set_source(vc.view)
 
     def _go_back(self):
         iface = self.parent()

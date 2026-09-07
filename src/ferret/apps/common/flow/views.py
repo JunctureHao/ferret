@@ -210,10 +210,7 @@ class FlowDataTable(TableView):
     @Slot()
     def clear_all(self):
         """清除所有数据"""
-        if self.controller and hasattr(self.controller, "clear_flows"):
-            self.controller.clear_flows()
-        else:
-            self.source_model.clear_data()
+        self.source_model.clear_data()
         self.clearSelection()
         QTimer.singleShot(0, self.__emit_stats_updated)
 
@@ -222,18 +219,11 @@ class FlowDataTable(TableView):
         flow = self.source_model.get_flow(row)
         if flow is None:
             return
-        if self.controller and hasattr(self.controller, "remove_flows"):
-            self.controller.remove_flows([flow])
-        else:
-            self.source_model.remove_row(row)
+        self.source_model.remove_row(row)
 
-    def set_view(self, view):
-        """设置 mitmproxy View 实例
-
-        Args:
-            view: mitmproxy.addons.view.View 实例
-        """
-        self.source_model.set_view(view)
+    def set_source(self, source) -> None:
+        """注入数据源（满足 FlowSource 协议：View 本体或其适配器）"""
+        self.source_model.set_source(source)
 
     def on_flow_added(self, flow):
         """处理 View 新增 flow"""

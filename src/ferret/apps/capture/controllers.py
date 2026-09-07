@@ -96,7 +96,6 @@ class CaptureController(QObject):
     flow_updated = Signal(object)
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
-    master_ready = Signal(object)
 
     # WebSocket 三件事，载荷是 `(flow_id, 值对象)`。原样从 runtime 转过来，理由见
     # `UiBridgeAddon.websocket_message`：钩子在 mitm 线程上跑，过界的只能是值对象。
@@ -170,8 +169,6 @@ class CaptureController(QObject):
         runtime.ready.connect(self._on_runtime_ready)
         runtime.failed.connect(self._on_runtime_failed)
         runtime.stopped.connect(self._on_runtime_stopped)
-
-        QTimer.singleShot(0, lambda: self.master_ready.emit(self._mitm.view))
 
     @property
     def is_capturing(self) -> bool:
@@ -249,10 +246,6 @@ class CaptureController(QObject):
     def wireguard_client_config(self) -> str:
         """WireGuard 客户端配置文本（隧道启动过才有，否则抛 FileNotFoundError）。"""
         return self._mitm.wireguard_client_config()
-
-    @property
-    def view(self) -> View:
-        return self._mitm.view
 
     def start_capture(self, port: int | None = None) -> None:
         """Open the capture session: channels + system proxy + write gate.
@@ -408,8 +401,8 @@ class CaptureController(QObject):
     def total_count(self) -> int:
         return self._mitm.total_count()
 
-    def all_http_flows(self) -> list[HTTPFlow]:
-        return self._mitm.all_http_flows()
+    def visible_http_flows(self) -> list[HTTPFlow]:
+        return self._mitm.visible_http_flows()
 
     def apply_filter(self, conditions: list[dict] | None = None) -> None:
         self._mitm.set_filter(compile_filter(conditions))

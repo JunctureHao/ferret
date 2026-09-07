@@ -1,4 +1,6 @@
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
+from typing import Protocol
 
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -107,23 +109,36 @@ def format_duration(duration_ms: float | None) -> str:
     return f"{duration_ms / 1000:.2f} s"
 
 
+class FlowSource(Protocol):
+    """流量表的数据源：形状即 mitmproxy ``View``（Sequence + clear + remove）。
+
+    抓包路径用适配器包住 facade（迭代/写都投 mitm 线程执行，见
+    `apps/capture/views.py::_CaptureFlowSource`）；会话路径直接传 View 本体 ——
+    那批 flow 从文件读回、没有 mitm 线程，直用安全。model 自己不碰线程策略。
+    """
+
+    def __iter__(self) -> Iterator[HTTPFlow]: ...
+    def clear(self) -> None: ...
+    def remove(self, flows: Sequence[HTTPFlow]) -> None: ...
+
+
 class FlowTableModel(QAbstractTableModel):
     HEADERS = ("#", "Method", "URL", "Status", "Type", "Size", "Time")
 
-    def __init__(self, parent: QObject, view=None):
+    def __init__(self, parent: QObject):
         super().__init__(parent)
         self._headers = list(self.HEADERS)
-        self.view = view
+        self._source: FlowSource | None = None
         # 稳定行号列表：model 自己的"行号→flow"映射，不依赖 View 的 SortedList
         # 排序位置（并发重排会导致插入声明位置与取数位置失配 → 空行/错数据）。
-        # View 仅作为 flow 存储/过滤后端，行号由此列表自治。
+        # 数据源只作为 flow 存储/过滤后端，行号由此列表自治。
         self._rows: list[HTTPFlow] = []
 
-    def set_view(self, view):
-        """设置 mitmproxy View 实例并重置模型"""
+    def set_source(self, source: FlowSource) -> None:
+        """注入数据源（FlowSource 协议）并重置模型"""
         self.beginResetModel()
-        self.view = view
-        self._rows = list(view) if view else []
+        self._source = source
+        self._rows = list(source)
         self.endResetModel()
 
     def headerData(
@@ -431,7 +446,7 @@ class FlowTableModel(QAbstractTableModel):
 
     def handle_add(self, flow: HTTPFlow) -> None:
         """处理 View 新增 flow：追加到末尾，行号由 _rows 自治"""
-        if not self.view:
+        if not self._source:
             return
         if flow in self._rows:
             return  # 防重复
@@ -461,7 +476,7 @@ class FlowTableModel(QAbstractTableModel):
     def handle_refresh(self) -> None:
         """处理 View 整体刷新：同步重建 _rows"""
         self.beginResetModel()
-        self._rows = list(self.view) if self.view else []
+        self._rows = list(self._source) if self._source else []
         self.endResetModel()
 
     # ------------------------------------------------------------------
@@ -472,8 +487,8 @@ class FlowTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._rows.clear()
         self.endResetModel()
-        if self.view:
-            self.view.clear()
+        if self._source:
+            self._source.clear()
 
     def get_flow(self, row: int) -> HTTPFlow | None:
         """根据行号获取原始 HTTPFlow"""
@@ -483,10 +498,10 @@ class FlowTableModel(QAbstractTableModel):
 
     def remove_row(self, row: int):
         """删除指定行"""
-        if not self.view or not (0 <= row < len(self._rows)):
+        if not self._source or not (0 <= row < len(self._rows)):
             return
         flow = self._rows[row]
-        self.view.remove([flow])
+        self._source.remove([flow])
 
 
 class FlowProxyModel(QSortFilterProxyModel):

@@ -23,6 +23,25 @@ from ferret.apps.common.flow.models import (
 from ferret.core.mitm import build_flow_detail
 
 
+class _ListSource:
+    """FlowSource 的最小替身：钉住 model 只依赖协议三方法（迭代/clear/remove）。"""
+
+    def __init__(self, flows: list) -> None:
+        self.flows = list(flows)
+        self.cleared = False
+        self.removed: list = []
+
+    def __iter__(self):
+        return iter(self.flows)
+
+    def clear(self) -> None:
+        self.cleared = True
+        self.flows.clear()
+
+    def remove(self, flows) -> None:
+        self.removed.extend(flows)
+
+
 class FlowTableModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -42,6 +61,40 @@ class FlowTableModelTests(unittest.TestCase):
         model = FlowTableModel(None)  # type: ignore
         model._rows = list(flows)
         return model
+
+    def test_set_source_seeds_rows_and_refresh_rebuilds(self) -> None:
+        """set_source 入表即拉一次 source；refresh 重新迭代 source 重建行集。"""
+        first = self.completed_flow()
+        source = _ListSource([first])
+        model = FlowTableModel(None)  # type: ignore
+        model.set_source(source)
+
+        self.assertEqual(model.rowCount(), 1)
+        self.assertIs(model.get_flow(0), first)
+
+        source.flows.append(self.completed_flow())
+        model.handle_refresh()
+        self.assertEqual(model.rowCount(), 2)
+
+    def test_clear_data_and_remove_row_delegate_to_the_source(self) -> None:
+        """clear/remove 只经 source 走 —— model 不再直连 View（AGENTS.md §3）。"""
+        first = self.completed_flow()
+        second = self.completed_flow()
+        source = _ListSource([first, second])
+        model = FlowTableModel(None)  # type: ignore
+        model.set_source(source)
+
+        model.remove_row(0)
+        self.assertEqual(source.removed, [first])
+
+        model.clear_data()
+        self.assertTrue(source.cleared)
+        self.assertEqual(model.rowCount(), 0)
+
+    def test_handle_add_is_ignored_before_a_source_is_attached(self) -> None:
+        model = FlowTableModel(None)  # type: ignore
+        model.handle_add(self.completed_flow())
+        self.assertEqual(model.rowCount(), 0)
 
     def test_columns_and_semantic_roles(self) -> None:
         flow = self.completed_flow()

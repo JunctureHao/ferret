@@ -513,6 +513,21 @@ class MitmFacade:
         ]
         return self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
 
+    def visible_http_flows(self) -> list[HTTPFlow]:
+        """**过滤后可见列表**的活引用，给流量表刷新行集用（`handle_refresh`）。
+
+        与 `all_http_flows` 的两点分工，都不是可有可无的：
+        * 迭代 ``self.view``（即 `View._view`，`set_filter` 之后只剩可见行），
+          而那个走 `_store` 全量 —— 表格行集对应的就是可见列表，接全量会让
+          显示过滤静默失效（过滤唯一的生效路径就是 refresh 重建行集）；
+        * 刻意不 `_snapshot()`：表格靠活引用与桥接信号送来的**同一实例**做身份
+          匹配（`handle_update` / `handle_remove` 反查行），换副本会让 refresh
+          之后到达的更新全部落空。迭代本身在 mitm 线程内完成（`runtime.call`），
+          Qt 线程只持有结果 —— 与信号路径交付活 flow 是同一种暴露。
+        """
+        visible = lambda: [f for f in self.view if isinstance(f, HTTPFlow)]
+        return self.runtime.call(visible) if self.runtime.is_running else visible()
+
     def set_filter(self, flow_filter) -> None:
         if self.runtime.is_running:
             self.runtime.call(lambda: self.view.set_filter(flow_filter))
