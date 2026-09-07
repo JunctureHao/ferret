@@ -23,6 +23,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
+from velopack import App
 
 # ── 屏蔽 qfluentwidgets 首次导入时的 Pro 广告 ──
 # 1.11.x 在 common/config.py 模块级无条件 print "QFluentWidgets Pro" 广告且无官方开关。
@@ -213,6 +214,7 @@ class Application:
 
         :returns: 无；调用 sys.exit 退出进程
         """
+        App().run()
         self._init_app_info()
         self._init_logging()
         self._init_config()
