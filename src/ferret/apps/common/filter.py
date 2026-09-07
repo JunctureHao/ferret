@@ -66,7 +66,7 @@ class FilterRow(QWidget):
             self.field_box.addItem(field_labels[field], userData=field)
 
         # 存下来给 `_sync_field_mode` 复用。刻意留在方法里现算、不提到模块级：模块级
-        # 会在 import 时求值，那会儿翻译器还没装上（AGENTS.md §5）。
+        # 会在 import 时求值，那会儿翻译器还没装上（AGENTS.md §7）。
         self._logic_labels = {
             "contains": self.tr("Contains"),
             "excludes": self.tr("Excludes"),

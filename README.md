@@ -25,7 +25,7 @@ uv run python -m ferret.utils.scripts
 ```
 
 新提取的条目会是 `type="unfinished"`，补完 `<translation>` 再跑一次即可。少跑这一步不会
-报错，界面只会静默显示英文 —— `tests/core/test_i18n.py` 会替你抓住。详见 `AGENTS.md` §8。
+报错，界面只会静默显示英文 —— `tests/core/test_i18n.py` 会替你抓住。详见 `AGENTS.md` §7。
 
 # 内置 Addon 功能对照（对比 mitmproxy）
 
@@ -112,4 +112,4 @@ uv run python -m ferret.utils.scripts
 | SSE（边收边显） | 事件随推送实时进表                | ❌   |
 
 SSE 那条缺口不是界面偷懒：响应体一律缓冲（`stream_large_bodies` 默认关），事件表读的是
-**已结束**的响应，端点不收尾就一直看不到。详见 `AGENTS.md` §6。
+**已结束**的响应，端点不收尾就一直看不到。设计取舍见 `core/mitm/sse.py` 的模块 docstring。

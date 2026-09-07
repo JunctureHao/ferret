@@ -33,7 +33,7 @@ log = get_logger("mitmproxy")
 
 # sysproxy 包按「库不管展示」的约定只抛英文常量；捕获页在展示边界把它们译成
 # 当前语言。键是包的对账常量，值是 QT_TRANSLATE_NOOP 标记 —— 模块级不许直接
-# translate（AGENTS.md §8），用点经 `resolve_marker` 求值。
+# translate（AGENTS.md §7），用点经 `resolve_marker` 求值。
 _SYSTEM_PROXY_ERRORS = {
     ERR_INVALID_ADDRESS: QT_TRANSLATE_NOOP(
         "CaptureController", "Invalid system proxy address"
@@ -85,7 +85,7 @@ class CaptureState(StrEnum):
 class CaptureController(QObject):
     """Coordinate capture channels, the system proxy and the write gate.
 
-    语义（AGENTS.md §5/§6 的现行决策）：应用启动零抓包动作 —— 内核 regular 空转、
+    语义（AGENTS.md §5 的现行决策）：应用启动零抓包动作 —— 内核 regular 空转、
     系统代理不挂、写入闸门关。「开始抓包」= 把启用的通道（本地重定向 / WireGuard）
     热更进内核 mode 列表 + 挂系统代理（按勾选）+ 开写入闸门；「停止」整体回落。
     local 的提权守护进程被上游常驻复用，停止只是清掉截流配置，重开不再弹 UAC。
@@ -301,7 +301,9 @@ class CaptureController(QObject):
             detach_ok = self._system_proxy.detach()
             self._sysproxy_attached = False
             if not detach_ok:
-                self._last_error = self.tr("Failed to restore the original system proxy")
+                self._last_error = self.tr(
+                    "Failed to restore the original system proxy"
+                )
                 self._set_capture_state(CaptureState.FAILED)
                 self.captureStateChanged.emit(False)
                 return

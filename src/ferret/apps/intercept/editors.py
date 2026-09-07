@@ -190,7 +190,7 @@ class PhasePanel(QWidget):
         """`请求头(N)` / `响应头(N)`：条数直接挂在标签上，与流量详情页同一语言。
 
         抽象钩子：请求侧与响应侧的「头」译法不同，词条与翻译都在子类
-        （context 也必须各自写成字面量，见 AGENTS.md §8）。
+        （context 也必须各自写成字面量，见 AGENTS.md §7）。
         """
         raise NotImplementedError
 
@@ -225,9 +225,7 @@ class RequestPanel(PhasePanel):
         self.params_panel = ItemDualPanel(True, self)
         self.params_panel.changed.connect(self.changed)
 
-        header = self._build_header(
-            self.method_combo, self.url_edit, stretch_last=True
-        )
+        header = self._build_header(self.method_combo, self.url_edit, stretch_last=True)
 
         self.detail = self._build_detail()
         self.detail.addTab("Params", self.params_panel, self.tr("Params"))

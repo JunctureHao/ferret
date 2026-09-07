@@ -264,9 +264,7 @@ def intercept_expression(rules: Iterable[InterceptRule]) -> str | None:
         segment = terms[0] if len(terms) == 1 else f"({' | '.join(terms)})"
         combined = combined or len(terms) > 1 or bool(segments)
         selector = _PHASE_SELECTORS.get(phase)
-        segments.append(
-            segment if selector is None else f"{segment} & {selector}"
-        )
+        segments.append(segment if selector is None else f"{segment} & {selector}")
     expression = " | ".join(segments)
     if combined:
         # 单条已经在 validate 里过了；多条拼起来还要再过一次，确认 `|` 连接本身
@@ -275,7 +273,7 @@ def intercept_expression(rules: Iterable[InterceptRule]) -> str | None:
             parse_filter(expression)
         except ValueError as exc:
             # 文案先取出来再 format：lupdate 不看 f-string 内部，写成
-            # f"...{exc}" 就永远提取不到（见 AGENTS.md §8）。
+            # f"...{exc}" 就永远提取不到（见 AGENTS.md §7）。
             raise ValueError(
                 QCoreApplication.translate(
                     "InterceptRule",
