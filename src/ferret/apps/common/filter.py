@@ -139,6 +139,8 @@ class FilterRow(QWidget):
 
         # 只在逻辑集真的换了时候重建：字段在同一类里换（URL → Body）不该把用户选好的
         # 「排除」偷偷打回「包含」。
+        # `logic_box.items` 是 qfw ComboBox 的实例属性（list[ComboItem]），不是
+        # dict.items；它不在类上（hasattr 查类是 False），qfw 改名会静默坏。
         if tuple(item.userData for item in self.logic_box.items) != logics:
             blocked = self.logic_box.blockSignals(True)
             self.logic_box.clear()

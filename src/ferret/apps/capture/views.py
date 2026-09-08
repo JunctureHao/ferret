@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -76,6 +76,13 @@ _CARD_BG_DARK = "rgba(36, 36, 36, 1)"
 _PICKER_ROW_HEIGHT = 33
 _PICKER_MAX_ROWS = 8
 _PICKER_FRAME_HEIGHT = 33
+
+# 过滤面板的底色与边线：对齐 qfw 卡片灰阶（与上面 _CARD_BG_* 同源的实测 dump 值）。
+# 背景用不透明实色避免与下层内容叠色；边线透明度与 qfw LineEdit 边框同档。
+_PANEL_BG_LIGHT = "rgba(243, 243, 243, 1)"
+_PANEL_BG_DARK = "rgba(45, 45, 45, 1)"
+_PANEL_BORDER_LIGHT = "rgba(0, 0, 0, 0.09)"
+_PANEL_BORDER_DARK = "rgba(255, 255, 255, 0.08)"
 
 
 class CapturesInterface(QWidget):
@@ -505,13 +512,33 @@ class CaptureFilterPanel(MultiFilterManager):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("CaptureFilterPanel")
+        # 重入守卫：setStyleSheet 本身会再触发 PaletteChange，没有它
+        # changeEvent → _apply_theme → setStyleSheet → changeEvent …… 栈溢出。
+        self._applying_theme = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        dark = isDarkTheme()
+        bg = _PANEL_BG_DARK if dark else _PANEL_BG_LIGHT
+        border = _PANEL_BORDER_DARK if dark else _PANEL_BORDER_LIGHT
         self.setStyleSheet(
-            "#CaptureFilterPanel {"
-            " background: rgba(127, 127, 127, 0.06);"
-            " border-top: 1px solid rgba(127, 127, 127, 0.16);"
-            " border-bottom: 1px solid rgba(127, 127, 127, 0.16);"
-            "}"
+            f"#CaptureFilterPanel {{"
+            f" background: {bg};"
+            f" border-top: 1px solid {border};"
+            f" border-bottom: 1px solid {border};"
+            f"}}"
         )
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        # qfw 切主题会发 PaletteChange，面板 QSS 不重算就会停在旧主题。
+        # setStyleSheet 自身也派生 PaletteChange，重入时必须短路。
+        if event.type() == QEvent.Type.PaletteChange and not self._applying_theme:
+            self._applying_theme = True
+            try:
+                self._apply_theme()
+            finally:
+                self._applying_theme = False
 
 
 class CaptureCommandBar(QWidget):
