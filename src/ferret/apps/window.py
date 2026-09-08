@@ -45,7 +45,7 @@ class MainWindow(FluentWindow):
         self._owns_runtime = runtime is None
 
         self.session_controller = SessionController(self)
-        self.settings_interface = SettingsInterface(self)
+        self.settings_interface = SettingsInterface(self, mitm=self.runtime.mitm)
         self.captures_interface = CapturesInterface(
             self,
             mitm=self.runtime.mitm,
