@@ -214,7 +214,9 @@ class Application:
 
         :returns: 无；调用 sys.exit 退出进程
         """
-        App().run()
+        if "__compiled__" in globals():
+            App().run()
+
         self._init_app_info()
         self._init_logging()
         self._init_config()
