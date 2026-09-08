@@ -184,6 +184,22 @@ class MitmFacade:
         """Replace the rewrite rules; applied immediately when the kernel runs."""
         self.runtime.apply_rewrite_rules(rules)
 
+    # —— 固定会话 ——
+
+    @property
+    def sticky_session_enabled(self) -> bool:
+        """固定会话开关：跨连接复用客户端的 Cookie / Authorization。
+
+        全局行为偏好（类比无痕模式）而不是逐条规则，所以没有规则列表 ——
+        原生两个 addon 的过滤串恒为「全量」，见 `core/mitm/runtime.py`。
+        初值来自落盘配置（`core/runtime.py::_build_mitm_runtime`）。
+        """
+        return self.runtime.sticky_session_enabled
+
+    def set_sticky_session(self, enabled: bool) -> None:
+        """Flip the sticky-session switch; applied immediately when it runs."""
+        self.runtime.apply_sticky_session(enabled)
+
     # —— 断点 ——
 
     @property

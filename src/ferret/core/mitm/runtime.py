@@ -36,6 +36,23 @@ from ferret.core.settings import get_certs_dir
 
 log = get_logger("mitmproxy")
 
+# 固定会话（plans/sticky-session.md）：原生 StickyCookie / StickyAuth 两个 addon
+# 的选项名。过滤串恒为「全量」、刻意不暴露匹配条件 —— 一旦可配就退化成规则表，
+# 而它是「浏览器行为偏好」式的全局开关。开关状态不在这里：它只是 bool，直接
+# 存 MitmRuntime.sticky_session_enabled（配置落盘在 core/settings.py）。
+STICKY_SESSION_OPTIONS: tuple[str, ...] = ("stickycookie", "stickyauth")
+STICKY_SESSION_FILTER = "~http"
+
+
+def sticky_session_option_updates(enabled: bool) -> dict[str, str | None]:
+    """Translate the switch into the ``options.update`` kwargs for both addons.
+
+    恒写全量：关掉也要把两个选项写回 ``None`` —— 原生 configure 见到空值会清掉
+    自家过滤器，留着旧串内核就会继续补头。
+    """
+    value = STICKY_SESSION_FILTER if enabled else None
+    return {"stickycookie": value, "stickyauth": value}
+
 
 class MitmRuntimeState(StrEnum):
     STOPPED = "stopped"
@@ -168,6 +185,7 @@ class _MitmThread(QThread):
         self._apply_block_options(master)
         self._apply_rewrite_rules(master)
         self._apply_intercept_rules(master)
+        self._apply_sticky_session(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -240,6 +258,20 @@ class _MitmThread(QThread):
         except (ValueError, OptionsError) as exc:
             log.warning("断点规则无法应用，已忽略: %s", exc)
 
+    def _apply_sticky_session(self, master: FerretMaster) -> None:
+        """Seed the sticky-session options before serving traffic (on the mitm loop).
+
+        ``stickycookie`` / ``stickyauth`` 由两个原生 addon 的 ``load`` 注册，构造
+        Options 时还不存在，只能等 Master 建好之后再写 —— 和 `_apply_rewrite_rules`
+        完全同一个约束。
+        """
+        try:
+            master.options.update(
+                **sticky_session_option_updates(self.runtime.sticky_session_enabled)
+            )
+        except (ValueError, OptionsError) as exc:
+            log.warning("固定会话开关无法应用，已忽略: %s", exc)
+
     def _ensure_port_available(self) -> None:
         if self.runtime.listen_port == 0:
             return
@@ -305,6 +337,7 @@ class MitmRuntime(QObject):
         use_local: bool = False,
         local_spec: str = "",
         use_wireguard: bool = False,
+        sticky_session_enabled: bool = False,
     ) -> None:
         super().__init__(parent)
         self.listen_host = normalize_listen_host(listen_host)
@@ -339,6 +372,11 @@ class MitmRuntime(QObject):
         # 还没打开界面、流量就先卡住了。开关由界面显式打开（见 core/settings.py 的
         # intercept_enabled）。
         self.intercept_enabled = False
+        # 固定会话默认**关**：开启会改写实时抓取所见的请求头（代理侧补
+        # Cookie / Authorization），与「抓包应如实转发原件」冲突。类默认关、真实
+        # 应用由 CONFIG 种子决定（core/runtime.py::_build_mitm_runtime），开关
+        # 在设置页（apps/settings）。
+        self.sticky_session_enabled = sticky_session_enabled
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -666,6 +704,28 @@ class MitmRuntime(QObject):
             self.intercept_rules, self.intercept_enabled = previous
             raise ValueError(str(exc)) from exc
 
+    def apply_sticky_session(self, enabled: bool | None = None) -> None:
+        """Store the sticky-session switch and push it to a running Master.
+
+        与 `apply_block_options` 同构：内核没跑就只对齐内存副本（下次启动的
+        `_apply_sticky_session` 会读到它），下发失败回滚，绝不留下「界面显示已
+        生效、内核其实没收到」的状态。关掉只下发 ``None`` —— 原生 addon 的 jar /
+        hosts 缓存刻意不倒，重开开关立即复用（只在代理内存、不落盘）。
+        """
+        wanted = self.sticky_session_enabled if enabled is None else enabled
+        previous = self.sticky_session_enabled
+        self.sticky_session_enabled = wanted
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(
+                lambda: master.options.update(**sticky_session_option_updates(wanted))
+            )
+        except OptionsError as exc:
+            self.sticky_session_enabled = previous
+            raise ValueError(str(exc)) from exc
+
     def release_intercepted(self) -> int:
         """Let every breakpoint-held flow go; 返回放行条数（内核没跑就是 0）。
 
@@ -834,6 +894,10 @@ class MitmRuntime(QObject):
             self.apply_intercept_rules()
         except (RuntimeError, TimeoutError, ValueError) as exc:
             log.warning("断点规则下发失败: %s", exc)
+        try:
+            self.apply_sticky_session()
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            log.warning("固定会话开关下发失败: %s", exc)
         self.ready.emit(self.view)
 
     def _on_failed(self, generation: int, message: str) -> None:

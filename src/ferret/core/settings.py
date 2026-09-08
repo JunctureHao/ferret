@@ -183,6 +183,17 @@ class Config(QConfig):
         default=[],
     )
 
+    # 固定会话总开关（原生 StickyCookie / StickyAuth 两个 addon，见
+    # core/mitm/runtime.py）。默认**关**：开启会改写实时抓取所见的请求头（代理侧
+    # 补 Cookie / Authorization），与「抓包应如实转发原件」冲突 —— 验证「客户端
+    # 到底传不传」时开着它会得到被代理污染的假象。
+    sticky_session_enabled = ConfigItem(
+        group="Rewrite",
+        name="StickySessionEnabled",
+        default=False,
+        validator=BoolValidator(),
+    )
+
     # 断点规则，存 list[dict]（见 core/mitm/intercept.py 的 InterceptRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

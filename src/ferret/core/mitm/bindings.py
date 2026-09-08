@@ -117,6 +117,8 @@ from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.readfile import ReadFile
 from mitmproxy.addons.save import Save
 from mitmproxy.addons.savehar import SaveHar
+from mitmproxy.addons.stickyauth import StickyAuth
+from mitmproxy.addons.stickycookie import StickyCookie
 from mitmproxy.addons.strip_dns_https_records import StripDnsHttpsRecords
 from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.view import View
@@ -194,6 +196,8 @@ __all__ = [
     "Response",
     "Save",
     "SaveHar",
+    "StickyAuth",
+    "StickyCookie",
     "StripDnsHttpsRecords",
     "TlsConfig",
     "View",

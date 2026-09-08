@@ -28,6 +28,8 @@ from ferret.core.mitm.bindings import (
     Proxyserver,
     ReadFile,
     Save,
+    StickyAuth,
+    StickyCookie,
     StripDnsHttpsRecords,
     View,
 )
@@ -55,6 +57,12 @@ class FerretMaster(Master):
         self.map_local = MapLocal()
         self.modify_body = ModifyBody()
         self.modify_headers = ModifyHeaders()
+        # 固定会话（StickyCookie / StickyAuth）：默认关，开关在设置页。排在重写类
+        # 之后 —— 代理补回的 Cookie / Authorization 要压过用户对同名头的重写规则，
+        # 否则「会话不丢」这条承诺会被自己的重写页拆台；排在 View 之前 —— 流量表
+        # 第一次上屏的请求头就已经含补回的头。jar / hosts 只在 mitm 线程读写。
+        self.sticky_cookie = StickyCookie()
+        self.sticky_auth = StickyAuth()
         self.intercept_state = InterceptState()
         self.intercept = FerretIntercept(self.intercept_state)
         self.compose = ComposeAddon(self.view)
@@ -91,6 +99,8 @@ class FerretMaster(Master):
             self.map_local,
             self.modify_body,
             self.modify_headers,
+            self.sticky_cookie,
+            self.sticky_auth,
             self.tls_config,
             self.cert_download,
             # 必须排在 View 之前：绕行/仅允许靠 AddonHalt 截断这一次派发，从这里

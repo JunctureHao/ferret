@@ -57,6 +57,7 @@ class ApplicationRuntime(QObject):
             use_local=bool(CONFIG.get(CONFIG.local_enabled)),
             local_spec=local_spec,
             use_wireguard=bool(CONFIG.get(CONFIG.wireguard_enabled)),
+            sticky_session_enabled=bool(CONFIG.get(CONFIG.sticky_session_enabled)),
         )
 
     def start(self) -> None:

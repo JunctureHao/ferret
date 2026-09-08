@@ -103,7 +103,12 @@ from ferret.core.mitm.rewrite import (
     rewrite_rules_from_config,
     rewrite_rules_to_config,
 )
-from ferret.core.mitm.runtime import MitmRuntime, MitmRuntimeState
+from ferret.core.mitm.runtime import (
+    STICKY_SESSION_OPTIONS,
+    MitmRuntime,
+    MitmRuntimeState,
+    sticky_session_option_updates,
+)
 from ferret.core.mitm.sse import (
     DEFAULT_EVENT,
     SSE_BODY_LIMIT,
@@ -144,6 +149,7 @@ __all__ = [
     "REWRITE_OPTIONS",
     "SSE_BODY_LIMIT",
     "SSE_CONTENT_TYPE",
+    "STICKY_SESSION_OPTIONS",
     "SUSPEND_POLICIES",
     "WHOLE_BODY_PATTERN",
     "WIREGUARD_HOST",
@@ -224,6 +230,7 @@ __all__ = [
     "rewrite_rules_from_config",
     "rewrite_rules_to_config",
     "split_spec",
+    "sticky_session_option_updates",
     "validate_local_spec",
     "validate_mode_specs",
     "wire_size",
