@@ -109,7 +109,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - 实际装载的 addon 以 `core/mitm/master.py` 为准，本文件不维护清单。
 
-- 尚未实现（实现后更新本行）：serverplayback、stickycookie/stickyauth。
+- 尚未实现（实现后更新本行）：serverplayback
 
 ## 7. i18n（中文源 + `en_GB.qm`）
 
@@ -124,4 +124,3 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 - 不拼句：每个分支写整句（`tr("{}失败").format(动作)` 换个语序就没法译）。
 
 - 日志与 `from_dict` 校验消息不译；语言名列表（settings 页）刻意不译。
-

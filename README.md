@@ -45,6 +45,8 @@ uv run python -m ferret.utils.scripts
 | FerretTlsConfig | 证书配置（自定义名称） | ✅   |
 | LogAddon        | 连接/HTTP 生命周期日志 | ✅   |
 | FlowExporter    | curl/httpie/raw 导出   | ✅   |
+| Compose         | 手工构造请求发送       | ✅   |
+| CertDownload    | 内置 CA 证书下载端点   | ✅   |
 
 ## 流量修改类
 
@@ -55,12 +57,12 @@ uv run python -m ferret.utils.scripts
 | modifybody              | 修改请求/响应体           | ✅   |
 | maplocal                | 本地文件映射（mock 响应） | ✅   |
 | mapremote               | 远程 URL 映射重写         | ✅   |
-| stickycookie            | 固化 Cookie               | ❌   |
-| stickyauth              | 固化认证                  | ❌   |
+| stickycookie            | 固化 Cookie               | ✅   |
+| stickyauth              | 固化认证                  | ✅   |
 | anticache               | 去除缓存头强制走源站      | ✅   |
 | anticomp                | 去除压缩头看明文          | ✅   |
 | block                   | 代理访问控制（按来源 IP） | ✅   |
-| blocklist               | 屏蔽匹配的请求            | ✅   |
+| gateway（网关）         | 屏蔽/拦截/绕行/仅允许     | ✅   |
 | cut                     | 截断大 body               | ❌   |
 | disable_h2c             | 禁用 h2c 升级             |✅   |
 | strip_dns_https_records | 剥离 DNS HTTPS 记录       | ✅   |
@@ -71,8 +73,8 @@ uv run python -m ferret.utils.scripts
 | Addon          | 功能                      | 状态 |
 | -------------- | ------------------------- | ---- |
 | serverplayback | 服务端重放（mock 整响应） | ❌   |
-| readfile       | 读取 .flow 文件重放       | ❌   |
-| savehar        | 导出 HAR                  | ❌   |
+| readfile       | 读取 .flow 文件重放       | ✅   |
+| savehar        | 导出 HAR                  | ✅   |
 | dumper         | 流式 dump 到文件          | ❌   |
 | export         | mitmproxy 自带导出命令    | ✅   |
 | asgiapp        | 内嵌 ASGI 应用            | ❌   |
@@ -101,7 +103,9 @@ uv run python -m ferret.utils.scripts
 
 `comment` 的原生 addon 不装（§3 红线：不给 master 追加命令行 addon），备注能力由 GUI
 自己实现 —— 右键菜单和详情面板都能改，两处共用 `apps/common/dialog.py::CommentDialog`。
-`server_side_events` 内容只有一条告警（提醒 mitmproxy 不支持 SSE），装了也不改变行为。
+`server_side_events` 的能力由自研 SSE tee 覆盖（见「协议支持」），原生告警 addon 不装。
+原生 `BlockList` 也从链上撤掉了 —— 屏蔽（出）由网关统一承载（`core/mitm/gateway.py`），
+老屏蔽页规则仅在升级时迁回网关（`core/mitm/blocklist.py` 只存兼容迁移）。
 
 # 协议支持（不是 addon，在代理层）
 
@@ -109,7 +113,9 @@ uv run python -m ferret.utils.scripts
 | --------------- | --------------------------------- | ---- |
 | WebSocket       | 帧收发 + 详情页「消息」逐帧展示   | ✅   |
 | SSE             | 详情页「消息」按事件分行展示      | ✅   |
-| SSE（边收边显） | 事件随推送实时进表                | ❌   |
+| SSE（边收边显） | 事件随推送实时进表                | ✅   |
 
-SSE 那条缺口不是界面偷懒：响应体一律缓冲（`stream_large_bodies` 默认关），事件表读的是
-**已结束**的响应，端点不收尾就一直看不到。设计取舍见 `core/mitm/sse.py` 的模块 docstring。
+SSE 的边收边显靠自研 tee：mitmproxy 对 SSE 零支持（原生两条路都不通 —— 默认缓冲端点不
+收尾看不到事件，开流式 body 又不入库），ferret 在 `responseheaders` 把 `response.stream`
+换成官方 callable，边转发边解析、事件经 Qt 信号实时进表；攒下的字节流末补回 body，响应
+体页 / 保存 / HAR 导出照常。设计取舍见 `core/mitm/sse.py` 的模块 docstring。
