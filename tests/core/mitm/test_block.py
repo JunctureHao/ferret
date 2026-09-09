@@ -5,11 +5,13 @@ import ipaddress
 import socket
 import unittest
 
-from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
+from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm import MitmRuntime, MitmRuntimeState
 from ferret.core.mitm.bindings import Block, Core, StripDnsHttpsRecords
 from ferret.core.mitm.master import FerretMaster
+
+from ._qt import start_runtime, wait_ready
 
 
 def free_port() -> int:
@@ -108,20 +110,6 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def wait_for_signal(self, signal, timeout_ms: int = 30000):
-        loop = QEventLoop()
-        values = []
-
-        def receive(*args):
-            values.append(args)
-            loop.quit()
-
-        signal.connect(receive)
-        QTimer.singleShot(timeout_ms, loop.quit)
-        loop.exec()
-        signal.disconnect(receive)
-        return values
-
     def test_defaults_are_the_mitmproxy_posture(self) -> None:
         runtime = MitmRuntime()
         self.assertTrue(runtime.block_global)
@@ -133,11 +121,7 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
         runtime.apply_block_options(block_global=False)
         self.assertFalse(runtime.block_global)
 
-        runtime.start()
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        start_runtime(runtime)
         self.assertEqual(runtime.state, MitmRuntimeState.RUNNING)
 
         master = runtime._master
@@ -149,11 +133,7 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
     def test_hot_update_reaches_the_running_master(self) -> None:
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
-        runtime.start()
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        start_runtime(runtime)
 
         runtime.apply_block_options(block_global=False, block_private=True)
 
@@ -165,17 +145,10 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
     def test_restart_can_rebind_the_listen_host(self) -> None:
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
-        runtime.start()
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        start_runtime(runtime)
 
         runtime.restart(listen_host="0.0.0.0", listen_port=free_port())
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        wait_ready(runtime)
         self.assertEqual(runtime.listen_host, "0.0.0.0")
 
         master = runtime._master
@@ -192,11 +165,7 @@ class MitmRuntimeBlockOptionTests(unittest.TestCase):
         """内核没收到就不能留下「已生效」的内存状态，否则界面会说谎。"""
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
-        runtime.start()
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        start_runtime(runtime)
 
         with self.assertRaises(TypeError):
             runtime.apply_block_options(block_global="yes")  # type: ignore

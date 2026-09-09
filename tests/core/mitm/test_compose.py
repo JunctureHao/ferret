@@ -8,7 +8,6 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
 from ferret.core.mitm import (
@@ -24,6 +23,8 @@ from ferret.core.mitm.compose import (
     build_compose_flow,
     compose_result,
 )
+
+from ._qt import start_runtime, wait_for_signal
 
 
 class BuildComposeFlowTests(unittest.TestCase):
@@ -223,29 +224,14 @@ class ComposeLiveTests(unittest.TestCase):
         self.runtime = MitmRuntime(listen_port=_free_port())
         self.addCleanup(self.runtime.stop)
         self.facade = MitmFacade(self.runtime)
-        self.runtime.start()
-        self._wait(self.runtime.ready)
-
-    def _wait(self, signal, timeout_ms: int = 10000) -> list:
-        loop = QEventLoop()
-        values = []
-
-        def receive(*args):
-            values.append(args)
-            loop.quit()
-
-        signal.connect(receive)
-        QTimer.singleShot(timeout_ms, loop.quit)
-        loop.exec()
-        signal.disconnect(receive)
-        return values
+        start_runtime(self.runtime)
 
     def test_send_reaches_local_server_and_reports_back(self) -> None:
         url = f"http://127.0.0.1:{self.port}/api?a=1"
         flow_id = self.facade.send_custom_request(
             "POST", url, [("X-Test", "yes")], b'{"a": 1}', record=True
         )
-        results = self._wait(self.runtime.compose_result)
+        results = wait_for_signal(self.runtime.compose_result)
         self.assertTrue(results, "compose_result 信号没有在超时内到达")
         (result,) = results[0]
         self.assertIsInstance(result, ComposeResult)
@@ -258,7 +244,7 @@ class ComposeLiveTests(unittest.TestCase):
     def test_record_false_removes_flow_from_view(self) -> None:
         url = f"http://127.0.0.1:{self.port}/quiet"
         flow_id = self.facade.send_custom_request("GET", url, [], b"", record=False)
-        results = self._wait(self.runtime.compose_result)
+        results = wait_for_signal(self.runtime.compose_result)
         self.assertTrue(results, "compose_result 信号没有在超时内到达")
         self.assertIsNone(self.runtime.view.get_by_id(flow_id))
 

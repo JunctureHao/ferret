@@ -1,9 +1,14 @@
+import os
 import socket
 import unittest
 
-from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm import MitmRuntime, MitmRuntimeState
+
+from ._qt import start_runtime, wait_for_signal
 
 
 def free_port() -> int:
@@ -17,25 +22,9 @@ class MitmRuntimeTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def wait_for_signal(self, signal, timeout_ms: int = 30000):
-        loop = QEventLoop()
-        values = []
-
-        def receive(*args):
-            values.append(args)
-            loop.quit()
-
-        signal.connect(receive)
-        QTimer.singleShot(timeout_ms, loop.quit)
-        loop.exec()
-        signal.disconnect(receive)
-        return values
-
     def test_runtime_starts_and_stops_one_master(self) -> None:
         runtime = MitmRuntime(listen_port=free_port())
-        runtime.start()
-
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        start_runtime(runtime)
         self.assertEqual(runtime.state, MitmRuntimeState.RUNNING)
         self.assertTrue(runtime.stop())
         self.assertEqual(runtime.state, MitmRuntimeState.STOPPED)
@@ -47,7 +36,7 @@ class MitmRuntimeTests(unittest.TestCase):
             runtime = MitmRuntime(listen_port=blocker.getsockname()[1])
             runtime.start()
 
-            values = self.wait_for_signal(runtime.failed)
+            values = wait_for_signal(runtime.failed)
             self.assertTrue(values)
             self.assertIn("已被占用", values[0][0])
             self.assertEqual(runtime.state, MitmRuntimeState.FAILED)

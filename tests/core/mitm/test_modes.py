@@ -10,13 +10,12 @@ import os
 import socket
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
 
 from ferret.core.mitm import MitmRuntime
@@ -36,6 +35,8 @@ from ferret.core.mitm.modes import (
     wireguard_mode_spec,
     wireguard_qr_matrix,
 )
+
+from ._qt import start_runtime, wait_ready, wait_until
 
 
 def free_port() -> int:
@@ -110,9 +111,7 @@ class CaptureModeSpecTests(unittest.TestCase):
         self.assertEqual(wireguard_mode_spec(), f"wireguard@0.0.0.0:{WIREGUARD_PORT}")
 
     def test_validate_accepts_the_full_trio(self) -> None:
-        validate_mode_specs(
-            ["regular", "local:curl,!1234", wireguard_mode_spec()]
-        )
+        validate_mode_specs(["regular", "local:curl,!1234", wireguard_mode_spec()])
 
     def test_validate_rejects_unknown_modes_and_bad_local_filters(self) -> None:
         for bad in ("bogus:xyz", "local:a,,b", "local:!"):
@@ -160,27 +159,8 @@ class LocalRedirectorDisarmTests(unittest.TestCase):
         LocalRedirectorInstance._server = self._original_server
         LocalRedirectorInstance._instance = self._original_instance
 
-    def wait_for_signal(self, signal, timeout_ms: int = 5000):
-        loop = QEventLoop()
-        values = []
-
-        def receive(*args):
-            values.append(args)
-            loop.quit()
-
-        signal.connect(receive)
-        QTimer.singleShot(timeout_ms, loop.quit)
-        loop.exec()
-        signal.disconnect(receive)
-        return values
-
-    def _wait_for(self, predicate, timeout_s: float = 5.0) -> bool:
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            if predicate():
-                return True
-            time.sleep(0.05)
-        return False
+    def _wait_for(self, predicate, timeout_s: float = 15.0) -> bool:
+        return wait_until(predicate, timeout_ms=int(timeout_s * 1000))
 
     def _make_runtime(self) -> MitmRuntime:
         runtime = MitmRuntime(
@@ -201,8 +181,7 @@ class LocalRedirectorDisarmTests(unittest.TestCase):
 
     def test_stop_disarms_the_daemon(self) -> None:
         runtime = self._make_runtime()
-        runtime.start()
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        start_runtime(runtime)
         self._engage_and_wait(runtime)
 
         runtime.stop()
@@ -212,8 +191,7 @@ class LocalRedirectorDisarmTests(unittest.TestCase):
     def test_disengage_clears_the_daemon_through_the_async_path(self) -> None:
         """内核存活时的正常解除：异步 stop 任务清 spec，guard 住这条正路。"""
         runtime = self._make_runtime()
-        runtime.start()
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        start_runtime(runtime)
         self._engage_and_wait(runtime)
 
         runtime.set_channels_engaged(False)
@@ -224,12 +202,11 @@ class LocalRedirectorDisarmTests(unittest.TestCase):
         """复刻「抓包中改端口」：旧循环关闭丢掉挂起的清理任务，stop() 的同步
         disarm 必须在循环死前补上；随后新内核的 _start 重新接管。"""
         runtime = self._make_runtime()
-        runtime.start()
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        start_runtime(runtime)
         self._engage_and_wait(runtime)
 
         runtime.restart(listen_port=free_port())
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        wait_ready(runtime)
 
         self.assertIn("", self.stub.specs)
         # local 意图仍在（restart 不动意图值）；新内核的 _start 是 running 之后
@@ -359,9 +336,10 @@ class LocalTargetTests(unittest.TestCase):
         self.assertTrue(targets, "至少应枚举到一个非系统进程")
         names = {target.display_name.lower() for target in targets}
         self.assertNotIn("svchost.exe", names)
-        self.assertNotIn(str(Path(sys.executable).resolve()), {
-            target.executable for target in targets
-        })
+        self.assertNotIn(
+            str(Path(sys.executable).resolve()),
+            {target.executable for target in targets},
+        )
 
     def test_list_local_targets_include_system_expands_the_list(self) -> None:
         relaxed = list_local_targets(include_system=True)

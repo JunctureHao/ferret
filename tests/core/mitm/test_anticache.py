@@ -12,7 +12,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
+from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm import (
     ANTICACHE_OPTIONS,
@@ -22,6 +22,8 @@ from ferret.core.mitm import (
 )
 from ferret.core.mitm.bindings import AntiCache, AntiComp
 from ferret.core.mitm.master import FerretMaster
+
+from ._qt import start_runtime
 
 
 def free_port() -> int:
@@ -89,20 +91,6 @@ class MitmRuntimeAnticacheTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def wait_for_signal(self, signal, timeout_ms: int = 30000):
-        loop = QEventLoop()
-        values = []
-
-        def receive(*args):
-            values.append(args)
-            loop.quit()
-
-        signal.connect(receive)
-        QTimer.singleShot(timeout_ms, loop.quit)
-        loop.exec()
-        signal.disconnect(receive)
-        return values
-
     def test_default_is_off(self) -> None:
         self.assertFalse(MitmRuntime().anticache_plaintext)
 
@@ -110,11 +98,7 @@ class MitmRuntimeAnticacheTests(unittest.TestCase):
         runtime = MitmRuntime(listen_port=free_port(), anticache_plaintext=True)
         self.addCleanup(runtime.stop)
 
-        runtime.start()
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        start_runtime(runtime)
         self.assertEqual(runtime.state, MitmRuntimeState.RUNNING)
 
         master = runtime._master
@@ -126,11 +110,7 @@ class MitmRuntimeAnticacheTests(unittest.TestCase):
     def test_hot_update_reaches_the_running_master(self) -> None:
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
-        runtime.start()
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        start_runtime(runtime)
 
         runtime.apply_anticache_plaintext(True)
 
@@ -143,11 +123,7 @@ class MitmRuntimeAnticacheTests(unittest.TestCase):
         """bool 选项关掉写 False（出厂默认），不是 sticky 过滤串那条 None 路径。"""
         runtime = MitmRuntime(listen_port=free_port(), anticache_plaintext=True)
         self.addCleanup(runtime.stop)
-        runtime.start()
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        start_runtime(runtime)
 
         runtime.apply_anticache_plaintext(False)
 
@@ -160,11 +136,7 @@ class MitmRuntimeAnticacheTests(unittest.TestCase):
         """内核没收到就不能留下「已生效」的内存状态，否则界面会说谎。"""
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
-        runtime.start()
-        self.assertTrue(
-            self.wait_for_signal(runtime.ready),
-            f"runtime 未就绪: state={runtime.state}, last_error={runtime._last_error}",
-        )
+        start_runtime(runtime)
 
         with self.assertRaises(TypeError):
             runtime.apply_anticache_plaintext("yes")  # type: ignore

@@ -21,7 +21,7 @@
 
 - **提交前门禁必须绿**：`ruff check .` + `ty check`（uvx 临时装）。只格式化**自己改动的文件**，禁止全量 `ruff format .`；ruff 忽略用 `# noqa: CODE`，ty 用 `# ty: ignore[rule]`；保留 `from __future__ import annotations`。本机抓包时跑门禁加 `--system-certs`。
 
-- 测试：`python -m unittest discover -s tests`；碰 Qt 的测试文件在 import PySide6 前设 `os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")`。
+- 测试：`python -m unittest discover -s tests`；碰 Qt 的测试文件在 import PySide6 前设 `os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")`；等信号 / 等内核就绪一律用 `tests/core/mitm/_qt.py` 的轮询原语，勿新写嵌套 `QEventLoop.exec` 等待（满载下有一次性竞态，机理见该模块 docstring）。
 
 - 提交信息：`<type>(<scope>): <subject>`，type ∈ `feat/fix/docs/style/refactor/perf/test/build/ci/chore/revert`，scope ∈ `core/mitm/apps/utils`。
 

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.test import tflow
-from PySide6.QtCore import QCoreApplication, QEventLoop, QObject, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Signal
 
 from ferret.core.mitm import (
     FerretSseAddon,
@@ -26,6 +26,8 @@ from ferret.core.mitm.gateway import (
     GatewayRuleSet,
 )
 from ferret.core.mitm.intercept import InterceptState
+
+from ._qt import start_runtime
 
 HOST = "example.com"
 
@@ -253,28 +255,13 @@ class MitmRuntimeGatewayLiveTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def wait_for_signal(self, signal, timeout_ms: int = 30000):
-        loop = QEventLoop()
-        values = []
-
-        def receive(*args):
-            values.append(args)
-            loop.quit()
-
-        signal.connect(receive)
-        QTimer.singleShot(timeout_ms, loop.quit)
-        loop.exec()
-        signal.disconnect(receive)
-        return values
-
     def test_rules_seeded_before_start_are_live_when_the_kernel_is_ready(self) -> None:
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
         rule = l4(GatewayPolicy.BYPASS)
         runtime.apply_gateway_rules([rule, l7(GatewayPolicy.BLOCK_OUT)])
-        runtime.start()
+        start_runtime(runtime)
 
-        self.assertTrue(self.wait_for_signal(runtime.ready))
         master = runtime.master
         assert master is not None
         self.assertEqual(master.options.ignore_hosts, [rule.pattern])
@@ -287,8 +274,7 @@ class MitmRuntimeGatewayLiveTests(unittest.TestCase):
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
         runtime.apply_gateway_rules([l7(GatewayPolicy.BLOCK_OUT)])
-        runtime.start()
-        self.assertTrue(self.wait_for_signal(runtime.ready))
+        start_runtime(runtime)
         master = runtime.master
         assert master is not None
 
