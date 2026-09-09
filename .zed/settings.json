@@ -1,0 +1,30 @@
+{
+  // Python：主类型检查用 ty（与 CLI 门禁 `uvx ty check` 对齐）
+  // ruff 保留做 lint + format（内置 LSP，与 CLI `uvx ruff check .` 对齐）
+  "languages": {
+    "Python": {
+      "language_servers": ["ty", "ruff"],
+      "format_on_save": "on",
+      "formatter": {
+        "language_server": {
+          "name": "ruff"
+        }
+      }
+    }
+  },
+  // ruff LSP 用项目约定：与命令行门禁同源。
+  // 项目根目前没有 ruff.toml / [tool.ruff]，此处保持默认严格规则；
+  // 日后要定制 lint 规则，写进 pyproject.toml / .ruff.toml（而非本文件），
+  // 让 `uvx ruff check .` 与 Zed LSP 共用同一套配置。
+  "lsp": {
+    "ruff": {}
+  },
+  "terminal": {
+    "detect_venv": {
+      "on": {
+        "directories": [".venv"],
+        "activate_script": "default"
+      }
+    }
+  }
+}
