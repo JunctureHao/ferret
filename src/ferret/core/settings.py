@@ -194,6 +194,16 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 无缓存·明文（原生 anticache + anticomp 两个 addon，见 core/mitm/runtime.py）。
+    # 默认关：开着会改写请求头（删条件缓存头 + 改 Accept-Encoding=identity），
+    # 与「抓包应如实转发原件」冲突。合成一个开关，两个 option 同开同关。
+    anticache_plaintext = ConfigItem(
+        group="Rewrite",
+        name="AnticachePlaintext",
+        default=False,
+        validator=BoolValidator(),
+    )
+
     # 断点规则，存 list[dict]（见 core/mitm/intercept.py 的 InterceptRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

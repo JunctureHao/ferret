@@ -117,6 +117,19 @@ class SettingsInterface(ScrollArea):
             configItem=CONFIG.sticky_session_enabled,
             parent=self.main_panel_group,
         )
+        # 无缓存·明文（.plans/capture-preferences-page.md）：原生 anticache +
+        # anticomp 合成一个开关、同开同关。默认关：开着会改写请求头（删条件缓存
+        # 头 + 改 Accept-Encoding=identity），抓到的就不是客户端原件。
+        self.anticache_plaintext_card = SwitchSettingCard(
+            FluentIcon.CLEAR_SELECTION,
+            self.tr("无缓存 · 看明文"),
+            self.tr(
+                "删除条件缓存头强制服务器回最新内容，并要求明文响应不解压；"
+                "会改写抓到的原始请求头"
+            ),
+            configItem=CONFIG.anticache_plaintext,
+            parent=self.main_panel_group,
+        )
 
         self.__init_widget()
 
@@ -150,6 +163,7 @@ class SettingsInterface(ScrollArea):
         self.main_panel_group.addSettingCard(self.minimize_to_tray_card)
         self.main_panel_group.addSettingCard(self.layout_card)
         self.main_panel_group.addSettingCard(self.sticky_session_card)
+        self.main_panel_group.addSettingCard(self.anticache_plaintext_card)
 
         self.expand_layout.setSpacing(28)
         self.expand_layout.setContentsMargins(36, 10, 36, 0)
@@ -166,6 +180,9 @@ class SettingsInterface(ScrollArea):
         CONFIG.sticky_session_enabled.valueChanged.connect(
             self.__on_sticky_session_changed
         )
+        CONFIG.anticache_plaintext.valueChanged.connect(
+            self.__on_anticache_plaintext_changed
+        )
 
     @Slot(bool)
     def __on_sticky_session_changed(self, enabled: bool) -> None:
@@ -180,6 +197,16 @@ class SettingsInterface(ScrollArea):
             return
         try:
             self._mitm.set_sticky_session(enabled)
+        except (ValueError, RuntimeError, TimeoutError):
+            pass
+
+    @Slot(bool)
+    def __on_anticache_plaintext_changed(self, enabled: bool) -> None:
+        """把无缓存·明文开关热更进内核；失败静默（语义同固定会话那条）。"""
+        if self._mitm is None:
+            return
+        try:
+            self._mitm.set_anticache_plaintext(enabled)
         except (ValueError, RuntimeError, TimeoutError):
             pass
 

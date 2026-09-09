@@ -3212,54 +3212,54 @@
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="340"/>
+        <location filename="../../core/mitm/facade.py" line="355"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="391"/>
+        <location filename="../../core/mitm/facade.py" line="406"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="470"/>
-        <location filename="../../core/mitm/facade.py" line="635"/>
+        <location filename="../../core/mitm/facade.py" line="485"/>
+        <location filename="../../core/mitm/facade.py" line="650"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="642"/>
+        <location filename="../../core/mitm/facade.py" line="657"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="647"/>
-        <location filename="../../core/mitm/facade.py" line="716"/>
+        <location filename="../../core/mitm/facade.py" line="662"/>
+        <location filename="../../core/mitm/facade.py" line="731"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="665"/>
+        <location filename="../../core/mitm/facade.py" line="680"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="688"/>
+        <location filename="../../core/mitm/facade.py" line="703"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="690"/>
+        <location filename="../../core/mitm/facade.py" line="705"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="694"/>
+        <location filename="../../core/mitm/facade.py" line="709"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="730"/>
+        <location filename="../../core/mitm/facade.py" line="745"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
@@ -3267,27 +3267,27 @@
 <context>
     <name>MitmRuntime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="99"/>
+        <location filename="../../core/mitm/runtime.py" line="114"/>
         <source>代理端口监听失败</source>
         <translation>The proxy could not start listening on its port</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="286"/>
+        <location filename="../../core/mitm/runtime.py" line="316"/>
         <source>端口 {} 已被占用</source>
         <translation>Port {} is already in use</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="586"/>
+        <location filename="../../core/mitm/runtime.py" line="621"/>
         <source>mitmproxy 内核停止超时，无法重启</source>
         <translation>The mitmproxy core did not stop in time, so it cannot restart</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="843"/>
+        <location filename="../../core/mitm/runtime.py" line="904"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="864"/>
+        <location filename="../../core/mitm/runtime.py" line="925"/>
         <source>mitmproxy 任务执行超时</source>
         <translation>The mitmproxy task timed out</translation>
     </message>
@@ -3632,87 +3632,87 @@
 <context>
     <name>RewriteInterface</name>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="95"/>
-        <location filename="../../apps/rewrite/views.py" line="156"/>
+        <location filename="../../apps/rewrite/views.py" line="96"/>
+        <location filename="../../apps/rewrite/views.py" line="157"/>
         <source>新增规则</source>
         <translation>Add rule</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="98"/>
+        <location filename="../../apps/rewrite/views.py" line="99"/>
         <source>搜索规则</source>
         <translation>Search rules</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="119"/>
-        <location filename="../../apps/rewrite/views.py" line="292"/>
+        <location filename="../../apps/rewrite/views.py" line="120"/>
+        <location filename="../../apps/rewrite/views.py" line="293"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="125"/>
-        <location filename="../../apps/rewrite/views.py" line="339"/>
+        <location filename="../../apps/rewrite/views.py" line="126"/>
+        <location filename="../../apps/rewrite/views.py" line="340"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="131"/>
+        <location filename="../../apps/rewrite/views.py" line="132"/>
         <source>已启用</source>
         <translation>On</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="132"/>
+        <location filename="../../apps/rewrite/views.py" line="133"/>
         <source>已停用</source>
         <translation>Off</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="134"/>
+        <location filename="../../apps/rewrite/views.py" line="135"/>
         <source>关闭后所有重写规则一律不生效，流量原样转发</source>
         <translation>When off, no rewrite rule applies and traffic is forwarded untouched</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="151"/>
+        <location filename="../../apps/rewrite/views.py" line="152"/>
         <source>暂无重写规则</source>
         <translation>No rewrite rules yet</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="153"/>
+        <location filename="../../apps/rewrite/views.py" line="154"/>
         <source>可改写请求/响应的头与体，也可把请求重定向到别的地址或本地文件</source>
         <translation>Rewrite request and response headers or bodies, or redirect a request to another address or a local file.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="232"/>
+        <location filename="../../apps/rewrite/views.py" line="233"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="254"/>
+        <location filename="../../apps/rewrite/views.py" line="255"/>
         <source>新增重写规则</source>
         <translation>New rewrite rule</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="271"/>
+        <location filename="../../apps/rewrite/views.py" line="272"/>
         <source>编辑重写规则</source>
         <translation>Edit rewrite rule</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="300"/>
-        <location filename="../../apps/rewrite/views.py" line="325"/>
+        <location filename="../../apps/rewrite/views.py" line="301"/>
+        <location filename="../../apps/rewrite/views.py" line="326"/>
         <source>启用</source>
         <translation>Enable</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="300"/>
-        <location filename="../../apps/rewrite/views.py" line="332"/>
+        <location filename="../../apps/rewrite/views.py" line="301"/>
+        <location filename="../../apps/rewrite/views.py" line="333"/>
         <source>停用</source>
         <translation>Disable</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="311"/>
+        <location filename="../../apps/rewrite/views.py" line="312"/>
         <source>上移</source>
         <translation>Move up</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="317"/>
+        <location filename="../../apps/rewrite/views.py" line="318"/>
         <source>下移</source>
         <translation>Move down</translation>
     </message>
@@ -3874,7 +3874,7 @@
         <translation>The header name cannot contain line breaks</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="518"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="531"/>
         <source>状态码必须是整数：{}</source>
         <translation>Status code must be an integer: {}</translation>
     </message>
@@ -3947,98 +3947,98 @@
         <translation>Empty = replace the whole body</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="239"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="240"/>
         <source>选择本地文件或目录</source>
         <translation>Pick a local file or folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="273"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="274"/>
         <source>方法</source>
         <translation>Method</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="274"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="275"/>
         <source>路径</source>
         <translation>Path</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="275"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="276"/>
         <source>状态码</source>
         <translation>Status code</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="276"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="277"/>
         <source>头表</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="277"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="278"/>
         <source>体</source>
         <translation>Body</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="285"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="286"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="286"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="287"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="305"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="306"/>
         <source>类型</source>
         <translation>Type</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="306"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="307"/>
         <source>匹配方式</source>
         <translation>Condition</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="307"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="308"/>
         <source>匹配 URL</source>
         <translation>Match URL</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="446"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="453"/>
         <source>选择文件</source>
         <translation>Pick a file</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="451"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="458"/>
         <source>选择目录</source>
         <translation>Pick a folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="458"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="465"/>
         <source>选择本地文件</source>
         <translation>Pick a local file</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="463"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="470"/>
         <source>选择本地目录</source>
         <translation>Pick a local folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="536"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="549"/>
         <source>匹配正则：{}</source>
         <translation>Match pattern: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="538"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="551"/>
         <source>替换为：{}</source>
         <translation>Rewrite to: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="540"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="553"/>
         <source>本地路径：{}</source>
         <translation>Local path: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="546"/>
-        <location filename="../../apps/rewrite/dialogs.py" line="549"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="559"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="562"/>
         <source>{}：{}</source>
         <translation>{}: {}</translation>
     </message>
@@ -4079,7 +4079,7 @@
 <context>
     <name>RewriteView</name>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="39"/>
+        <location filename="../../apps/rewrite/views.py" line="40"/>
         <source>全部类型</source>
         <translation>All kinds</translation>
     </message>
@@ -4468,7 +4468,17 @@
         <translation>Replay Cookie and authorization headers across connections so the client session survives; only fills the Cookie/Auth sent to the server — never changes server behaviour or request parameters</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="191"/>
+        <location filename="../../apps/settings/views.py" line="125"/>
+        <source>无缓存 · 看明文</source>
+        <translation>No cache · Plaintext</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="127"/>
+        <source>删除条件缓存头强制服务器回最新内容，并要求明文响应不解压；会改写抓到的原始请求头</source>
+        <translation>Strip conditional cache headers to force fresh responses and ask for uncompressed plaintext; rewrites the captured original request headers</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="218"/>
         <source>配置将在重启后生效</source>
         <translation>Configuration takes effect after restart</translation>
     </message>

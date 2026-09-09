@@ -209,6 +209,21 @@ class MitmFacade:
         """Flip the sticky-session switch; applied immediately when it runs."""
         self.runtime.apply_sticky_session(enabled)
 
+    # —— 无缓存·明文 ——
+
+    @property
+    def anticache_plaintext(self) -> bool:
+        """无缓存·明文开关：删条件缓存头 + Accept-Encoding=identity。
+
+        与固定会话同类的全局行为偏好：原生 anticache / anticomp 两个 addon 合成
+        一个开关、同开同关，见 `core/mitm/runtime.py`。
+        """
+        return self.runtime.anticache_plaintext
+
+    def set_anticache_plaintext(self, enabled: bool) -> None:
+        """Flip the anticache/anticomp switch; applied immediately when it runs."""
+        self.runtime.apply_anticache_plaintext(enabled)
+
     # —— 断点 ——
 
     @property

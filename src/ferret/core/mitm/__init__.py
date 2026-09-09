@@ -108,9 +108,11 @@ from ferret.core.mitm.rewrite import (
     rewrite_rules_to_config,
 )
 from ferret.core.mitm.runtime import (
+    ANTICACHE_OPTIONS,
     STICKY_SESSION_OPTIONS,
     MitmRuntime,
     MitmRuntimeState,
+    anticache_option_updates,
     sticky_session_option_updates,
 )
 from ferret.core.mitm.sse import (
@@ -134,6 +136,7 @@ from ferret.core.mitm.wsframe import (
 )
 
 __all__ = [
+    "ANTICACHE_OPTIONS",
     "BODY_KINDS",
     "CA_ARTIFACTS",
     "COMPOSE_METADATA_KEY",
@@ -209,6 +212,7 @@ __all__ = [
     "WebSocketMessage",
     "WsClose",
     "WsFrame",
+    "anticache_option_updates",
     "build_flow_detail",
     "build_request_edit",
     "capture_mode_specs",

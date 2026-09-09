@@ -54,6 +54,21 @@ def sticky_session_option_updates(enabled: bool) -> dict[str, str | None]:
     return {"stickycookie": value, "stickyauth": value}
 
 
+# 无缓存·明文：原生 AntiCache / AntiComp 两个 addon 的布尔 option（默认 False）。
+# 与固定会话同一个「浏览器行为偏好」定位：全局一个合成开关，两个 option 同开同关，
+# 不拆成两个独立开关。开关状态存 MitmRuntime.anticache_plaintext（落盘在
+# core/settings.py）。
+ANTICACHE_OPTIONS: tuple[str, ...] = ("anticache", "anticomp")
+
+
+def anticache_option_updates(enabled: bool) -> dict[str, bool]:
+    """Translate the switch into the ``options.update`` kwargs for both addons.
+
+    bool 选项与 sticky 的过滤串不同：关掉写 ``False``（出厂默认）而不是 ``None``。
+    """
+    return {"anticache": enabled, "anticomp": enabled}
+
+
 class MitmRuntimeState(StrEnum):
     STOPPED = "stopped"
     STARTING = "starting"
@@ -186,6 +201,7 @@ class _MitmThread(QThread):
         self._apply_rewrite_rules(master)
         self._apply_intercept_rules(master)
         self._apply_sticky_session(master)
+        self._apply_anticache_plaintext(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -274,6 +290,20 @@ class _MitmThread(QThread):
         except (ValueError, OptionsError) as exc:
             log.warning("固定会话开关无法应用，已忽略: %s", exc)
 
+    def _apply_anticache_plaintext(self, master: FerretMaster) -> None:
+        """Seed the anticache/anticomp options before serving traffic (on the mitm loop).
+
+        ``anticache`` / ``anticomp`` 由两个原生 addon 的 ``load`` 注册，构造
+        Options 时还不存在，只能等 Master 建好之后再写 —— 与 `_apply_sticky_session`
+        完全同一个约束。
+        """
+        try:
+            master.options.update(
+                **anticache_option_updates(self.runtime.anticache_plaintext)
+            )
+        except (ValueError, OptionsError) as exc:
+            log.warning("无缓存·明文开关无法应用，已忽略: %s", exc)
+
     def _ensure_port_available(self) -> None:
         if self.runtime.listen_port == 0:
             return
@@ -340,6 +370,7 @@ class MitmRuntime(QObject):
         local_spec: str = "",
         use_wireguard: bool = False,
         sticky_session_enabled: bool = False,
+        anticache_plaintext: bool = False,
     ) -> None:
         super().__init__(parent)
         self.listen_host = normalize_listen_host(listen_host)
@@ -384,6 +415,10 @@ class MitmRuntime(QObject):
         # 应用由 CONFIG 种子决定（core/runtime.py::_build_mitm_runtime），开关
         # 在设置页（apps/settings）。
         self.sticky_session_enabled = sticky_session_enabled
+        # 无缓存·明文默认**关**：开启会改写请求头（删条件缓存头、改
+        # Accept-Encoding=identity），抓到的就不是客户端原件。种子与开关位置同
+        # 固定会话（core/runtime.py::_build_mitm_runtime、apps/preferences）。
+        self.anticache_plaintext = anticache_plaintext
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -749,6 +784,32 @@ class MitmRuntime(QObject):
             self.sticky_session_enabled = previous
             raise ValueError(str(exc)) from exc
 
+    def apply_anticache_plaintext(self, enabled: bool | None = None) -> None:
+        """Store the anticache/anticomp switch and push it to a running Master.
+
+        与 `apply_block_options` 同构（两个都是 bool 选项，错误模型照它而不是
+        sticky 的过滤串）：内核没跑只对齐内存副本（下次启动
+        `_apply_anticache_plaintext` 会读到），下发失败回滚，绝不留下「界面显示
+        已生效、内核其实没收到」的状态。
+        """
+        wanted = self.anticache_plaintext if enabled is None else enabled
+        previous = self.anticache_plaintext
+        self.anticache_plaintext = wanted
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(lambda: master.options.update(**anticache_option_updates(wanted)))
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            self.anticache_plaintext = previous
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            # bool 选项传错类型 optmanager 抛 TypeError（未知键抛 KeyError），不经
+            # OptionsError —— 编程错误原样抛出，但内存副本必须先回滚。
+            self.anticache_plaintext = previous
+            raise
+
     def release_intercepted(self) -> int:
         """Let every breakpoint-held flow go; 返回放行条数（内核没跑就是 0）。
 
@@ -921,6 +982,10 @@ class MitmRuntime(QObject):
             self.apply_sticky_session()
         except (RuntimeError, TimeoutError, ValueError) as exc:
             log.warning("固定会话开关下发失败: %s", exc)
+        try:
+            self.apply_anticache_plaintext()
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            log.warning("无缓存·明文开关下发失败: %s", exc)
         self.ready.emit(self.view)
 
     def _on_failed(self, generation: int, message: str) -> None:
