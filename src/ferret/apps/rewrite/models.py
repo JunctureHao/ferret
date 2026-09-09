@@ -14,20 +14,23 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
+from qfluentwidgets import FluentIcon, FluentIconBase
 
 from ferret.core.mitm import (
     BODY_KINDS,
     FILE_REPLACEMENT_PREFIX,
     HEADER_KINDS,
-    MAP_KINDS,
+    REPLACE_KINDS,
+    REPLACE_RESPONSE_DEFAULT_STATUS,
     WHOLE_BODY_PATTERN,
     RewriteKind,
     RewriteLogic,
     RewriteRule,
+    human,
 )
 from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 
-# 每个 RewriteKind 一条，表格的类型列与对话框的类型下拉都由它生成 —— 再加一种
+# 每个RewriteKind 一条，表格的类型列与对话框的类型下拉都由它生成 —— 再加一种
 # 重写类型时，`RewriteKind` 补成员、这里补文案，界面自动多出一项。
 # 文案表只存标记、不求值 —— 模块级求值赶在翻译器安装之前（`core/application.py`
 # 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在下面那几个函数里做
@@ -39,6 +42,20 @@ KIND_LABELS: dict[RewriteKind, str] = {
     RewriteKind.MODIFY_RESPONSE_HEADER: QT_TRANSLATE_NOOP("RewriteKind", "响应头"),
     RewriteKind.MODIFY_REQUEST_BODY: QT_TRANSLATE_NOOP("RewriteKind", "请求体"),
     RewriteKind.MODIFY_RESPONSE_BODY: QT_TRANSLATE_NOOP("RewriteKind", "响应体"),
+    RewriteKind.REPLACE_REQUEST: QT_TRANSLATE_NOOP("RewriteKind", "替换请求"),
+    RewriteKind.REPLACE_RESPONSE: QT_TRANSLATE_NOOP("RewriteKind", "替换响应"),
+}
+
+# 类型列小图标（§4.1）。实现时按 FluentIcon 实存成员取用，不自绘。
+KIND_ICONS: dict[RewriteKind, FluentIconBase] = {
+    RewriteKind.MAP_REMOTE: FluentIcon.GLOBE,
+    RewriteKind.MAP_LOCAL: FluentIcon.FOLDER,
+    RewriteKind.MODIFY_REQUEST_HEADER: FluentIcon.TAG,
+    RewriteKind.MODIFY_RESPONSE_HEADER: FluentIcon.LABEL,
+    RewriteKind.MODIFY_REQUEST_BODY: FluentIcon.CODE,
+    RewriteKind.MODIFY_RESPONSE_BODY: FluentIcon.DOCUMENT,
+    RewriteKind.REPLACE_REQUEST: FluentIcon.SYNC,
+    RewriteKind.REPLACE_RESPONSE: FluentIcon.EDIT,
 }
 
 # 「目标」一栏在六种类型里指三样不同的东西，列头只能给个中性名字，具体含义靠这里
@@ -96,11 +113,13 @@ def replacement_field_label(kind: RewriteKind) -> str:
 
 
 def target_display(rule: RewriteRule) -> str:
-    """「目标」列的显示文本：头名 / 体正则；重定向两类用不上这一栏。
+    """「目标」列的显示文本：头名 / 体正则 / 替换请求的 method+path。
 
-    体正则整栏留空时显示原生会真的下发的那条整体匹配正则，而不是一片空白 ——
+    体正则整栏留空时显示引擎会真的下发的那条整体匹配正则，而不是一片空白 ——
     否则「整体替换」和「还没填」在表格里长得一模一样。
     """
+    if rule.kind == RewriteKind.REPLACE_REQUEST:
+        return " ".join(filter(None, (rule.method.strip(), rule.path.strip())))
     if rule.kind in HEADER_KINDS:
         return rule.target.strip()
     if rule.kind in BODY_KINDS:
@@ -108,19 +127,55 @@ def target_display(rule: RewriteRule) -> str:
     return ""
 
 
+def replace_summary(rule: RewriteRule) -> str:
+    """替换两类的摘要行：`POST /v1/login → 200 · 3 头 · 1.2 KB` 风格。
+
+    与对话框预览区共用（§6），空栏不出现在摘要里。
+    """
+    parts: list[str] = []
+    if rule.kind == RewriteKind.REPLACE_REQUEST:
+        if rule.method.strip():
+            parts.append(rule.method.strip())
+        if rule.path.strip():
+            parts.append(rule.path.strip())
+    else:
+        status = (
+            rule.status_code
+            if rule.status_code is not None
+            else REPLACE_RESPONSE_DEFAULT_STATUS
+        )
+        parts.append(str(status))
+    if rule.headers:
+        parts.append(
+            QCoreApplication.translate("RewriteRule", "{} 个头").format(
+                len(rule.headers)
+            )
+        )
+    if rule.replacement:
+        if rule.replacement.startswith(FILE_REPLACEMENT_PREFIX):
+            parts.append(
+                QCoreApplication.translate("RewriteRule", "读取文件 {}").format(
+                    rule.replacement[1:]
+                )
+            )
+        else:
+            parts.append(human.pretty_size(len(rule.replacement.encode("utf-8"))))
+    return " · ".join(parts)
+
+
 def replacement_display(rule: RewriteRule) -> str:
     """「重写为」列的显示文本，空值按各类型的实际语义写成人话。
 
-    头/体两类的空替换串是**合法且有意义**的：原生 `ModifyHeaders.run` 先 pop 同名头、
-    只在替换串非空时才 add 回去（空 = 删掉这个头）；`ModifyBody.run` 的
-    `re.sub` 把匹配段换成空串（空 = 清掉这段内容）。
+    头/体两类的空替换串是**合法且有意义**的：引擎先 pop 同名头、只在替换串非空
+    时才 add 回去（空 = 删掉这个头）；体类型的 `re.sub` 把匹配段换成空串
+    （空 = 清掉这段内容）。
     """
+    if rule.kind in REPLACE_KINDS:
+        return replace_summary(rule)
     if rule.replacement:
-        reads_file = rule.kind not in MAP_KINDS and rule.replacement.startswith(
-            FILE_REPLACEMENT_PREFIX
-        )
+        reads_file = rule.replacement.startswith(FILE_REPLACEMENT_PREFIX)
         if reads_file:
-            # 原生 `ModifySpec.read_replacement` 会把 `@` 之后的部分当文件路径读取；
+            # `@` 之后的部分被当作文件路径**每请求现读**；
             # 重定向两类没有这层语义，`@` 在它们那儿就是普通字符。
             # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
             return QCoreApplication.translate("RewriteRule", "读取文件 {}").format(
@@ -152,6 +207,8 @@ def rule_summary(rule: RewriteRule) -> str:
                     QCoreApplication.translate("RewriteRule", "本地文件或目录不能为空")
                 )
             return f"{subject}  →  {path}"
+        if rule.kind in REPLACE_KINDS:
+            return f"{subject}  →  {replace_summary(rule)}"
         if rule.kind in HEADER_KINDS and not rule.target.strip():
             raise ValueError(
                 QCoreApplication.translate("RewriteRule", "请求头/响应头名称不能为空")
@@ -162,8 +219,8 @@ def rule_summary(rule: RewriteRule) -> str:
 
 
 class RewriteRuleTableModel(QAbstractTableModel):
-    """规则列表。顺序即优先级：四个原生 addon 都按 spec 顺序**逐条**作用于同一条
-    流量（不是命中即停），所以行序是有语义的，不开排序。"""
+    """规则列表。顺序即优先级：自研重写引擎按行序对同一条流量**逐条**作用
+    （不是命中即停），所以行序是有语义的，不开排序。"""
 
     # 同理只做标记：类体也是导入期就求值的。求值在 `headerData()` 里做。
     HEADERS: ClassVar[list[str]] = [
@@ -249,6 +306,10 @@ class RewriteRuleTableModel(QAbstractTableModel):
                 return replacement_display(rule)
             return None
 
+        if role == Qt.ItemDataRole.DecorationRole and col == 1:
+            icon = KIND_ICONS.get(rule.kind)
+            return icon.icon() if icon is not None else None
+
         if role == Qt.ItemDataRole.CheckStateRole and col == 0:
             return Qt.CheckState.Checked if rule.enabled else Qt.CheckState.Unchecked
 
@@ -289,25 +350,36 @@ class RewriteRuleTableModel(QAbstractTableModel):
 
 
 class RewriteRuleFilterProxyModel(QSortFilterProxyModel):
+    """文字搜索 × 类型筛选，两个条件取 AND（§4.2）。"""
+
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
         self._filter_text: str = ""
+        self._filter_kind: RewriteKind | None = None
 
     def set_filter_text(self, text: str) -> None:
         self.beginFilterChange()
         self._filter_text = (text or "").strip().lower()
         self.endFilterChange()
 
+    def set_filter_kind(self, kind: RewriteKind | None) -> None:
+        """``None`` = 全部类型。"""
+        self.beginFilterChange()
+        self._filter_kind = kind
+        self.endFilterChange()
+
     def filterAcceptsRow(
         self, source_row: int, source_parent: QModelIndex | QPersistentModelIndex
     ) -> bool:
-        if not self._filter_text:
-            return True
         model = self.sourceModel()
         if not isinstance(model, RewriteRuleTableModel):
             return True
         rule = model.rule_at(source_row)
         if rule is None:
+            return True
+        if self._filter_kind is not None and rule.kind != self._filter_kind:
+            return False
+        if not self._filter_text:
             return True
         haystack = " ".join(
             (

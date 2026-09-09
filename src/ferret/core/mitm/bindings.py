@@ -62,6 +62,11 @@ def _safe_join(directory: str, *pathnames: str) -> str | None:
 # 打包瘦身：这些模块 ferret 永不使用，却会被 mitmproxy.addons.__init__、
 # mitmproxy.addons.export 和 mitmproxy.master 在导入期拉进来。用桩顶替以配合
 # __main__.py 的 --nofollow-import-to，必须在任何 mitmproxy 导入之前完成。
+# 注意 maplocal / mapremote / modifybody / modifyheaders 四个模块**没有**随重写
+# 引擎自研（plans/rewrite-ui.md）而立桩：`mitmproxy.addons.__init__` 在导入期
+# 无条件 import 它们，ferret 这边已经不再引用（重写引擎见 core/mitm/rewrite.py
+# 与 addons.py::FerretRewriteAddon），但桩掉它们需要连 addons.__init__ 一起桩，
+# 得不偿失。
 # - pyperclip 仅被 Export.clip / Cut.clip 使用，ferret 走自己的 Qt 剪贴板，两者都不调。
 # - browser / command_history / termlog 是 mitmproxy 自家命令行界面用的（拉浏览器、
 #   命令历史、终端日志），FerretMaster 明确 with_termlog=False。
@@ -108,10 +113,6 @@ from mitmproxy.addons.core import Core
 from mitmproxy.addons.disable_h2c import DisableH2C
 from mitmproxy.addons.dns_resolver import DnsResolver
 from mitmproxy.addons.intercept import Intercept
-from mitmproxy.addons.maplocal import MapLocal, parse_map_local_spec
-from mitmproxy.addons.mapremote import MapRemote, parse_map_remote_spec
-from mitmproxy.addons.modifybody import ModifyBody
-from mitmproxy.addons.modifyheaders import ModifyHeaders, parse_modify_spec
 from mitmproxy.addons.next_layer import NextLayer
 from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.readfile import ReadFile
@@ -152,6 +153,10 @@ from wsproto.frame_protocol import Opcode
 
 tlsconfig_module: Any = _tlsconfig_module
 
+# 目录穿越守卫（werkzeug 等价实现，见上面的 _safe_join）：自研重写引擎的文件映射
+# 按原生 MapLocal 的候选算法取路径，URL 后缀是不可信输入，必须走同一道守卫。
+safe_join = _safe_join
+
 # contentviews 的 make_metadata 无条件读 ctx.options.protobuf_definitions，而
 # ctx.options 只由 Master.__init__ 写入（master.py:52）。ferret 的 Master 跑在
 # 独立线程，端口被占时压根不会建起来，只读会话页却照样要渲染 body。这里在导入
@@ -179,11 +184,7 @@ __all__ = [
     "Headers",
     "Intercept",
     "LocalRedirectorInstance",
-    "MapLocal",
-    "MapRemote",
     "Master",
-    "ModifyBody",
-    "ModifyHeaders",
     "NextLayer",
     "Opcode",
     "Options",
@@ -214,9 +215,6 @@ __all__ = [
     "human",
     "io",
     "parse_filter",
-    "parse_map_local_spec",
-    "parse_map_remote_spec",
-    "parse_modify_spec",
     "rs_process_info",
     "rs_wireguard",
     "server_hooks",

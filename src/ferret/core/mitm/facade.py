@@ -184,6 +184,15 @@ class MitmFacade:
         """Replace the rewrite rules; applied immediately when the kernel runs."""
         self.runtime.apply_rewrite_rules(rules)
 
+    @property
+    def rewrite_enabled(self) -> bool:
+        """重写总开关。关掉后所有重写规则一律不生效，流量原样转发。"""
+        return self.runtime.rewrite_enabled
+
+    def set_rewrite_enabled(self, enabled: bool) -> None:
+        """Flip the rewrite master switch; applied immediately when it runs."""
+        self.runtime.apply_rewrite_rules(enabled=enabled)
+
     # —— 固定会话 ——
 
     @property

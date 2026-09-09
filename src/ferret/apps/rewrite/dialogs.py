@@ -13,6 +13,7 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     ComboBox,
+    EditableComboBox,
     FluentIcon,
     LineEdit,
     MessageBoxBase,
@@ -21,11 +22,12 @@ from qfluentwidgets import (
     TransparentToolButton,
 )
 
-from ferret.apps.common.edit import Language, ToolPlainTextEdit
+from ferret.apps.common.edit import ItemDualPanel, Language, ToolPlainTextEdit
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.rewrite.models import (
     kind_label,
     logic_label,
+    replace_summary,
     replacement_display,
     replacement_field_label,
     target_display,
@@ -35,6 +37,7 @@ from ferret.core.mitm import (
     BODY_KINDS,
     HEADER_KINDS,
     MAP_KINDS,
+    REPLACE_KINDS,
     WHOLE_BODY_PATTERN,
     RewriteKind,
     RewriteLogic,
@@ -75,9 +78,8 @@ _REWRITE_LOGIC_HINTS: dict[RewriteLogic, str] = {
     ),
 }
 
-# 其余五种类型不改 URL，同一栏只用来**挑流量**：`map_local` 走原生
-# `re.search(spec.regex, pretty_url)`，头/体两类落在 spec 的 flow-filter 段
-# （`~u`）上。所以这里的措辞只能讲「命中」，不能讲「替换」。
+# 其余类型不改 URL，同一栏只用来**挑流量**：命中即按各自的语义生效。
+# 这里的措辞只能讲「命中」，不能讲「替换」。
 _MATCH_LOGIC_HINTS: dict[RewriteLogic, str] = {
     RewriteLogic.CONTAINS: QT_TRANSLATE_NOOP(
         "RewriteRuleDialog", "URL 中出现这段文本即命中。"
@@ -90,7 +92,7 @@ _MATCH_LOGIC_HINTS: dict[RewriteLogic, str] = {
     ),
 }
 
-# 只有重定向两类需要额外解释「命中之后发生什么」；头/体两类的说明按下面两条常量给。
+# 只有重定向两类需要额外解释「命中之后发生什么」；其余类型的说明按下面几条常量给。
 _KIND_HINTS: dict[RewriteKind, str] = {
     RewriteKind.MAP_REMOTE: QT_TRANSLATE_NOOP(
         "RewriteRuleDialog",
@@ -103,21 +105,35 @@ _KIND_HINTS: dict[RewriteKind, str] = {
 }
 
 
-# 头/体两类共用的原生语义，逐条都踩过坑，必须如实告知。写成函数而不是常量：文案
+# 头/体两类共用的引擎语义，逐条都踩过坑，必须如实告知。写成函数而不是常量：文案
 # 一律等到用的时候才求值（体那条还要把整体匹配正则填进去，f-string 里的文案
 # lupdate 看不见）。
 def _header_hint() -> str:
     return QCoreApplication.translate(
         "RewriteRuleDialog",
-        "命中时先删掉同名头、再按新值加回去；头值留空 = 只删不加。头值以 @ 开头会被当作**文件路径**读取内容（原生语义，因此无法下发真的以 @ 开头的头值）。\\n、\\t 等转义会被解码，要字面反斜杠请写 \\\\。",
+        "命中时先删掉同名头、再按新值加回去；头值留空 = 只删不加。头值以 @ 开头会被当作**文件路径**读取内容（因此无法下发真的以 @ 开头的头值）。\\n、\\t 等转义会被解码，要字面反斜杠请写 \\\\。",
     )
 
 
 def _body_hint() -> str:
     return QCoreApplication.translate(
         "RewriteRuleDialog",
-        "体正则留空 = 整体替换（实际下发 {}）；新内容留空 = 清空匹配到的内容。新内容是**字面量**，不支持 \\1 反向引用（原生用 `lambda _: replacement` 做替换）；以 @ 开头会被当作**文件路径**读取内容。\\n、\\t 等转义会被解码，要字面反斜杠请写 \\\\。",
+        "体正则留空 = 整体替换（实际下发 {}）；新内容留空 = 清空匹配到的内容。新内容是**字面量**，不支持 \\1 反向引用；以 @ 开头会被当作**文件路径**读取内容，每次请求现读。\\n、\\t 等转义会被解码，要字面反斜杠请写 \\\\。",
     ).format(WHOLE_BODY_PATTERN)
+
+
+def _replace_request_hint() -> str:
+    return QCoreApplication.translate(
+        "RewriteRuleDialog",
+        "命中的请求在发出前按所填栏目逐项覆盖：方法、路径、头表、体；留空的栏保持原样，至少要填一项。体以 @ 开头会被当作**文件路径**读取内容，每次请求现读。",
+    )
+
+
+def _replace_response_hint() -> str:
+    return QCoreApplication.translate(
+        "RewriteRuleDialog",
+        "命中的请求不再发往服务器，直接按状态码、头表、体整条作答，至少要填一项。体以 @ 开头会被当作**文件路径**读取内容，每次请求现读。手写二进制响应不支持——请改用「重定向（本地）」。",
+    )
 
 
 _TARGET_PLACEHOLDERS: dict[RewriteKind, str] = {
@@ -130,14 +146,52 @@ _TARGET_PLACEHOLDERS: dict[RewriteKind, str] = {
 }
 
 _TARGET_ROW = 3
+_REPLACEMENT_ROW = 4
+_METHOD_ROW = 5
+_PATH_ROW = 6
+_STATUS_ROW = 7
+_HEADERS_ROW = 8
+_BODY_ROW = 9
+
+# 替换响应的常用状态码（可手输，§6：常见码下拉）。
+_STATUS_CODES: list[str] = [
+    "200",
+    "201",
+    "204",
+    "301",
+    "302",
+    "304",
+    "400",
+    "401",
+    "403",
+    "404",
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+]
+
+
+def _sniff_language(text: str) -> Language:
+    """按内容挑高亮：JSON / HTML（XML 词法器）/ 纯文本（§6）。"""
+    stripped = text.lstrip()
+    if stripped.startswith(("{", "[")):
+        return Language.JSON
+    if stripped.startswith("<"):
+        return Language.XML
+    return Language.TEXT
 
 
 class RewriteRuleDialog(MessageBoxBase):
-    """六种重写类型共用一张表单：类型一换，栏位标签/提示/编辑器随之切换。
+    """八种重写类型共用一张表单（定则三）：类型一换，形态随之切换。
 
-    最终合法性一律交给原生解析器拍板（`RewriteRule.to_spec` 内部会跑
-    `parse_map_remote_spec` / `parse_map_local_spec` / `parse_modify_spec`），
-    过不了就不让保存 —— `options.update` 是原子的，一条坏 spec 会让整批规则回滚。
+    - **形态 A（字段型，既有六类）**：匹配区 + 目标/替换区；
+    - **形态 B（消息型，替换请求/替换响应）**：匹配区 + 方法/路径/状态码 +
+      头表 `ItemDualPanel` + 体编辑器。
+
+    最终合法性一律交给 `RewriteRule.validate()`，过不了就不让保存 —— 下发是
+    整批编译的，一条坏规则会让整批回滚。
     """
 
     def __init__(
@@ -179,8 +233,8 @@ class RewriteRuleDialog(MessageBoxBase):
         self.replacement_edit = LineEdit(self)
         self.replacement_edit.setClearButtonEnabled(True)
 
-        # 浏览按钮只给 map_local：原生 parse_map_local_spec 要求路径当下就存在，
-        # 让用户选而不是手打，能挡掉绝大多数「路径不存在」的回滚。
+        # 浏览按钮只给 map_local：引擎要求路径当下就存在，让用户选而不是手打，
+        # 能挡掉绝大多数「路径不存在」的回滚。
         self.browse_btn = TransparentToolButton(FluentIcon.FOLDER, self)
         self.browse_btn.setFixedSize(32, 32)
         self.browse_btn.setToolTip(self.tr("选择本地文件或目录"))
@@ -194,8 +248,34 @@ class RewriteRuleDialog(MessageBoxBase):
         self.replacement_stack.addWidget(self.__build_single_line_row())
         self.replacement_stack.addWidget(self.replacement_text)
 
+        # —— 形态 B（消息型）：替换请求 / 替换响应 ——
+        self.method_edit = LineEdit(self)
+        self.method_edit.setPlaceholderText("GET")
+        self.method_edit.setClearButtonEnabled(True)
+
+        self.path_edit = LineEdit(self)
+        self.path_edit.setPlaceholderText("/v1/user?id=1")
+        self.path_edit.setClearButtonEnabled(True)
+
+        self.status_combo = EditableComboBox(self)
+        self.status_combo.addItems(_STATUS_CODES)
+        if self._rule.status_code is not None:
+            self.status_combo.setText(str(self._rule.status_code))
+
+        self.headers_panel = ItemDualPanel(editable=True, parent=self)
+        self.headers_panel.set_items(list(self._rule.headers))
+
+        self.message_body = ToolPlainTextEdit(self)
+        self.message_body.setMinimumHeight(140)
+        self._set_message_body(self._rule.replacement)
+
         self.target_label = BodyLabel(self)
         self.replacement_label = BodyLabel(self)
+        self.method_label = BodyLabel(self.tr("方法"), self)
+        self.path_label = BodyLabel(self.tr("路径"), self)
+        self.status_label = BodyLabel(self.tr("状态码"), self)
+        self.headers_label = BodyLabel(self.tr("头表"), self)
+        self.body_label = BodyLabel(self.tr("体"), self)
 
         self.hint_label = CaptionLabel(self)
         self.hint_label.setWordWrap(True)
@@ -206,6 +286,8 @@ class RewriteRuleDialog(MessageBoxBase):
         self.yesButton.setText(self.tr("保存"))
         self.cancelButton.setText(self.tr("取消"))
 
+        self.method_edit.setText(self._rule.method)
+        self.path_edit.setText(self._rule.path)
         self._set_replacement_text(self._rule.replacement)
         QTimer.singleShot(0, self.value_edit.setFocus)
 
@@ -224,8 +306,15 @@ class RewriteRuleDialog(MessageBoxBase):
         self.form.addRow(BodyLabel(self.tr("类型"), self), self.kind_combo)
         self.form.addRow(BodyLabel(self.tr("匹配方式"), self), self.logic_combo)
         self.form.addRow(BodyLabel(self.tr("匹配 URL"), self), self.value_edit)
+        # 目标（头名/体正则）与替换（单行/多行）各占一行 —— 两个标签都必须进
+        # 布局：BodyLabel(self) 只挂了 parent，不进 QFormLayout 就会浮在 (0,0)。
         self.form.addRow(self.target_label, self.target_edit)
         self.form.addRow(self.replacement_label, self.replacement_stack)
+        self.form.addRow(self.method_label, self.method_edit)
+        self.form.addRow(self.path_label, self.path_edit)
+        self.form.addRow(self.status_label, self.status_combo)
+        self.form.addRow(self.headers_label, self.headers_panel)
+        self.form.addRow(self.body_label, self.message_body)
 
         layout = QVBoxLayout()
         layout.setSpacing(8)
@@ -244,6 +333,11 @@ class RewriteRuleDialog(MessageBoxBase):
         self.replacement_edit.textChanged.connect(self._validate)
         self.replacement_text.changed.connect(self._validate)
         self.browse_btn.clicked.connect(self._on_browse)
+        self.method_edit.textChanged.connect(self._validate)
+        self.path_edit.textChanged.connect(self._validate)
+        self.status_combo.currentTextChanged.connect(self._validate)
+        self.headers_panel.changed.connect(self._validate)
+        self.message_body.changed.connect(self._validate)
 
     @staticmethod
     def _index_of(items: list, value) -> int:
@@ -265,30 +359,46 @@ class RewriteRuleDialog(MessageBoxBase):
         return kind in BODY_KINDS
 
     def _replacement_value(self, kind: RewriteKind | None = None) -> str:
-        """读「重写为」栏。`kind` 默认取当前选中的类型。
+        """读「重写为/体」栏。`kind` 默认取当前选中的类型。
 
         切换类型时必须显式传**切换前**的类型：``currentIndexChanged`` 触发时下拉
         已经是新值了，照当前类型去读会读到那个还空着的新栏位，用户刚打的内容就没了。
         """
-        if self._multiline(self._current_kind() if kind is None else kind):
+        kind = self._current_kind() if kind is None else kind
+        if kind in REPLACE_KINDS:
+            return self.message_body.text()
+        if self._multiline(kind):
             return self.replacement_text.text()
         return self.replacement_edit.text()
 
     def _set_replacement_text(self, text: str) -> None:
-        """两个编辑器都写一遍，切换类型时内容不会凭空消失。
+        """所有正文编辑器都写一遍，切换类型时内容不会凭空消失。
 
         `ToolPlainTextEdit.set_text` 是程序化换文本、不发 ``changed``，所以这里
         不会顺带触发一轮校验（切换类型的那轮由 `_on_kind_changed` 自己收尾）。
         """
         self.replacement_edit.setText(text)
         self.replacement_text.set_text(text, Language.JSON)
+        self._set_message_body(text)
+
+    def _set_message_body(self, text: str) -> None:
+        self.message_body.set_text(text, _sniff_language(text))
 
     def _sync_kind_texts(self) -> None:
         kind = self._current_kind()
         logic = self._current_logic()
         is_map = kind in MAP_KINDS
+        is_replace = kind in REPLACE_KINDS
 
-        self.form.setRowVisible(_TARGET_ROW, not is_map)
+        # 目标行：重定向两类没有「目标」栏；替换两类走消息型形态，同样退场。
+        self.form.setRowVisible(_TARGET_ROW, not is_map and not is_replace)
+        # 替换行：字段型六类都用（重定向两类填重写目标，头/体填值/内容）。
+        self.form.setRowVisible(_REPLACEMENT_ROW, not is_replace)
+        self.form.setRowVisible(_METHOD_ROW, kind == RewriteKind.REPLACE_REQUEST)
+        self.form.setRowVisible(_PATH_ROW, kind == RewriteKind.REPLACE_REQUEST)
+        self.form.setRowVisible(_STATUS_ROW, kind == RewriteKind.REPLACE_RESPONSE)
+        self.form.setRowVisible(_HEADERS_ROW, is_replace)
+        self.form.setRowVisible(_BODY_ROW, is_replace)
         # 标签由 models 统一给：`tr(变量)` lupdate 提取不到，得走标记 + translate。
         self.target_label.setText(target_field_label(kind))
         self.target_edit.setPlaceholderText(
@@ -318,10 +428,14 @@ class RewriteRuleDialog(MessageBoxBase):
             hints.append(_header_hint())
         elif kind in BODY_KINDS:
             hints.append(_body_hint())
+        elif kind == RewriteKind.REPLACE_REQUEST:
+            hints.append(_replace_request_hint())
+        elif kind == RewriteKind.REPLACE_RESPONSE:
+            hints.append(_replace_response_hint())
         self.hint_label.setText("\n".join(hint for hint in hints if hint))
 
     def _on_kind_changed(self):
-        # 单行 ↔ 多行换栏时把内容带过去，用户改错类型不必重打一遍。
+        # 单行 ↔ 多行 ↔ 消息体换栏时把内容带过去，用户改错类型不必重打一遍。
         carried = self._replacement_value(self._last_kind)
         self._last_kind = self._current_kind()
         self._set_replacement_text(carried)
@@ -362,28 +476,67 @@ class RewriteRuleDialog(MessageBoxBase):
     def get_rule(self) -> RewriteRule:
         """按类型决定哪几栏能安全 strip。
 
-        - URL 匹配值：恒 strip，前后空白在 URL 里没有意义。
+        - URL 匹配值 / 方法 / 路径：恒 strip，前后空白没有意义。
         - 目标：头名 strip；**体正则不 strip** —— 正则里的空白是有意义的，
-          整栏留空才当「整体替换」（见 `RewriteRule._body_spec`）。
-        - 替换串：URL / 本地路径 strip；**头值与体内容不 strip** —— 尾随换行之类
-          原样下发才是用户要的（原生 `_modify_replacement` 也不 strip）。
+          整栏留空才当「整体替换」。
+        - 替换串 / 体内容：URL / 本地路径 strip；**头值与体内容不 strip** ——
+          尾随换行之类原样下发才是用户要的。
+        - 状态码：留空 = 执行期取 200；非数字在这里就报错，让预览区指着那一栏说。
         """
         kind = self._current_kind()
+        logic = self._current_logic()
+        value = self.value_edit.text().strip()
+        enabled = self._rule.enabled
+        if kind == RewriteKind.REPLACE_REQUEST:
+            return RewriteRule(
+                kind=kind,
+                logic=logic,
+                value=value,
+                enabled=enabled,
+                method=self.method_edit.text().strip(),
+                path=self.path_edit.text().strip(),
+                headers=tuple(self.headers_panel.items()),
+                replacement=self.message_body.text(),
+            )
+        if kind == RewriteKind.REPLACE_RESPONSE:
+            return RewriteRule(
+                kind=kind,
+                logic=logic,
+                value=value,
+                enabled=enabled,
+                status_code=self._status_value(),
+                headers=tuple(self.headers_panel.items()),
+                replacement=self.message_body.text(),
+            )
         target = self.target_edit.text()
         replacement = self._replacement_value()
         return RewriteRule(
             kind=kind,
-            logic=self._current_logic(),
-            value=self.value_edit.text().strip(),
+            logic=logic,
+            value=value,
+            enabled=enabled,
             target=target.strip() if kind in HEADER_KINDS else target,
             replacement=replacement.strip() if kind in MAP_KINDS else replacement,
-            enabled=self._rule.enabled,
         )
 
-    def _validate(self):
-        rule = self.get_rule()
+    def _status_value(self) -> int | None:
+        text = self.status_combo.text().strip()
+        if not text:
+            return None
         try:
-            rule.to_spec()
+            return int(text)
+        except ValueError as exc:
+            # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
+            raise ValueError(
+                QCoreApplication.translate("RewriteRule", "状态码必须是整数：{}").format(
+                    text
+                )
+            ) from exc
+
+    def _validate(self):
+        try:
+            rule = self.get_rule()
+            rule.validate()
         except ValueError as exc:
             self.preview_label.setText(str(exc))
             self.yesButton.setEnabled(False)
@@ -392,12 +545,14 @@ class RewriteRuleDialog(MessageBoxBase):
         self.yesButton.setEnabled(True)
 
     def _preview_lines(self, rule: RewriteRule) -> list[str]:
-        """`to_spec` 已经过了，所以这里取哪个属性都不会再抛。"""
+        """`validate` 已经过了，所以这里取哪个属性都不会再抛。"""
         lines = [self.tr("匹配正则：{}").format(rule.subject)]
         if rule.kind == RewriteKind.MAP_REMOTE:
             lines.append(self.tr("替换为：{}").format(rule.template))
         elif rule.kind == RewriteKind.MAP_LOCAL:
             lines.append(self.tr("本地路径：{}").format(rule.replacement.strip()))
+        elif rule.kind in REPLACE_KINDS:
+            lines.append(replace_summary(rule))
         else:
             # 这两行的措辞由 models 统一给，和表格里那两列逐字一致。
             lines.append(

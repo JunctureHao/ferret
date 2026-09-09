@@ -53,10 +53,7 @@ uv run python -m ferret.utils.scripts
 | Addon                   | 功能                      | 状态 |
 | ----------------------- | ------------------------- | ---- |
 | intercept               | 拦截/断点修改             | ✅   |
-| modifyheaders           | 修改请求/响应头           | ✅   |
-| modifybody              | 修改请求/响应体           | ✅   |
-| maplocal                | 本地文件映射（mock 响应） | ✅   |
-| mapremote               | 远程 URL 映射重写         | ✅   |
+| rewrite（自研）         | 统一重写：修改头/体、URL 重定向、文件映射、替换请求/响应 | ✅ |
 | stickycookie            | 固化 Cookie               | ✅   |
 | stickyauth              | 固化认证                  | ✅   |
 | anticache               | 去除缓存头强制走源站      | ✅   |
@@ -106,6 +103,10 @@ uv run python -m ferret.utils.scripts
 `server_side_events` 的能力由自研 SSE tee 覆盖（见「协议支持」），原生告警 addon 不装。
 原生 `BlockList` 也从链上撤掉了 —— 屏蔽（出）由网关统一承载（`core/mitm/gateway.py`），
 老屏蔽页规则仅在升级时迁回网关（`core/mitm/blocklist.py` 只存兼容迁移）。
+原生 `ModifyHeaders` / `ModifyBody` / `MapLocal` / `MapRemote` 四件同样退役 —— 重写由
+自研统一引擎承载（`core/mitm/addons.py::FerretRewriteAddon`，规格见
+`plans/rewrite-ui.md` §5）：一个规则模型、行序＝执行序，并把「替换请求 / 替换响应」
+两个原生补不上的缺口补齐。
 
 # 协议支持（不是 addon，在代理层）
 

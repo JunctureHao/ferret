@@ -1,6 +1,9 @@
 """Ferret's reusable mitmproxy addons."""
 
+import mimetypes
+import urllib.parse
 from collections.abc import Callable, Iterable
+from pathlib import Path
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import (
@@ -10,6 +13,7 @@ from ferret.core.mitm.bindings import (
     TlsConfig,
     connection,
     human,
+    safe_join,
     server_hooks,
     status_codes,
     tlsconfig_module,
@@ -20,6 +24,14 @@ from ferret.core.mitm.gateway import (
     GatewayDecision,
     GatewayPolicy,
     GatewayRuleSet,
+)
+from ferret.core.mitm.rewrite import (
+    REPLACE_RESPONSE_DEFAULT_STATUS,
+    REWRITE_ANSWERED_KEY,
+    CompiledRewrite,
+    RewriteKind,
+    RewriteRuleSet,
+    read_replacement,
 )
 from ferret.core.settings import APP_NAME
 
@@ -353,8 +365,210 @@ class GatewayL7Addon:
             flow.kill()
 
 
+class FerretRewriteAddon:
+    """自研统一重写引擎（plans/rewrite-ui.md §5）：八个类型一个 addon。
+
+    原生 MapRemote / MapLocal / ModifyHeaders / ModifyBody 四件退役的动机与
+    语义契约见 `core/mitm/rewrite.py` 的模块 docstring。这里只管执行：
+
+    - 请求期类型全部落在 `request` 钩子、响应期类型全部落在 `response` 钩子，
+      **按列表行序逐条作用、不短路** —— 行序＝执行序，跨类型也有意义。请求期
+      钩子还保证原生断点（`Intercept` 也在 `request` 拦）拦到的是替换后的报文。
+    - 每条规则独立 try/except：一条规则执行炸了记日志跳过，绝不打断钩子链，
+      更不能连坐整批（编译期的校验已在 `RewriteRuleSet` 构造时完成）。
+    - 文件映射的目录候选算法逐行对齐原生 `MapLocal.file_candidates`，路径拼接
+      走 `bindings.safe_join`（werkzeug 等价守卫）—— URL 后缀是不可信输入。
+    - ``@文件`` 每请求现读（`:data:`~ferret.core.mitm.rewrite.FILE_REPLACEMENT_PREFIX``），
+      比原生「spec 解析时定格」更利于 mock 迭代，是刻意差异。
+    """
+
+    def __init__(self) -> None:
+        self._log = get_logger("mitmproxy")
+        self._rules = RewriteRuleSet()
+        self._enabled = True
+
+    def set_rules(self, rules: RewriteRuleSet, *, enabled: bool = True) -> None:
+        """Swap in a pre-compiled snapshot. 只在 mitm 线程上调用（网关规则模式）。"""
+        self._rules = rules
+        self._enabled = enabled
+
+    # —— 钩子 ——
+
+    def request(self, flow: HTTPFlow) -> None:
+        if not self._enabled or flow.error or not flow.live:
+            return
+        for entry in self._rules.entries():
+            # 每条规则都对**当前** URL 重新匹配：重定向规则链式生效
+            # （a→b 之后 b→c 照样命中），对齐原生 MapRemote 的逐条重读语义。
+            url = flow.request.pretty_url
+            if not entry.matches(url):
+                continue
+            kind = entry.rule.kind
+            try:
+                if kind == RewriteKind.MODIFY_REQUEST_HEADER:
+                    self._modify_header(flow.request.headers, entry)
+                elif kind == RewriteKind.MODIFY_REQUEST_BODY:
+                    self._modify_body(flow.request, entry)
+                elif kind == RewriteKind.MAP_REMOTE:
+                    self._map_remote(flow, entry)
+                elif kind == RewriteKind.MAP_LOCAL:
+                    self._map_local(flow, entry, url)
+                elif kind == RewriteKind.REPLACE_REQUEST:
+                    self._replace_request(flow, entry)
+                # 前面某条映射规则已经作答的流量不再整条替换。
+                elif kind == RewriteKind.REPLACE_RESPONSE and flow.response is None:
+                    self._replace_response(flow, entry)
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning("重写规则执行失败，本条已跳过: %s", exc)
+
+    def response(self, flow: HTTPFlow) -> None:
+        if not self._enabled or flow.response is None or not flow.live:
+            return
+        url = flow.request.pretty_url
+        for entry in self._rules.entries():
+            if not entry.matches(url):
+                continue
+            kind = entry.rule.kind
+            try:
+                if kind == RewriteKind.MODIFY_RESPONSE_HEADER:
+                    self._modify_header(flow.response.headers, entry)
+                elif kind == RewriteKind.MODIFY_RESPONSE_BODY:
+                    self._modify_body(flow.response, entry)
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning("重写规则执行失败，本条已跳过: %s", exc)
+
+    # —— 执行分支 ——
+
+    def _modify_header(self, headers, entry: CompiledRewrite) -> None:
+        """先删同名头、非空再按新值加回（§5 契约；mitmproxy Headers 大小写不敏感）。
+
+        对齐原生 `ModifyHeaders.run`：`pop(subject, None)` 删不掉不炸；`add` 直接收
+        bytes —— `@文件` 读出的内容不必是 utf-8 文本也能当头值用。
+        """
+        headers.pop(entry.header_name, None)
+        replacement = entry.rule.replacement
+        if not replacement:
+            return
+        headers.add(entry.header_name, read_replacement(replacement))
+
+    def _modify_body(self, message, entry: CompiledRewrite) -> None:
+        """对 **utf-8 可解码**的体做正则替换，重新编码；二进制体跳过。"""
+        content = message.get_content(strict=False)
+        if content is None:
+            return
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            # 二进制体跳过：debug 日志落一条，不静默（plans/rewrite-ui.md §13）。
+            self._log.debug(
+                "体正则规则跳过二进制体: %s",
+                entry.rule.target or "(整体替换)",
+            )
+            return
+        try:
+            replacement = read_replacement(entry.rule.replacement).decode("utf-8")
+        except UnicodeDecodeError:
+            self._log.warning("体替换内容不是 utf-8 文本，本条已跳过")
+            return
+        # 编译期保证 entry.body 非 None（仅体类型会走到这里）。
+        assert entry.body is not None
+        # 直接写 content：mitmproxy 自动重算 Content-Length；charset 保持原头不动。
+        message.content = entry.body.sub(replacement, text).encode("utf-8")
+
+    def _map_remote(self, flow: HTTPFlow, entry: CompiledRewrite) -> None:
+        """``re.sub(subject, template, pretty_url)`` → ``request.url``。
+
+        scheme / host / port / Host 头随 url setter 自动更新 —— 这也是不自造
+        重定向的理由之一（`RewriteRule.template` 的注释）。
+        """
+        flow.request.url = entry.url.sub(entry.rule.template, flow.request.pretty_url)
+
+    def _map_local(self, flow: HTTPFlow, entry: CompiledRewrite, url: str) -> None:
+        """文件映射：现读本地文件直接作答，请求不出网（对齐原生 MapLocal）。"""
+        if flow.response is not None:
+            return
+        root = Path(entry.rule.replacement.strip()).expanduser()
+        candidates = [root] if root.is_file() else self._local_candidates(root, entry, url)
+        local_file = next((c for c in candidates if c.is_file()), None)
+        if local_file is None:
+            if candidates:
+                # 对齐原生：目录候选一个都不在盘上时回 404，而不是放行去撞服务器。
+                self._log.info(
+                    "文件映射候选均不存在: %s",
+                    ", ".join(str(c) for c in candidates),
+                )
+                flow.response = Response.make(404)
+                flow.metadata[REWRITE_ANSWERED_KEY] = "1"
+            return
+        try:
+            contents = local_file.read_bytes()
+        except OSError as exc:
+            self._log.warning("文件映射读取失败: %s", exc)
+            return
+        headers = {}
+        mimetype = mimetypes.guess_type(str(local_file))[0]
+        if mimetype:
+            headers["Content-Type"] = mimetype
+        flow.response = Response.make(200, contents, headers)
+        flow.metadata[REWRITE_ANSWERED_KEY] = "1"
+
+    @staticmethod
+    def _local_candidates(
+        root: Path, entry: CompiledRewrite, url: str
+    ) -> list[Path]:
+        """目录映射的候选文件，逐行对齐原生 `MapLocal.file_candidates`。"""
+        match = entry.url.search(url)
+        assert match is not None  # 调用方已用同一 pattern 筛过
+        if match.groups():
+            suffix = match.group(1)
+        else:
+            suffix = entry.url.split(url, maxsplit=1)[1]
+            suffix = suffix.split("?")[0].strip("/")
+        if not suffix:
+            return [root / "index.html"]
+        decoded = urllib.parse.unquote(suffix)
+        candidates = [decoded, f"{decoded}/index.html"]
+        escaped = "".join(c if c.isalnum() or c in "-_.=(),/" else "_" for c in decoded)
+        if escaped != decoded:
+            candidates.extend([escaped, f"{escaped}/index.html"])
+        joined = []
+        for item in candidates:
+            # URL 后缀是不可信输入，目录穿越守卫一道都不能省。
+            safe = safe_join(root.as_posix(), *Path(item).parts)
+            if safe is not None:
+                joined.append(Path(safe))
+        return joined
+
+    def _replace_request(self, flow: HTTPFlow, entry: CompiledRewrite) -> None:
+        """逐项覆盖 method / path / 头表 / 体；留空的栏保持原样。"""
+        rule = entry.rule
+        if rule.method.strip():
+            flow.request.method = rule.method.strip()
+        if rule.path.strip():
+            flow.request.path = rule.path.strip()
+        for name, value in rule.headers:
+            flow.request.headers[name] = value
+        if rule.replacement:
+            # 写 content 而不是 text：体是字节，Content-Length 由 mitmproxy 重算。
+            flow.request.content = read_replacement(rule.replacement)
+
+    def _replace_response(self, flow: HTTPFlow, entry: CompiledRewrite) -> None:
+        """整条作答：请求不出网，响应按状态码 / 头表 / 体拼装。"""
+        rule = entry.rule
+        status = (
+            rule.status_code
+            if rule.status_code is not None
+            else REPLACE_RESPONSE_DEFAULT_STATUS
+        )
+        body = read_replacement(rule.replacement) if rule.replacement else b""
+        headers = {name: value for name, value in rule.headers}
+        flow.response = Response.make(status, body, headers)
+        flow.metadata[REWRITE_ANSWERED_KEY] = "1"
+
+
 __all__ = [
     "SUSPEND_LIMIT",
+    "FerretRewriteAddon",
     "FerretTlsConfig",
     "GatewayL4Addon",
     "GatewayL7Addon",

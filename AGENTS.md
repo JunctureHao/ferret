@@ -43,7 +43,9 @@
 
 - curl/httpie/raw 导出：`mitmproxy.addons.export` 模块级函数；唯一分叉 `core/mitm/export.py::curl_command`（Windows 引号），不要改回原生。
 
-- 屏蔽 / 重写 / 来源限制：`BlockList`+`parse_spec`、`MapRemote`/`MapLocal`+`parse_map_remote_spec`/`parse_map_local_spec`、`Block`。ferret 只造 spec 字符串，经 `options.update(...)` 下发（addons.add 前选项不存在）。
+- 重写：自研 `FerretRewriteAddon`（`core/mitm/addons.py`，规格 plans/rewrite-ui.md §5），八个类型一个 addon、行序＝执行序；规则模型/校验在 `core/mitm/rewrite.py`。下发走网关规则模式（内存副本＋`self.call` 换预编译快照，`options.update` 那条 spec 通道已拆除）；原生 MapRemote/MapLocal/ModifyHeaders/ModifyBody 已退役，勿复活。
+
+- 屏蔽 / 来源限制：`Block`（连接级）；L7 屏蔽（出）由网关承载，`BlockList` 仅存兼容迁移。
 
 - CA：`certs.CertStore.from_store` / `Cert` 字段 / `Cert.to_pem()`；系统信任库只走 Windows `certutil`。
 

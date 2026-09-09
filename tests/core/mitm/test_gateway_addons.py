@@ -429,7 +429,8 @@ class FerretMasterGatewayWiringTests(unittest.TestCase):
     def test_l7_addon_runs_after_the_rewrite_plane(self) -> None:
         """判定看到的是重写之后的目标主机。"""
         self.assertLess(
-            self.names.index("MapRemote"), self.names.index(GatewayL7Addon.__name__)
+            self.names.index("FerretRewriteAddon"),
+            self.names.index(GatewayL7Addon.__name__),
         )
 
     def test_gateway_addons_precede_the_recorders(self) -> None:

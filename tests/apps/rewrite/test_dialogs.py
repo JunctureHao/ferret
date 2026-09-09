@@ -1,12 +1,16 @@
-"""`RewriteRuleDialog` 的测试：一张表单撑六种重写类型。
+"""`RewriteRuleDialog` 的测试：一张表单撑八种重写类型、两种形态。
 
-这张对话框的活儿有三件，每件都有一个只在切换类型时才露头的坑：
+这张对话框的活儿有四件，每件都有一个只在切换类型时才露头的坑：
 
 1. **栏位随类型切换** —— 重定向两类没有「目标」栏，体两类的「重写为」是多行编辑器
-   而不是单行输入框，浏览按钮只属于 `map_local`。
-2. **切换时把内容带过去** —— 单行 ↔ 多行是两个独立控件，`currentIndexChanged`
-   触发时下拉已经是新值了，照当前类型去读会读到那个还空着的新栏位。
+   而不是单行输入框，浏览按钮只属于 `map_local`；替换两类切到消息型形态
+   （方法/路径/状态码 + 头表 + 体），字段型的目标/替换栏整体退场。
+2. **切换时把内容带过去** —— 单行 ↔ 多行 ↔ 消息体是三个独立控件，
+   `currentIndexChanged` 触发时下拉已经是新值了，照当前类型去读会读到那个
+   还空着的新栏位。
 3. **取值时按类型决定能不能 strip** —— 体正则和头值/体内容里的空白是有意义的。
+4. **消息型的「至少填一项」** —— 全空的替换请求/替换响应没有可执行的语义，
+   必须挡在保存之前。
 
 合法性判定本身不在这里测（那是 `tests/core/mitm/test_rewrite.py` 的活儿），这里只
 验「过不了就不让保存」这条闸门有没有真的连上。
@@ -21,10 +25,20 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
-from ferret.apps.rewrite.dialogs import _TARGET_ROW, RewriteRuleDialog
+from ferret.apps.rewrite.dialogs import (
+    _BODY_ROW,
+    _HEADERS_ROW,
+    _METHOD_ROW,
+    _PATH_ROW,
+    _REPLACEMENT_ROW,
+    _STATUS_ROW,
+    _TARGET_ROW,
+    RewriteRuleDialog,
+)
 from ferret.core.mitm import (
+    REPLACE_KINDS,
     WHOLE_BODY_PATTERN,
     RewriteKind,
     RewriteLogic,
@@ -56,21 +70,70 @@ class DialogHost(unittest.TestCase):
 
 class LayoutPerKindTests(DialogHost):
     def test_redirect_kinds_have_no_target_row(self) -> None:
-        """重定向两类只有「匹配 URL」和「重写为」，没有第三栏可改。"""
+        """重定向两类没有「目标」栏，但「重写为」行必须还在。"""
         for kind in (RewriteKind.MAP_REMOTE, RewriteKind.MAP_LOCAL):
             with self.subTest(kind=kind):
                 dlg = self.dialog()
                 self.pick(dlg, kind)
                 self.assertFalse(dlg.form.isRowVisible(_TARGET_ROW))
+                self.assertTrue(dlg.form.isRowVisible(_REPLACEMENT_ROW))
+
+    def test_no_label_leaks_out_of_the_form(self) -> None:
+        """标签不进 QFormLayout 就会浮在对话框 (0,0)（「重写为」漏到标题栏的事故）。
+
+        八种类型逐一切换后检查：对话框的**直接**子控件里不允许出现可见的
+        带文字控件 —— 进了表单的标签会被 reparent 到表单宿主链上，
+        只有漏加布局的才会直接挂在对话框下、停在 (0,0)。
+        """
+        for kind in _KINDS:
+            with self.subTest(kind=kind):
+                dlg = self.dialog()
+                self.pick(dlg, kind)
+                leaked = [
+                    w
+                    for w in dlg.findChildren(QWidget)
+                    if w.parent() is dlg
+                    and not w.isHidden()
+                    and isinstance(w, QLabel)
+                    and w.text()
+                ]
+                self.assertEqual(leaked, [])
 
     def test_header_and_body_kinds_show_the_target_row(self) -> None:
         for kind in _KINDS:
-            if kind in (RewriteKind.MAP_REMOTE, RewriteKind.MAP_LOCAL):
+            if kind in (RewriteKind.MAP_REMOTE, RewriteKind.MAP_LOCAL, *REPLACE_KINDS):
                 continue
             with self.subTest(kind=kind):
                 dlg = self.dialog()
                 self.pick(dlg, kind)
                 self.assertTrue(dlg.form.isRowVisible(_TARGET_ROW))
+
+    def test_replace_kinds_switch_to_the_message_form(self) -> None:
+        """消息型形态：目标/替换栏退场，头表 + 体常驻，方法/状态码按类二选一。"""
+        for kind in REPLACE_KINDS:
+            with self.subTest(kind=kind):
+                dlg = self.dialog()
+                self.pick(dlg, kind)
+                self.assertFalse(dlg.form.isRowVisible(_TARGET_ROW))
+                self.assertTrue(dlg.form.isRowVisible(_HEADERS_ROW))
+                self.assertTrue(dlg.form.isRowVisible(_BODY_ROW))
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_REQUEST)
+        self.assertTrue(dlg.form.isRowVisible(_METHOD_ROW))
+        self.assertTrue(dlg.form.isRowVisible(_PATH_ROW))
+        self.assertFalse(dlg.form.isRowVisible(_STATUS_ROW))
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_RESPONSE)
+        self.assertFalse(dlg.form.isRowVisible(_METHOD_ROW))
+        self.assertFalse(dlg.form.isRowVisible(_PATH_ROW))
+        self.assertTrue(dlg.form.isRowVisible(_STATUS_ROW))
+
+    def test_the_status_combo_offers_common_codes_and_takes_free_input(self) -> None:
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_RESPONSE)
+        self.assertIn("200", [dlg.status_combo.itemText(i) for i in range(dlg.status_combo.count())])
+        dlg.status_combo.setText("599")
+        self.assertEqual(dlg.get_rule().status_code, 599)
 
     def test_only_body_kinds_get_the_multiline_editor(self) -> None:
         """体内容常是整段 JSON，单行输入框放不下。"""
@@ -323,6 +386,100 @@ class ValidationGateTests(DialogHost):
         dlg.replacement_text.code_widget.insertPlainText('{"code": 0}')
         self.assertNotEqual(dlg.preview_label.text(), before)
         self.assertIn('{"code": 0}', dlg.preview_label.text())
+
+
+class MessageFormTests(DialogHost):
+    """消息型两类型（替换请求/替换响应）的取值与闸门。"""
+
+    def test_a_replace_response_round_trips(self) -> None:
+        rule = RewriteRule(
+            kind=RewriteKind.REPLACE_RESPONSE,
+            logic=RewriteLogic.REGEX,
+            value=r"^https://api\.example\.com/v1/login",
+            status_code=404,
+            headers=(("Content-Type", "application/json"), ("X-A", "1")),
+            replacement='{"error": "not found"}',
+        )
+        self.assertEqual(self.dialog(rule).get_rule(), rule)
+
+    def test_a_replace_request_round_trips(self) -> None:
+        rule = RewriteRule(
+            kind=RewriteKind.REPLACE_REQUEST,
+            logic=RewriteLogic.CONTAINS,
+            value="api.example.com",
+            method="POST",
+            path="/v1/login",
+            headers=(("X-A", "1"),),
+            replacement="payload",
+        )
+        self.assertEqual(self.dialog(rule).get_rule(), rule)
+
+    def test_the_status_combo_defaults_to_200(self) -> None:
+        """状态码预填默认值 200（§5 契约「状态码（默认 200）」）；清空则执行期兜底。"""
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_RESPONSE)
+        dlg.value_edit.setText("api.example.com")
+        dlg.message_body.set_text("ok")
+        self.assertEqual(dlg.get_rule().status_code, 200)
+        dlg.status_combo.setText("")
+        self.assertIsNone(dlg.get_rule().status_code)
+        self.assertTrue(dlg.yesButton.isEnabled())
+
+    def test_an_empty_replace_request_cannot_be_saved(self) -> None:
+        """至少填一项：全空没有可执行的语义（§5 契约）。"""
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_REQUEST)
+        dlg.value_edit.setText("api.example.com")
+        self.assertFalse(dlg.yesButton.isEnabled())
+        self.assertIn("至少", dlg.preview_label.text())
+
+    def test_an_empty_replace_response_cannot_be_saved(self) -> None:
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_RESPONSE)
+        dlg.value_edit.setText("api.example.com")
+        dlg.status_combo.setText("")
+        self.assertFalse(dlg.yesButton.isEnabled())
+
+    def test_filling_any_one_field_opens_the_gate(self) -> None:
+        # 表格页的程序化 set_items 不发 changed（只有用户编辑才发），
+        # 所以先灌头表、再动一个会触发校验的栏位 —— 和真实交互同序。
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_REQUEST)
+        dlg.headers_panel.set_items([("X-A", "1")])
+        dlg.value_edit.setText("api.example.com")
+        self.assertTrue(dlg.yesButton.isEnabled())
+        self.assertIn("1 个头", dlg.preview_label.text())
+
+    def test_a_bad_status_code_blames_the_status_row(self) -> None:
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_RESPONSE)
+        dlg.value_edit.setText("api.example.com")
+        dlg.status_combo.setText("abc")
+        self.assertFalse(dlg.yesButton.isEnabled())
+        self.assertIn("状态码必须是整数", dlg.preview_label.text())
+
+    def test_a_method_with_whitespace_is_rejected(self) -> None:
+        """「GET /x」会顺着 method 写进报文行，必须挡住。"""
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_REQUEST)
+        dlg.value_edit.setText("api.example.com")
+        dlg.method_edit.setText("GET /x")
+        self.assertFalse(dlg.yesButton.isEnabled())
+        self.assertIn("请求方法不能含空白字符", dlg.preview_label.text())
+
+    def test_body_content_keeps_its_trailing_newline(self) -> None:
+        dlg = self.dialog()
+        self.pick(dlg, RewriteKind.REPLACE_RESPONSE)
+        dlg.value_edit.setText("api.example.com")
+        dlg.message_body.set_text('{"a": 1}\n')
+        self.assertEqual(dlg.get_rule().replacement, '{"a": 1}\n')
+
+    def test_field_content_is_carried_into_the_message_body(self) -> None:
+        """改错类型不必重打：字段型的「重写为」内容切到替换类还在。"""
+        dlg = self.dialog()
+        dlg.replacement_edit.setText('{"ok": true}')
+        self.pick(dlg, RewriteKind.REPLACE_RESPONSE)
+        self.assertEqual(dlg.get_rule().replacement, '{"ok": true}')
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import asyncio
 
 from ferret.core.mitm.addons import (
     CertDownloadAddon,
+    FerretRewriteAddon,
     FerretTlsConfig,
     GatewayL4Addon,
     GatewayL7Addon,
@@ -18,11 +19,7 @@ from ferret.core.mitm.bindings import (
     Core,
     DisableH2C,
     DnsResolver,
-    MapLocal,
-    MapRemote,
     Master,
-    ModifyBody,
-    ModifyHeaders,
     NextLayer,
     Options,
     Proxyserver,
@@ -53,10 +50,9 @@ class FerretMaster(Master):
         self.readfile = ReadFile()
         self.client_playback = ClientPlayback()
         self.gateway = GatewayState()
-        self.map_remote = MapRemote()
-        self.map_local = MapLocal()
-        self.modify_body = ModifyBody()
-        self.modify_headers = ModifyHeaders()
+        # 自研统一重写引擎（plans/rewrite-ui.md）：原生 MapRemote / MapLocal /
+        # ModifyBody / ModifyHeaders 四件退役，八个类型一个 addon、行序＝执行序。
+        self.rewrite = FerretRewriteAddon()
         # 固定会话（StickyCookie / StickyAuth）：默认关，开关在设置页。排在重写类
         # 之后 —— 代理补回的 Cookie / Authorization 要压过用户对同名头的重写规则，
         # 否则「会话不丢」这条承诺会被自己的重写页拆台；排在 View 之前 —— 流量表
@@ -91,14 +87,11 @@ class FerretMaster(Master):
             # ignore_hosts 选项上，没有代码。
             GatewayL4Addon(self.gateway),
             NextLayer(),
-            # 四个重写 addon 的相对次序对齐原生 default_addons()
-            # （next_layer → mapremote → maplocal → modifybody → modifyheaders
-            # → save → tlsconfig）。同时保证它们早于 View.request：流量表第一次
-            # 上屏拿到的就已经是重写后的 URL/报文，不会先闪一下原始值。
-            self.map_remote,
-            self.map_local,
-            self.modify_body,
-            self.modify_headers,
+            # 自研重写件顶替原生四件的原链位（next_layer → rewrite → save →
+            # tlsconfig，对齐原生 default_addons() 的相对位置）。同时保证它早于
+            # View.request：流量表第一次上屏拿到的就已经是重写后的 URL/报文，
+            # 不会先闪一下原始值。
+            self.rewrite,
             self.sticky_cookie,
             self.sticky_auth,
             self.tls_config,

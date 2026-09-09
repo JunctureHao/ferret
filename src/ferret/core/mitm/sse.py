@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import HTTPFlow
+from ferret.core.mitm.rewrite import REWRITE_ANSWERED_KEY
 
 if TYPE_CHECKING:
     from ferret.core.mitm.runtime import MitmRuntime
@@ -316,6 +317,11 @@ class FerretSseAddon:
         if response is None or not is_event_stream(
             response.headers.get("content-type")
         ):
+            return
+        # 已被重写引擎（文件映射 / 替换响应）就地作答的流量：mitmproxy 对预作答
+        # 也会 emulate 一次 `responseheaders`，而静态替换体哪怕是 text/event-stream
+        # 也不是流式语义，tee 没有意义还会把整条响应钉在流式管道上（§13 风险一）。
+        if flow.metadata.get(REWRITE_ANSWERED_KEY):
             return
         # 断点拦在响应期时 stream 已开始向客户端转发（原生行为如此）——但断点拦的是
         # `response` 钩子，而 `responseheaders` 更早，这里登记不受影响。

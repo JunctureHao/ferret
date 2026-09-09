@@ -12,139 +12,139 @@
 <context>
     <name>CaptureCommandBar</name>
     <message>
-        <location filename="../../apps/capture/views.py" line="562"/>
-        <location filename="../../apps/capture/views.py" line="691"/>
+        <location filename="../../apps/capture/views.py" line="570"/>
+        <location filename="../../apps/capture/views.py" line="699"/>
         <source>未捕获系统流量</source>
         <translation>Idle</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="566"/>
+        <location filename="../../apps/capture/views.py" line="574"/>
         <source>代理监听地址</source>
         <translation>Proxy listen address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="572"/>
+        <location filename="../../apps/capture/views.py" line="580"/>
         <source>局域网</source>
         <translation>LAN</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="574"/>
+        <location filename="../../apps/capture/views.py" line="582"/>
         <source>局域网设备可连接</source>
         <translation>Reachable from LAN devices</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="578"/>
-        <location filename="../../apps/capture/views.py" line="749"/>
-        <location filename="../../apps/capture/views.py" line="795"/>
+        <location filename="../../apps/capture/views.py" line="586"/>
+        <location filename="../../apps/capture/views.py" line="757"/>
+        <location filename="../../apps/capture/views.py" line="803"/>
         <source>{} 条</source>
         <translation>{} flow(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="582"/>
-        <location filename="../../apps/capture/views.py" line="583"/>
+        <location filename="../../apps/capture/views.py" line="590"/>
+        <location filename="../../apps/capture/views.py" line="591"/>
         <source>高级搜索</source>
         <translation>Advanced search</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="585"/>
-        <location filename="../../apps/capture/views.py" line="586"/>
+        <location filename="../../apps/capture/views.py" line="593"/>
+        <location filename="../../apps/capture/views.py" line="594"/>
         <source>加载 Flow 到当前列表</source>
         <translation>Load flows into the current list</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="593"/>
-        <location filename="../../apps/capture/views.py" line="594"/>
-        <location filename="../../apps/capture/views.py" line="675"/>
+        <location filename="../../apps/capture/views.py" line="601"/>
+        <location filename="../../apps/capture/views.py" line="602"/>
+        <location filename="../../apps/capture/views.py" line="683"/>
         <source>端口设置</source>
         <translation>Port settings</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="597"/>
-        <location filename="../../apps/capture/views.py" line="598"/>
+        <location filename="../../apps/capture/views.py" line="605"/>
+        <location filename="../../apps/capture/views.py" line="606"/>
         <source>环境设置</source>
         <translation>Environment settings</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="604"/>
-        <location filename="../../apps/capture/views.py" line="605"/>
+        <location filename="../../apps/capture/views.py" line="612"/>
+        <location filename="../../apps/capture/views.py" line="613"/>
         <source>定位选中</source>
         <translation>Locate selection</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="608"/>
-        <location filename="../../apps/capture/views.py" line="609"/>
+        <location filename="../../apps/capture/views.py" line="616"/>
+        <location filename="../../apps/capture/views.py" line="617"/>
         <source>开始捕获系统流量</source>
         <translation>Start capturing system traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="612"/>
-        <location filename="../../apps/capture/views.py" line="613"/>
+        <location filename="../../apps/capture/views.py" line="620"/>
+        <location filename="../../apps/capture/views.py" line="621"/>
         <source>清空当前流量</source>
         <translation>Clear current flows</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="694"/>
+        <location filename="../../apps/capture/views.py" line="702"/>
         <source>开始抓包</source>
         <translation>Start capturing</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="698"/>
+        <location filename="../../apps/capture/views.py" line="706"/>
         <source>启动中</source>
         <translation>Starting</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="701"/>
+        <location filename="../../apps/capture/views.py" line="709"/>
         <source>正在开启抓包会话</source>
         <translation>Starting the capture session</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="708"/>
+        <location filename="../../apps/capture/views.py" line="716"/>
         <source>停止抓包</source>
         <translation>Stop capturing</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="715"/>
+        <location filename="../../apps/capture/views.py" line="723"/>
         <source>正在停止抓包会话</source>
         <translation>Stopping the capture session</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="722"/>
+        <location filename="../../apps/capture/views.py" line="730"/>
         <source>重试抓包</source>
         <translation>Retry capturing</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="705"/>
+        <location filename="../../apps/capture/views.py" line="713"/>
         <source>正在捕获</source>
         <translation>Capturing</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="712"/>
+        <location filename="../../apps/capture/views.py" line="720"/>
         <source>停止中</source>
         <translation>Stopping</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="719"/>
+        <location filename="../../apps/capture/views.py" line="727"/>
         <source>启动失败</source>
         <translation>Failed</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="744"/>
+        <location filename="../../apps/capture/views.py" line="752"/>
         <source>本机通过 {} 接入；局域网设备也可连接</source>
         <translation>This machine connects via {}; LAN devices can connect too</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="746"/>
+        <location filename="../../apps/capture/views.py" line="754"/>
         <source>本机通过 {} 接入</source>
         <translation>This machine connects via {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="751"/>
-        <location filename="../../apps/capture/views.py" line="801"/>
+        <location filename="../../apps/capture/views.py" line="759"/>
+        <location filename="../../apps/capture/views.py" line="809"/>
         <source>{} / {} 条</source>
         <translation>{} / {} flow(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="756"/>
+        <location filename="../../apps/capture/views.py" line="764"/>
         <source>共 {} 条，当前显示 {} 条，已选 {} 条</source>
         <translation>{} total, {} shown, {} selected</translation>
     </message>
@@ -706,22 +706,22 @@
 <context>
     <name>ClearFlowsDialog</name>
     <message>
-        <location filename="../../apps/capture/views.py" line="835"/>
+        <location filename="../../apps/capture/views.py" line="843"/>
         <source>清空当前 {} 条流量？</source>
         <translation>Clear the current {} flow(s)?</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="838"/>
+        <location filename="../../apps/capture/views.py" line="846"/>
         <source>此操作无法撤销，但不会删除已保存的会话。</source>
         <translation>This cannot be undone, but saved sessions are not deleted.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="841"/>
+        <location filename="../../apps/capture/views.py" line="849"/>
         <source>清空</source>
         <translation>Clear</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="842"/>
+        <location filename="../../apps/capture/views.py" line="850"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
@@ -3212,54 +3212,54 @@
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="331"/>
+        <location filename="../../core/mitm/facade.py" line="340"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="382"/>
+        <location filename="../../core/mitm/facade.py" line="391"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="461"/>
-        <location filename="../../core/mitm/facade.py" line="626"/>
+        <location filename="../../core/mitm/facade.py" line="470"/>
+        <location filename="../../core/mitm/facade.py" line="635"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="633"/>
+        <location filename="../../core/mitm/facade.py" line="642"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="638"/>
-        <location filename="../../core/mitm/facade.py" line="707"/>
+        <location filename="../../core/mitm/facade.py" line="647"/>
+        <location filename="../../core/mitm/facade.py" line="716"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="656"/>
+        <location filename="../../core/mitm/facade.py" line="665"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="679"/>
+        <location filename="../../core/mitm/facade.py" line="688"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="681"/>
+        <location filename="../../core/mitm/facade.py" line="690"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="685"/>
+        <location filename="../../core/mitm/facade.py" line="694"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="721"/>
+        <location filename="../../core/mitm/facade.py" line="730"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
@@ -3272,22 +3272,22 @@
         <translation>The proxy could not start listening on its port</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="284"/>
+        <location filename="../../core/mitm/runtime.py" line="286"/>
         <source>端口 {} 已被占用</source>
         <translation>Port {} is already in use</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="579"/>
+        <location filename="../../core/mitm/runtime.py" line="586"/>
         <source>mitmproxy 内核停止超时，无法重启</source>
         <translation>The mitmproxy core did not stop in time, so it cannot restart</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="820"/>
+        <location filename="../../core/mitm/runtime.py" line="843"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="841"/>
+        <location filename="../../core/mitm/runtime.py" line="864"/>
         <source>mitmproxy 任务执行超时</source>
         <translation>The mitmproxy task timed out</translation>
     </message>
@@ -3339,119 +3339,119 @@
 <context>
     <name>ProxyPortDialog</name>
     <message>
-        <location filename="../../apps/capture/views.py" line="1108"/>
+        <location filename="../../apps/capture/views.py" line="1116"/>
         <source>抓包通道</source>
         <translation>Capture channels</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1112"/>
+        <location filename="../../apps/capture/views.py" line="1120"/>
         <source>系统代理（浏览器与多数桌面应用）</source>
         <translation>System proxy (browsers and most desktop apps)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1119"/>
+        <location filename="../../apps/capture/views.py" line="1127"/>
         <source>仅本机（{}）</source>
         <translation>This machine only ({})</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1120"/>
+        <location filename="../../apps/capture/views.py" line="1128"/>
         <source>局域网可访问（{}）</source>
         <translation>Reachable from LAN ({})</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1140"/>
-        <location filename="../../apps/capture/views.py" line="1141"/>
+        <location filename="../../apps/capture/views.py" line="1148"/>
+        <location filename="../../apps/capture/views.py" line="1149"/>
         <source>复制局域网地址</source>
         <translation>Copy LAN address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1144"/>
+        <location filename="../../apps/capture/views.py" line="1152"/>
         <source>来源限制</source>
         <translation>Source restrictions</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1148"/>
+        <location filename="../../apps/capture/views.py" line="1156"/>
         <source>拒绝来自公网的连接</source>
         <translation>Reject connections from the public internet</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1150"/>
+        <location filename="../../apps/capture/views.py" line="1158"/>
         <source>拒绝来自局域网的连接</source>
         <translation>Reject connections from the LAN</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1156"/>
+        <location filename="../../apps/capture/views.py" line="1164"/>
         <source>本地重定向（零配置、按进程）</source>
         <translation>Local redirect (zero-config, per-process)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1160"/>
+        <location filename="../../apps/capture/views.py" line="1168"/>
         <source>选择进程</source>
         <translation>Pick processes</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1169"/>
+        <location filename="../../apps/capture/views.py" line="1177"/>
         <source>WireGuard 隧道（手机等设备）</source>
         <translation>WireGuard tunnel (phones and other devices)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1174"/>
-        <location filename="../../apps/capture/views.py" line="1175"/>
+        <location filename="../../apps/capture/views.py" line="1182"/>
+        <location filename="../../apps/capture/views.py" line="1183"/>
         <source>查看客户端配置</source>
         <translation>View client configuration</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1179"/>
+        <location filename="../../apps/capture/views.py" line="1187"/>
         <source>更改立即生效</source>
         <translation>Changes apply immediately</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1334"/>
+        <location filename="../../apps/capture/views.py" line="1342"/>
         <source>WireGuard 隧道开启期间「拒绝局域网」暂停生效：隧道客户端来自 10.0.0.x 网段。</source>
         <translation>Reject-LAN is paused while the WireGuard tunnel is on: tunnel clients connect from the 10.0.0.x network.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1344"/>
+        <location filename="../../apps/capture/views.py" line="1352"/>
         <source>列表留空则截获全部进程；点右侧箭头展开勾选要截获的进程。开启此通道可能请求管理员授权（UAC）。</source>
         <translation>Leave the list empty to capture every process; expand the list to tick the ones to capture. Starting this channel may ask for administrator approval (UAC).</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1348"/>
+        <location filename="../../apps/capture/views.py" line="1356"/>
         <source>监听 UDP {}；开始抓包后把客户端配置复制到设备。</source>
         <translation>Listens on UDP {}; copy the client configuration to your device after starting a capture.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1186"/>
+        <location filename="../../apps/capture/views.py" line="1194"/>
         <source>监听地址</source>
         <translation>Listen address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1187"/>
+        <location filename="../../apps/capture/views.py" line="1195"/>
         <source>端口</source>
         <translation>Port</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1259"/>
+        <location filename="../../apps/capture/views.py" line="1267"/>
         <source>WireGuard 配置不可用</source>
         <translation>WireGuard configuration unavailable</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1303"/>
+        <location filename="../../apps/capture/views.py" line="1311"/>
         <source>本机始终通过 {}:{} 接入，切换监听地址只影响别的设备能否连进来。</source>
         <translation>This machine always connects via {}:{}; changing the listen address only affects whether other devices can reach it.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1311"/>
+        <location filename="../../apps/capture/views.py" line="1319"/>
         <source>局域网地址</source>
         <translation>LAN address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1318"/>
+        <location filename="../../apps/capture/views.py" line="1326"/>
         <source>未能识别，请在系统网络设置中查看</source>
         <translation>Not detected — check your system network settings</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1330"/>
+        <location filename="../../apps/capture/views.py" line="1338"/>
         <source>仅本机监听时不生效</source>
         <translation>No effect while listening on loopback only</translation>
     </message>
@@ -3551,22 +3551,37 @@
 <context>
     <name>RewriteController</name>
     <message>
-        <location filename="../../apps/rewrite/controllers.py" line="60"/>
+        <location filename="../../apps/rewrite/controllers.py" line="69"/>
         <source>已添加重写规则</source>
         <translation>Rewrite rule added</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/controllers.py" line="67"/>
+        <location filename="../../apps/rewrite/controllers.py" line="76"/>
         <source>已更新重写规则</source>
         <translation>Rewrite rule updated</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/controllers.py" line="74"/>
+        <location filename="../../apps/rewrite/controllers.py" line="83"/>
         <source>已删除 {} 条重写规则</source>
         <translation>Deleted {} rewrite rule(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/controllers.py" line="101"/>
+        <location filename="../../apps/rewrite/controllers.py" line="116"/>
+        <source>总开关未生效</source>
+        <translation>Master switch was not applied</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/controllers.py" line="121"/>
+        <source>重写已开启</source>
+        <translation>Rewrite enabled</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/controllers.py" line="121"/>
+        <source>重写已关闭</source>
+        <translation>Rewrite disabled</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/controllers.py" line="142"/>
         <source>规则未生效</source>
         <translation>The rules did not take effect</translation>
     </message>
@@ -3574,42 +3589,42 @@
 <context>
     <name>RewriteFields</name>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="47"/>
-        <location filename="../../apps/rewrite/models.py" line="48"/>
+        <location filename="../../apps/rewrite/models.py" line="64"/>
+        <location filename="../../apps/rewrite/models.py" line="65"/>
         <source>头名称</source>
         <translation>Header name</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="49"/>
-        <location filename="../../apps/rewrite/models.py" line="50"/>
+        <location filename="../../apps/rewrite/models.py" line="66"/>
+        <location filename="../../apps/rewrite/models.py" line="67"/>
         <source>体正则</source>
         <translation>Body pattern</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="54"/>
-        <location filename="../../apps/rewrite/models.py" line="94"/>
+        <location filename="../../apps/rewrite/models.py" line="71"/>
+        <location filename="../../apps/rewrite/models.py" line="111"/>
         <source>重写为</source>
         <translation>Rewrite to</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="55"/>
+        <location filename="../../apps/rewrite/models.py" line="72"/>
         <source>本地文件或目录</source>
         <translation>Local file or folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="56"/>
-        <location filename="../../apps/rewrite/models.py" line="57"/>
+        <location filename="../../apps/rewrite/models.py" line="73"/>
+        <location filename="../../apps/rewrite/models.py" line="74"/>
         <source>头值</source>
         <translation>Header value</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="58"/>
-        <location filename="../../apps/rewrite/models.py" line="59"/>
+        <location filename="../../apps/rewrite/models.py" line="75"/>
+        <location filename="../../apps/rewrite/models.py" line="76"/>
         <source>新内容</source>
         <translation>New content</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="84"/>
+        <location filename="../../apps/rewrite/models.py" line="101"/>
         <source>目标</source>
         <translation>Target</translation>
     </message>
@@ -3617,70 +3632,87 @@
 <context>
     <name>RewriteInterface</name>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="88"/>
-        <location filename="../../apps/rewrite/views.py" line="122"/>
+        <location filename="../../apps/rewrite/views.py" line="95"/>
+        <location filename="../../apps/rewrite/views.py" line="156"/>
         <source>新增规则</source>
         <translation>Add rule</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="91"/>
+        <location filename="../../apps/rewrite/views.py" line="98"/>
         <source>搜索规则</source>
         <translation>Search rules</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="98"/>
-        <location filename="../../apps/rewrite/views.py" line="241"/>
+        <location filename="../../apps/rewrite/views.py" line="119"/>
+        <location filename="../../apps/rewrite/views.py" line="292"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="104"/>
-        <location filename="../../apps/rewrite/views.py" line="272"/>
+        <location filename="../../apps/rewrite/views.py" line="125"/>
+        <location filename="../../apps/rewrite/views.py" line="339"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="117"/>
+        <location filename="../../apps/rewrite/views.py" line="131"/>
+        <source>已启用</source>
+        <translation>On</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/views.py" line="132"/>
+        <source>已停用</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/views.py" line="134"/>
+        <source>关闭后所有重写规则一律不生效，流量原样转发</source>
+        <translation>When off, no rewrite rule applies and traffic is forwarded untouched</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/views.py" line="151"/>
         <source>暂无重写规则</source>
         <translation>No rewrite rules yet</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="119"/>
+        <location filename="../../apps/rewrite/views.py" line="153"/>
         <source>可改写请求/响应的头与体，也可把请求重定向到别的地址或本地文件</source>
         <translation>Rewrite request and response headers or bodies, or redirect a request to another address or a local file.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="194"/>
+        <location filename="../../apps/rewrite/views.py" line="232"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="203"/>
+        <location filename="../../apps/rewrite/views.py" line="254"/>
         <source>新增重写规则</source>
         <translation>New rewrite rule</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="220"/>
+        <location filename="../../apps/rewrite/views.py" line="271"/>
         <source>编辑重写规则</source>
         <translation>Edit rewrite rule</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="249"/>
+        <location filename="../../apps/rewrite/views.py" line="300"/>
+        <location filename="../../apps/rewrite/views.py" line="325"/>
         <source>启用</source>
         <translation>Enable</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="249"/>
+        <location filename="../../apps/rewrite/views.py" line="300"/>
+        <location filename="../../apps/rewrite/views.py" line="332"/>
         <source>停用</source>
         <translation>Disable</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="260"/>
+        <location filename="../../apps/rewrite/views.py" line="311"/>
         <source>上移</source>
         <translation>Move up</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="266"/>
+        <location filename="../../apps/rewrite/views.py" line="317"/>
         <source>下移</source>
         <translation>Move down</translation>
     </message>
@@ -3688,50 +3720,60 @@
 <context>
     <name>RewriteKind</name>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="36"/>
+        <location filename="../../apps/rewrite/models.py" line="39"/>
         <source>重定向（远程）</source>
         <translation>Redirect (remote)</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="37"/>
+        <location filename="../../apps/rewrite/models.py" line="40"/>
         <source>重定向（本地）</source>
         <translation>Redirect (local)</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="38"/>
+        <location filename="../../apps/rewrite/models.py" line="41"/>
         <source>请求头</source>
         <translation>Request header</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="39"/>
+        <location filename="../../apps/rewrite/models.py" line="42"/>
         <source>响应头</source>
         <translation>Response header</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="40"/>
+        <location filename="../../apps/rewrite/models.py" line="43"/>
         <source>请求体</source>
         <translation>Request body</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="41"/>
+        <location filename="../../apps/rewrite/models.py" line="44"/>
         <source>响应体</source>
         <translation>Response body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/models.py" line="45"/>
+        <source>替换请求</source>
+        <translation>Replace request</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/models.py" line="46"/>
+        <source>替换响应</source>
+        <translation>Replace response</translation>
     </message>
 </context>
 <context>
     <name>RewriteLogic</name>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="64"/>
+        <location filename="../../apps/rewrite/models.py" line="81"/>
         <source>包含</source>
         <translation>Contains</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="65"/>
+        <location filename="../../apps/rewrite/models.py" line="82"/>
         <source>等于</source>
         <translation>Equals</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="66"/>
+        <location filename="../../apps/rewrite/models.py" line="83"/>
         <source>正则表达式</source>
         <translation>Regex</translation>
     </message>
@@ -3739,233 +3781,264 @@
 <context>
     <name>RewriteRule</name>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="126"/>
+        <location filename="../../apps/rewrite/models.py" line="150"/>
+        <source>{} 个头</source>
+        <translation>{} header(s)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/models.py" line="157"/>
+        <location filename="../../apps/rewrite/models.py" line="181"/>
         <source>读取文件 {}</source>
         <translation>Read from file {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="131"/>
+        <location filename="../../apps/rewrite/models.py" line="186"/>
         <source>（删除该头）</source>
         <translation>(remove this header)</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="133"/>
+        <location filename="../../apps/rewrite/models.py" line="188"/>
         <source>（清空）</source>
         <translation>(clear)</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="152"/>
-        <location filename="../../core/mitm/rewrite.py" line="358"/>
+        <location filename="../../apps/rewrite/models.py" line="207"/>
+        <location filename="../../core/mitm/rewrite.py" line="290"/>
         <source>本地文件或目录不能为空</source>
         <translation>The local file or folder cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="157"/>
-        <location filename="../../core/mitm/rewrite.py" line="388"/>
+        <location filename="../../apps/rewrite/models.py" line="214"/>
+        <location filename="../../core/mitm/rewrite.py" line="306"/>
         <source>请求头/响应头名称不能为空</source>
         <translation>The header name cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="140"/>
-        <source>无法为该规则挑选分隔符，请简化匹配值或重写目标</source>
-        <translation>No separator is left for this rule; simplify the match value or the rewrite target</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/rewrite.py" line="185"/>
+        <location filename="../../core/mitm/rewrite.py" line="112"/>
         <source>无效的重写目标：{}</source>
         <translation>Invalid rewrite target: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="213"/>
+        <location filename="../../core/mitm/rewrite.py" line="136"/>
+        <source>无效的 HTTP 状态码：{}</source>
+        <translation>Invalid HTTP status code: {}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/rewrite.py" line="175"/>
         <source>匹配值不能为空</source>
         <translation>Match value cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="230"/>
+        <location filename="../../core/mitm/rewrite.py" line="192"/>
         <source>重写目标不能为空</source>
         <translation>Rewrite target cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="271"/>
-        <source>暂不支持的重写类型：{}</source>
-        <translation>Unsupported rewrite type: {}</translation>
+        <location filename="../../core/mitm/rewrite.py" line="320"/>
+        <source>无效的体正则：{}</source>
+        <translation>Invalid body regex: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="288"/>
+        <location filename="../../core/mitm/rewrite.py" line="328"/>
+        <source>替换请求至少要填写方法、路径、请求头或请求体之一</source>
+        <translation>Replace request needs at least a method, path, header or body</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/rewrite.py" line="336"/>
+        <source>请求方法不能含空白字符</source>
+        <translation>HTTP method must not contain whitespace</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/rewrite.py" line="342"/>
+        <source>替换响应至少要填写状态码、响应头或响应体之一</source>
+        <translation>Replace response needs at least a status code, header or body</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/rewrite.py" line="262"/>
         <source>无效的匹配值：{}</source>
         <translation>Invalid match value: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="306"/>
-        <source>无法为该规则生成合法的过滤器：{}</source>
-        <translation>Could not build a valid filter for this rule: {}</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/rewrite.py" line="331"/>
+        <location filename="../../core/mitm/rewrite.py" line="277"/>
         <source>重写目标必须是带协议和主机名的完整 URL</source>
         <translation>The rewrite target must be a full URL with a scheme and a host</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="346"/>
-        <source>无法为该规则生成合法的重写表达式，请简化匹配值或重写目标</source>
-        <translation>Could not build a valid rewrite expression; simplify the match value or the rewrite target</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/rewrite.py" line="366"/>
+        <location filename="../../core/mitm/rewrite.py" line="296"/>
         <source>本地路径不存在或不可访问：{}（{}）</source>
         <translation>The local path does not exist or is unreadable: {} ({})</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="377"/>
-        <source>无法为该规则生成合法的重写表达式，请简化匹配值或本地路径</source>
-        <translation>Could not build a valid rewrite expression; simplify the match value or the local path</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/rewrite.py" line="392"/>
+        <location filename="../../core/mitm/rewrite.py" line="310"/>
         <source>请求头/响应头名称不能含换行</source>
         <translation>The header name cannot contain line breaks</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="406"/>
-        <source>无法为该规则生成合法的重写表达式，请简化匹配值或头名称</source>
-        <translation>Could not build a valid rewrite expression; simplify the match value or the header name</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/rewrite.py" line="423"/>
-        <source>无法为该规则生成合法的重写表达式，请简化匹配值或体正则</source>
-        <translation>Could not build a valid rewrite expression; simplify the match value or the body pattern</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/rewrite.py" line="441"/>
-        <source>重写表达式不合法：{}</source>
-        <translation>Invalid rewrite expression: {}</translation>
+        <location filename="../../apps/rewrite/dialogs.py" line="518"/>
+        <source>状态码必须是整数：{}</source>
+        <translation>Status code must be an integer: {}</translation>
     </message>
 </context>
 <context>
     <name>RewriteRuleDialog</name>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="64"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="67"/>
         <source>把 URL 中出现的这段文本换成重写目标，其余部分保持原样。</source>
         <translation>Replaces this text wherever it appears in the URL and leaves the rest untouched.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="68"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="71"/>
         <source>整条 URL 完全相同时才生效，重写目标需是带协议和主机名的完整 URL。</source>
         <translation>Applies only when the whole URL matches exactly; the rewrite target must be a full URL with scheme and host.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="72"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="75"/>
         <source>对整条 URL 做正则替换，重写目标里可用 \1、\g&lt;name&gt; 引用捕获组。</source>
         <translation>Runs a regex substitution over the whole URL; the rewrite target can reference capture groups with \1 or \g&lt;name&gt;.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="82"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="84"/>
         <source>URL 中出现这段文本即命中。</source>
         <translation>Matches when this text appears anywhere in the URL.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="85"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="87"/>
         <source>整条 URL 完全相同时才命中。</source>
         <translation>Matches only when the whole URL is exactly the same.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="88"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="90"/>
         <source>按正则匹配整条 URL，命中即生效。</source>
         <translation>Matches the whole URL by regex.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="95"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="97"/>
         <source>命中的请求在发出前改写目标地址，Host 请求头随之更新。</source>
         <translation>Matching requests get a new target address before they go out, and the Host header follows.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="99"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="101"/>
         <source>命中的请求不再发往服务器，直接用本地内容作答。路径**必须当下存在**（原生按 strict 解析），指向目录时按 URL 路径在目录内取同名文件。</source>
         <translation>Matching requests never reach the server; local content answers them instead. The path **must exist right now** (mitmproxy parses it strictly), and a folder is searched by the URL path for a file of the same name.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="110"/>
-        <source>命中时先删掉同名头、再按新值加回去；头值留空 = 只删不加。头值以 @ 开头会被当作**文件路径**读取内容（原生语义，因此无法下发真的以 @ 开头的头值）。\n、\t 等转义会被解码，要字面反斜杠请写 \\。</source>
-        <translation>On a match the header is removed first and then added back with the new value; an empty header value means remove only. A header value starting with @ is read as a **file path** (mitmproxy&apos;s own semantics, so a header value that really starts with @ cannot be sent). Escapes such as \n and \t are decoded; write \\ for a literal backslash.</translation>
+        <location filename="../../apps/rewrite/dialogs.py" line="112"/>
+        <source>命中时先删掉同名头、再按新值加回去；头值留空 = 只删不加。头值以 @ 开头会被当作**文件路径**读取内容（因此无法下发真的以 @ 开头的头值）。\n、\t 等转义会被解码，要字面反斜杠请写 \\。</source>
+        <translation>On match the named header is removed first, then re-added with the new value; an empty value = remove only. A value starting with @ is read from a **file path** (so a literal value starting with @ cannot be delivered). Escapes like \n and \t are decoded; write \\ for a literal backslash.</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="117"/>
-        <source>体正则留空 = 整体替换（实际下发 {}）；新内容留空 = 清空匹配到的内容。新内容是**字面量**，不支持 \1 反向引用（原生用 `lambda _: replacement` 做替换）；以 @ 开头会被当作**文件路径**读取内容。\n、\t 等转义会被解码，要字面反斜杠请写 \\。</source>
-        <translation>An empty body pattern replaces the whole body (it sends {} instead); empty new content clears whatever matched. New content is **literal**, so \1 back-references do not work (mitmproxy substitutes with `lambda _: replacement`), and content starting with @ is read as a **file path**. Escapes such as \n and \t are decoded; write \\ for a literal backslash.</translation>
+        <location filename="../../apps/rewrite/dialogs.py" line="119"/>
+        <source>体正则留空 = 整体替换（实际下发 {}）；新内容留空 = 清空匹配到的内容。新内容是**字面量**，不支持 \1 反向引用；以 @ 开头会被当作**文件路径**读取内容，每次请求现读。\n、\t 等转义会被解码，要字面反斜杠请写 \\。</source>
+        <translation>Empty body regex = replace the whole body ({} is delivered); empty content = clear the matched text. The content is a **literal**; \1 back-references are not supported. Content starting with @ is read from a **file path** on every request. Escapes like \n and \t are decoded; write \\ for a literal backslash.</translation>
     </message>
     <message>
         <location filename="../../apps/rewrite/dialogs.py" line="126"/>
+        <source>命中的请求在发出前按所填栏目逐项覆盖：方法、路径、头表、体；留空的栏保持原样，至少要填一项。体以 @ 开头会被当作**文件路径**读取内容，每次请求现读。</source>
+        <translation>Matching requests get the filled fields overridden before they are sent: method, path, headers, body; blank fields are left untouched, and at least one is required. A body starting with @ is read from a **file path** on every request.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/dialogs.py" line="133"/>
+        <source>命中的请求不再发往服务器，直接按状态码、头表、体整条作答，至少要填一项。体以 @ 开头会被当作**文件路径**读取内容，每次请求现读。手写二进制响应不支持——请改用「重定向（本地）」。</source>
+        <translation>Matching requests never reach the server; the response is served wholesale from the status code, headers and body, at least one of which is required. A body starting with @ is read from a **file path** on every request. Hand-written binary responses are not supported - use Map Local instead.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/dialogs.py" line="142"/>
         <source>留空 = 整体替换</source>
         <translation>Empty = replace the whole body</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="186"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="239"/>
         <source>选择本地文件或目录</source>
         <translation>Pick a local file or folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="206"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="273"/>
+        <source>方法</source>
+        <translation>Method</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/dialogs.py" line="274"/>
+        <source>路径</source>
+        <translation>Path</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/dialogs.py" line="275"/>
+        <source>状态码</source>
+        <translation>Status code</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/dialogs.py" line="276"/>
+        <source>头表</source>
+        <translation>Headers</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/dialogs.py" line="277"/>
+        <source>体</source>
+        <translation>Body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/rewrite/dialogs.py" line="285"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="207"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="286"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="224"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="305"/>
         <source>类型</source>
         <translation>Type</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="225"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="306"/>
         <source>匹配方式</source>
         <translation>Condition</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="226"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="307"/>
         <source>匹配 URL</source>
         <translation>Match URL</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="339"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="446"/>
         <source>选择文件</source>
         <translation>Pick a file</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="344"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="451"/>
         <source>选择目录</source>
         <translation>Pick a folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="351"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="458"/>
         <source>选择本地文件</source>
         <translation>Pick a local file</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="356"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="463"/>
         <source>选择本地目录</source>
         <translation>Pick a local folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="396"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="536"/>
         <source>匹配正则：{}</source>
         <translation>Match pattern: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="398"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="538"/>
         <source>替换为：{}</source>
         <translation>Rewrite to: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="400"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="540"/>
         <source>本地路径：{}</source>
         <translation>Local path: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="404"/>
-        <location filename="../../apps/rewrite/dialogs.py" line="407"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="546"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="549"/>
         <source>{}：{}</source>
         <translation>{}: {}</translation>
     </message>
@@ -3973,34 +4046,42 @@
 <context>
     <name>RewriteRuleTableModel</name>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="170"/>
+        <location filename="../../apps/rewrite/models.py" line="227"/>
         <source>启用</source>
         <translation>Enabled</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="171"/>
+        <location filename="../../apps/rewrite/models.py" line="228"/>
         <source>类型</source>
         <translation>Type</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="172"/>
+        <location filename="../../apps/rewrite/models.py" line="229"/>
         <source>匹配方式</source>
         <translation>Condition</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="173"/>
+        <location filename="../../apps/rewrite/models.py" line="230"/>
         <source>匹配 URL</source>
         <translation>Match URL</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="174"/>
+        <location filename="../../apps/rewrite/models.py" line="231"/>
         <source>目标</source>
         <translation>Target</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/models.py" line="175"/>
+        <location filename="../../apps/rewrite/models.py" line="232"/>
         <source>重写为</source>
         <translation>Rewrite to</translation>
+    </message>
+</context>
+<context>
+    <name>RewriteView</name>
+    <message>
+        <location filename="../../apps/rewrite/views.py" line="39"/>
+        <source>全部类型</source>
+        <translation>All kinds</translation>
     </message>
 </context>
 <context>
@@ -4474,12 +4555,12 @@
 <context>
     <name>WireGuardConfigDialog</name>
     <message>
-        <location filename="../../apps/capture/views.py" line="1378"/>
+        <location filename="../../apps/capture/views.py" line="1386"/>
         <source>WireGuard 客户端配置</source>
         <translation>WireGuard client configuration</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1384"/>
+        <location filename="../../apps/capture/views.py" line="1392"/>
         <source>在设备的 WireGuard 应用中导入此配置；该设备的全部流量将经由 Ferret。</source>
         <translation>Import this profile in the WireGuard app on your device; it routes all of that device&apos;s traffic through Ferret.</translation>
     </message>

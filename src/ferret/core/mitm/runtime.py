@@ -29,7 +29,7 @@ from ferret.core.mitm.gateway import (
 from ferret.core.mitm.intercept import InterceptRule, intercept_option_updates
 from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.modes import capture_mode_specs, validate_mode_specs
-from ferret.core.mitm.rewrite import RewriteRule, rewrite_option_updates
+from ferret.core.mitm.rewrite import RewriteRule, RewriteRuleSet
 from ferret.core.mitm.wsframe import latest_frame, ws_close
 from ferret.core.network import LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
@@ -228,16 +228,18 @@ class _MitmThread(QThread):
             log.warning("来源过滤开关无法应用，已忽略: %s", exc)
 
     def _apply_rewrite_rules(self, master: FerretMaster) -> None:
-        """Seed the rewrite options before serving traffic (on the mitm loop).
+        """Seed the rewrite snapshot before serving traffic (on the mitm loop).
 
-        `map_remote` 由 MapRemote.load 注册，构造 Options 时还不存在（实测
-        `addons.add()` 之前 `"map_remote" in options` 为 False），只能等 Master
-        建好之后再写 —— 和 `block_global` 完全同一个约束。
+        自研件不吃选项（原生四件退役后 ``rewrite_option_updates`` 一并拆除），
+        快照在这里编译（编译不碰任何线程绑定资源）并注入 addon —— 编译失败记
+        日志忽略：规则是整批下发的，一条坏规则不该拖死内核启动。
         """
         try:
-            master.options.update(**rewrite_option_updates(self.runtime.rewrite_rules))
-        except (ValueError, OptionsError) as exc:
+            snapshot = RewriteRuleSet(self.runtime.rewrite_rules)
+        except ValueError as exc:
             log.warning("重写规则无法应用，已忽略: %s", exc)
+            return
+        master.rewrite.set_rules(snapshot, enabled=self.runtime.rewrite_enabled)
 
     def _apply_intercept_rules(self, master: FerretMaster) -> None:
         """Seed the breakpoint option before serving traffic (on the mitm loop).
@@ -367,6 +369,11 @@ class MitmRuntime(QObject):
         self.gateway_rules: list[GatewayRule] = []
         self.gateway_enabled = True
         self.rewrite_rules: list[RewriteRule] = []
+        # 重写总开关：关掉后自研件对所有流量一律不判（网关规则模式，见
+        # apply_rewrite_rules）。刻意**不落盘**（plans/rewrite-ui.md §8：
+        # settings.py 零改动）—— 每次启动都是开，「临时下发空规则」的语义由
+        # 这个内存位承担，不碰各行规则的 enabled 落盘值。
+        self.rewrite_enabled = True
         self.intercept_rules: list[InterceptRule] = []
         # 断点默认**关**：拦截会把客户端连接一直钉住等人处理，一启动就生效等于用户
         # 还没打开界面、流量就先卡住了。开关由界面显式打开（见 core/settings.py 的
@@ -652,26 +659,42 @@ class MitmRuntime(QObject):
             return 0
         return int(self.call(lambda: master.gateway.release_all()))
 
-    def apply_rewrite_rules(self, rules: list[RewriteRule] | None = None) -> None:
-        """Store rewrite rules and push them to the Master when one is running.
+    def apply_rewrite_rules(
+        self,
+        rules: list[RewriteRule] | None = None,
+        *,
+        enabled: bool | None = None,
+    ) -> None:
+        """Store rewrite rules and push them to the Master when one runs.
 
-        与 `apply_block_rules` 同构：specs 在提交任何东西之前就全部构造并过一遍原生
-        解析器，坏规则不会留下「内存副本已换、内核没收到」的状态。下发的 kwargs 恒
-        含全部重写选项，所以删光规则也会把对应选项清成空列表。
+        与 `apply_gateway_rules` 同构（网关规则模式）：规则快照在提交**任何**
+        东西之前就编译完（坏规则在这里抛，内存副本回滚），内核没跑就只存副本
+        （下次启动 `_apply_rewrite_rules` 补推），在跑则经 ``self.call`` 把预编译
+        快照换进自研 addon。总开关关掉时下发的 enabled=False 等价于空规则列表，
+        但各行规则的 enabled 落盘值原样保留。
+
+        Raises:
+            ValueError: 任何一条启用且填完的规则不合法（整批回滚，绝不留半套）。
         """
-        previous = self.rewrite_rules
+        previous = (self.rewrite_rules, self.rewrite_enabled)
         candidate = self.rewrite_rules if rules is None else list(rules)
-        updates = rewrite_option_updates(candidate)
-        self.rewrite_rules = candidate
+        wanted = self.rewrite_enabled if enabled is None else enabled
+        try:
+            snapshot = RewriteRuleSet(candidate)
+        except ValueError:
+            self.rewrite_rules, self.rewrite_enabled = previous
+            raise
+        self.rewrite_rules, self.rewrite_enabled = candidate, wanted
         master = self._master
         if not self.is_running or master is None:
             return
         try:
-            self.call(lambda: master.options.update(**updates))
-        except OptionsError as exc:
-            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
-            self.rewrite_rules = previous
-            raise ValueError(str(exc)) from exc
+            self.call(lambda: master.rewrite.set_rules(snapshot, enabled=wanted))
+        except Exception:
+            # call 只会抛 RuntimeError / TimeoutError 这类运行期故障；与网关
+            # 同一条纪律：下发失败内存副本回滚，界面显示的状态必须内核真收到了。
+            self.rewrite_rules, self.rewrite_enabled = previous
+            raise
 
     def apply_intercept_rules(
         self,

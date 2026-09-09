@@ -1,6 +1,6 @@
 """Rewrite-rule interface: toolbar + rule table."""
 
-from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, Slot
+from PySide6.QtCore import QCoreApplication, QModelIndex, QPoint, QSize, Qt, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -13,10 +13,13 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
+    ComboBox,
     FluentIcon,
+    IndicatorPosition,
     LineEdit,
     PushButton,
     RoundMenu,
+    SwitchButton,
     TableView,
     TransparentToolButton,
 )
@@ -26,17 +29,22 @@ from ferret.apps.common.info_bar import show_error, show_success
 from ferret.apps.rewrite.controllers import RewriteController
 from ferret.apps.rewrite.dialogs import RewriteRuleDialog
 from ferret.apps.rewrite.models import (
+    KIND_LABELS,
     RewriteRuleFilterProxyModel,
     RewriteRuleTableModel,
 )
+from ferret.core.mitm import RewriteKind
+from ferret.utils.i18n import QT_TRANSLATE_NOOP
+
+# 类型筛选下拉的第 0 项；其余项按 `RewriteKind` 枚举序跟在后面（§4.2）。
+_ALL_KINDS_MARKER = QT_TRANSLATE_NOOP("RewriteView", "全部类型")
 
 
 class RewriteInterface(QWidget):
-    """重写规则页：六种重写类型都由 mitmproxy 原生 addon 执行。
+    """重写规则页：八种重写类型由自研统一引擎执行（行序＝执行序）。
 
-    类型列与对话框的类型下拉都由 `RewriteKind` 生成，四个原生 addon
-    （MapRemote / MapLocal / ModifyHeaders / ModifyBody）分别承接重定向（远程）、
-    重定向（本地）、请求头/响应头、请求体/响应体。
+    类型列与对话框的类型下拉都由 `RewriteKind` 生成；工具栏带类型筛选、
+    批量启停走右键菜单、总开关在最右（Fluent 改版清单 §4）。
     """
 
     def __init__(self, controller: RewriteController, parent=None):
@@ -92,6 +100,20 @@ class RewriteInterface(QWidget):
         self.search_edit.setFixedHeight(32)
         self.search_edit.setClearButtonEnabled(True)
 
+        # 类型筛选（§4.2）：与文字搜索 AND。文案表只存标记，使用点求值。
+        self.kind_combo = ComboBox(bar)
+        self.kind_combo.addItem(
+            QCoreApplication.translate("RewriteView", _ALL_KINDS_MARKER)
+        )
+        self.kind_combo.addItems(
+            [
+                QCoreApplication.translate("RewriteKind", KIND_LABELS[kind])
+                for kind in RewriteKind
+            ]
+        )
+        self.kind_combo.setFixedHeight(32)
+        self.kind_combo.setCurrentIndex(0)
+
         self.edit_btn = TransparentToolButton(FluentIcon.EDIT, bar)
         self.edit_btn.setFixedSize(32, 32)
         self.edit_btn.setIconSize(QSize(18, 18))
@@ -104,10 +126,23 @@ class RewriteInterface(QWidget):
         self.delete_btn.setToolTip(self.tr("删除"))
         self.delete_btn.setEnabled(False)
 
+        # 总开关（§4.4）：Off ＝ 所有重写规则一律不生效，流量原样转发；
+        # 不碰各行规则的 enabled 落盘值。
+        self.enable_switch = SwitchButton(bar, IndicatorPosition.LEFT)
+        self.enable_switch.setOnText(self.tr("已启用"))
+        self.enable_switch.setOffText(self.tr("已停用"))
+        self.enable_switch.setToolTip(
+            self.tr("关闭后所有重写规则一律不生效，流量原样转发")
+        )
+        self._sync_switch(self.controller.enabled)
+
         layout.addWidget(self.add_btn)
         layout.addWidget(self.search_edit, 1)
+        layout.addWidget(self.kind_combo)
         layout.addWidget(self.edit_btn)
         layout.addWidget(self.delete_btn)
+        layout.addSpacing(6)
+        layout.addWidget(self.enable_switch)
         return bar
 
     def __build_empty_page(self) -> QWidget:
@@ -140,12 +175,15 @@ class RewriteInterface(QWidget):
         self.edit_btn.clicked.connect(self._on_edit)
         self.delete_btn.clicked.connect(self._on_delete)
         self.search_edit.textChanged.connect(self._on_search_changed)
+        self.kind_combo.currentIndexChanged.connect(self._on_kind_filter_changed)
+        self.enable_switch.checkedChanged.connect(self.controller.set_rewrite_enabled)
         self.table.doubleClicked.connect(self._on_row_activated)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
         self.table.selectionModel().selectionChanged.connect(self._update_action_state)
 
         self.source_model.enabled_toggled.connect(self.controller.set_enabled)
         self.controller.rules_changed.connect(self._on_rules_changed)
+        self.controller.enabled_changed.connect(self._sync_switch)
         self.controller.operation_failed.connect(self._on_operation_failed)
         self.controller.operation_succeeded.connect(self._on_operation_succeeded)
 
@@ -182,6 +220,7 @@ class RewriteInterface(QWidget):
     @Slot(list)
     def _on_rules_changed(self, rules: list):
         self.source_model.set_rules(rules)
+        self._sync_switch(self.controller.enabled)
         self._update_content_state()
         self._update_action_state()
 
@@ -197,6 +236,19 @@ class RewriteInterface(QWidget):
     def _on_search_changed(self, text: str):
         self.proxy_model.set_filter_text(text)
         self._update_action_state()
+
+    @Slot(int)
+    def _on_kind_filter_changed(self, index: int):
+        """下拉第 0 项 = 全部类型；其余按 `RewriteKind` 枚举序一一对应。"""
+        kind = RewriteKind(index - 1) if index > 0 else None
+        self.proxy_model.set_filter_kind(kind)
+        self._update_action_state()
+
+    def _sync_switch(self, enabled: bool):
+        """总开关与控制器状态对齐；blockedSignals 防止回环触发 checkedChanged。"""
+        self.enable_switch.blockSignals(True)
+        self.enable_switch.setChecked(enabled)
+        self.enable_switch.blockSignals(False)
 
     @Slot()
     def _on_add(self):
@@ -253,7 +305,7 @@ class RewriteInterface(QWidget):
                     lambda: self.controller.set_enabled(row, target)
                 )
                 menu.addAction(toggle_action)
-            # 顺序即生效顺序：四个原生 addon 都对同一条流量逐条作用（不是命中即停），
+            # 顺序即生效顺序：自研引擎对同一条流量逐条作用（没有短路），
             # 所以上下移动是有语义的操作，不只是排版。
             total = len(self.controller.rules)
             up_action = BaseAction(
@@ -268,6 +320,22 @@ class RewriteInterface(QWidget):
             down_action.setEnabled(row < total - 1)
             down_action.triggered.connect(lambda: self.controller.move_rule(row, 1))
             menu.addAction(down_action)
+        elif len(rows) > 1:
+            # 批量启停（§4.3）：多选时给两个动作，一次 `_commit` 整批下发。
+            enable_action = BaseAction(
+                icon=FluentIcon.VIEW, text=self.tr("启用"), parent=menu
+            )
+            enable_action.triggered.connect(
+                lambda: self.controller.set_rules_enabled(rows, True)
+            )
+            menu.addAction(enable_action)
+            disable_action = BaseAction(
+                icon=FluentIcon.HIDE, text=self.tr("停用"), parent=menu
+            )
+            disable_action.triggered.connect(
+                lambda: self.controller.set_rules_enabled(rows, False)
+            )
+            menu.addAction(disable_action)
         delete_action = BaseAction(
             icon=FluentIcon.DELETE, text=self.tr("删除"), parent=menu
         )

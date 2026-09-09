@@ -509,8 +509,9 @@ class FerretMasterGatewayOptionTests(unittest.TestCase):
         """`optmanager.rollback` 只认 ``OptionsError``；这是 `_push_gateway` 的兜底。"""
         good = l4(GatewayPolicy.BYPASS)
         self.master.options.update(**gateway_option_updates([good]))
+        # 原生四件退役后 map_remote 选项没了，用同样会抛 OptionsError 的坏 mode。
         with self.assertRaises(OptionsError):
-            self.master.options.update(ignore_hosts=[], map_remote=["not-a-valid-spec"])
+            self.master.options.update(ignore_hosts=[], mode=["not-a-valid-mode"])
         self.assertEqual(self.master.options.ignore_hosts, [good.pattern])
 
     def test_next_layer_is_the_addon_that_owns_these_options(self) -> None:
