@@ -44,6 +44,9 @@ class FakeRuntime(QObject):
         self.use_local = True
         self.local_spec = ""
         self.use_wireguard = True
+        self.use_reverse = False
+        self.reverse_target = ""
+        self.reverse_port = 8081
         self.channels_engaged = False
         self.health: dict = {}
         self.start_calls = 0
@@ -72,7 +75,14 @@ class FakeRuntime(QObject):
         self.channel_pushes += 1
 
     def apply_channels(
-        self, *, use_local=None, local_spec=None, use_wireguard=None
+        self,
+        *,
+        use_local=None,
+        local_spec=None,
+        use_wireguard=None,
+        use_reverse=None,
+        reverse_target=None,
+        reverse_port=None,
     ) -> None:
         if use_local is not None:
             self.use_local = use_local
@@ -80,6 +90,12 @@ class FakeRuntime(QObject):
             self.local_spec = local_spec
         if use_wireguard is not None:
             self.use_wireguard = use_wireguard
+        if use_reverse is not None:
+            self.use_reverse = use_reverse
+        if reverse_target is not None:
+            self.reverse_target = reverse_target
+        if reverse_port is not None:
+            self.reverse_port = reverse_port
         self.channel_pushes += 1
 
     def channel_health(self) -> dict:
@@ -150,10 +166,22 @@ class FakeFacade:
         self.runtime.set_channels_engaged(False)
 
     def set_channels(
-        self, *, use_local=None, local_spec=None, use_wireguard=None
+        self,
+        *,
+        use_local=None,
+        local_spec=None,
+        use_wireguard=None,
+        use_reverse=None,
+        reverse_target=None,
+        reverse_port=None,
     ) -> None:
         self.runtime.apply_channels(
-            use_local=use_local, local_spec=local_spec, use_wireguard=use_wireguard
+            use_local=use_local,
+            local_spec=local_spec,
+            use_wireguard=use_wireguard,
+            use_reverse=use_reverse,
+            reverse_target=reverse_target,
+            reverse_port=reverse_port,
         )
 
     def validate_local_spec(self, local_spec: str) -> None:

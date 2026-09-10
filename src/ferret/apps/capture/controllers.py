@@ -229,6 +229,18 @@ class CaptureController(QObject):
     def use_wireguard(self) -> bool:
         return self._mitm.use_wireguard
 
+    @property
+    def use_reverse(self) -> bool:
+        return self._mitm.use_reverse
+
+    @property
+    def reverse_target(self) -> str:
+        return self._mitm.reverse_target
+
+    @property
+    def reverse_port(self) -> int:
+        return self._mitm.reverse_port
+
     def system_proxy_enabled(self) -> bool:
         """「开始抓包」时是否挂系统代理（对话框勾选的持久化偏好）。"""
         return bool(CONFIG.get(CONFIG.system_proxy_enabled))
@@ -512,6 +524,9 @@ class CaptureController(QObject):
         use_local: bool,
         local_spec: str,
         use_wireguard: bool,
+        use_reverse: bool = False,
+        reverse_target: str = "",
+        reverse_port: int = 8081,
     ) -> None:
         """Commit the capture-channels dialog: persist, then hot-apply what is live.
 
@@ -527,9 +542,20 @@ class CaptureController(QObject):
         CONFIG.set(CONFIG.local_enabled, use_local)
         CONFIG.set(CONFIG.local_spec, local_spec)
         CONFIG.set(CONFIG.wireguard_enabled, use_wireguard)
+        # reverse 三参落盘：reverse 与 regular 共用 listen_host，端口由对话框
+        # 前置校验保证错开（apps/capture/views.py::__show_proxy_port_dialog
+        # 的 try 块之前），这里只走 CONFIG 持久化与 MitmFacade.set_channels。
+        CONFIG.set(CONFIG.reverse_enabled, use_reverse)
+        CONFIG.set(CONFIG.reverse_target, reverse_target)
+        CONFIG.set(CONFIG.reverse_port, reverse_port)
         # 提交意图：抓包中会顺带热更 mode 列表与 block 联动（runtime 内部处理）。
         self._mitm.set_channels(
-            use_local=use_local, local_spec=local_spec, use_wireguard=use_wireguard
+            use_local=use_local,
+            local_spec=local_spec,
+            use_wireguard=use_wireguard,
+            use_reverse=use_reverse,
+            reverse_target=reverse_target,
+            reverse_port=reverse_port,
         )
         self.channels_changed.emit()
 

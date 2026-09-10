@@ -181,7 +181,8 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.app.processEvents()
 
     def dialog(self, **overrides) -> ProxyPortDialog:
-        values = {
+        # 用 dict+** 解包便于覆盖式覆盖默认参数；ty 推不出 dict 值类型是预期的。
+        values: dict[str, object] = {
             "current_port": 8080,
             "parent": self.host,
             "is_running": False,
@@ -196,7 +197,7 @@ class ProxyPortDialogTests(unittest.TestCase):
             "wireguard_config": lambda: "[Interface]",
         }
         values.update(overrides)
-        dlg = ProxyPortDialog(**values)
+        dlg = ProxyPortDialog(**values)  # ty: ignore[invalid-argument-type]
         self.addCleanup(dlg.deleteLater)
         return dlg
 

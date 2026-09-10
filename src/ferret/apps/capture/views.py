@@ -32,6 +32,7 @@ from qfluentwidgets import (
     FluentIcon,
     InfoBadge,
     InfoBadgePosition,
+    LineEdit,
     ListWidget,
     MessageBoxBase,
     RoundMenu,
@@ -285,9 +286,40 @@ class CapturesInterface(QWidget):
             use_local=self.controller.use_local,
             local_spec=self.controller.local_spec,
             use_wireguard=self.controller.use_wireguard,
+            use_reverse=self.controller.use_reverse,
+            reverse_target=self.controller.reverse_target,
+            reverse_port=self.controller.reverse_port,
             wireguard_config=self.controller.wireguard_client_config,
         )
         if not w.exec():
+            return
+        # 端口撞车前置（plans/reverse-mode.md §3）：把最常见的撞车在对话框侧
+        # 拦下，给中文文案；内核拒绝→回滚（plan §7）仍是兜底。注意 reverse 与
+        # regular 共用 listen_host，撞端口必炸；reverse_port 还可能与
+        # WIREGUARD_PORT（UDP 侧）撞（reverse https 是 BOTH）。
+        reverse_port = w.get_reverse_port()
+        listen_port = w.get_port()
+        if w.get_use_reverse() and reverse_port == listen_port:
+            show_warning(
+                self.tr("抓包设置未生效"),
+                self.tr("反向代理端口 {} 与系统代理监听端口撞车，请换一个。").format(
+                    reverse_port
+                ),
+                self.window(),
+            )
+            return
+        if (
+            w.get_use_reverse()
+            and w.get_use_wireguard()
+            and reverse_port == WIREGUARD_PORT
+        ):
+            show_warning(
+                self.tr("抓包设置未生效"),
+                self.tr("反向代理端口 {} 与 WireGuard UDP 51820 撞车，请换一个。").format(
+                    reverse_port
+                ),
+                self.window(),
+            )
             return
         try:
             # 顺序有讲究：先提交通道（校验失败就整体中止，且抓包中重启端点前
@@ -297,10 +329,13 @@ class CapturesInterface(QWidget):
                 use_local=w.get_use_local(),
                 local_spec=w.get_local_spec(),
                 use_wireguard=w.get_use_wireguard(),
+                use_reverse=w.get_use_reverse(),
+                reverse_target=w.get_reverse_target(),
+                reverse_port=reverse_port,
             )
             self.controller.update_proxy_settings(
                 listen_host=w.get_listen_host(),
-                listen_port=w.get_port(),
+                listen_port=listen_port,
                 block_global=w.get_block_global(),
                 block_private=w.get_block_private(),
             )
@@ -440,13 +475,21 @@ class CapturesInterface(QWidget):
             parts.append(f"{label} ({spec})" if spec else label)
         if self.controller.use_wireguard:
             parts.append(self.tr("WireGuard :{}").format(WIREGUARD_PORT))
+        if self.controller.use_reverse:
+            target = self.controller.reverse_target
+            label = self.tr("反向代理 → {}").format(target or "—")
+            parts.append(label)
         return " · ".join(parts)
 
     def _channel_issue(self) -> str:
         errors = self.controller.channel_errors
         if not errors:
             return ""
-        names = {"local": self.tr("本地重定向"), "wireguard": self.tr("WireGuard")}
+        names = {
+            "local": self.tr("本地重定向"),
+            "wireguard": self.tr("WireGuard"),
+            "reverse": self.tr("反向代理"),
+        }
         return "; ".join(
             f"{names.get(key, key)}: {message}" for key, message in errors.items()
         )
@@ -1063,6 +1106,9 @@ class ProxyPortDialog(MessageBoxBase):
         use_local: bool = True,
         local_spec: str = "",
         use_wireguard: bool = True,
+        use_reverse: bool = False,
+        reverse_target: str = "",
+        reverse_port: int = 8081,
         wireguard_config: Callable[[], str] | None = None,
     ):
         """初始化代理监听设置对话框
@@ -1079,6 +1125,9 @@ class ProxyPortDialog(MessageBoxBase):
             use_local: 本地重定向通道是否启用
             local_spec: 本地重定向的进程过滤串
             use_wireguard: WireGuard 通道是否启用
+            use_reverse: 反向代理通道是否启用（.plans/reverse-mode.md）
+            reverse_target: 反向代理的目标 URL，如 https://example.com
+            reverse_port: 反向代理的独立监听端口
             wireguard_config: 取客户端配置文本的回调（None 表示按钮隐藏）
         """
         super().__init__(parent)
@@ -1094,6 +1143,9 @@ class ProxyPortDialog(MessageBoxBase):
             use_local,
             local_spec,
             use_wireguard,
+            use_reverse,
+            reverse_target,
+            reverse_port,
         )
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -1110,6 +1162,9 @@ class ProxyPortDialog(MessageBoxBase):
         use_local: bool,
         local_spec: str,
         use_wireguard: bool,
+        use_reverse: bool,
+        reverse_target: str,
+        reverse_port: int,
     ):
         """初始化界面组件"""
         self.title_label = SubtitleLabel(self)
@@ -1184,6 +1239,30 @@ class ProxyPortDialog(MessageBoxBase):
         self.wireguard_config_btn.setFixedSize(28, 26)
         self.wireguard_config_btn.setVisible(self._wireguard_config is not None)
 
+        # —— 反向代理通道（.plans/reverse-mode.md）：勾选框 + 目标 URL + 监听端口 ——
+        self.reverse_check = CheckBox(
+            self.tr("反向代理（把 ferret 架在目标服务前）"), self
+        )
+        self.reverse_check.setChecked(use_reverse)
+        self.reverse_target_edit = LineEdit(self)
+        self.reverse_target_edit.setText(reverse_target)
+        self.reverse_target_edit.setPlaceholderText(self.tr("https://example.com"))
+        self.reverse_port_spin = SpinBox(self)
+        self.reverse_port_spin.setRange(self.PORT_MIN, self.PORT_MAX)
+        self.reverse_port_spin.setValue(reverse_port)
+        self.reverse_port_spin.setSingleStep(1)
+        self.reverse_hint = CaptionLabel(self)
+        self.reverse_hint.setWordWrap(True)
+        # 提示明确说出两种访问方式：按域名（SNI → 目标证书）或按 IP（SNI 空
+        # → 监听口本地证书），避免用户对「签目标证书」的过度承诺（§0）。
+        self.reverse_hint.setText(
+            self.tr(
+                "客户端需信任 ferret CA 或关闭证书校验；"
+                "直连 http(s)://本机:端口 即被捕获。"
+                "按域名访问会签目标证书，按 IP 直连会签本机证书。"
+            )
+        )
+
         self.restart_hint = CaptionLabel(self.tr("更改立即生效"), self)
         self.restart_hint.setVisible(is_running)
 
@@ -1229,6 +1308,31 @@ class ProxyPortDialog(MessageBoxBase):
         layout.addWidget(self.local_spec_hint)
         layout.addLayout(wireguard_row)
         layout.addWidget(self.wireguard_hint)
+        # 反向代理（.plans/reverse-mode.md §6 布局图）：勾选 + 目标 URL 行 +
+        # 端口行 + hint。行结构与 ProxyPortDialog 既有 form 风格保持一致。
+        # 把两个行包进 QWidget：reverse 通道未启用时整体隐藏，避免矮窗口下被
+        # hint 行顶下来与上方 local_spec_hint 区域抢高度。
+        self.reverse_target_row = QWidget(self)
+        target_row_layout = QHBoxLayout(self.reverse_target_row)
+        target_row_layout.setContentsMargins(0, 0, 0, 0)
+        target_row_layout.setSpacing(6)
+        target_row_layout.addWidget(
+            BodyLabel(self.tr("目标 URL"), self), 0, Qt.AlignmentFlag.AlignVCenter
+        )
+        target_row_layout.addWidget(self.reverse_target_edit, 1)
+        self.reverse_port_row = QWidget(self)
+        port_row_layout = QHBoxLayout(self.reverse_port_row)
+        port_row_layout.setContentsMargins(0, 0, 0, 0)
+        port_row_layout.setSpacing(6)
+        port_row_layout.addWidget(
+            BodyLabel(self.tr("监听端口"), self), 0, Qt.AlignmentFlag.AlignVCenter
+        )
+        port_row_layout.addWidget(self.reverse_port_spin, 0)
+        port_row_layout.addStretch(1)
+        layout.addWidget(self.reverse_check)
+        layout.addWidget(self.reverse_target_row)
+        layout.addWidget(self.reverse_port_row)
+        layout.addWidget(self.reverse_hint)
         layout.addWidget(self.restart_hint)
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(440)
@@ -1240,6 +1344,9 @@ class ProxyPortDialog(MessageBoxBase):
         self.local_check.toggled.connect(self._sync_exposure)
         self.wireguard_check.toggled.connect(self._sync_exposure)
         self.wireguard_config_btn.clicked.connect(self._show_wireguard_config)
+        # 反向代理通道：勾选 / 端口 / 目标都会影响参数可用性与撞车提示。
+        self.reverse_check.toggled.connect(self._sync_exposure)
+        self.reverse_port_spin.valueChanged.connect(self._sync_exposure)
 
     def get_use_system_proxy(self) -> bool:
         """「开始抓包」时是否挂系统代理。"""
@@ -1256,6 +1363,18 @@ class ProxyPortDialog(MessageBoxBase):
     def get_use_wireguard(self) -> bool:
         """是否启用 WireGuard 通道。"""
         return self.wireguard_check.isChecked()
+
+    def get_use_reverse(self) -> bool:
+        """是否启用反向代理通道（.plans/reverse-mode.md）。"""
+        return self.reverse_check.isChecked()
+
+    def get_reverse_target(self) -> str:
+        """反向代理的目标 URL（含 http(s):// 前缀与端口），原样返回，校验交给控制器。"""
+        return self.reverse_target_edit.text().strip()
+
+    def get_reverse_port(self) -> int:
+        """反向代理的独立监听端口。"""
+        return self.reverse_port_spin.value()
 
     def _show_wireguard_config(self) -> None:
         if self._wireguard_config is None:
@@ -1305,6 +1424,12 @@ class ProxyPortDialog(MessageBoxBase):
         port = self.port_spin.value()
         wireguard_on = self.get_use_wireguard()
         local_on = self.get_use_local()
+        reverse_on = self.get_use_reverse()
+        # reverse 启用时「绑定非环回」才会触发 block_private 让路（与内核
+        # runtime._effective_block_private 同式：reverse_yield = use_reverse and
+        # listen_host == ANY_HOST，plans/reverse-mode.md §4）。reverse 绑环回
+        # 时让路条件不成立，block_private 走原值，与本地客户端无关。
+        reverse_yield = reverse_on and exposed
 
         self.local_hint.setText(
             self.tr(
@@ -1330,10 +1455,12 @@ class ProxyPortDialog(MessageBoxBase):
         # 原生 Block 无条件放行。置灰但保留勾选状态，切回局域网时用户的偏好还在。
         # wireguard 开着时 block_private 必须让路：隧道客户端全部来自 10.0.0.x，
         # 原生 Block 会把它们当「局域网来源」全杀（内核侧已自动豁免，这里同步置灰
-        # 免得用户以为勾选生效了）。
+        # 免得用户以为勾选生效了）；reverse 开启且绑非环回时同理。
         self.block_global_check.setEnabled(exposed)
-        self.block_private_check.setEnabled(exposed and not wireguard_on)
-        self.source_hint.setVisible(not exposed or wireguard_on)
+        self.block_private_check.setEnabled(
+            exposed and not wireguard_on and not reverse_yield
+        )
+        self.source_hint.setVisible(not exposed or wireguard_on or reverse_yield)
         if not exposed:
             self.source_hint.setText(self.tr("仅本机监听时不生效"))
         elif wireguard_on:
@@ -1341,6 +1468,10 @@ class ProxyPortDialog(MessageBoxBase):
                 self.tr(
                     "WireGuard 隧道开启期间「拒绝局域网」暂停生效：隧道客户端来自 10.0.0.x 网段。"
                 )
+            )
+        elif reverse_yield:
+            self.source_hint.setText(
+                self.tr("反向代理开启且监听地址可被局域网访问期间，「拒绝局域网」暂停生效。")
             )
 
         # 进程列表随通道勾选显隐；展开态由 local_row 的 ▾ 按钮控制。
@@ -1358,6 +1489,41 @@ class ProxyPortDialog(MessageBoxBase):
             )
         )
         self.wireguard_config_btn.setEnabled(wireguard_on)
+
+        # 反向代理：勾选未启用时参数区置灰。目标 URL 与端口始终跟随勾选状态，
+        # 端口撞车提示只在启用时才有意义（§3）。wireguard 端口（51820/UDP）
+        # 与 reverse_port 撞车同样在启用时校验，避免 reverse https 的 UDP 侧
+        # 与 wireguard 撞地址。
+        self.reverse_check.setChecked(reverse_on)
+        self.reverse_target_edit.setEnabled(reverse_on)
+        self.reverse_port_spin.setEnabled(reverse_on)
+        # 通道未启用时整组子参数 + hint 一起隐掉：避免矮窗口下 reverse 行
+        # 顶高整体高度、与 local_spec_hint 区抢空间（test_short_window_shrinks）。
+        self.reverse_target_row.setVisible(reverse_on)
+        self.reverse_port_row.setVisible(reverse_on)
+        self.reverse_hint.setVisible(reverse_on)
+        if reverse_on:
+            reverse_port = self.reverse_port_spin.value()
+            if reverse_port == port:
+                self.reverse_hint.setText(
+                    self.tr(
+                        "端口 {} 与系统代理监听端口撞车，提交后内核会拒（已配置查重兜底）。"
+                    ).format(reverse_port)
+                )
+            elif reverse_port == WIREGUARD_PORT and wireguard_on:
+                self.reverse_hint.setText(
+                    self.tr(
+                        "端口 {} 与 WireGuard UDP 51820 撞车，提交后内核会拒。"
+                    ).format(reverse_port)
+                )
+            else:
+                self.reverse_hint.setText(
+                    self.tr(
+                        "客户端需信任 ferret CA 或关闭证书校验；"
+                        "直连 http(s)://本机:端口 即被捕获。"
+                        "按域名访问会签目标证书，按 IP 直连会签本机证书。"
+                    )
+                )
 
     def _copy_lan_address(self):
         if not self._lan_address:
