@@ -27,6 +27,7 @@ from qfluentwidgets import (
     Action,
     BodyLabel,
     CaptionLabel,
+    CardWidget,
     CheckBox,
     ComboBox,
     FluentIcon,
@@ -315,9 +316,9 @@ class CapturesInterface(QWidget):
         ):
             show_warning(
                 self.tr("抓包设置未生效"),
-                self.tr("反向代理端口 {} 与 WireGuard UDP 51820 撞车，请换一个。").format(
-                    reverse_port
-                ),
+                self.tr(
+                    "反向代理端口 {} 与 WireGuard UDP 51820 撞车，请换一个。"
+                ).format(reverse_port),
                 self.window(),
             )
             return
@@ -1192,10 +1193,7 @@ class ProxyPortDialog(MessageBoxBase):
         self.port_spin.setValue(current_port)
         self.port_spin.setSingleStep(1)
 
-        # 本机这条路径永远不变，写在最显眼的地方 —— 用户最容易误以为
-        # 放开监听之后系统代理也得跟着改。
-        self.local_hint = CaptionLabel(self)
-        self.local_hint.setWordWrap(True)
+        # 本机接入路径恒为环回，combo 选项文案已自解释，不再单列说明。
 
         self.lan_label = BodyLabel(self)
         self.lan_value = CaptionLabel(self)
@@ -1204,7 +1202,6 @@ class ProxyPortDialog(MessageBoxBase):
         self.lan_copy_btn.setAccessibleName(self.tr("复制局域网地址"))
         self.lan_copy_btn.setFixedSize(28, 28)
 
-        self.source_title = StrongBodyLabel(self.tr("来源限制"), self)
         # 文案用「拒绝」而不是「允许」：直接对应原生 Block addon 的语义
         # （勾上 = block_global/block_private 为真 = 杀掉该类来源的连接），
         # 不用在脑子里做一次取反。
@@ -1212,6 +1209,12 @@ class ProxyPortDialog(MessageBoxBase):
         self.block_global_check.setChecked(block_global)
         self.block_private_check = CheckBox(self.tr("拒绝来自局域网的连接"), self)
         self.block_private_check.setChecked(block_private)
+        # 让路原因放在 tooltip：hint 文案只留结论（一行），细节悬停可见。
+        self.block_private_check.setToolTip(
+            self.tr(
+                "WireGuard / 反向代理开启期间此项暂停生效：隧道客户端来自 10.0.0.x 网段。"
+            )
+        )
         self.source_hint = CaptionLabel(self)
         self.source_hint.setWordWrap(True)
 
@@ -1256,18 +1259,22 @@ class ProxyPortDialog(MessageBoxBase):
         # 提示明确说出两种访问方式：按域名（SNI → 目标证书）或按 IP（SNI 空
         # → 监听口本地证书），避免用户对「签目标证书」的过度承诺（§0）。
         self.reverse_hint.setText(
-            self.tr(
-                "客户端需信任 ferret CA 或关闭证书校验；"
-                "直连 http(s)://本机:端口 即被捕获。"
-                "按域名访问会签目标证书，按 IP 直连会签本机证书。"
-            )
+            self.tr("客户端需信任 ferret CA；按域名签目标证书，按 IP 直连签本机证书")
         )
 
         self.restart_hint = CaptionLabel(self.tr("更改立即生效"), self)
         self.restart_hint.setVisible(is_running)
 
     def __init_layout(self):
-        """初始化布局结构"""
+        """初始化布局结构：四个通道各一张卡片，视觉平级。"""
+        # 标题行：重启提示挪到标题右侧，不再是底部一条常态说明。
+        header_row = QHBoxLayout()
+        header_row.setSpacing(6)
+        header_row.addWidget(self.title_label)
+        header_row.addStretch(1)
+        header_row.addWidget(self.restart_hint, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # —— Card ① 系统代理 ——
         form = QFormLayout()
         form.setSpacing(8)
         form.addRow(BodyLabel(self.tr("监听地址"), self), self.host_combo)
@@ -1280,12 +1287,37 @@ class ProxyPortDialog(MessageBoxBase):
         lan_row.addStretch(1)
         form.addRow(self.lan_label, lan_row)
 
-        # 通道行：勾选框 + 文字同行，右缘放各自的参数按钮（▾ / 二维码）。
+        # 两个来源限制开关同行，省一行标题。
+        source_row = QHBoxLayout()
+        source_row.setSpacing(12)
+        source_row.addWidget(self.block_global_check)
+        source_row.addWidget(self.block_private_check)
+        source_row.addStretch(1)
+
+        card_system = CardWidget(self)
+        system_layout = QVBoxLayout(card_system)
+        system_layout.setSpacing(8)
+        system_layout.addWidget(self.system_proxy_check)
+        system_layout.addLayout(form)
+        system_layout.addLayout(source_row)
+        system_layout.addWidget(self.source_hint)
+
+        # —— Card ② 本地重定向 ——
+        # 通道行：勾选框 + 文字同行，右缘放折叠按钮（▾）。折叠按钮常驻可见，
+        # 不勾选通道也能提前展开挑选进程。
         local_row = QHBoxLayout()
         local_row.setSpacing(6)
         local_row.addWidget(self.local_check, 1)
         local_row.addWidget(self.local_fold_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        card_local = CardWidget(self)
+        local_layout = QVBoxLayout(card_local)
+        local_layout.setSpacing(8)
+        local_layout.addLayout(local_row)
+        local_layout.addWidget(self.local_spec_edit)
+        local_layout.addWidget(self.local_spec_hint)
+
+        # —— Card ③ WireGuard ——
         wireguard_row = QHBoxLayout()
         wireguard_row.setSpacing(6)
         wireguard_row.addWidget(self.wireguard_check, 1)
@@ -1293,23 +1325,13 @@ class ProxyPortDialog(MessageBoxBase):
             self.wireguard_config_btn, 0, Qt.AlignmentFlag.AlignVCenter
         )
 
-        layout = QVBoxLayout()
-        layout.setSpacing(8)
-        layout.addWidget(self.title_label)
-        layout.addWidget(self.system_proxy_check)
-        layout.addLayout(form)
-        layout.addWidget(self.local_hint)
-        layout.addWidget(self.source_title)
-        layout.addWidget(self.block_global_check)
-        layout.addWidget(self.block_private_check)
-        layout.addWidget(self.source_hint)
-        layout.addLayout(local_row)
-        layout.addWidget(self.local_spec_edit)
-        layout.addWidget(self.local_spec_hint)
-        layout.addLayout(wireguard_row)
-        layout.addWidget(self.wireguard_hint)
-        # 反向代理（.plans/reverse-mode.md §6 布局图）：勾选 + 目标 URL 行 +
-        # 端口行 + hint。行结构与 ProxyPortDialog 既有 form 风格保持一致。
+        card_wg = CardWidget(self)
+        wg_layout = QVBoxLayout(card_wg)
+        wg_layout.setSpacing(8)
+        wg_layout.addLayout(wireguard_row)
+        wg_layout.addWidget(self.wireguard_hint)
+
+        # —— Card ④ 反向代理（.plans/reverse-mode.md §6 布局图）——
         # 把两个行包进 QWidget：reverse 通道未启用时整体隐藏，避免矮窗口下被
         # hint 行顶下来与上方 local_spec_hint 区域抢高度。
         self.reverse_target_row = QWidget(self)
@@ -1327,13 +1349,24 @@ class ProxyPortDialog(MessageBoxBase):
         port_row_layout.addWidget(
             BodyLabel(self.tr("监听端口"), self), 0, Qt.AlignmentFlag.AlignVCenter
         )
-        port_row_layout.addWidget(self.reverse_port_spin, 0)
-        port_row_layout.addStretch(1)
-        layout.addWidget(self.reverse_check)
-        layout.addWidget(self.reverse_target_row)
-        layout.addWidget(self.reverse_port_row)
-        layout.addWidget(self.reverse_hint)
-        layout.addWidget(self.restart_hint)
+        # 与目标 URL 输入框等长：吃满行宽，不再右留一段 stretch。
+        port_row_layout.addWidget(self.reverse_port_spin, 1)
+
+        card_reverse = CardWidget(self)
+        reverse_layout = QVBoxLayout(card_reverse)
+        reverse_layout.setSpacing(8)
+        reverse_layout.addWidget(self.reverse_check)
+        reverse_layout.addWidget(self.reverse_target_row)
+        reverse_layout.addWidget(self.reverse_port_row)
+        reverse_layout.addWidget(self.reverse_hint)
+
+        layout = QVBoxLayout()
+        layout.setSpacing(12)
+        layout.addLayout(header_row)
+        layout.addWidget(card_system)
+        layout.addWidget(card_local)
+        layout.addWidget(card_wg)
+        layout.addWidget(card_reverse)
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(440)
 
@@ -1431,12 +1464,6 @@ class ProxyPortDialog(MessageBoxBase):
         # 时让路条件不成立，block_private 走原值，与本地客户端无关。
         reverse_yield = reverse_on and exposed
 
-        self.local_hint.setText(
-            self.tr(
-                "本机始终通过 {}:{} 接入，切换监听地址只影响别的设备能否连进来。"
-            ).format(LOOPBACK_HOST, port)
-        )
-
         self.lan_label.setVisible(exposed)
         self.lan_value.setVisible(exposed)
         self.lan_copy_btn.setVisible(exposed)
@@ -1462,31 +1489,23 @@ class ProxyPortDialog(MessageBoxBase):
         )
         self.source_hint.setVisible(not exposed or wireguard_on or reverse_yield)
         if not exposed:
-            self.source_hint.setText(self.tr("仅本机监听时不生效"))
+            self.source_hint.setText(self.tr("仅本机监听，不生效"))
         elif wireguard_on:
             self.source_hint.setText(
-                self.tr(
-                    "WireGuard 隧道开启期间「拒绝局域网」暂停生效：隧道客户端来自 10.0.0.x 网段。"
-                )
+                self.tr("WireGuard 开启期间「拒绝局域网」暂停生效")
             )
         elif reverse_yield:
-            self.source_hint.setText(
-                self.tr("反向代理开启且监听地址可被局域网访问期间，「拒绝局域网」暂停生效。")
-            )
+            self.source_hint.setText(self.tr("反向代理开启期间「拒绝局域网」暂停生效"))
 
-        # 进程列表随通道勾选显隐；展开态由 local_row 的 ▾ 按钮控制。
-        self.local_spec_edit.setVisible(local_on and self.local_spec_edit.is_expanded())
-        self.local_fold_btn.setVisible(local_on)
+        # 进程列表只看展开态（不勾选也能提前展开挑选进程）；提示仍随勾选显隐。
+        self.local_spec_edit.setVisible(self.local_spec_edit.is_expanded())
         self.local_spec_hint.setVisible(local_on)
         self.local_spec_hint.setText(
-            self.tr(
-                "列表留空则截获全部进程；点右侧箭头展开勾选要截获的进程。开启此通道可能请求管理员授权（UAC）。"
-            )
+            self.tr("留空即截获全部进程，启用时可能请求管理员授权")
         )
+        self.wireguard_hint.setVisible(wireguard_on)
         self.wireguard_hint.setText(
-            self.tr("监听 UDP {}；开始抓包后把客户端配置复制到设备。").format(
-                WIREGUARD_PORT
-            )
+            self.tr("监听 UDP {}，点右侧二维码导入客户端").format(WIREGUARD_PORT)
         )
         self.wireguard_config_btn.setEnabled(wireguard_on)
 
@@ -1519,9 +1538,7 @@ class ProxyPortDialog(MessageBoxBase):
             else:
                 self.reverse_hint.setText(
                     self.tr(
-                        "客户端需信任 ferret CA 或关闭证书校验；"
-                        "直连 http(s)://本机:端口 即被捕获。"
-                        "按域名访问会签目标证书，按 IP 直连会签本机证书。"
+                        "客户端需信任 ferret CA；按域名签目标证书，按 IP 直连签本机证书"
                     )
                 )
 

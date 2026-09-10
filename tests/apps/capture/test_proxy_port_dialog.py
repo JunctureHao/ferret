@@ -9,7 +9,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -201,9 +201,8 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.addCleanup(dlg.deleteLater)
         return dlg
 
-    def test_process_list_visibility_follows_the_local_channel(self) -> None:
-        """进程列表显隐：初始收起（use_local=True 但未展开）；▾ 按钮驱动开合；
-        取消勾选通道则整体隐藏。"""
+    def test_process_list_visibility_follows_the_expand_button(self) -> None:
+        """进程列表显隐只看展开态：折叠按钮常驻可见，不勾选通道也能展开挑选进程。"""
         dlg = self.dialog(use_local=True)
         dlg.show()
         self.app.processEvents()
@@ -217,10 +216,13 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(dlg.local_spec_edit.isVisible())
 
+        # 取消勾选通道：列表仍随展开态，折叠按钮不消失。
         dlg.local_check.setChecked(False)
         self.app.processEvents()
-        self.assertFalse(dlg.local_spec_edit.isVisible())
-        self.assertFalse(dlg.local_fold_btn.isVisible())
+        self.assertTrue(dlg.local_fold_btn.isVisible())
+        dlg.local_fold_btn.click()
+        self.app.processEvents()
+        self.assertTrue(dlg.local_spec_edit.isVisible())
 
     def _expanded_dialog_at(
         self, width: int, height: int, rows: int
@@ -242,8 +244,11 @@ class ProxyPortDialogTests(unittest.TestCase):
         钳回，下方兄弟件却按未钳回位置摆放——列表与文案叠画。"""
         dlg = self._expanded_dialog_at(962, 768, 8)
         lst = dlg.local_spec_edit
-        self.assertFalse(lst.geometry().intersects(dlg.local_spec_hint.geometry()))
-        self.assertFalse(lst.geometry().intersects(dlg.wireguard_check.geometry()))
+        # 列表与下方控件分属不同卡片，geometry() 的参考系不同，统一换算到全局。
+        lst_rect = QRect(lst.mapToGlobal(QPoint(0, 0)), lst.size())
+        for other in (dlg.local_spec_hint, dlg.wireguard_check):
+            other_rect = QRect(other.mapToGlobal(QPoint(0, 0)), other.size())
+            self.assertFalse(lst_rect.intersects(other_rect))
         self.assertLess(lst.height(), lst._full_height)
 
     def test_every_visible_row_receives_the_click(self) -> None:
@@ -317,13 +322,6 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.assertEqual(dlg.host_combo.currentIndex(), 0)
         self.assertEqual(dlg.get_listen_host(), LOOPBACK_HOST)
 
-    def test_local_hint_always_names_loopback(self) -> None:
-        """整个改动的核心：放开监听不改变本机接入路径，文案必须这么说。"""
-        for listen_host in (LOOPBACK_HOST, ANY_HOST):
-            with self.subTest(listen_host=listen_host):
-                dlg = self.dialog(listen_host=listen_host)
-                self.assertIn(f"{LOOPBACK_HOST}:8080", dlg.local_hint.text())
-
     def test_loopback_hides_the_lan_row(self) -> None:
         dlg = self.dialog(listen_host=LOOPBACK_HOST)
         dlg.show()
@@ -349,7 +347,6 @@ class ProxyPortDialogTests(unittest.TestCase):
         dlg = self.dialog(listen_host=ANY_HOST)
         dlg.port_spin.setValue(9100)
         self.assertEqual(dlg.lan_value.text(), "192.168.1.9:9100")
-        self.assertIn(f"{LOOPBACK_HOST}:9100", dlg.local_hint.text())
 
     def test_failed_probe_says_unknown_instead_of_guessing(self) -> None:
         """多网卡 / VPN 下探测会失败；不能显示一个连不上的地址让用户白试。"""
