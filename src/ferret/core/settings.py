@@ -157,6 +157,34 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 反向代理通道（.plans/reverse-mode.md）：把 ferret 架在目标服务前面，客户端
+    # 直连本监听口即被捕获。意图值落盘、接通位不落盘，与三条既有通道同一语义。
+    # 默认关且目标为空——与 local/wireguard 不同，它需要一个显式目标才有意义。
+    reverse_enabled = ConfigItem(
+        group="Proxy",
+        name="ReverseEnabled",
+        default=False,
+        validator=BoolValidator(),
+    )
+
+    # 伪装的目标服务，只接受 http(s)://host[:port]（提交前有前置校验，坏值过
+    # 不了对话框；历史落盘坏值由 validate_mode_specs 在开始抓包时兜底拦截）。
+    reverse_target = ConfigItem(
+        group="Proxy",
+        name="ReverseTarget",
+        default="",
+    )
+
+    # reverse 通道的独立监听端口。必须与 regular 监听端口不同（内核查重键是
+    # (host, port, proto)，两者 host 同源，撞端口必被拒），默认 8081 = 8080 + 1。
+    # 故意不挂 RangeValidator：手改成字符串的配置会让启动崩（listen_port 同款
+    # 决策），收敛交给 core/network.py 的 normalize_listen_port。
+    reverse_port = ConfigItem(
+        group="Proxy",
+        name="ReversePort",
+        default=8081,
+    )
+
     # 网关规则，存 list[dict]（见 core/mitm/gateway.py 的 GatewayRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

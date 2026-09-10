@@ -1,6 +1,6 @@
-"""Capture channel specs: the three ways traffic is allowed to reach the kernel.
+"""Capture channel specs: the four ways traffic is allowed to reach the kernel.
 
-三条通道对应原生 ``mode`` 选项（``mode_specs.ProxyMode``）里的条目，可任意组合：
+四条通道对应原生 ``mode`` 选项（``mode_specs.ProxyMode``）里的条目，可任意组合：
 
 - **系统代理（regular）** —— 内核的常驻底盘，负责监听 TCP 端口；本机客户端与
   局域网设备都连它。「开始/停止抓包」控制的是系统代理注册表与写入闸门，
@@ -10,6 +10,9 @@
   它不监听任何端口，spec 只认进程名 / PID（逗号分隔，``!`` 取反）。
 - **WireGuard（wireguard）** —— 内核作为 WireGuard 服务端收别的设备接入的流量；
   UDP 51820，密钥文件由上游写在 confdir（``wireguard.conf``）。
+- **反向代理（reverse）** —— 把 ferret 架在目标服务前面：客户端把监听口当
+  服务器直连，一个通道只指向一个固定目标（spec 写死，spec 语法与查重动机见
+  ``reverse_mode_spec``）。适配「客户端改不了代理配置」的场景。
 
 环回豁免是这套组合的安全边界：系统代理把本机流量送到 ``127.0.0.1:port``，而
 local 的 WinDivert 过滤器 ``!loopback && ...``（上游 main2.rs，本机
@@ -62,14 +65,49 @@ def wireguard_mode_spec() -> str:
     return f"wireguard@{WIREGUARD_HOST}:{WIREGUARD_PORT}"
 
 
+REVERSE_DEFAULT_PORT = 8081
+"""reverse 通道默认监听端口（regular 默认 8080 + 1，与内核查重错开）。"""
+
+
+def reverse_mode_spec(target: str, listen_host: str, listen_port: int) -> str:
+    """拼 ``reverse:<target>@<listen_host>:<listen_port>``。
+
+    ``@`` 地址必须显式：不带时上游回退全局 ``listen_host``/``listen_port``，
+    与 regular 撞同一地址被 ``proxyserver.configure`` 查重拒（查重键是
+    ``(host, port, proto)``，reverse https 是 tcp+udp 双侧）。这与 local 挂
+    ``@127.0.0.1:0`` 绕上游 #7063 的动机不同——这里是**主动**要独立端口，
+    上游修复后也**不能**随 local 一起移除。目标串只进 ``<target>`` 段，
+    ``http(s)://`` 前缀与坏 host 交给 ``validate_mode_specs`` 过原生解析器。
+    """
+    return f"reverse:{target.strip()}@{listen_host}:{listen_port}"
+
+
 def capture_mode_specs(
-    *, use_local: bool, local_spec: str, use_wireguard: bool
+    *,
+    use_local: bool,
+    local_spec: str,
+    use_wireguard: bool,
+    use_reverse: bool = False,
+    reverse_target: str = "",
+    reverse_port: int = REVERSE_DEFAULT_PORT,
+    listen_host: str = "",
 ) -> list[str]:
     """完整 ``mode`` 选项列表。
 
     regular 恒在第一位：它是系统代理与 compose 的底盘，其余通道按启用勾选拼接。
+    reverse 排在 local/wireguard 之前（紧跟 regular）：它与 regular 共用
+    ``listen_host``（一处管「谁能连进来」），spec 里的端口则由调用方保证错开。
+
+    ``listen_host`` 缺省 ``""`` 时是上游 ``ProxyMode.parse`` 的「绑所有地址」语义，
+    与 options.listen_host 的回退一致。真实调用（``MitmRuntime._mode_specs``）恒传
+    self.listen_host；测试里使用空串的等价性由 ``test_local_spec_carries_the_
+    duplicate_address_dodge`` 一类用例的 (host, port, proto) 三元组断言覆盖。
+    ``reverse_target`` 为空时不开 reverse——避免「勾上但目标没填」误把
+    ``reverse:@127.0.0.1:8081`` 这种空 spec 推进内核（ProxyMode.parse 会拒）。
     """
     specs = ["regular"]
+    if use_reverse and reverse_target.strip():
+        specs.append(reverse_mode_spec(reverse_target, listen_host, reverse_port))
     if use_local:
         specs.append(local_mode_spec(local_spec))
     if use_wireguard:

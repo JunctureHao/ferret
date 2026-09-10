@@ -104,7 +104,7 @@ class MitmFacade:
     def is_running(self) -> bool:
         return self.runtime.is_running
 
-    # —— 抓包通道（local / wireguard；regular 恒在，见 core/mitm/modes.py）——
+    # —— 抓包通道（local / wireguard / reverse；regular 恒在，见 core/mitm/modes.py）——
 
     @property
     def use_local(self) -> bool:
@@ -118,16 +118,36 @@ class MitmFacade:
     def use_wireguard(self) -> bool:
         return self.runtime.use_wireguard
 
+    @property
+    def use_reverse(self) -> bool:
+        return self.runtime.use_reverse
+
+    @property
+    def reverse_target(self) -> str:
+        return self.runtime.reverse_target
+
+    @property
+    def reverse_port(self) -> int:
+        return self.runtime.reverse_port
+
     def set_channels(
         self,
         *,
         use_local: bool | None = None,
         local_spec: str | None = None,
         use_wireguard: bool | None = None,
+        use_reverse: bool | None = None,
+        reverse_target: str | None = None,
+        reverse_port: int | None = None,
     ) -> None:
-        """Switch the local-redirect / WireGuard channels; hot-applies when running."""
+        """Switch the local-redirect / WireGuard / reverse channels; hot-applies when running."""
         self.runtime.apply_channels(
-            use_local=use_local, local_spec=local_spec, use_wireguard=use_wireguard
+            use_local=use_local,
+            local_spec=local_spec,
+            use_wireguard=use_wireguard,
+            use_reverse=use_reverse,
+            reverse_target=reverse_target,
+            reverse_port=reverse_port,
         )
 
     def engage_channels(self) -> None:

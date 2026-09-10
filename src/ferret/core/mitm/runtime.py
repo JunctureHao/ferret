@@ -31,7 +31,7 @@ from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.modes import capture_mode_specs, validate_mode_specs
 from ferret.core.mitm.rewrite import RewriteRule, RewriteRuleSet
 from ferret.core.mitm.wsframe import latest_frame, ws_close
-from ferret.core.network import LOOPBACK_HOST, normalize_listen_host
+from ferret.core.network import ANY_HOST, LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
 
 log = get_logger("mitmproxy")
@@ -369,6 +369,9 @@ class MitmRuntime(QObject):
         use_local: bool = False,
         local_spec: str = "",
         use_wireguard: bool = False,
+        use_reverse: bool = False,
+        reverse_target: str = "",
+        reverse_port: int = 8081,
         sticky_session_enabled: bool = False,
         anticache_plaintext: bool = False,
     ) -> None:
@@ -380,12 +383,20 @@ class MitmRuntime(QObject):
         self.block_global = block_global
         self.block_private = block_private
         # 抓包通道（见 core/mitm/modes.py）：local = 本地重定向、wireguard = VPN
-        # 隧道。类默认**全关** —— 直接构造 MitmRuntime 的场景（测试、兜底组合根）
-        # 不该一启动就弹 UAC；真实应用的默认全开由 CONFIG 种子决定（见
+        # 隧道、reverse = 反向代理（把 ferret 架在目标服务前面）。类默认**全关** ——
+        # 直接构造 MitmRuntime 的场景（测试、兜底组合根）不该一启动就弹 UAC 或
+        # 拉起陌生监听口；真实应用的默认全开由 CONFIG 种子决定（见
         # core/runtime.py::_build_mitm_runtime）。
         self.use_local = use_local
         self.local_spec = local_spec
         self.use_wireguard = use_wireguard
+        # reverse 三意图值（plans/reverse-mode.md §2/§3）：目标与端口落盘，激活
+        # 与否跟随 `use_reverse` + `channels_engaged` 两个开关。reverse 与
+        # regular 共用 self.listen_host（spec 里的 @ 地址），spec 端口由调用方
+        # 保证错开（对话框前置校验 + 内核查重兜底）。
+        self.use_reverse = use_reverse
+        self.reverse_target = reverse_target.strip()
+        self.reverse_port = reverse_port
         # 「抓包会话」是否接通：False 时 _mode_specs 只回 regular（应用启动态），
         # True 才把启用的通道拼进 mode 列表。与上面三个**意图值**分开 —— 停止
         # 会话只动这一位，用户的通道偏好原样保留，下次点开始照旧拼装。
@@ -446,6 +457,10 @@ class MitmRuntime(QObject):
             use_local=engaged and self.use_local,
             local_spec=self.local_spec,
             use_wireguard=engaged and self.use_wireguard,
+            use_reverse=engaged and self.use_reverse,
+            reverse_target=self.reverse_target,
+            reverse_port=self.reverse_port,
+            listen_host=self.listen_host,
         )
 
     def set_channels_engaged(self, engaged: bool) -> None:
@@ -485,12 +500,21 @@ class MitmRuntime(QObject):
         """下发 Block 选项时实际采用的 ``block_private`` 值。
 
         WireGuard 客户端全部来自 10.0.0.1/32（上游 ``WireGuardServerInstance`` 固定
-        分配的隧道网段），``block_private`` 开着会把它们当「局域网来源」全杀 ——
-        而原生 Block 对 LocalMode 连接已有豁免（block.py:35），环回也恒放行，所以
-        这里只需要为 wireguard 让路。用户配置的 ``block_private`` 原样保留在
-        ``self.block_private``，通道撤下后自动恢复，不丢用户偏好。
+        分配的隧道网段），reverse 绑非环回时局域网客户端会被原生 ``Block`` 当「局
+        域网来源」全杀 —— 这两条都必须在接通期内让路；其它情况按用户配置原值下发。
+        原生 Block 对 LocalMode 连接已有豁免（block.py:35），环回也恒放行，所以
+        这里不需要为 local 另写条件。
+
+        判据与 ``apps/capture/views.py::_sync_exposure`` 的 UI 让路条件同式（计划
+        §4/§6）——「绑定非环回」在 ferret 语境恒等于 ``listen_host == ANY_HOST``
+        （``LISTEN_HOSTS`` 只两个合法值，``OptionsValidator.correct`` 把野值纠回
+        环回）。engaged 闸门保证未接通时（应用启动态）不发生让路、保留配置原值。
+        用户配置的原值保留在 ``self.block_private``，通道撤下后自动恢复。
         """
-        return self.block_private and not (self.use_wireguard and self.channels_engaged)
+        reverse_yield = self.use_reverse and self.listen_host == ANY_HOST
+        return self.block_private and not (
+            self.channels_engaged and (self.use_wireguard or reverse_yield)
+        )
 
     def apply_channels(
         self,
@@ -498,8 +522,11 @@ class MitmRuntime(QObject):
         use_local: bool | None = None,
         local_spec: str | None = None,
         use_wireguard: bool | None = None,
+        use_reverse: bool | None = None,
+        reverse_target: str | None = None,
+        reverse_port: int | None = None,
     ) -> None:
-        """Switch the local-redirect / WireGuard channels on a running kernel.
+        """Switch the local-redirect / WireGuard / reverse channels on a running kernel.
 
         与 `apply_rewrite_rules` 同构：spec 在提交任何东西之前先过一遍原生解析器，
         坏值不会走到「内核已受理一半」。热更走 ``options.update(mode=...)`` ——
@@ -510,18 +537,38 @@ class MitmRuntime(QObject):
         Raises:
             ValueError: spec 不合法，或内核拒绝（超时/启动失败等，此时内存副本回滚）。
         """
-        previous = (self.use_local, self.local_spec, self.use_wireguard)
+        previous = (
+            self.use_local,
+            self.local_spec,
+            self.use_wireguard,
+            self.use_reverse,
+            self.reverse_target,
+            self.reverse_port,
+        )
         if use_local is not None:
             self.use_local = use_local
         if local_spec is not None:
             self.local_spec = local_spec.strip()
         if use_wireguard is not None:
             self.use_wireguard = use_wireguard
+        if use_reverse is not None:
+            self.use_reverse = use_reverse
+        if reverse_target is not None:
+            self.reverse_target = reverse_target.strip()
+        if reverse_port is not None:
+            self.reverse_port = reverse_port
         specs = self._mode_specs()
         try:
             validate_mode_specs(specs)
         except ValueError:
-            (self.use_local, self.local_spec, self.use_wireguard) = previous
+            (
+                self.use_local,
+                self.local_spec,
+                self.use_wireguard,
+                self.use_reverse,
+                self.reverse_target,
+                self.reverse_port,
+            ) = previous
             raise
 
         # block_private 要跟着让路（见 _effective_block_private）；这一步无先决
@@ -540,10 +587,24 @@ class MitmRuntime(QObject):
             )
         except OptionsError as exc:
             # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
-            (self.use_local, self.local_spec, self.use_wireguard) = previous
+            (
+                self.use_local,
+                self.local_spec,
+                self.use_wireguard,
+                self.use_reverse,
+                self.reverse_target,
+                self.reverse_port,
+            ) = previous
             raise ValueError(str(exc)) from exc
         except Exception:
-            (self.use_local, self.local_spec, self.use_wireguard) = previous
+            (
+                self.use_local,
+                self.local_spec,
+                self.use_wireguard,
+                self.use_reverse,
+                self.reverse_target,
+                self.reverse_port,
+            ) = previous
             raise
 
     def start(self) -> None:
@@ -827,8 +888,9 @@ class MitmRuntime(QObject):
         ``options.update(mode=...)`` 只保证 spec 语法合法并触发热启停，实例**启动**
         失败（UAC 拒绝、端口被占等）由原生 proxyserver 记日志吞掉，不会同步抛回。
         这里逐实例读 ``is_running`` / ``last_exception``，给界面一个可靠的「通道
-        真的起来了吗」。键是 ``local`` / ``wireguard``，只在对应通道启用时出现；
-        regular 由端口占用与 UiBridgeAddon.running 的全局探测兜底，不单列。
+        真的起来了吗」。键是 ``local`` / ``wireguard`` / ``reverse``，只在对应
+        通道启用时出现；regular 由端口占用与 UiBridgeAddon.running 的全局探测
+        兜底，不单列。
         """
         master = self._master
         if not self.is_running or master is None:
@@ -840,6 +902,8 @@ class MitmRuntime(QObject):
                 key = "local"
             elif spec.startswith("wireguard"):
                 key = "wireguard"
+            elif spec.startswith("reverse"):
+                key = "reverse"
             else:
                 continue
             health[key] = server.is_running

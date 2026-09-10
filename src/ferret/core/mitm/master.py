@@ -28,6 +28,7 @@ from ferret.core.mitm.bindings import (
     StickyAuth,
     StickyCookie,
     StripDnsHttpsRecords,
+    UpdateAltSvc,
     View,
 )
 from ferret.core.mitm.compose import ComposeAddon
@@ -107,6 +108,11 @@ class FerretMaster(Master):
             # 被断点拦下来。位置对齐原生 console master（intercept → view）。
             self.intercept,
             self.view,
+            # 反向代理通道（.plans/reverse-mode.md §5）：reverse 流被 `isinstance(
+            # ReverseMode)` 闸死，对非 reverse 流零副作用；位置在网关后、intercept
+            # 前，命中绕行的流到不了它（AddonHalt 截断在前），与原生 default_addons()
+            # 尾序（tlsconfig → upstream_auth → update_alt_svc）一致。常驻无开关。
+            UpdateAltSvc(),
             # 挂在 View 之后：摘除（record=False）要等 View 收录完再执行，靠
             # `loop.call_soon` 排在当前一轮钩子派发之后，次序与链上位置无关。
             self.compose,

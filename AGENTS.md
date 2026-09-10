@@ -49,6 +49,8 @@
 
 - CA：`certs.CertStore.from_store` / `Cert` 字段 / `Cert.to_pem()`；系统信任库只走 Windows `certutil`。
 
+- 反向代理模式：`mode_specs.ReverseMode` + `proxyserver.configure` 走原生 spec 通道，**不要**自实现 TCP/HTTP 转发；alt-svc 重写挂原生 `UpdateAltSvc`（仅 reverse 通道有效，master.py 挂载）。
+
 ## 3. 桥接红线（违反会崩溃/数据错乱）
 
 mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有三条：
@@ -85,7 +87,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 ## 5. 技术决策（勿推翻；详细理由见对应代码注释）
 
-- **三通道抓包**：regular + local + wireguard 任意组合并存，经 `options.update(mode=[...])` 热更（官方 `proxyserver` 路径）。local spec 必须挂 `@127.0.0.1:0` 占位（上游 #7063 查重缺陷，上游修复后可整体移除）。
+- **四通道抓包**：regular + local + wireguard + reverse 任意组合并存，经 `options.update(mode=[...])` 热更（官方 `proxyserver` 路径）。local spec 必须挂 `@127.0.0.1:0` 占位（上游 #7063 查重缺陷，上游修复后可整体移除）。reverse spec 必带 `reverse:https://target@host:port`，https 走 `BOTH`（TCP+UDP）防 alt-svc 落到裸 TCP 后通道对不上。
 
 - **不做 transparent / tun**：Windows 上游明文 unsupported、需整进程管理员、重定向端口硬编码 8080、随包分发 WinDivert 1.3.0；tun 在 Rust 侧 Linux-only。
 
@@ -93,7 +95,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - **守护进程拆除必须同步**：`MitmRuntime.stop` 在存活事件循环上同步 `_disarm_local_redirector`，`_run_master` 开场防御性再清一次（守护进程在进程外，内核停止会丢挂起任务，机理见 `runtime.py` 注释）。
 
-- **block\_private 为 wireguard 让路**：`_effective_block_private()` 在通道接通且 wireguard 开启时强制 False，用户配置值保留、回落即恢复。
+- **block\_private 为 wireguard / reverse 让路**：`_effective_block_private()` 在通道接通且 wireguard 或 reverse（且 `listen_host == ANY_HOST`）开启时强制 False，用户配置值保留、回落即恢复。
 
 - 通道实例启动失败（UAC 拒绝等）不被 `options.update` 同步抛出，只能延迟读 `channel_health`，控制器抓包中 1.5s 轮询一次。
 

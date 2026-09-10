@@ -47,6 +47,7 @@ uv run python -m ferret.utils.scripts
 | FlowExporter    | curl/httpie/raw 导出   | ✅   |
 | Compose         | 手工构造请求发送       | ✅   |
 | CertDownload    | 内置 CA 证书下载端点   | ✅   |
+| update_alt_svc  | 更新 alt-svc（仅反向代理模式生效，随 reverse 通道挂载） | ✅ |
 
 ## 流量修改类
 
@@ -63,7 +64,6 @@ uv run python -m ferret.utils.scripts
 | cut                     | 截断大 body               | ❌   |
 | disable_h2c             | 禁用 h2c 升级             |✅   |
 | strip_dns_https_records | 剥离 DNS HTTPS 记录       | ✅   |
-| update_alt_svc          | 更新 alt-svc              | ❌   |
 
 ## 重放 / 导入导出类
 

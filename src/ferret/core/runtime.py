@@ -48,6 +48,10 @@ class ApplicationRuntime(QObject):
             except RuntimeError:
                 pass
             local_spec = ""
+        # reverse 的目标串同样过原生解析器：落盘坏了就在这里退回空串，避免启动
+        # 即崩；与 local_spec 同款「坏值退回空比让启动失败友好」思路。
+        reverse_target = str(CONFIG.get(CONFIG.reverse_target) or "")
+        reverse_port = normalize_listen_port(CONFIG.get(CONFIG.reverse_port))
         return MitmRuntime(
             self,
             listen_host=normalize_listen_host(CONFIG.get(CONFIG.listen_host)),
@@ -57,6 +61,9 @@ class ApplicationRuntime(QObject):
             use_local=bool(CONFIG.get(CONFIG.local_enabled)),
             local_spec=local_spec,
             use_wireguard=bool(CONFIG.get(CONFIG.wireguard_enabled)),
+            use_reverse=bool(CONFIG.get(CONFIG.reverse_enabled)),
+            reverse_target=reverse_target,
+            reverse_port=reverse_port,
             sticky_session_enabled=bool(CONFIG.get(CONFIG.sticky_session_enabled)),
             anticache_plaintext=bool(CONFIG.get(CONFIG.anticache_plaintext)),
         )

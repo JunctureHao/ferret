@@ -1,6 +1,6 @@
 """Tests for capture channel specs (core/mitm/modes.py).
 
-三条通道的 spec 是界面与内核的唯一接口：这里守住拼装格式、坏值拦截、
+四条通道的 spec 是界面与内核的唯一接口：这里守住拼装格式、坏值拦截、
 WireGuard 客户端配置的生成格式（对齐上游 ``WireGuardServerInstance.client_conf``），
 以及 local 提权守护进程在内核停止/重启时的拆除时机。
 """
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QApplication
 from ferret.core.mitm import MitmRuntime
 from ferret.core.mitm.bindings import LocalRedirectorInstance, ProxyMode
 from ferret.core.mitm.modes import (
+    REVERSE_DEFAULT_PORT,
     WIREGUARD_PORT,
     LocalTarget,
     capture_mode_specs,
@@ -28,6 +29,7 @@ from ferret.core.mitm.modes import (
     list_local_targets,
     local_mode_spec,
     qr_matrix,
+    reverse_mode_spec,
     split_spec,
     validate_local_spec,
     validate_mode_specs,
@@ -355,6 +357,105 @@ class LocalTargetTests(unittest.TestCase):
         relaxed = list_local_targets(include_system=True)
         strict = list_local_targets()
         self.assertGreaterEqual(len(relaxed), len(strict))
+
+
+class ReverseModeSpecTests(unittest.TestCase):
+    """反向代理（.plans/reverse-mode.md）spec 组装与排他性的钉桩。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        QApplication.instance() or QApplication([])
+
+    def test_reverse_spec_always_carries_explicit_listen_address(self) -> None:
+        """``@`` 必须显式：不带时上游回退全局 listen_host/listen_port，
+        与 regular 撞同地址被 ``proxyserver.configure`` 查重拒。
+        计划定则 2 用一个回归测试钉死「组装函数恒带 ``@``」。
+        """
+        spec = reverse_mode_spec(
+            "https://example.com", "127.0.0.1", REVERSE_DEFAULT_PORT
+        )
+        self.assertEqual(spec, f"reverse:https://example.com@127.0.0.1:{REVERSE_DEFAULT_PORT}")
+        # 原生解析能过、scheme 与目标解析正确。
+        mode = ProxyMode.parse(spec)
+        self.assertEqual(mode.scheme, "https")
+        self.assertEqual(mode.address, ("example.com", 443))
+        self.assertEqual(mode.custom_listen_host, "127.0.0.1")
+        self.assertEqual(mode.custom_listen_port, REVERSE_DEFAULT_PORT)
+
+    def test_reverse_spec_uses_callsite_listen_host(self) -> None:
+        """spec 的 @ 段必须与 regular 的 listen_host 同源（plan §3「一处管」语义）。
+
+        这里直接比对函数输出：用户选「仅本机」时 reverse 也绑 127.0.0.1，
+        选「局域网可访问」时绑 0.0.0.0——两处一处管，避免「勾了 reverse 但
+        实际绑了 0.0.0.0」这类安全语义偏差。
+        """
+        for host in ("127.0.0.1", "0.0.0.0"):
+            spec = reverse_mode_spec("https://example.com", host, 8081)
+            mode = ProxyMode.parse(spec)
+            self.assertEqual(mode.custom_listen_host, host, spec)
+
+    def test_reverse_target_with_port_preserves_port(self) -> None:
+        spec = reverse_mode_spec("https://example.com:8443", "127.0.0.1", 8081)
+        mode = ProxyMode.parse(spec)
+        self.assertEqual(mode.address, ("example.com", 8443))
+
+    def test_reverse_target_stripped_of_surrounding_whitespace(self) -> None:
+        spec = reverse_mode_spec("  https://example.com  ", "127.0.0.1", 8081)
+        self.assertEqual(spec, "reverse:https://example.com@127.0.0.1:8081")
+
+    def test_capture_mode_specs_appends_reverse_after_regular(self) -> None:
+        """reverse 排在 regular 之后、local/wireguard 之前（plan §3）。"""
+        specs = capture_mode_specs(
+            use_local=True,
+            local_spec="curl",
+            use_wireguard=True,
+            use_reverse=True,
+            reverse_target="https://example.com",
+            reverse_port=8081,
+            listen_host="127.0.0.1",
+        )
+        self.assertEqual(
+            specs[0],
+            "regular",
+        )
+        self.assertTrue(specs[1].startswith("reverse:"), specs)
+        self.assertIn("local:curl@127.0.0.1:0", specs)
+        self.assertIn(wireguard_mode_spec(), specs)
+
+    def test_empty_reverse_target_does_not_emit_a_spec(self) -> None:
+        """目标空时不发 reverse spec：避免「勾上但目标没填」误把空 spec
+        推进内核（``ProxyMode.parse`` 会拒）。这是 capture_mode_specs 的内建
+        护栏，对应计划 §3 端口撞车之外的另一道前置。
+        """
+        specs = capture_mode_specs(
+            use_local=False,
+            local_spec="",
+            use_wireguard=False,
+            use_reverse=True,
+            reverse_target="",
+            reverse_port=8081,
+        )
+        self.assertEqual(specs, ["regular"])
+
+    def test_validate_accepts_well_formed_reverse(self) -> None:
+        validate_mode_specs(
+            ["regular", "reverse:https://example.com@127.0.0.1:8081"]
+        )
+
+    def test_validate_rejects_reverse_without_target(self) -> None:
+        # ``reverse:@127.0.0.1:8081`` 的目标段为空、ProxyMode.parse 会因
+        # 主机名校验失败而拒。spec 必须恒带非空 target 段（计划定则 2）。
+        with self.assertRaises(ValueError):
+            validate_mode_specs(["regular", "reverse:@127.0.0.1:8081"])
+
+    def test_reverse_https_binds_both_tcp_and_udp(self) -> None:
+        """https scheme 在 ``ReverseMode.__post_init__`` 置 ``transport_protocol=BOTH``，
+        顶端 ReverseProxy 因此既拉 TCP 也拉 UDP 监听（plan §0/§5）。
+        这一点是 reverse 通道防 QUIC 旁路的关键：UDP 监听由 native 拉起，
+        h3 打回监听口走原生终结路径。"""
+        spec = reverse_mode_spec("https://example.com", "127.0.0.1", 8081)
+        mode = ProxyMode.parse(spec)
+        self.assertEqual(mode.transport_protocol, "both")
 
 
 if __name__ == "__main__":

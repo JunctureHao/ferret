@@ -122,6 +122,7 @@ from mitmproxy.addons.stickyauth import StickyAuth
 from mitmproxy.addons.stickycookie import StickyCookie
 from mitmproxy.addons.strip_dns_https_records import StripDnsHttpsRecords
 from mitmproxy.addons.tlsconfig import TlsConfig
+from mitmproxy.addons.update_alt_svc import UpdateAltSvc
 from mitmproxy.addons.view import View
 from mitmproxy.exceptions import (
     AddonHalt,
@@ -201,6 +202,7 @@ __all__ = [
     "StickyCookie",
     "StripDnsHttpsRecords",
     "TlsConfig",
+    "UpdateAltSvc",
     "View",
     "WebSocketData",
     "WebSocketMessage",
