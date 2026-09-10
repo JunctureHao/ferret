@@ -2,7 +2,6 @@
 __pycache__/
 *.py[oc]
 build/
-dist/
 wheels/
 *.egg-info
 
@@ -10,7 +9,5 @@ wheels/
 .venv
 .idea
 .writing
-.zcode
 
-releases
 .plans

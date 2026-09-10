@@ -3,11 +3,11 @@
 # ═══════════════════════════════════════════════════════════════════════
 # nuitka-project-set: STAMP = __import__("time").strftime("%Y%m%d_%H%M")
 # nuitka-project: --mode=standalone
-# nuitka-project: --output-dir=dist/{STAMP}
+# nuitka-project: --output-dir=build/dist/{STAMP}
 # nuitka-project: --output-filename=Ferret
 # nuitka-project: --output-folder-name=Ferret
 # nuitka-project: --windows-icon-from-ico=src/ferret/resources/icon.ico
-# nuitka-project: --report=dist/{STAMP}/report.xml
+# nuitka-project: --report=build/dist/{STAMP}/report.xml
 # nuitka-project: --msvc=latest
 # nuitka-project: --lto=no
 # nuitka-project: --remove-output

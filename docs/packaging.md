@@ -5,6 +5,7 @@
 > 实际瘦身项以 `src/ferret/__main__.py` 顶部的 `# nuitka-project:` 注释为准。
 
 - 瘦身项统一维护在 `src/ferret/__main__.py` 的 `# nuitka-project:` 注释；打包 `nuitka .\src\ferret\`（目录，非单文件）。
+- 两步已串成一键脚本 `scripts/package.py`（Nuitka 编译 → `vpk pack`，编译中间产物在 `build/dist/`、发布产物在 `build/releases/`）；参数见其 docstring，本文其余记录的是两步内部的「为什么」。
 - `bindings._STUBBED_MODULES` 现有 11 桩，须在 mitmproxy 导入前完成：
   - `mitmproxy.addons.{onboarding,onboardingapp,proxyauth,cut}` + `pyperclip`（原有）。
   - `mitmproxy.addons.{browser,command_history,comment,termlog}` —— 都是 mitmproxy 自家命令行界面用的。`termlog` 的桩**必须**带 `TermLog` 属性：`mitmproxy/master.py:25` 的类注解 `termlog.TermLog | None` 在导入期就求值。`comment` 只注册一条 `flow.comment` 控制台命令，`Flow.comment` 属性本身在 `mitmproxy/flow.py` 上，ferret 在 `facade.py` 直接赋值，不经过它。
