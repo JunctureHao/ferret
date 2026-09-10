@@ -519,7 +519,10 @@ class CaptureController(QObject):
         则实时增删通道、按需挂/摘系统代理。
         """
         # 校验先行：坏过滤串连落盘都不该发生（否则坏串会一直躺在配置里）。
-        self._mitm.validate_local_spec(local_spec)
+        # 仅在开启本地重定向时校验——关闭通道不该被残留过滤串卡住（关的动作
+        # 本身就值得放行；开启时 apply_channels 还会再过一遍原生解析器）。
+        if use_local:
+            self._mitm.validate_local_spec(local_spec)
         CONFIG.set(CONFIG.system_proxy_enabled, use_system_proxy)
         CONFIG.set(CONFIG.local_enabled, use_local)
         CONFIG.set(CONFIG.local_spec, local_spec)

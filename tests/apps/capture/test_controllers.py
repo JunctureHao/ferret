@@ -393,6 +393,21 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertEqual(CONFIG.get(CONFIG.local_spec), "")
         self.assertEqual(runtime.local_spec, "")
 
+    def test_disabling_local_skips_filter_validation(self) -> None:
+        """关闭本地重定向不被残留过滤串卡住（坏值仅落盘，开启时再拦）。"""
+        controller, runtime, _, _ = self.make_controller()
+
+        controller.update_channels(
+            use_system_proxy=True,
+            use_local=False,
+            local_spec="a,,b",
+            use_wireguard=True,
+        )
+
+        self.assertFalse(CONFIG.get(CONFIG.local_enabled))
+        self.assertEqual(CONFIG.get(CONFIG.local_spec), "a,,b")
+        self.assertFalse(runtime.use_local)
+
     def test_detaching_system_proxy_on_dialog_toggle_while_capturing(self) -> None:
         controller, _runtime, _, proxy = self.make_controller()
         controller.start_capture()

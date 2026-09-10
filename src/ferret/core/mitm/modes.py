@@ -167,7 +167,10 @@ def split_spec(spec: str) -> list[str]:
 def list_local_targets(*, include_system: bool = False) -> list[LocalTarget]:
     """枚举可点选的本机进程，供 UI 下拉勾选。
 
-    只滤系统进程（``is_system``：svchost/Defender/服务宿主等）——**不要**按
+    只滤系统进程（``is_system``：svchost/Defender/服务宿主等）与空名进程——空
+    ``display_name`` 的条目在点选列表里是一行无文字空白，且会在 ``checked_tokens``
+    的 contains 语义下被任意 token 误点亮（空串是一切串的子串），进而在拼接
+    spec 时产出尾逗号被上游拒收（``invalid intercept spec``）。**不要**按
     ``is_visible`` 过滤：无可见窗口 ≠ 不是用户应用，MuMu 模拟器组件、node、
     msedgewebview2、Reqable 的后台进程这些真实调试目标都会被误伤。ferret 自身
     的可执行文件也跳过：上游运行期会自动排除自身 PID，点选它没有意义。图标
@@ -178,6 +181,8 @@ def list_local_targets(*, include_system: bool = False) -> list[LocalTarget]:
     targets: list[LocalTarget] = []
     for process in rs_process_info.active_executables():
         if not include_system and process.is_system:
+            continue
+        if not process.display_name.strip():
             continue
         executable = str(process.executable)
         try:
@@ -215,6 +220,10 @@ def checked_tokens(spec: str, targets: list[LocalTarget]) -> set[str]:
             target.executable,
         ):
             lowered = candidate.lower()
+            # 空候选名在 contains 语义下匹配一切 token，直接跳过（见
+            # list_local_targets 对空 display_name 的过滤说明）。
+            if not lowered:
+                continue
             if any(lowered in token or token in lowered for token in tokens):
                 checked.add(candidate)
                 break

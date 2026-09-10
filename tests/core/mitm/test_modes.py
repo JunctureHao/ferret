@@ -327,6 +327,16 @@ class LocalTargetTests(unittest.TestCase):
         # 完全无关的 token 不点亮任何目标。
         self.assertEqual(checked_tokens("word", targets), set())
 
+    def test_checked_tokens_skip_empty_candidates(self) -> None:
+        """空 display_name 的目标不得被任何 token 点亮。
+
+        空串是一切串的子串，contains 语义下会被任意 spec 误勾选，拼接时产出
+        尾逗号（"Notion.exe,"），被上游 describe_spec 拒收。
+        """
+        targets = [LocalTarget("", r"C:\x\noname.exe", None)]
+        self.assertEqual(checked_tokens("notion.exe", targets), set())
+        self.assertEqual(checked_tokens("noname", targets), {"noname.exe"})
+
     def test_list_local_targets_returns_real_processes(self) -> None:
         """真实枚举（真机冒烟）：系统服务仍被滤掉，且不含 ferret 自身。
 
