@@ -31,11 +31,13 @@ from qfluentwidgets import (
     CheckBox,
     ComboBox,
     FluentIcon,
+    HorizontalSeparator,
     InfoBadge,
     InfoBadgePosition,
     LineEdit,
     ListWidget,
     MessageBoxBase,
+    PasswordLineEdit,
     RoundMenu,
     SmoothMode,
     SpinBox,
@@ -290,6 +292,10 @@ class CapturesInterface(QWidget):
             use_reverse=self.controller.use_reverse,
             reverse_target=self.controller.reverse_target,
             reverse_port=self.controller.reverse_port,
+            use_upstream=self.controller.use_upstream,
+            upstream_target=self.controller.upstream_target,
+            upstream_username=self.controller.upstream_username,
+            upstream_password=self.controller.upstream_password,
             wireguard_config=self.controller.wireguard_client_config,
         )
         if not w.exec():
@@ -322,6 +328,47 @@ class CapturesInterface(QWidget):
                 self.window(),
             )
             return
+        # 上游代理前置校验。自环是硬拦：原生 `proxyserver.server_connect` 的自连
+        # 守卫（proxyserver.py:376-395）虽有兜底，但它写的是 "Request destination
+        # unknown"，且要等到有流量才出现 —— 提交时就该说清楚。
+        upstream_on = w.get_use_upstream()
+        upstream_target = w.get_upstream_target()
+        if upstream_on and not upstream_target:
+            show_warning(
+                self.tr("抓包设置未生效"),
+                self.tr("勾选了上游代理但没填地址，请填写或取消勾选。"),
+                self.window(),
+            )
+            return
+        if upstream_on:
+            try:
+                loops_back = self.controller.upstream_targets_self(
+                    upstream_target,
+                    listen_host=w.get_listen_host(),
+                    listen_port=listen_port,
+                )
+            except ValueError as exc:
+                show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
+                return
+            if loops_back:
+                show_warning(
+                    self.tr("抓包设置未生效"),
+                    self.tr(
+                        "上游代理地址 {} 指回 ferret 自己的监听口，请换一个。"
+                    ).format(upstream_target),
+                    self.window(),
+                )
+                return
+        # 凭证串台只警告不拦：这是原生 UpstreamAuth 分不开的行为（见
+        # core/mitm/runtime.py::_upstream_auth），用户知情后仍可能就是要这么用。
+        if upstream_on and w.get_upstream_username() and w.get_use_reverse():
+            show_warning(
+                self.tr("上游凭证会一并发给反代目标"),
+                self.tr(
+                    "内核对上游代理与反向代理用同一份凭证，反代目标也会收到认证头。"
+                ),
+                self.window(),
+            )
         try:
             # 顺序有讲究：先提交通道（校验失败就整体中止，且抓包中重启端点前
             # 内核意图值必须先更新，否则重启会带上旧 spec），再提交端点/来源限制。
@@ -333,6 +380,10 @@ class CapturesInterface(QWidget):
                 use_reverse=w.get_use_reverse(),
                 reverse_target=w.get_reverse_target(),
                 reverse_port=reverse_port,
+                use_upstream=upstream_on,
+                upstream_target=upstream_target,
+                upstream_username=w.get_upstream_username(),
+                upstream_password=w.get_upstream_password(),
             )
             self.controller.update_proxy_settings(
                 listen_host=w.get_listen_host(),
@@ -480,7 +531,13 @@ class CapturesInterface(QWidget):
             target = self.controller.reverse_target
             label = self.tr("反向代理 → {}").format(target or "—")
             parts.append(label)
-        return " · ".join(parts)
+        summary = " · ".join(parts)
+        # 上游代理**不并进通道并集**：它换的是系统代理那条的出口，并进去会被读成
+        # 第五条通道。另起一段跟在后面，空地址时首槽位仍是 regular，不显示。
+        if self.controller.use_upstream and self.controller.upstream_target:
+            egress = self.tr("出口 → {}").format(self.controller.upstream_target)
+            return f"{summary} | {egress}" if summary else egress
+        return summary
 
     def _channel_issue(self) -> str:
         errors = self.controller.channel_errors
@@ -1110,6 +1167,10 @@ class ProxyPortDialog(MessageBoxBase):
         use_reverse: bool = False,
         reverse_target: str = "",
         reverse_port: int = 8081,
+        use_upstream: bool = False,
+        upstream_target: str = "",
+        upstream_username: str = "",
+        upstream_password: str = "",
         wireguard_config: Callable[[], str] | None = None,
     ):
         """初始化代理监听设置对话框
@@ -1129,6 +1190,10 @@ class ProxyPortDialog(MessageBoxBase):
             use_reverse: 反向代理通道是否启用（.plans/reverse-mode.md）
             reverse_target: 反向代理的目标 URL，如 https://example.com
             reverse_port: 反向代理的独立监听端口
+            use_upstream: 系统代理通道是否经上游代理出口（不是第五条通道）
+            upstream_target: 上游代理地址，如 http://proxy.corp:8080
+            upstream_username: 上游代理的 Basic 用户名（留空 = 不发认证头）
+            upstream_password: 上游代理的 Basic 密码
             wireguard_config: 取客户端配置文本的回调（None 表示按钮隐藏）
         """
         super().__init__(parent)
@@ -1147,6 +1212,10 @@ class ProxyPortDialog(MessageBoxBase):
             use_reverse,
             reverse_target,
             reverse_port,
+            use_upstream,
+            upstream_target,
+            upstream_username,
+            upstream_password,
         )
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -1166,6 +1235,10 @@ class ProxyPortDialog(MessageBoxBase):
         use_reverse: bool,
         reverse_target: str,
         reverse_port: int,
+        use_upstream: bool,
+        upstream_target: str,
+        upstream_username: str,
+        upstream_password: str,
     ):
         """初始化界面组件"""
         self.title_label = SubtitleLabel(self)
@@ -1217,6 +1290,28 @@ class ProxyPortDialog(MessageBoxBase):
         )
         self.source_hint = CaptionLabel(self)
         self.source_hint.setWordWrap(True)
+
+        # —— 上游代理出口：**不是第五条通道**，而是把系统代理这条的出口从直连换成
+        # 「先交给上游代理」（内核侧是 mode 首槽位替换，见 core/mitm/modes.py::
+        # upstream_mode_spec）。所以它长在 Card ① 里、与监听地址端口同卡，而不是
+        # 第五张卡片——独立成卡必被读成第五条抓包通道。
+        self.upstream_separator = HorizontalSeparator(self)
+        self.upstream_check = CheckBox(
+            self.tr("经上游代理出口（企业代理 / 链式抓包）"), self
+        )
+        self.upstream_check.setChecked(use_upstream)
+        self.upstream_target_edit = LineEdit(self)
+        self.upstream_target_edit.setText(upstream_target)
+        self.upstream_target_edit.setPlaceholderText(self.tr("http://proxy.corp:8080"))
+        # 不放端口 SpinBox：端口在地址里，上游没有自己的监听口（spec 不带 @）。
+        self.upstream_user_edit = LineEdit(self)
+        self.upstream_user_edit.setText(upstream_username)
+        self.upstream_user_edit.setPlaceholderText(self.tr("可选"))
+        self.upstream_password_edit = PasswordLineEdit(self)
+        self.upstream_password_edit.setText(upstream_password)
+        self.upstream_password_edit.setPlaceholderText(self.tr("可选"))
+        self.upstream_hint = CaptionLabel(self)
+        self.upstream_hint.setWordWrap(True)
 
         # —— 本地重定向通道：勾选框 + 文字 + 折叠按钮同行 ——
         self.local_check = CheckBox(self.tr("本地重定向（零配置、按进程）"), self)
@@ -1302,6 +1397,36 @@ class ProxyPortDialog(MessageBoxBase):
         system_layout.addLayout(source_row)
         system_layout.addWidget(self.source_hint)
 
+        # 上游代理块：分隔线以下是「出口」，以上是「监听」，一张卡两件事不至于混读。
+        # 整块随勾选显隐（同 reverse 的做法）：关掉时卡片回到原来的高度。
+        self.upstream_target_row = QWidget(self)
+        upstream_target_layout = QHBoxLayout(self.upstream_target_row)
+        upstream_target_layout.setContentsMargins(0, 0, 0, 0)
+        upstream_target_layout.setSpacing(6)
+        upstream_target_layout.addWidget(
+            BodyLabel(self.tr("代理地址"), self), 0, Qt.AlignmentFlag.AlignVCenter
+        )
+        upstream_target_layout.addWidget(self.upstream_target_edit, 1)
+
+        self.upstream_cred_row = QWidget(self)
+        upstream_cred_layout = QHBoxLayout(self.upstream_cred_row)
+        upstream_cred_layout.setContentsMargins(0, 0, 0, 0)
+        upstream_cred_layout.setSpacing(6)
+        upstream_cred_layout.addWidget(
+            BodyLabel(self.tr("用户名"), self), 0, Qt.AlignmentFlag.AlignVCenter
+        )
+        upstream_cred_layout.addWidget(self.upstream_user_edit, 1)
+        upstream_cred_layout.addWidget(
+            BodyLabel(self.tr("密码"), self), 0, Qt.AlignmentFlag.AlignVCenter
+        )
+        upstream_cred_layout.addWidget(self.upstream_password_edit, 1)
+
+        system_layout.addWidget(self.upstream_separator)
+        system_layout.addWidget(self.upstream_check)
+        system_layout.addWidget(self.upstream_target_row)
+        system_layout.addWidget(self.upstream_cred_row)
+        system_layout.addWidget(self.upstream_hint)
+
         # —— Card ② 本地重定向 ——
         # 通道行：勾选框 + 文字同行，右缘放折叠按钮（▾）。折叠按钮常驻可见，
         # 不勾选通道也能提前展开挑选进程。
@@ -1380,6 +1505,11 @@ class ProxyPortDialog(MessageBoxBase):
         # 反向代理通道：勾选 / 端口 / 目标都会影响参数可用性与撞车提示。
         self.reverse_check.toggled.connect(self._sync_exposure)
         self.reverse_port_spin.valueChanged.connect(self._sync_exposure)
+        # 上游代理：勾选切显隐；用户名变化会切换「凭证串台」那条警告文案，
+        # 所以它也要连（见 _sync_exposure 末段与 core/mitm/runtime.py::
+        # _upstream_auth 的说明）。
+        self.upstream_check.toggled.connect(self._sync_exposure)
+        self.upstream_user_edit.textChanged.connect(self._sync_exposure)
 
     def get_use_system_proxy(self) -> bool:
         """「开始抓包」时是否挂系统代理。"""
@@ -1408,6 +1538,22 @@ class ProxyPortDialog(MessageBoxBase):
     def get_reverse_port(self) -> int:
         """反向代理的独立监听端口。"""
         return self.reverse_port_spin.value()
+
+    def get_use_upstream(self) -> bool:
+        """系统代理通道是否经上游代理出口。"""
+        return self.upstream_check.isChecked()
+
+    def get_upstream_target(self) -> str:
+        """上游代理地址（host[:port] 或 http(s)://host[:port]），校验交给调用方。"""
+        return self.upstream_target_edit.text().strip()
+
+    def get_upstream_username(self) -> str:
+        """上游代理的 Basic 用户名；留空 = 不发认证头。"""
+        return self.upstream_user_edit.text().strip()
+
+    def get_upstream_password(self) -> str:
+        """上游代理的 Basic 密码（**不 strip**：尾随空格可能就是密码的一部分）。"""
+        return self.upstream_password_edit.text()
 
     def _show_wireguard_config(self) -> None:
         if self._wireguard_config is None:
@@ -1539,6 +1685,29 @@ class ProxyPortDialog(MessageBoxBase):
                 self.reverse_hint.setText(
                     self.tr(
                         "客户端需信任 ferret CA；按域名签目标证书，按 IP 直连签本机证书"
+                    )
+                )
+
+        # 上游代理：整块随勾选显隐（同 reverse），hint 复用同一行位置轮播两条文案。
+        upstream_on = self.get_use_upstream()
+        self.upstream_separator.setVisible(upstream_on)
+        self.upstream_target_row.setVisible(upstream_on)
+        self.upstream_cred_row.setVisible(upstream_on)
+        self.upstream_hint.setVisible(upstream_on)
+        if upstream_on:
+            if reverse_on and self.get_upstream_username():
+                # 原生 UpstreamAuth 的模式闸门放行 upstream **和 reverse**
+                # （upstream_auth.py:40-58），两者同开时反代目标也会收到这份
+                # Authorization 头。分不开，只能明说 —— 详见 runtime._upstream_auth。
+                self.upstream_hint.setText(
+                    self.tr(
+                        "注意：反向代理同时开启时，上游凭证也会发给反代目标（内核限制）"
+                    )
+                )
+            else:
+                self.upstream_hint.setText(
+                    self.tr(
+                        "仅系统代理通道经上游出口；本地重定向 / WireGuard / 反向代理仍为直连"
                     )
                 )
 

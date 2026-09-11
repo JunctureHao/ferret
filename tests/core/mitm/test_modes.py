@@ -1,6 +1,7 @@
 """Tests for capture channel specs (core/mitm/modes.py).
 
-四条通道的 spec 是界面与内核的唯一接口：这里守住拼装格式、坏值拦截、
+四条通道的 spec 是界面与内核的唯一接口：这里守住拼装格式、坏值拦截、首槽的
+regular/upstream 二选一（上游代理不是第五条通道，见 .plans/upstream-mode.md）、
 WireGuard 客户端配置的生成格式（对齐上游 ``WireGuardServerInstance.client_conf``），
 以及 local 提权守护进程在内核停止/重启时的拆除时机。
 """
@@ -31,6 +32,9 @@ from ferret.core.mitm.modes import (
     qr_matrix,
     reverse_mode_spec,
     split_spec,
+    upstream_address,
+    upstream_mode_spec,
+    upstream_targets_self,
     validate_local_spec,
     validate_mode_specs,
     wireguard_client_config,
@@ -52,11 +56,26 @@ class CaptureModeSpecTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         QApplication.instance() or QApplication([])
 
-    def test_regular_is_always_the_first_spec(self) -> None:
-        """regular 是常驻底盘：通道全关时 mode 也必须只有它。"""
+    def test_first_slot_is_always_present(self) -> None:
+        """首槽是常驻底盘：通道全关时 mode 也必须只剩它一条。
+
+        内容二选一 —— 默认 regular，开了上游代理整条换成 ``upstream:<目标>``
+        （.plans/upstream-mode.md §3.3）。恒在的是**槽位**，不是 ``"regular"``
+        这个字面量。
+        """
         self.assertEqual(
             capture_mode_specs(use_local=False, local_spec="", use_wireguard=False),
             ["regular"],
+        )
+        self.assertEqual(
+            capture_mode_specs(
+                use_local=False,
+                local_spec="",
+                use_wireguard=False,
+                use_upstream=True,
+                upstream_target="http://proxy:8080",
+            ),
+            ["upstream:http://proxy:8080"],
         )
 
     def test_enabled_channels_are_appended_in_order(self) -> None:
@@ -374,7 +393,9 @@ class ReverseModeSpecTests(unittest.TestCase):
         spec = reverse_mode_spec(
             "https://example.com", "127.0.0.1", REVERSE_DEFAULT_PORT
         )
-        self.assertEqual(spec, f"reverse:https://example.com@127.0.0.1:{REVERSE_DEFAULT_PORT}")
+        self.assertEqual(
+            spec, f"reverse:https://example.com@127.0.0.1:{REVERSE_DEFAULT_PORT}"
+        )
         # 原生解析能过、scheme 与目标解析正确。
         mode = ProxyMode.parse(spec)
         self.assertEqual(mode.scheme, "https")
@@ -438,9 +459,7 @@ class ReverseModeSpecTests(unittest.TestCase):
         self.assertEqual(specs, ["regular"])
 
     def test_validate_accepts_well_formed_reverse(self) -> None:
-        validate_mode_specs(
-            ["regular", "reverse:https://example.com@127.0.0.1:8081"]
-        )
+        validate_mode_specs(["regular", "reverse:https://example.com@127.0.0.1:8081"])
 
     def test_validate_rejects_reverse_without_target(self) -> None:
         # ``reverse:@127.0.0.1:8081`` 的目标段为空、ProxyMode.parse 会因
@@ -456,6 +475,176 @@ class ReverseModeSpecTests(unittest.TestCase):
         spec = reverse_mode_spec("https://example.com", "127.0.0.1", 8081)
         mode = ProxyMode.parse(spec)
         self.assertEqual(mode.transport_protocol, "both")
+
+
+class UpstreamModeSpecTests(unittest.TestCase):
+    """上游代理（.plans/upstream-mode.md）：首槽替换而非追加通道。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        QApplication.instance() or QApplication([])
+
+    def test_upstream_replaces_the_first_slot_instead_of_adding_one(self) -> None:
+        """开启后 ``mode[0]`` 变 upstream，而且列表里**不能**再有 ``"regular"``。
+
+        二者绝不并存：都回退全局 listen_port，同时在场必被
+        ``proxyserver.configure`` 的地址查重拒（计划 §3.3 的硬约束）。
+        """
+        off = capture_mode_specs(use_local=True, local_spec="curl", use_wireguard=False)
+        self.assertEqual(off[0], "regular")
+
+        on = capture_mode_specs(
+            use_local=True,
+            local_spec="curl",
+            use_wireguard=False,
+            use_upstream=True,
+            upstream_target="http://proxy:8080",
+        )
+        self.assertEqual(on[0], "upstream:http://proxy:8080")
+        self.assertNotIn("regular", on)
+        # 后面的通道一个不少，只是首槽换了内容。
+        self.assertEqual(on[1:], off[1:])
+
+    def test_empty_target_keeps_regular(self) -> None:
+        """勾上但没填地址不换槽位：空目标换过去只会让系统代理这条主通道整条
+        死掉，比不生效糟得多（与 ``reverse_target`` 空值同款防误）。
+        """
+        self.assertEqual(
+            capture_mode_specs(
+                use_local=False,
+                local_spec="",
+                use_wireguard=False,
+                use_upstream=True,
+                upstream_target="   ",
+            ),
+            ["regular"],
+        )
+
+    def test_upstream_coexists_with_the_other_three_channels(self) -> None:
+        """上游 + local + wireguard + reverse 的完整列表能过原生校验，且
+        ``(host, port, proto)`` 三元组无重复（姿势照抄
+        ``test_local_spec_carries_the_duplicate_address_dodge``）。
+
+        首槽不带 ``@``，回退的正是全局 ``listen_host:listen_port`` —— 与 regular
+        占的是同一个地址，所以这条用例真正验的是「换掉之后查重依然干净」。
+        """
+        for listen_host in ("127.0.0.1", "0.0.0.0"):
+            for listen_port in (8080, 9123):
+                specs = capture_mode_specs(
+                    use_local=True,
+                    local_spec="curl",
+                    use_wireguard=True,
+                    use_reverse=True,
+                    reverse_target="https://example.com",
+                    reverse_port=8081,
+                    use_upstream=True,
+                    upstream_target="http://proxy.corp:3128",
+                    listen_host=listen_host,
+                )
+                with self.subTest(listen_host=listen_host, listen_port=listen_port):
+                    self.assertEqual(len(specs), 4, specs)
+                    validate_mode_specs(specs)
+                    addrs: list[tuple] = []
+                    for spec in specs:
+                        mode = ProxyMode.parse(spec)
+                        protocols = (
+                            ["tcp", "udp"]
+                            if mode.transport_protocol == "both"
+                            else [mode.transport_protocol]
+                        )
+                        port = mode.listen_port(listen_port)
+                        if port is None:
+                            continue
+                        addrs.extend(
+                            (mode.listen_host(listen_host), port, proto)
+                            for proto in protocols
+                        )
+                    self.assertEqual(len(addrs), len(set(addrs)), addrs)
+
+    def test_upstream_spec_never_carries_a_listen_segment(self) -> None:
+        """首槽必须继承全局监听地址：带了 ``@`` 就成了「另开一个端口的第五条
+        通道」，客户端得再配一次代理，而系统代理注册表写的仍是旧端口
+        （计划 §3.1 被否 A）。
+        """
+        spec = upstream_mode_spec("http://proxy.corp:8080")
+        self.assertEqual(spec, "upstream:http://proxy.corp:8080")
+        mode = ProxyMode.parse(spec)
+        self.assertIsNone(mode.custom_listen_host)
+        self.assertIsNone(mode.custom_listen_port)
+        # 没有自定义端口 → 回退调用方给的全局端口，与 regular 同一个。
+        self.assertEqual(mode.listen_port(8080), 8080)
+        self.assertEqual(mode.listen_host("127.0.0.1"), "127.0.0.1")
+
+    def test_upstream_target_is_stripped(self) -> None:
+        self.assertEqual(
+            upstream_mode_spec("  http://proxy:8080  "), "upstream:http://proxy:8080"
+        )
+
+    def test_upstream_address_applies_native_scheme_and_port_defaults(self) -> None:
+        """同一个上游有一大把写法，端口/scheme 都能省 —— 所以自环判定必须过
+        解析器，不能拿字符串比对糊弄（``UpstreamMode.__post_init__``）。
+        """
+        self.assertEqual(upstream_address("http://proxy:8080"), ("proxy", 8080))
+        self.assertEqual(upstream_address("https://proxy.corp"), ("proxy.corp", 443))
+        self.assertEqual(upstream_address("proxy.corp"), ("proxy.corp", 80))
+        # 裸 host:port 走 default_scheme="http"，是原生就接受的合法写法。
+        self.assertEqual(upstream_address("proxy:8080"), ("proxy", 8080))
+
+    def test_credentials_in_target_are_rejected(self) -> None:
+        """凭证不进 spec：原生 host 段是 ``[^:/]+``，且 ``ProxyMode.parse`` 先按
+        最后一个 ``@`` 切监听段。凭证走 ``upstream_auth`` 选项那条正交的线。
+        """
+        with self.assertRaises(ValueError):
+            validate_mode_specs(
+                [upstream_mode_spec("http://user:pass@proxy.corp:8080")]
+            )
+
+    def test_bad_scheme_is_rejected(self) -> None:
+        """``UpstreamMode`` 只认 http/https —— SOCKS 上游不支持（计划 §9）。"""
+        for bad in ("ftp://proxy:8080", "socks5://proxy:1080", ""):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_mode_specs([upstream_mode_spec(bad)])
+
+    def test_upstream_targets_self_detects_the_loopback_ring(self) -> None:
+        """自环判据照抄原生 ``proxyserver.server_connect``：端口相同 + host 落在
+        localhost/127.0.0.1/::1/监听地址 之内。前置拦一道，免得用户只看到
+        每条流量上那句 "Request destination unknown"。
+        """
+        for target in (
+            "http://127.0.0.1:8080",
+            "http://localhost:8080",
+            "127.0.0.1:8080",
+        ):
+            with self.subTest(target=target):
+                self.assertTrue(
+                    upstream_targets_self(
+                        target, listen_host="127.0.0.1", listen_port=8080
+                    )
+                )
+        # 端口不同 / 主机不同都不算自环。
+        self.assertFalse(
+            upstream_targets_self(
+                "http://127.0.0.1:8888", listen_host="127.0.0.1", listen_port=8080
+            )
+        )
+        self.assertFalse(
+            upstream_targets_self(
+                "http://proxy.corp:8080", listen_host="127.0.0.1", listen_port=8080
+            )
+        )
+
+    def test_upstream_targets_self_honours_the_lan_listen_host(self) -> None:
+        """监听地址本身也在判据里：选「局域网可访问」时 0.0.0.0 就是自环。"""
+        self.assertTrue(
+            upstream_targets_self(
+                "http://0.0.0.0:8080", listen_host="0.0.0.0", listen_port=8080
+            )
+        )
+        self.assertFalse(
+            upstream_targets_self(
+                "http://0.0.0.0:8080", listen_host="127.0.0.1", listen_port=8080
+            )
+        )
 
 
 if __name__ == "__main__":

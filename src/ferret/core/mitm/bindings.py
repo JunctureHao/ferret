@@ -123,6 +123,7 @@ from mitmproxy.addons.stickycookie import StickyCookie
 from mitmproxy.addons.strip_dns_https_records import StripDnsHttpsRecords
 from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.update_alt_svc import UpdateAltSvc
+from mitmproxy.addons.upstream_auth import UpstreamAuth
 from mitmproxy.addons.view import View
 from mitmproxy.exceptions import (
     AddonHalt,
@@ -145,7 +146,7 @@ from mitmproxy.net.http.http1.assemble import (
 from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
 from mitmproxy.proxy.mode_servers import LocalRedirectorInstance
-from mitmproxy.proxy.mode_specs import ProxyMode
+from mitmproxy.proxy.mode_specs import ProxyMode, UpstreamMode
 from mitmproxy.utils import emoji, human
 from mitmproxy.websocket import WebSocketData, WebSocketMessage
 from mitmproxy_rs import process_info as rs_process_info
@@ -203,6 +204,8 @@ __all__ = [
     "StripDnsHttpsRecords",
     "TlsConfig",
     "UpdateAltSvc",
+    "UpstreamAuth",
+    "UpstreamMode",
     "View",
     "WebSocketData",
     "WebSocketMessage",

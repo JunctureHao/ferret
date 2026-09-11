@@ -14,6 +14,12 @@
   服务器直连，一个通道只指向一个固定目标（spec 写死，spec 语法与查重动机见
   ``reverse_mode_spec``）。适配「客户端改不了代理配置」的场景。
 
+上游代理（upstream）**不是第五条通道**，而是第一个槽位的替换：开启后 ``regular``
+整条换成 ``upstream:<目标>``（见 ``upstream_mode_spec``），监听地址与端口一字不动，
+只把系统代理这条通道的出口从直连换成「先交给上游代理」。local / wireguard / reverse
+的出口仍是直连 —— 它们的实例顶层是 ``TransparentProxy``，而原生只在 upstream 的
+HTTP 层上设 ``server_conn.via``（``http/__init__.py:963-967``）。
+
 环回豁免是这套组合的安全边界：系统代理把本机流量送到 ``127.0.0.1:port``，而
 local 的 WinDivert 过滤器 ``!loopback && ...``（上游 main2.rs，本机
 windows-redirector.exe 内嵌字符串逐字一致）在驱动层放行全部环回流量，两条通道
@@ -32,7 +38,12 @@ from pathlib import Path
 import segno
 from PySide6.QtCore import QCoreApplication
 
-from ferret.core.mitm.bindings import ProxyMode, rs_process_info, rs_wireguard
+from ferret.core.mitm.bindings import (
+    ProxyMode,
+    UpstreamMode,
+    rs_process_info,
+    rs_wireguard,
+)
 from ferret.core.network import ANY_HOST
 
 WIREGUARD_HOST = ANY_HOST
@@ -82,6 +93,59 @@ def reverse_mode_spec(target: str, listen_host: str, listen_port: int) -> str:
     return f"reverse:{target.strip()}@{listen_host}:{listen_port}"
 
 
+def upstream_mode_spec(target: str) -> str:
+    """拼 ``upstream:<target>``，占掉 regular 的那个槽位。
+
+    **不带 ``@`` 监听段**：它接管的就是 regular 那条监听，必须继承全局
+    ``listen_host``/``listen_port``（``ProxyMode.listen_port`` 在没有自定义端口时
+    回退 ``ctx.options.listen_port``），否则系统代理写进注册表的地址与内核实际
+    监听的对不上。与 reverse **必须**带 ``@`` 的动机正好相反：那边是主动要一个
+    独立端口，这边是主动要同一个端口。
+
+    ``target`` 只收 ``http(s)://host[:port]``，**凭证不进 spec**：原生
+    ``server_spec.parse`` 的 host 段是 ``[^:/]+``，且 ``ProxyMode.parse`` 会先按
+    最后一个 ``@`` 切监听段 —— ``upstream:http://user:pass@proxy:8080`` 实测报
+    ``Invalid server specification: http://user:pass``。凭证走另一条正交的线，即
+    ``upstream_auth`` 选项（见 ``MitmRuntime._upstream_auth``）。坏 scheme 之类交给
+    ``validate_mode_specs`` 过原生解析器（``UpstreamMode`` 只认 http/https）。
+    """
+    return f"upstream:{target.strip()}"
+
+
+def upstream_address(target: str) -> tuple[str, int]:
+    """上游代理解析后的 ``(host, port)``。坏值抛已译 ``ValueError``。
+
+    不能拿字符串比对代替它：scheme 与端口都可以省（``proxy`` → ``("proxy", 80)``、
+    ``https://proxy`` → ``("proxy", 443)``，见 ``UpstreamMode.__post_init__``），
+    同一个地址有一大把写法。
+    """
+    spec = upstream_mode_spec(target)
+    validate_mode_specs([spec])
+    mode = ProxyMode.parse(spec)
+    # 上一句已经过了校验，这里必然是 UpstreamMode；断言只为把类型收窄。
+    assert isinstance(mode, UpstreamMode)
+    return mode.address
+
+
+def upstream_targets_self(target: str, *, listen_host: str, listen_port: int) -> bool:
+    """上游地址是否指回 ferret 自己的监听口（自环）。
+
+    判据照抄原生自连守卫 ``proxyserver.server_connect``
+    （``proxyserver.py:376-395``）：端口相同，且 host 落在
+    ``localhost``/``127.0.0.1``/``::1``/监听地址 之内。原生那道守卫是**每条流量**
+    的兜底，写的是 "Request destination unknown. Unable to figure out where this
+    request should be forwarded to." —— 看不懂，而且要等到有流量才出现。所以提交
+    上游配置时先在这里拦一道，给一句能看懂的中文。
+    """
+    host, port = upstream_address(target)
+    return port == listen_port and host in (
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        listen_host,
+    )
+
+
 def capture_mode_specs(
     *,
     use_local: bool,
@@ -90,12 +154,21 @@ def capture_mode_specs(
     use_reverse: bool = False,
     reverse_target: str = "",
     reverse_port: int = REVERSE_DEFAULT_PORT,
+    use_upstream: bool = False,
+    upstream_target: str = "",
     listen_host: str = "",
 ) -> list[str]:
     """完整 ``mode`` 选项列表。
 
-    regular 恒在第一位：它是系统代理与 compose 的底盘，其余通道按启用勾选拼接。
-    reverse 排在 local/wireguard 之前（紧跟 regular）：它与 regular 共用
+    第一个槽位恒在，它是系统代理与 compose 的底盘（负责监听 TCP 端口）：默认
+    ``regular``，开了上游代理就**整条换成** ``upstream:<目标>``，而不是追加一条。
+    二者绝不并存 —— 都回退全局 ``listen_port``，同时在场必被
+    ``proxyserver.configure`` 的 ``(host, port, proto)`` 查重拒（实测
+    ``OptionsError: Cannot spawn multiple servers on the same address``）。换而不是
+    追加还有第二个理由：``ClientPlayback`` 只看 ``options.mode[0]`` 是不是 upstream
+    前缀（``clientplayback.py:97-105``），放在首位重放/compose 才跟着走上游。
+    其余通道按启用勾选拼在后面。
+    reverse 排在 local/wireguard 之前（紧跟首槽）：它与首槽共用
     ``listen_host``（一处管「谁能连进来」），spec 里的端口则由调用方保证错开。
 
     ``listen_host`` 缺省 ``""`` 时是上游 ``ProxyMode.parse`` 的「绑所有地址」语义，
@@ -104,8 +177,13 @@ def capture_mode_specs(
     duplicate_address_dodge`` 一类用例的 (host, port, proto) 三元组断言覆盖。
     ``reverse_target`` 为空时不开 reverse——避免「勾上但目标没填」误把
     ``reverse:@127.0.0.1:8081`` 这种空 spec 推进内核（ProxyMode.parse 会拒）。
+    ``upstream_target`` 为空时同理保持 ``regular``：空目标换槽位只会让系统代理这条
+    主通道整条死掉，比不生效糟得多。
     """
-    specs = ["regular"]
+    head = "regular"
+    if use_upstream and upstream_target.strip():
+        head = upstream_mode_spec(upstream_target)
+    specs = [head]
     if use_reverse and reverse_target.strip():
         specs.append(reverse_mode_spec(reverse_target, listen_host, reverse_port))
     if use_local:

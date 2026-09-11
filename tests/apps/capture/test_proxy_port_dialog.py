@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from ferret.apps.capture.views import (
     LocalSpecSelector,
@@ -160,6 +160,163 @@ class WireGuardConfigDialogTests(unittest.TestCase):
         self.assertGreater(dlg.qr_label.pixmap().width(), 0)
 
 
+class UpstreamProxyBlockTests(unittest.TestCase):
+    """上游代理那一块（.plans/upstream-mode.md §7 第 12 条）。
+
+    它长在 Card ① 系统代理卡片**内部**，不是第五张卡片 —— 这是刻意的：上游是
+    「系统代理这条通道的出口属性」，与监听地址端口同卡才不会被读成第五条抓包
+    通道。四条通道的出口里只有它受影响，另外三条仍是直连，提示文案得说清楚。
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.host.resize(900, 600)
+        self.host.show()
+        self.app.processEvents()
+        self.addCleanup(self._destroy_host)
+
+    def _destroy_host(self) -> None:
+        self.host.close()
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def dialog(self, **overrides) -> ProxyPortDialog:
+        values: dict[str, object] = {
+            "current_port": 8080,
+            "parent": self.host,
+            "is_running": False,
+            "listen_host": LOOPBACK_HOST,
+            "block_global": True,
+            "block_private": False,
+            "lan_address": "192.168.1.9",
+            "use_system_proxy": True,
+            "use_local": True,
+            "local_spec": "",
+            "use_wireguard": True,
+            "wireguard_config": lambda: "[Interface]",
+            "use_upstream": False,
+            "upstream_target": "",
+            "upstream_username": "",
+            "upstream_password": "",
+        }
+        values.update(overrides)
+        dlg = ProxyPortDialog(**values)  # ty: ignore[invalid-argument-type]
+        self.addCleanup(dlg.deleteLater)
+        return dlg
+
+    def test_all_four_values_are_backfilled(self) -> None:
+        """回填：四个值都要原样出现在控件里，密码也不例外。"""
+        dlg = self.dialog(
+            use_upstream=True,
+            upstream_target="http://proxy.corp:8080",
+            upstream_username="alice",
+            upstream_password="secret",
+        )
+        self.assertTrue(dlg.get_use_upstream())
+        self.assertEqual(dlg.get_upstream_target(), "http://proxy.corp:8080")
+        self.assertEqual(dlg.get_upstream_username(), "alice")
+        self.assertEqual(dlg.get_upstream_password(), "secret")
+
+    def test_the_block_is_hidden_until_checked(self) -> None:
+        """联动显隐：没勾时整块收起来，卡片保持紧凑（短窗口下也要塞得下）。"""
+        dlg = self.dialog(use_upstream=False)
+        dlg.show()
+        self.app.processEvents()
+
+        self.assertFalse(dlg.upstream_target_row.isVisible())
+        self.assertFalse(dlg.upstream_cred_row.isVisible())
+        self.assertFalse(dlg.upstream_hint.isVisible())
+
+        dlg.upstream_check.setChecked(True)
+        self.app.processEvents()
+
+        self.assertTrue(dlg.upstream_target_row.isVisible())
+        self.assertTrue(dlg.upstream_cred_row.isVisible())
+        self.assertTrue(dlg.upstream_hint.isVisible())
+
+    def test_unchecking_hides_the_block_again(self) -> None:
+        dlg = self.dialog(use_upstream=True, upstream_target="http://proxy:8080")
+        dlg.show()
+        self.app.processEvents()
+        self.assertTrue(dlg.upstream_target_row.isVisible())
+
+        dlg.upstream_check.setChecked(False)
+        self.app.processEvents()
+        self.assertFalse(dlg.upstream_target_row.isVisible())
+
+    def test_the_hint_states_the_direct_egress_boundary(self) -> None:
+        """边界必须写进提示，不许含糊：另外三条通道的出口**不受影响**。
+
+        推论是反直觉的 —— 在「直连出网被封」的企业环境里开了上游之后，
+        local/wireguard/reverse 抓到的流量会连不出去。那不是 bug，是这三条
+        通道没有上游（计划 §1）。
+        """
+        dlg = self.dialog(use_upstream=True, upstream_target="http://proxy:8080")
+        dlg.show()
+        self.app.processEvents()
+
+        text = dlg.upstream_hint.text()
+        self.assertIn("直连", text)
+        for channel in ("本地重定向", "WireGuard", "反向代理"):
+            self.assertIn(channel, text)
+
+    def test_the_hint_switches_to_the_credential_warning(self) -> None:
+        """凭证 + 反代同开时，提示换成串台警告。
+
+        原生 ``UpstreamAuth`` 一个 addon 同时服务 upstream 与 reverse，
+        ``upstream_auth`` 非空时反代目标也会收到 ``Authorization``（分不开，
+        见 tests/core/mitm/test_upstream.py 里那条钉子）。没填用户名就没有凭证
+        可串，提示回到边界说明。
+        """
+        dlg = self.dialog(
+            use_upstream=True,
+            upstream_target="http://proxy:8080",
+            use_reverse=True,
+            reverse_target="https://example.com",
+        )
+        dlg.show()
+        self.app.processEvents()
+        # 还没填用户名：没有凭证可串，仍是边界提示。
+        self.assertNotIn("反代目标", dlg.upstream_hint.text())
+
+        dlg.upstream_user_edit.setText("alice")
+        self.app.processEvents()
+        self.assertIn("反代目标", dlg.upstream_hint.text())
+
+        dlg.upstream_user_edit.setText("")
+        self.app.processEvents()
+        self.assertNotIn("反代目标", dlg.upstream_hint.text())
+
+    def test_target_is_stripped_but_the_password_is_not(self) -> None:
+        """密码**不能** strip：前后空格是密码的合法组成部分，地址和用户名则
+        几乎必然是误粘贴。"""
+        dlg = self.dialog(
+            use_upstream=True,
+            upstream_target="  http://proxy:8080  ",
+            upstream_username="  alice  ",
+            upstream_password="  se cret  ",
+        )
+        self.assertEqual(dlg.get_upstream_target(), "http://proxy:8080")
+        self.assertEqual(dlg.get_upstream_username(), "alice")
+        self.assertEqual(dlg.get_upstream_password(), "  se cret  ")
+
+    def test_there_is_no_port_spinbox(self) -> None:
+        """端口在地址里，上游没有独立监听口 —— 它占的就是 regular 那条监听
+        （spec 不带 ``@``）。有个端口框只会让人以为这是第五条通道。"""
+        dlg = self.dialog(use_upstream=True)
+        self.assertFalse(hasattr(dlg, "upstream_port_spin"))
+
+    def test_the_password_field_is_masked(self) -> None:
+        dlg = self.dialog(use_upstream=True, upstream_password="secret")
+        self.assertEqual(
+            dlg.upstream_password_edit.echoMode(), QLineEdit.EchoMode.Password
+        )
+
+
 class ProxyPortDialogTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -195,6 +352,10 @@ class ProxyPortDialogTests(unittest.TestCase):
             "local_spec": "",
             "use_wireguard": True,
             "wireguard_config": lambda: "[Interface]",
+            "use_upstream": False,
+            "upstream_target": "",
+            "upstream_username": "",
+            "upstream_password": "",
         }
         values.update(overrides)
         dlg = ProxyPortDialog(**values)  # ty: ignore[invalid-argument-type]

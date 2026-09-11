@@ -23,7 +23,13 @@ from ferret.core.mitm.intercept import (
     fake_response,
 )
 from ferret.core.mitm.io import FlowFile
-from ferret.core.mitm.modes import validate_local_spec, wireguard_client_config
+from ferret.core.mitm.modes import (
+    upstream_mode_spec,
+    upstream_targets_self,
+    validate_local_spec,
+    validate_mode_specs,
+    wireguard_client_config,
+)
 from ferret.core.mitm.rewrite import RewriteRule
 from ferret.core.mitm.runtime import MitmRuntime
 from ferret.core.mitm.sse import SseEvent
@@ -130,6 +136,24 @@ class MitmFacade:
     def reverse_port(self) -> int:
         return self.runtime.reverse_port
 
+    # —— 上游代理出口：不是第五条通道，是 mode 首槽位的替换（见 modes.py）——
+
+    @property
+    def use_upstream(self) -> bool:
+        return self.runtime.use_upstream
+
+    @property
+    def upstream_target(self) -> str:
+        return self.runtime.upstream_target
+
+    @property
+    def upstream_username(self) -> str:
+        return self.runtime.upstream_username
+
+    @property
+    def upstream_password(self) -> str:
+        return self.runtime.upstream_password
+
     def set_channels(
         self,
         *,
@@ -139,8 +163,12 @@ class MitmFacade:
         use_reverse: bool | None = None,
         reverse_target: str | None = None,
         reverse_port: int | None = None,
+        use_upstream: bool | None = None,
+        upstream_target: str | None = None,
+        upstream_username: str | None = None,
+        upstream_password: str | None = None,
     ) -> None:
-        """Switch the local-redirect / WireGuard / reverse channels; hot-applies when running."""
+        """Switch the capture channels and the upstream egress; hot-applies when running."""
         self.runtime.apply_channels(
             use_local=use_local,
             local_spec=local_spec,
@@ -148,6 +176,10 @@ class MitmFacade:
             use_reverse=use_reverse,
             reverse_target=reverse_target,
             reverse_port=reverse_port,
+            use_upstream=use_upstream,
+            upstream_target=upstream_target,
+            upstream_username=upstream_username,
+            upstream_password=upstream_password,
         )
 
     def engage_channels(self) -> None:
@@ -161,6 +193,27 @@ class MitmFacade:
     def validate_local_spec(self, local_spec: str) -> None:
         """Raise ``ValueError`` with a displayable message if the filter is invalid."""
         validate_local_spec(local_spec)
+
+    def validate_upstream_target(self, target: str) -> None:
+        """Raise ``ValueError`` with a displayable message if the upstream address is invalid.
+
+        只过原生解析器这一道（scheme 必须 http(s)、host 段不许带凭证）；自环一类
+        需要知道本机监听口的判断留在对话框，那是 UI 的上下文。
+        """
+        validate_mode_specs([upstream_mode_spec(target)])
+
+    def upstream_targets_self(
+        self, target: str, *, listen_host: str, listen_port: int
+    ) -> bool:
+        """Whether the upstream address points back at ferret's own listener.
+
+        监听地址端口由调用方传：对话框里用户可能同时在改监听口，判据得用**待提交
+        的**那一组，而不是 runtime 当前值。坏目标抛 ``ValueError``（同
+        ``validate_upstream_target``）。
+        """
+        return upstream_targets_self(
+            target, listen_host=listen_host, listen_port=listen_port
+        )
 
     def channel_health(self) -> dict[str, bool | str]:
         """Per-channel liveness of the running kernel; ``{}`` when it is not running."""

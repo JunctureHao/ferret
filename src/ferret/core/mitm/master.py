@@ -29,6 +29,7 @@ from ferret.core.mitm.bindings import (
     StickyCookie,
     StripDnsHttpsRecords,
     UpdateAltSvc,
+    UpstreamAuth,
     View,
 )
 from ferret.core.mitm.compose import ComposeAddon
@@ -112,6 +113,14 @@ class FerretMaster(Master):
             # ReverseMode)` 闸死，对非 reverse 流零副作用；位置在网关后、intercept
             # 前，命中绕行的流到不了它（AddonHalt 截断在前），与原生 default_addons()
             # 尾序（tlsconfig → upstream_auth → update_alt_svc）一致。常驻无开关。
+            # 上游代理凭证注入（出口经企业代理时的 Basic 认证）：只认 upstream /
+            # reverse 两种模式（upstream_auth.py:40-58），`upstream_auth` 选项为
+            # None 时全钩子空转，故常驻无开关。但它**不是**只靠模式闸门就零副作用
+            # —— 选项非空时 reverse 通道的请求也会被补上 `Authorization` 头
+            # （upstream_auth.py:56-58），即把上游代理的密码发给 reverse 目标。原生
+            # 分不开这两者，所以闸门在选项侧：MitmRuntime._upstream_auth() 在上游
+            # 关闭时恒回 None，同开时由对话框给出警告。
+            UpstreamAuth(),
             UpdateAltSvc(),
             # 挂在 View 之后：摘除（record=False）要等 View 收录完再执行，靠
             # `loop.call_soon` 排在当前一轮钩子派发之后，次序与链上位置无关。

@@ -69,6 +69,23 @@ def anticache_option_updates(enabled: bool) -> dict[str, bool]:
     return {"anticache": enabled, "anticomp": enabled}
 
 
+# 抓包通道的**意图值**字段名（见 `MitmRuntime.__init__` 的逐条注释）：落盘偏好，
+# 与不落盘的接通位 `channels_engaged` 分开。`apply_channels` 的三条回滚路径共用
+# 这张表打包/恢复，新增一个意图值只改这里。
+_CHANNEL_INTENTS: tuple[str, ...] = (
+    "use_local",
+    "local_spec",
+    "use_wireguard",
+    "use_reverse",
+    "reverse_target",
+    "reverse_port",
+    "use_upstream",
+    "upstream_target",
+    "upstream_username",
+    "upstream_password",
+)
+
+
 class MitmRuntimeState(StrEnum):
     STOPPED = "stopped"
     STARTING = "starting"
@@ -202,6 +219,7 @@ class _MitmThread(QThread):
         self._apply_intercept_rules(master)
         self._apply_sticky_session(master)
         self._apply_anticache_plaintext(master)
+        self._apply_upstream_auth(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -304,6 +322,19 @@ class _MitmThread(QThread):
         except (ValueError, OptionsError) as exc:
             log.warning("无缓存·明文开关无法应用，已忽略: %s", exc)
 
+    def _apply_upstream_auth(self, master: FerretMaster) -> None:
+        """Seed the upstream proxy credential before serving traffic (on the mitm loop).
+
+        ``upstream_auth`` 由原生 ``UpstreamAuth.load`` 注册，构造 Options 时还不
+        存在，只能等 Master 建好之后再写 —— 与 `_apply_sticky_session` 完全同一个
+        约束。mode 里的 upstream 槽位走 Options 构造参数（那是出厂就有的选项），
+        凭证走这里，两边合起来才是一条完整的上游出口。
+        """
+        try:
+            master.options.update(upstream_auth=self.runtime._upstream_auth())
+        except (ValueError, OptionsError) as exc:
+            log.warning("上游代理凭证无法应用，已忽略: %s", exc)
+
     def _ensure_port_available(self) -> None:
         if self.runtime.listen_port == 0:
             return
@@ -372,6 +403,10 @@ class MitmRuntime(QObject):
         use_reverse: bool = False,
         reverse_target: str = "",
         reverse_port: int = 8081,
+        use_upstream: bool = False,
+        upstream_target: str = "",
+        upstream_username: str = "",
+        upstream_password: str = "",
         sticky_session_enabled: bool = False,
         anticache_plaintext: bool = False,
     ) -> None:
@@ -397,6 +432,17 @@ class MitmRuntime(QObject):
         self.use_reverse = use_reverse
         self.reverse_target = reverse_target.strip()
         self.reverse_port = reverse_port
+        # 上游代理四意图值：它**不是第五条通道**，而是把 mode 列表第一个槽位从
+        # regular 换成 upstream（见 core/mitm/modes.py::upstream_mode_spec）——
+        # 监听地址端口一字不动，只把系统代理这条通道的出口改成「先交给上游代理」。
+        # 目标进 spec，凭证**不能**进（原生 server_spec 的 host 段是 `[^:/]+`），
+        # 另走 `upstream_auth` 选项，见 `_upstream_auth` / `_apply_upstream_auth`。
+        # 用户名密码拆两项存：原生格式 "user:pass" 按首个冒号切，密码含冒号没问题，
+        # 用户名含冒号则无法表达，所以由 UI 分开收而不是让用户自己拼。
+        self.use_upstream = use_upstream
+        self.upstream_target = upstream_target.strip()
+        self.upstream_username = upstream_username
+        self.upstream_password = upstream_password
         # 「抓包会话」是否接通：False 时 _mode_specs 只回 regular（应用启动态），
         # True 才把启用的通道拼进 mode 列表。与上面三个**意图值**分开 —— 停止
         # 会话只动这一位，用户的通道偏好原样保留，下次点开始照旧拼装。
@@ -451,7 +497,11 @@ class MitmRuntime(QObject):
         return self._last_error
 
     def _mode_specs(self) -> list[str]:
-        """完整 ``mode`` 选项：regular 恒在（常驻底盘），通道按「启用 × 已接通」拼接。"""
+        """完整 ``mode`` 选项：首槽位恒在（常驻底盘），通道按「启用 × 已接通」拼接。
+
+        首槽位默认 regular，上游代理启用且已接通时整条换成 upstream —— 上游与四条
+        通道同过 `channels_engaged` 这道闸门，未接通时（应用启动态）回 regular。
+        """
         engaged = self.channels_engaged
         return capture_mode_specs(
             use_local=engaged and self.use_local,
@@ -460,6 +510,8 @@ class MitmRuntime(QObject):
             use_reverse=engaged and self.use_reverse,
             reverse_target=self.reverse_target,
             reverse_port=self.reverse_port,
+            use_upstream=engaged and self.use_upstream,
+            upstream_target=self.upstream_target,
             listen_host=self.listen_host,
         )
 
@@ -516,6 +568,50 @@ class MitmRuntime(QObject):
             self.channels_engaged and (self.use_wireguard or reverse_yield)
         )
 
+    def _upstream_auth(self) -> str | None:
+        """下发给原生 ``upstream_auth`` 选项的值；``None`` = 不发认证头。
+
+        上游**没有生效**或用户名为空都回 ``None``，三条都是必须的：
+
+        - **不能回空串**。``parse_upstream_auth`` 的正则是 ``.+:``，实测
+          ``upstream_auth=""`` 抛 ``OptionsError: Invalid upstream auth
+          specification:``，会把整个 ``options.update`` 连 mode 一起打回。
+        - **上游关闭时必须回 None**，哪怕凭证还留在配置里。``UpstreamAuth``
+          的模式闸门放行 upstream **和 reverse**（``upstream_auth.py:40-58``），
+          选项非空时 reverse 通道的请求会被补上 ``Authorization`` 头 —— 即把企业
+          代理的密码发给 reverse 目标。原生分不开这两者，唯一的开关就在这里。
+          两者同时开启的残余风险由对话框警告兜（测试钉住了这个语义）。
+        - **判据必须与首槽位是否真的换成了 upstream 一致**，所以空目标同样回
+          None：``capture_mode_specs`` 见到空目标会保持 ``regular``（空 spec 推进
+          内核只会让系统代理整条死掉），此时上游并未生效，凭证却还发得出去 ——
+          配上 reverse 就是把企业代理密码白送给反代目标。对话框拦得住「勾了没填」，
+          但手改配置文件、或直接调 ``apply_channels(use_upstream=True)`` 不带目标
+          都绕得过去，闸门得设在这里。
+        - **不看 ``channels_engaged``**：它与 mode 不同步是有意的。开机
+          `_apply_upstream_auth` 在未接通时就把凭证种好，`set_channels_engaged`
+          才只推 mode 而不必重推凭证；未接通时 mode 里既没有 upstream 也没有
+          reverse，没有任何一条钩子能拿这份凭证做事。
+        """
+        if not self.use_upstream or not self.upstream_target.strip():
+            return None
+        if not self.upstream_username:
+            return None
+        return f"{self.upstream_username}:{self.upstream_password}"
+
+    def _channel_intents(self) -> tuple[Any, ...]:
+        """Snapshot every channel intent value, for `apply_channels` rollback.
+
+        `apply_channels` 有三条回滚路径（spec 校验失败、内核 `OptionsError`、
+        兜底 `Exception`），逐条展开同一个元组的写法在字段变多后必然漏掉某一条
+        —— 收进这对方法，新增意图值只需要改 `_CHANNEL_INTENTS` 一处。
+        """
+        return tuple(getattr(self, name) for name in _CHANNEL_INTENTS)
+
+    def _restore_intents(self, saved: tuple[Any, ...]) -> None:
+        """Roll the channel intents back to a `_channel_intents` snapshot."""
+        for name, value in zip(_CHANNEL_INTENTS, saved, strict=True):
+            setattr(self, name, value)
+
     def apply_channels(
         self,
         *,
@@ -525,8 +621,12 @@ class MitmRuntime(QObject):
         use_reverse: bool | None = None,
         reverse_target: str | None = None,
         reverse_port: int | None = None,
+        use_upstream: bool | None = None,
+        upstream_target: str | None = None,
+        upstream_username: str | None = None,
+        upstream_password: str | None = None,
     ) -> None:
-        """Switch the local-redirect / WireGuard / reverse channels on a running kernel.
+        """Switch the capture channels (and the upstream egress) on a running kernel.
 
         与 `apply_rewrite_rules` 同构：spec 在提交任何东西之前先过一遍原生解析器，
         坏值不会走到「内核已受理一半」。热更走 ``options.update(mode=...)`` ——
@@ -537,14 +637,7 @@ class MitmRuntime(QObject):
         Raises:
             ValueError: spec 不合法，或内核拒绝（超时/启动失败等，此时内存副本回滚）。
         """
-        previous = (
-            self.use_local,
-            self.local_spec,
-            self.use_wireguard,
-            self.use_reverse,
-            self.reverse_target,
-            self.reverse_port,
-        )
+        previous = self._channel_intents()
         if use_local is not None:
             self.use_local = use_local
         if local_spec is not None:
@@ -557,18 +650,19 @@ class MitmRuntime(QObject):
             self.reverse_target = reverse_target.strip()
         if reverse_port is not None:
             self.reverse_port = reverse_port
+        if use_upstream is not None:
+            self.use_upstream = use_upstream
+        if upstream_target is not None:
+            self.upstream_target = upstream_target.strip()
+        if upstream_username is not None:
+            self.upstream_username = upstream_username
+        if upstream_password is not None:
+            self.upstream_password = upstream_password
         specs = self._mode_specs()
         try:
             validate_mode_specs(specs)
         except ValueError:
-            (
-                self.use_local,
-                self.local_spec,
-                self.use_wireguard,
-                self.use_reverse,
-                self.reverse_target,
-                self.reverse_port,
-            ) = previous
+            self._restore_intents(previous)
             raise
 
         # block_private 要跟着让路（见 _effective_block_private）；这一步无先决
@@ -579,32 +673,22 @@ class MitmRuntime(QObject):
             return
         try:
             self.call(
+                # mode 与 upstream_auth 必须同一次 update 推下去：分两次推会出现
+                # 「槽位已换成 upstream、凭证还是上一轮的」这种半拉子中间态，
+                # 期间的流量会拿着错凭证去撞上游的 407。
                 lambda: master.options.update(
                     mode=specs,
+                    upstream_auth=self._upstream_auth(),
                     block_global=self.block_global,
                     block_private=self._effective_block_private(),
                 )
             )
         except OptionsError as exc:
             # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
-            (
-                self.use_local,
-                self.local_spec,
-                self.use_wireguard,
-                self.use_reverse,
-                self.reverse_target,
-                self.reverse_port,
-            ) = previous
+            self._restore_intents(previous)
             raise ValueError(str(exc)) from exc
         except Exception:
-            (
-                self.use_local,
-                self.local_spec,
-                self.use_wireguard,
-                self.use_reverse,
-                self.reverse_target,
-                self.reverse_port,
-            ) = previous
+            self._restore_intents(previous)
             raise
 
     def start(self) -> None:

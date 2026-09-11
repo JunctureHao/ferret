@@ -47,6 +47,11 @@ class FakeRuntime(QObject):
         self.use_reverse = False
         self.reverse_target = ""
         self.reverse_port = 8081
+        # 上游代理不是第五条通道，它替换 mode[0] 的 regular 槽位。
+        self.use_upstream = False
+        self.upstream_target = ""
+        self.upstream_username = ""
+        self.upstream_password = ""
         self.channels_engaged = False
         self.health: dict = {}
         self.start_calls = 0
@@ -83,6 +88,10 @@ class FakeRuntime(QObject):
         use_reverse=None,
         reverse_target=None,
         reverse_port=None,
+        use_upstream=None,
+        upstream_target=None,
+        upstream_username=None,
+        upstream_password=None,
     ) -> None:
         if use_local is not None:
             self.use_local = use_local
@@ -96,6 +105,14 @@ class FakeRuntime(QObject):
             self.reverse_target = reverse_target
         if reverse_port is not None:
             self.reverse_port = reverse_port
+        if use_upstream is not None:
+            self.use_upstream = use_upstream
+        if upstream_target is not None:
+            self.upstream_target = upstream_target
+        if upstream_username is not None:
+            self.upstream_username = upstream_username
+        if upstream_password is not None:
+            self.upstream_password = upstream_password
         self.channel_pushes += 1
 
     def channel_health(self) -> dict:
@@ -174,6 +191,10 @@ class FakeFacade:
         use_reverse=None,
         reverse_target=None,
         reverse_port=None,
+        use_upstream=None,
+        upstream_target=None,
+        upstream_username=None,
+        upstream_password=None,
     ) -> None:
         self.runtime.apply_channels(
             use_local=use_local,
@@ -182,11 +203,26 @@ class FakeFacade:
             use_reverse=use_reverse,
             reverse_target=reverse_target,
             reverse_port=reverse_port,
+            use_upstream=use_upstream,
+            upstream_target=upstream_target,
+            upstream_username=upstream_username,
+            upstream_password=upstream_password,
         )
 
     def validate_local_spec(self, local_spec: str) -> None:
         if ",," in local_spec or local_spec.strip() == "!":
             raise ValueError("invalid intercept spec")
+
+    def validate_upstream_target(self, target: str) -> None:
+        # 真身走 validate_mode_specs([upstream_mode_spec(target)])；这里只要够
+        # 分辨「坏地址被拦下」即可。
+        if "://" in target and not target.startswith(("http://", "https://")):
+            raise ValueError("invalid upstream target")
+        if "@" in target:
+            raise ValueError("invalid upstream target")
+
+    def upstream_targets_self(self, target, *, listen_host, listen_port) -> bool:
+        return target.endswith(f":{listen_port}")
 
     def channel_health(self) -> dict:
         return self.runtime.channel_health()
@@ -435,6 +471,68 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertFalse(CONFIG.get(CONFIG.local_enabled))
         self.assertEqual(CONFIG.get(CONFIG.local_spec), "a,,b")
         self.assertFalse(runtime.use_local)
+
+    def test_update_channels_rejects_a_bad_upstream_without_touching_config(
+        self,
+    ) -> None:
+        """坏上游地址与坏 local 过滤串同款：拦在落盘之前，CONFIG 与内核都不动。"""
+        controller, runtime, _, _ = self.make_controller()
+
+        with self.assertRaises(ValueError):
+            controller.update_channels(
+                use_system_proxy=True,
+                use_local=False,
+                local_spec="",
+                use_wireguard=False,
+                use_upstream=True,
+                upstream_target="ftp://proxy:8080",
+            )
+
+        self.assertFalse(CONFIG.get(CONFIG.upstream_enabled))
+        self.assertEqual(CONFIG.get(CONFIG.upstream_target), "")
+        self.assertFalse(runtime.use_upstream)
+
+    def test_disabling_the_upstream_skips_target_validation(self) -> None:
+        """「关的动作一律放行」：哪怕地址栏留着历史坏值也不该卡住提交
+        （与 `test_disabling_local_skips_filter_validation` 同一条规矩）。"""
+        controller, runtime, _, _ = self.make_controller()
+
+        controller.update_channels(
+            use_system_proxy=True,
+            use_local=False,
+            local_spec="",
+            use_wireguard=False,
+            use_upstream=False,
+            upstream_target="ftp://proxy:8080",
+        )
+
+        self.assertFalse(CONFIG.get(CONFIG.upstream_enabled))
+        self.assertEqual(CONFIG.get(CONFIG.upstream_target), "ftp://proxy:8080")
+        self.assertFalse(runtime.use_upstream)
+
+    def test_update_channels_persists_all_four_upstream_values(self) -> None:
+        """四个值都要落盘并推到内核 —— 密码也在内，它是 CONFIG 明文项。"""
+        controller, runtime, _, _ = self.make_controller()
+
+        controller.update_channels(
+            use_system_proxy=True,
+            use_local=False,
+            local_spec="",
+            use_wireguard=False,
+            use_upstream=True,
+            upstream_target="http://proxy.corp:8080",
+            upstream_username="alice",
+            upstream_password="secret",
+        )
+
+        self.assertTrue(CONFIG.get(CONFIG.upstream_enabled))
+        self.assertEqual(CONFIG.get(CONFIG.upstream_target), "http://proxy.corp:8080")
+        self.assertEqual(CONFIG.get(CONFIG.upstream_username), "alice")
+        self.assertEqual(CONFIG.get(CONFIG.upstream_password), "secret")
+        self.assertTrue(runtime.use_upstream)
+        self.assertEqual(runtime.upstream_target, "http://proxy.corp:8080")
+        self.assertEqual(runtime.upstream_username, "alice")
+        self.assertEqual(runtime.upstream_password, "secret")
 
     def test_detaching_system_proxy_on_dialog_toggle_while_capturing(self) -> None:
         controller, _runtime, _, proxy = self.make_controller()

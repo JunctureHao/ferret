@@ -241,6 +241,34 @@ class CaptureController(QObject):
     def reverse_port(self) -> int:
         return self._mitm.reverse_port
 
+    @property
+    def use_upstream(self) -> bool:
+        return self._mitm.use_upstream
+
+    @property
+    def upstream_target(self) -> str:
+        return self._mitm.upstream_target
+
+    @property
+    def upstream_username(self) -> str:
+        return self._mitm.upstream_username
+
+    @property
+    def upstream_password(self) -> str:
+        return self._mitm.upstream_password
+
+    def upstream_targets_self(
+        self, target: str, *, listen_host: str, listen_port: int
+    ) -> bool:
+        """上游地址是否指回 ferret 自己的监听口（对话框提交前的自环前置校验）。
+
+        监听地址端口由调用方传：用户可能在同一个对话框里同时改监听口，判据得用
+        **待提交的**那一组。目标非法时抛 ``ValueError``（已译）。
+        """
+        return self._mitm.upstream_targets_self(
+            target, listen_host=listen_host, listen_port=listen_port
+        )
+
     def system_proxy_enabled(self) -> bool:
         """「开始抓包」时是否挂系统代理（对话框勾选的持久化偏好）。"""
         return bool(CONFIG.get(CONFIG.system_proxy_enabled))
@@ -527,6 +555,10 @@ class CaptureController(QObject):
         use_reverse: bool = False,
         reverse_target: str = "",
         reverse_port: int = 8081,
+        use_upstream: bool = False,
+        upstream_target: str = "",
+        upstream_username: str = "",
+        upstream_password: str = "",
     ) -> None:
         """Commit the capture-channels dialog: persist, then hot-apply what is live.
 
@@ -538,6 +570,11 @@ class CaptureController(QObject):
         # 本身就值得放行；开启时 apply_channels 还会再过一遍原生解析器）。
         if use_local:
             self._mitm.validate_local_spec(local_spec)
+        # 上游地址同款「关的动作放行」：只在开启时过原生解析器，关闭时哪怕地址
+        # 是历史坏值也不该卡住提交。自环那一道在对话框里（它要知道待提交的监听
+        # 口，见 apps/capture/views.py::__show_proxy_port_dialog）。
+        if use_upstream:
+            self._mitm.validate_upstream_target(upstream_target)
         CONFIG.set(CONFIG.system_proxy_enabled, use_system_proxy)
         CONFIG.set(CONFIG.local_enabled, use_local)
         CONFIG.set(CONFIG.local_spec, local_spec)
@@ -548,6 +585,12 @@ class CaptureController(QObject):
         CONFIG.set(CONFIG.reverse_enabled, use_reverse)
         CONFIG.set(CONFIG.reverse_target, reverse_target)
         CONFIG.set(CONFIG.reverse_port, reverse_port)
+        # 上游代理四参落盘：它替换的是 regular 槽位（不是第五条通道），凭证明文
+        # 落盘，语义见 core/settings.py 的注释。
+        CONFIG.set(CONFIG.upstream_enabled, use_upstream)
+        CONFIG.set(CONFIG.upstream_target, upstream_target)
+        CONFIG.set(CONFIG.upstream_username, upstream_username)
+        CONFIG.set(CONFIG.upstream_password, upstream_password)
         # 提交意图：抓包中会顺带热更 mode 列表与 block 联动（runtime 内部处理）。
         self._mitm.set_channels(
             use_local=use_local,
@@ -556,6 +599,10 @@ class CaptureController(QObject):
             use_reverse=use_reverse,
             reverse_target=reverse_target,
             reverse_port=reverse_port,
+            use_upstream=use_upstream,
+            upstream_target=upstream_target,
+            upstream_username=upstream_username,
+            upstream_password=upstream_password,
         )
         self.channels_changed.emit()
 

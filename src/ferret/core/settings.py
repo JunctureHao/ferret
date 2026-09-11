@@ -185,6 +185,45 @@ class Config(QConfig):
         default=8081,
     )
 
+    # 上游代理出口：**不是第五条通道**，而是把 mode 列表第一个槽位从 regular 换成
+    # upstream（见 core/mitm/modes.py::upstream_mode_spec）—— 监听地址端口一字不动，
+    # 只把系统代理这条通道的出口从直连改成「先交给上游代理」。企业强制代理、链式
+    # 抓包（ferret → Burp/Charles）、出口 IP 池都靠它。意图值落盘、接通位不落盘，
+    # 与四条通道同一语义。默认关且目标为空——它需要一个显式目标才有意义。
+    upstream_enabled = ConfigItem(
+        group="Proxy",
+        name="UpstreamEnabled",
+        default=False,
+        validator=BoolValidator(),
+    )
+
+    # 上游代理地址，只接受 host[:port] 或 http(s)://host[:port]，**不能带
+    # user:pass@**（原生 server_spec 的 host 段是 `[^:/]+`，解析不了；见
+    # core/mitm/modes.py::upstream_mode_spec）。省略 scheme 按 http、省略端口按
+    # scheme 兜底（80/443）。提交前有前置校验（坏值 + 自环），历史落盘坏值由
+    # validate_mode_specs 在开始抓包时兜底拦截。
+    upstream_target = ConfigItem(
+        group="Proxy",
+        name="UpstreamTarget",
+        default="",
+    )
+
+    # 上游代理的 Basic 凭证，拆两项存：原生格式是 "user:pass"，服务端按首个冒号
+    # 切，所以密码含冒号没问题、用户名含冒号无法表达 —— 由 UI 分开收，避免让用户
+    # 自己拼出一个歧义串。留空 = 不发认证头（见 MitmRuntime._upstream_auth）。
+    # **明文落盘**，与 confdir 里的 CA 私钥同一安全姿态；不愿落盘的留空即可。
+    upstream_username = ConfigItem(
+        group="Proxy",
+        name="UpstreamUsername",
+        default="",
+    )
+
+    upstream_password = ConfigItem(
+        group="Proxy",
+        name="UpstreamPassword",
+        default="",
+    )
+
     # 网关规则，存 list[dict]（见 core/mitm/gateway.py 的 GatewayRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

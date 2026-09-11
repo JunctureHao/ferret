@@ -89,6 +89,8 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - **四通道抓包**：regular + local + wireguard + reverse 任意组合并存，经 `options.update(mode=[...])` 热更（官方 `proxyserver` 路径）。local spec 必须挂 `@127.0.0.1:0` 占位（上游 #7063 查重缺陷，上游修复后可整体移除）。reverse spec 必带 `reverse:https://target@host:port`，https 走 `BOTH`（TCP+UDP）防 alt-svc 落到裸 TCP 后通道对不上。
 
+- **上游代理不是第五条通道**：它替换 `mode[0]`（`regular` → `upstream:http://proxy:8080`），只改系统代理通道的**出口**；二者绝不并存（都回退全局 `listen_port`，同时在场被 `proxyserver` 地址查重拒）。spec **不带** `@`（与 reverse 正相反：那里要独立端口，这里要同一个，故系统代理/环回豁免/端口探测零改动），凭证**不进 spec**、走正交的 `upstream_auth` 选项（未生效时必须回 `None` 而非 `""`，校验正则 `.+:`）。**`upstream_auth` 非空时 reverse 通道的请求也会被补 `Authorization`**（原生一个 addon 服务两种模式，分不开）——既定语义不是 bug，闸门在选项侧，`tests/core/mitm/test_upstream.py` 钉着。四条边界不要在没有新需求时重开：local/wireguard/reverse 出口仍直连、裸 TCP/UDP 不经上游、凭证明文落盘（同 CA 私钥姿态）、只支持 HTTP(S) 不支持 SOCKS。理由见 `.plans/upstream-mode.md`。
+
 - **不做 transparent / tun**：Windows 上游明文 unsupported、需整进程管理员、重定向端口硬编码 8080、随包分发 WinDivert 1.3.0；tun 在 Rust 侧 Linux-only。
 
 - **启停语义**：应用启动零抓包动作；「开始」= 通道接通 + 系统代理 attach（按勾选）+ 开写入闸门，「停止」整体回落。通道**意图值**（`use_local` / `local_spec` / `use_wireguard`，落盘）与**接通位**（`set_channels_engaged`，不落盘）分离；写入闸门在控制器（`_on_flow_added`）且**不碰 core View**（intercept/compose 依赖）。
