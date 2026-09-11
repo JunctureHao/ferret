@@ -217,6 +217,27 @@ def validate_local_spec(local_spec: str) -> None:
     validate_mode_specs([local_mode_spec(local_spec)])
 
 
+def ensure_wireguard_conf(conf_path: Path) -> None:
+    """确保 WireGuard 密钥文件存在，格式与 mitmproxy 内核写的完全一致。
+
+    内核 WireGuardServerInstance._start() 只在文件不存在时写，所以这里抢先
+    生成不会与它打架：先到者定密钥，后到者复用。用 "x" 独占创建关掉
+    「两边同时发现文件不存在」的竞态，撞上了就认对方那份。
+    """
+    if conf_path.exists():
+        return
+    conf_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(
+        {"server_key": rs_wireguard.genkey(), "client_key": rs_wireguard.genkey()},
+        indent=4,
+    )
+    try:
+        with conf_path.open("x", encoding="utf-8") as fp:
+            fp.write(payload)
+    except FileExistsError:
+        return  # 内核（或另一个 ferret 实例）刚写完，用它那份
+
+
 def wireguard_client_config(conf_path: Path, lan_address: str | None) -> str:
     """从上游落盘的 ``wireguard.conf``（JSON）生成可导入的客户端配置文本。
 

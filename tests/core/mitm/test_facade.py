@@ -12,7 +12,10 @@
 在这里覆盖，那条路由端到端冒烟兜着。）
 """
 
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from mitmproxy import flowfilter
 from mitmproxy.test import tflow
@@ -473,3 +476,33 @@ class MarkTests(unittest.TestCase):
         self.flow.intercept()
         self.facade.set_flow_marked(self.flow.id, MARKER_DEFAULT)
         self.assertTrue(self.flow.intercepted)
+
+
+class WireGuardConfigTests(unittest.TestCase):
+    """首次使用就能拿到码：缺文件现场生成，坏文件报已翻译的文案。"""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.certs_dir = Path(self._dir.name) / "certs"
+        patcher = mock.patch(
+            "ferret.core.mitm.facade.get_certs_dir", return_value=self.certs_dir
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.facade = MitmFacade(MitmRuntime())
+
+    def test_generates_the_conf_on_first_read(self) -> None:
+        # 干净 certs/ 下直接出文本，不再抛 FileNotFoundError。
+        config = self.facade.wireguard_client_config()
+        self.assertIn("[Interface]", config)
+        self.assertTrue((self.certs_dir / "wireguard.conf").exists())
+
+    def test_corrupt_conf_raises_translated_text(self) -> None:
+        self.certs_dir.mkdir(parents=True)
+        (self.certs_dir / "wireguard.conf").write_text("not json")
+        with self.assertRaises(ValueError) as ctx:
+            self.facade.wireguard_client_config()
+        # 文案已翻译（源语言中文），路径必须出现在里面指引用户删文件。
+        self.assertIn("WireGuard", str(ctx.exception))
+        self.assertIn("wireguard.conf", str(ctx.exception))

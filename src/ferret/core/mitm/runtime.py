@@ -28,7 +28,11 @@ from ferret.core.mitm.gateway import (
 )
 from ferret.core.mitm.intercept import InterceptRule, intercept_option_updates
 from ferret.core.mitm.master import FerretMaster
-from ferret.core.mitm.modes import capture_mode_specs, validate_mode_specs
+from ferret.core.mitm.modes import (
+    capture_mode_specs,
+    ensure_wireguard_conf,
+    validate_mode_specs,
+)
 from ferret.core.mitm.rewrite import RewriteRule, RewriteRuleSet
 from ferret.core.mitm.wsframe import latest_frame, ws_close
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, normalize_listen_host
@@ -198,6 +202,11 @@ class _MitmThread(QThread):
         # 与单例占位清干净再起，否则 _start 的 "more than one redirector" 护栏
         # 会让 local 通道静默失效。
         await self.loop.run_in_executor(None, MitmRuntime._disarm_local_redirector)
+        # WireGuard 密钥在 Options 构造前预置：内核 _start 只在文件不存在时写，
+        # 先到者定密钥，后到者复用。消灭「内核正在 _start 写文件，同一瞬间用户
+        # 点二维码」的窗口（facade 侧也走 open("x")，谁赢都用同一份）。
+        if self.runtime.use_wireguard:
+            ensure_wireguard_conf(get_certs_dir() / "wireguard.conf")
         options = Options(
             listen_host=self.runtime.listen_host,
             listen_port=self.runtime.listen_port,

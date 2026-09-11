@@ -24,6 +24,7 @@ from ferret.core.mitm.intercept import (
 )
 from ferret.core.mitm.io import FlowFile
 from ferret.core.mitm.modes import (
+    ensure_wireguard_conf,
     upstream_mode_spec,
     upstream_targets_self,
     validate_local_spec,
@@ -224,13 +225,30 @@ class MitmFacade:
     def wireguard_client_config(self) -> str:
         """The client profile for the WireGuard tunnel, ready to import on a phone.
 
-        配置文件由上游在隧道启动时写进 confdir；隧道从未开过时抛
-        ``FileNotFoundError``，调用方转成「先开一次抓包」的提示。
+        用户勾上 WireGuard 的那刻就该能拿到码：文件不存在时现场生成（与内核
+        ``_start`` 同格式，后到者复用），不再需要「先开始抓包一次」。文件损坏
+        或目录不可写时抛已翻译的 ``OSError`` / ``ValueError`` 文案。
         """
-        return wireguard_client_config(
-            get_certs_dir() / "wireguard.conf",
-            self.lan_address(),
-        )
+        conf_path = get_certs_dir() / "wireguard.conf"
+        try:
+            ensure_wireguard_conf(conf_path)
+        except OSError as exc:
+            raise OSError(
+                QCoreApplication.translate(
+                    "MitmFacade", "无法写入 WireGuard 密钥文件：{}"
+                ).format(exc)
+            ) from exc
+        try:
+            return wireguard_client_config(conf_path, self.lan_address())
+        except (ValueError, KeyError, TypeError) as exc:
+            # 坏 JSON → JSONDecodeError(ValueError)；缺键 → KeyError；键不是字符串
+            # → TypeError；密钥非法 → rs_wireguard.pubkey 的 ValueError。四种都是
+            # 同一回事：这份文件没救了，删掉重新生成。
+            raise ValueError(
+                QCoreApplication.translate(
+                    "MitmFacade", "WireGuard 密钥文件已损坏，删除 {} 后重试"
+                ).format(conf_path)
+            ) from exc
 
     @property
     def gateway_rules(self) -> list[GatewayRule]:

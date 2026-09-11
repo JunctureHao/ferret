@@ -27,6 +27,7 @@ from ferret.core.mitm.modes import (
     LocalTarget,
     capture_mode_specs,
     checked_tokens,
+    ensure_wireguard_conf,
     list_local_targets,
     local_mode_spec,
     qr_matrix,
@@ -321,6 +322,47 @@ class WireGuardClientConfigTests(unittest.TestCase):
         """编码失败显式抛 ValueError（界面据此只留手动复制退路）。"""
         with self.assertRaises(ValueError):
             qr_matrix("x" * 4000)
+
+
+class EnsureWireGuardConfTests(unittest.TestCase):
+    """密钥文件的按需生成：格式与内核写的一致，先到者定密钥。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        QApplication.instance() or QApplication([])
+        from mitmproxy_rs import wireguard as rs_wireguard
+
+        cls.rs_wireguard = rs_wireguard
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.conf_path = Path(self._dir.name) / "sub" / "wireguard.conf"
+
+    def test_creates_a_kernel_compatible_file(self) -> None:
+        # 父目录不存在也一并建好（get_certs_dir 不 mkdir 的补丁）。
+        ensure_wireguard_conf(self.conf_path)
+        data = json.loads(self.conf_path.read_text(encoding="utf-8"))
+        # 与上游 _start 相同的两个字段，且都是合法私钥。
+        self.assertEqual(set(data), {"server_key", "client_key"})
+        self.rs_wireguard.pubkey(data["server_key"])
+        self.rs_wireguard.pubkey(data["client_key"])
+
+    def test_is_idempotent(self) -> None:
+        ensure_wireguard_conf(self.conf_path)
+        before = self.conf_path.read_bytes()
+        ensure_wireguard_conf(self.conf_path)
+        self.assertEqual(self.conf_path.read_bytes(), before)
+
+    def test_yields_to_an_existing_file(self) -> None:
+        self.conf_path.parent.mkdir(parents=True)
+        self.conf_path.write_text('{"server_key": "x", "client_key": "y"}')
+        ensure_wireguard_conf(self.conf_path)
+        # 已存在的文件原样保留：内核后到会直接复用这份密钥。
+        self.assertEqual(
+            self.conf_path.read_text(encoding="utf-8"),
+            '{"server_key": "x", "client_key": "y"}',
+        )
 
 
 class LocalTargetTests(unittest.TestCase):
