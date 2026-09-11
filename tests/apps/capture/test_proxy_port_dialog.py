@@ -18,7 +18,7 @@ from ferret.apps.capture.views import (
     ProxyPortDialog,
     WireGuardConfigDialog,
 )
-from ferret.core.mitm.modes import LocalTarget
+from ferret.core.mitm.modes import WIREGUARD_PORT, LocalTarget
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 
 
@@ -229,14 +229,14 @@ class UpstreamProxyBlockTests(unittest.TestCase):
 
         self.assertFalse(dlg.upstream_target_row.isVisible())
         self.assertFalse(dlg.upstream_cred_row.isVisible())
-        self.assertFalse(dlg.upstream_hint.isVisible())
 
         dlg.upstream_check.setChecked(True)
         self.app.processEvents()
 
         self.assertTrue(dlg.upstream_target_row.isVisible())
         self.assertTrue(dlg.upstream_cred_row.isVisible())
-        self.assertTrue(dlg.upstream_hint.isVisible())
+        # 勾上并不带出一行常驻说明：hint 只报异常（重排规则 R3）。
+        self.assertFalse(dlg.upstream_hint.isVisible())
 
     def test_unchecking_hides_the_block_again(self) -> None:
         dlg = self.dialog(use_upstream=True, upstream_target="http://proxy:8080")
@@ -248,29 +248,33 @@ class UpstreamProxyBlockTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(dlg.upstream_target_row.isVisible())
 
-    def test_the_hint_states_the_direct_egress_boundary(self) -> None:
-        """边界必须写进提示，不许含糊：另外三条通道的出口**不受影响**。
+    def test_the_tooltip_states_the_direct_egress_boundary(self) -> None:
+        """边界必须写下来，不许含糊：另外三条通道的出口**不受影响**。
 
         推论是反直觉的 —— 在「直连出网被封」的企业环境里开了上游之后，
         local/wireguard/reverse 抓到的流量会连不出去。那不是 bug，是这三条
-        通道没有上游（计划 §1）。
+        通道没有上游（计划 §1）。重排后这句话从常驻 hint 降级成勾选框的
+        tooltip（R3：界面上只留异常），但一个字都不能少。
         """
         dlg = self.dialog(use_upstream=True, upstream_target="http://proxy:8080")
         dlg.show()
         self.app.processEvents()
 
-        text = dlg.upstream_hint.text()
+        # 常态零 hint：说明进 tooltip，界面那一行留给真正的异常。
+        self.assertFalse(dlg.upstream_hint.isVisible())
+
+        text = dlg.upstream_check.toolTip()
         self.assertIn("直连", text)
         for channel in ("本地重定向", "WireGuard", "反向代理"):
             self.assertIn(channel, text)
 
-    def test_the_hint_switches_to_the_credential_warning(self) -> None:
-        """凭证 + 反代同开时，提示换成串台警告。
+    def test_the_hint_appears_only_for_the_credential_warning(self) -> None:
+        """凭证 + 反代同开时，那一行 hint 才出现，说的是串台警告。
 
         原生 ``UpstreamAuth`` 一个 addon 同时服务 upstream 与 reverse，
         ``upstream_auth`` 非空时反代目标也会收到 ``Authorization``（分不开，
         见 tests/core/mitm/test_upstream.py 里那条钉子）。没填用户名就没有凭证
-        可串，提示回到边界说明。
+        可串，hint 整行收起来。
         """
         dlg = self.dialog(
             use_upstream=True,
@@ -280,16 +284,17 @@ class UpstreamProxyBlockTests(unittest.TestCase):
         )
         dlg.show()
         self.app.processEvents()
-        # 还没填用户名：没有凭证可串，仍是边界提示。
-        self.assertNotIn("反代目标", dlg.upstream_hint.text())
+        # 还没填用户名：没有凭证可串，这一行不该占位。
+        self.assertFalse(dlg.upstream_hint.isVisible())
 
         dlg.upstream_user_edit.setText("alice")
         self.app.processEvents()
+        self.assertTrue(dlg.upstream_hint.isVisible())
         self.assertIn("反代目标", dlg.upstream_hint.text())
 
         dlg.upstream_user_edit.setText("")
         self.app.processEvents()
-        self.assertNotIn("反代目标", dlg.upstream_hint.text())
+        self.assertFalse(dlg.upstream_hint.isVisible())
 
     def test_target_is_stripped_but_the_password_is_not(self) -> None:
         """密码**不能** strip：前后空格是密码的合法组成部分，地址和用户名则
@@ -363,27 +368,129 @@ class ProxyPortDialogTests(unittest.TestCase):
         return dlg
 
     def test_process_list_visibility_follows_the_expand_button(self) -> None:
-        """进程列表显隐只看展开态：折叠按钮常驻可见，不勾选通道也能展开挑选进程。"""
-        dlg = self.dialog(use_local=True)
+        """勾上通道后「选择」按钮才出现，列表再看展开态（重排规则 R1）。"""
+        dlg = self.dialog(use_local=False)
         dlg.show()
         self.app.processEvents()
+        # 没勾通道：整张卡就是一行 header，按钮和列表都不占位。
+        self.assertFalse(dlg.local_fold_btn.isVisible())
         self.assertFalse(dlg.local_spec_edit.isVisible())
 
-        dlg.local_fold_btn.click()
-        self.app.processEvents()
-        self.assertTrue(dlg.local_spec_edit.isVisible())
-
-        dlg.local_fold_btn.click()
-        self.app.processEvents()
-        self.assertFalse(dlg.local_spec_edit.isVisible())
-
-        # 取消勾选通道：列表仍随展开态，折叠按钮不消失。
-        dlg.local_check.setChecked(False)
+        dlg.local_check.setChecked(True)
         self.app.processEvents()
         self.assertTrue(dlg.local_fold_btn.isVisible())
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+
         dlg.local_fold_btn.click()
         self.app.processEvents()
         self.assertTrue(dlg.local_spec_edit.isVisible())
+
+        dlg.local_fold_btn.click()
+        self.app.processEvents()
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+
+        # 取消勾选通道：按钮与列表一起收走，卡片回到一行。
+        dlg.local_fold_btn.click()
+        dlg.local_check.setChecked(False)
+        self.app.processEvents()
+        self.assertFalse(dlg.local_fold_btn.isVisible())
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+
+    def test_unchecked_channels_collapse_to_a_single_row(self) -> None:
+        """默认姿态（只勾系统代理）下，其余三张卡各自只剩一行 header。"""
+        dlg = self.dialog(
+            use_local=False, use_wireguard=False, use_reverse=False, use_upstream=False
+        )
+        dlg.show()
+        self.app.processEvents()
+        for widget in (
+            dlg.local_summary,
+            dlg.local_fold_btn,
+            dlg.local_spec_edit,
+            dlg.wireguard_port_label,
+            dlg.wireguard_config_btn,
+            dlg.reverse_params,
+            dlg.upstream_target_row,
+            dlg.upstream_cred_row,
+        ):
+            self.assertFalse(widget.isVisible(), widget.objectName() or widget)
+        # 勾着的那条反过来：参数区必须在。
+        self.assertTrue(dlg.system_params.isVisible())
+
+    def test_unchecking_the_system_proxy_collapses_its_params(self) -> None:
+        """系统代理也守同一条规则：取消勾选后地址/端口/上游整块收走。"""
+        dlg = self.dialog(use_system_proxy=True)
+        dlg.show()
+        self.app.processEvents()
+        self.assertTrue(dlg.system_params.isVisible())
+
+        dlg.system_proxy_check.setChecked(False)
+        self.app.processEvents()
+        self.assertFalse(dlg.system_params.isVisible())
+        self.assertFalse(dlg.host_combo.isVisible())
+
+    def test_checking_local_keeps_the_process_list_collapsed(self) -> None:
+        """勾上本地重定向只多出一行摘要，不把 6 行列表顶出来（§4.4）。"""
+        dlg = self.dialog(use_local=False)
+        dlg.show()
+        self.app.processEvents()
+
+        dlg.local_check.setChecked(True)
+        self.app.processEvents()
+        self.assertTrue(dlg.local_summary.isVisible())
+        self.assertFalse(dlg.local_spec_edit.isVisible())
+
+    def test_local_summary_says_everything_when_no_token(self) -> None:
+        """「留空 = 全部进程」这条语义从 hint 搬进了 header 摘要。"""
+        dlg = self.dialog(use_local=True, local_spec="")
+        self.assertIn("全部", dlg.local_summary.text())
+
+    def test_local_summary_counts_the_extra_tokens(self) -> None:
+        """选了多个时摘要报「首个 +N 个」，不铺开整串。"""
+        dlg = self.dialog(use_local=True)
+        dlg.local_spec_edit._targets = [_target("Chrome"), _target("钉钉")]
+        dlg.local_spec_edit.set_items_for_testing()
+
+        dlg.local_spec_edit.set_tokens(["Chrome"])
+        self.assertEqual(dlg.local_summary.text(), "Chrome")
+
+        dlg.local_spec_edit.set_tokens(["Chrome", "curl", "python"])
+        self.assertIn("Chrome", dlg.local_summary.text())
+        self.assertIn("+2", dlg.local_summary.text())
+
+    def test_channel_titles_carry_their_explanation_in_a_tooltip(self) -> None:
+        """R2/R4：标题只留名词，「干什么用」的括号注解一律降级为 tooltip。
+
+        同一句话只能出现在一处 —— tooltip 里的解释不许再回到标题文字里，
+        否则重排的收益全部抵消掉。
+        """
+        dlg = self.dialog()
+        for check in (
+            dlg.system_proxy_check,
+            dlg.local_check,
+            dlg.wireguard_check,
+            dlg.reverse_check,
+            dlg.upstream_check,
+        ):
+            with self.subTest(title=check.text()):
+                self.assertTrue(check.toolTip())
+                self.assertNotIn("（", check.text())
+                self.assertNotIn(check.toolTip(), check.text())
+
+    def test_inline_inputs_keep_an_accessible_name(self) -> None:
+        """行内 BodyLabel 删了（R4），屏幕阅读器不读 placeholder —— 名字得补回来。"""
+        dlg = self.dialog()
+        for widget in (
+            dlg.host_combo,
+            dlg.port_spin,
+            dlg.upstream_target_edit,
+            dlg.upstream_user_edit,
+            dlg.upstream_password_edit,
+            dlg.reverse_target_edit,
+            dlg.reverse_port_spin,
+        ):
+            with self.subTest(widget=type(widget).__name__):
+                self.assertTrue(widget.accessibleName())
 
     def _expanded_dialog_at(
         self, width: int, height: int, rows: int
@@ -402,20 +509,27 @@ class ProxyPortDialogTests(unittest.TestCase):
 
     def test_short_window_shrinks_the_list_instead_of_overlapping(self) -> None:
         """窗口不够高时列表必须可压矮：固定高度会被布局分配不足后由 widget
-        钳回，下方兄弟件却按未钳回位置摆放——列表与文案叠画。"""
-        dlg = self._expanded_dialog_at(962, 768, 8)
+        钳回，下方兄弟件却按未钳回位置摆放——列表与文案叠画。
+
+        列表默认收起之后这条更容易满足，但展开态仍得成立 —— 用户挑进程的时候
+        正是卡片最高的那一刻。
+        """
+        dlg = self._expanded_dialog_at(962, 600, 8)
         lst = dlg.local_spec_edit
         # 列表与下方控件分属不同卡片，geometry() 的参考系不同，统一换算到全局。
         lst_rect = QRect(lst.mapToGlobal(QPoint(0, 0)), lst.size())
-        for other in (dlg.local_spec_hint, dlg.wireguard_check):
+        for other in (dlg.wireguard_check, dlg.reverse_check):
             other_rect = QRect(other.mapToGlobal(QPoint(0, 0)), other.size())
             self.assertFalse(lst_rect.intersects(other_rect))
         self.assertLess(lst.height(), lst._full_height)
 
     def test_every_visible_row_receives_the_click(self) -> None:
         """被透明文案盖住的行点不到（点击被上层兄弟件吞掉）：断言矮窗口下
-        每个可见行中心的最高层控件仍是列表视口。"""
-        dlg = self._expanded_dialog_at(962, 768, 4)
+        每个可见行中心的最高层控件仍是列表视口。
+
+        680px 这一档是「压矮了但四行还都在视口里」，正好能逐行断言。
+        """
+        dlg = self._expanded_dialog_at(962, 680, 4)
         lst = dlg.local_spec_edit
         for row in range(lst.count()):
             rect = lst.visualItemRect(lst.item(row))
@@ -456,7 +570,31 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.assertTrue(dlg.block_private_check.isEnabled())
 
     def test_wireguard_config_button_hidden_without_a_callback(self) -> None:
-        dlg = self.dialog(wireguard_config=None)
+        dlg = self.dialog(use_wireguard=True, wireguard_config=None)
+        dlg.show()
+        self.app.processEvents()
+        self.assertFalse(dlg.wireguard_config_btn.isVisible())
+
+    def test_qr_button_appears_with_the_checkbox(self) -> None:
+        """勾上那一刻就该能拿到码：按钮随勾选出现（生成时机见 facade）。
+
+        旧行为是常驻显示 + ``setEnabled(勾选)``，而内核没起过时点下去必炸
+        ``FileNotFoundError``。现在按钮与勾选同生共死，勾上即可出码。
+        """
+        dlg = self.dialog(use_wireguard=False)
+        dlg.show()
+        self.app.processEvents()
+        self.assertFalse(dlg.wireguard_config_btn.isVisible())
+        self.assertFalse(dlg.wireguard_port_label.isVisible())
+
+        dlg.wireguard_check.setChecked(True)
+        self.app.processEvents()
+        self.assertTrue(dlg.wireguard_config_btn.isVisible())
+        # 端口从一行 hint 降级成 header 行内小标签。
+        self.assertIn(str(WIREGUARD_PORT), dlg.wireguard_port_label.text())
+
+        dlg.wireguard_check.setChecked(False)
+        self.app.processEvents()
         self.assertFalse(dlg.wireguard_config_btn.isVisible())
 
     def test_getters_round_trip_the_incoming_values(self) -> None:
@@ -535,17 +673,33 @@ class ProxyPortDialogTests(unittest.TestCase):
         self.assertTrue(dlg.get_block_private())
 
     def test_ineffective_hint_shows_only_when_block_is_moot(self) -> None:
-        """提示只在该勾选「确实无效」时出现：环回监听、或 block_private 为隧道让路。"""
+        """提示只在 block_private 真的被让路时出现（R3：常态零 hint）。
+
+        「仅本机监听时来源限制不生效」那一句删掉了 —— 两个勾选框已经置灰，
+        再配一句话是重复（§4.3）。
+        """
         dlg = self.dialog(listen_host=LOOPBACK_HOST)
         dlg.show()
         self.app.processEvents()
-        self.assertTrue(dlg.source_hint.isVisible())
-        self.assertTrue(dlg.source_hint.text())
+        self.assertFalse(dlg.source_hint.isVisible())
 
+        # 切到 0.0.0.0 且 WireGuard 勾着：block_private 被强制放行，必须说出来。
         dlg.host_combo.setCurrentIndex(1)
+        self.app.processEvents()
+        self.assertTrue(dlg.source_hint.isVisible())
+        self.assertIn("WireGuard", dlg.source_hint.text())
+
         dlg.wireguard_check.setChecked(False)
         self.app.processEvents()
         self.assertFalse(dlg.source_hint.isVisible())
+
+    def test_unknown_lan_address_is_reported_as_an_anomaly(self) -> None:
+        """探测失败是「设置有问题」那一类，留一行 `!`（§4.5 第四种情况）。"""
+        dlg = self.dialog(listen_host=ANY_HOST, lan_address=None, use_wireguard=False)
+        dlg.show()
+        self.app.processEvents()
+        self.assertTrue(dlg.source_hint.isVisible())
+        self.assertIn("局域网", dlg.source_hint.text())
 
     def test_restart_hint_only_when_the_kernel_is_running(self) -> None:
         dlg = self.dialog(is_running=False)

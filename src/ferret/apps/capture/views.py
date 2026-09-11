@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -965,8 +964,9 @@ class LocalSpecSelector(ListWidget):
     CheckStateRole 数据时才画框）；条目摘掉了 ItemIsUserCheckable，
     切换统一走 ``itemClicked`` → ``_toggle_item``，避免点勾选框区域时
     原生切换与 ``_toggle_item`` 双重翻转。
-    展开逻辑（收起/展开与 ▾ 按钮）由对话框层的 local_row 驱动：
-    ``is_expanded``/``toggle_expanded``/``set_expanded``。
+    展开逻辑（收起/展开与 ▾ 按钮）由对话框层的 ``_sync_exposure`` 单点驱动：
+    勾上通道才出现「选择」按钮，列表本身默认收起。``is_expanded`` /
+    ``set_expanded`` 是给这层用的显隐薄封装，自己不记状态。
     """
 
     tokensChanged = Signal(list)
@@ -1161,9 +1161,9 @@ class ProxyPortDialog(MessageBoxBase):
         block_private: bool = False,
         lan_address: str | None = None,
         use_system_proxy: bool = True,
-        use_local: bool = True,
+        use_local: bool = False,
         local_spec: str = "",
-        use_wireguard: bool = True,
+        use_wireguard: bool = False,
         use_reverse: bool = False,
         reverse_target: str = "",
         reverse_port: int = 8081,
@@ -1245,9 +1245,9 @@ class ProxyPortDialog(MessageBoxBase):
         self.title_label.setText(self.tr("抓包通道"))
 
         # —— 系统代理通道 ——
-        self.system_proxy_check = CheckBox(
-            self.tr("系统代理（浏览器与多数桌面应用）"), self
-        )
+        # 标题只留名词，「干什么用」的说明降级为 tooltip（重排规则 R2，同下三张卡）。
+        self.system_proxy_check = CheckBox(self.tr("系统代理"), self)
+        self.system_proxy_check.setToolTip(self.tr("浏览器与多数桌面应用的默认通道"))
         self.system_proxy_check.setChecked(use_system_proxy)
 
         self.host_combo = ComboBox(self)
@@ -1260,13 +1260,14 @@ class ProxyPortDialog(MessageBoxBase):
         self.host_combo.setCurrentIndex(
             self._HOSTS.index(listen_host) if listen_host in self._HOSTS else 0
         )
+        # 行内 BodyLabel 已删（R4）：combo 选项文案自解释，无障碍名补回。
+        self.host_combo.setAccessibleName(self.tr("监听地址"))
 
         self.port_spin = SpinBox(self)
         self.port_spin.setRange(self.PORT_MIN, self.PORT_MAX)
         self.port_spin.setValue(current_port)
         self.port_spin.setSingleStep(1)
-
-        # 本机接入路径恒为环回，combo 选项文案已自解释，不再单列说明。
+        self.port_spin.setAccessibleName(self.tr("端口"))
 
         self.lan_label = BodyLabel(self)
         self.lan_value = CaptionLabel(self)
@@ -1278,14 +1279,16 @@ class ProxyPortDialog(MessageBoxBase):
         # 文案用「拒绝」而不是「允许」：直接对应原生 Block addon 的语义
         # （勾上 = block_global/block_private 为真 = 杀掉该类来源的连接），
         # 不用在脑子里做一次取反。
-        self.block_global_check = CheckBox(self.tr("拒绝来自公网的连接"), self)
+        self.block_global_check = CheckBox(self.tr("拒绝公网"), self)
+        self.block_global_check.setToolTip(self.tr("拒绝来自公网的连接"))
         self.block_global_check.setChecked(block_global)
-        self.block_private_check = CheckBox(self.tr("拒绝来自局域网的连接"), self)
+        self.block_private_check = CheckBox(self.tr("拒绝局域网"), self)
         self.block_private_check.setChecked(block_private)
-        # 让路原因放在 tooltip：hint 文案只留结论（一行），细节悬停可见。
+        # 全称与让路原因都放在 tooltip：hint 行只报异常（R3），细节悬停可见。
         self.block_private_check.setToolTip(
             self.tr(
-                "WireGuard / 反向代理开启期间此项暂停生效：隧道客户端来自 10.0.0.x 网段。"
+                "拒绝来自局域网的连接；WireGuard / 反向代理开启期间此项暂停生效："
+                "隧道客户端来自 10.0.0.x 网段。"
             )
         )
         self.source_hint = CaptionLabel(self)
@@ -1296,69 +1299,106 @@ class ProxyPortDialog(MessageBoxBase):
         # upstream_mode_spec）。所以它长在 Card ① 里、与监听地址端口同卡，而不是
         # 第五张卡片——独立成卡必被读成第五条抓包通道。
         self.upstream_separator = HorizontalSeparator(self)
-        self.upstream_check = CheckBox(
-            self.tr("经上游代理出口（企业代理 / 链式抓包）"), self
+        self.upstream_check = CheckBox(self.tr("经上游代理出口"), self)
+        # 出口边界说明进 tooltip（R3）：常态不再有常驻 hint。
+        self.upstream_check.setToolTip(
+            self.tr(
+                "企业代理 / 链式抓包；仅系统代理通道经上游出口，"
+                "本地重定向 / WireGuard / 反向代理仍为直连"
+            )
         )
         self.upstream_check.setChecked(use_upstream)
         self.upstream_target_edit = LineEdit(self)
         self.upstream_target_edit.setText(upstream_target)
         self.upstream_target_edit.setPlaceholderText(self.tr("http://proxy.corp:8080"))
+        self.upstream_target_edit.setAccessibleName(self.tr("代理地址"))
         # 不放端口 SpinBox：端口在地址里，上游没有自己的监听口（spec 不带 @）。
         self.upstream_user_edit = LineEdit(self)
         self.upstream_user_edit.setText(upstream_username)
-        self.upstream_user_edit.setPlaceholderText(self.tr("可选"))
+        self.upstream_user_edit.setPlaceholderText(self.tr("用户名（可选）"))
+        self.upstream_user_edit.setAccessibleName(self.tr("用户名"))
         self.upstream_password_edit = PasswordLineEdit(self)
         self.upstream_password_edit.setText(upstream_password)
-        self.upstream_password_edit.setPlaceholderText(self.tr("可选"))
+        self.upstream_password_edit.setPlaceholderText(self.tr("密码（可选）"))
+        self.upstream_password_edit.setAccessibleName(self.tr("密码"))
         self.upstream_hint = CaptionLabel(self)
         self.upstream_hint.setWordWrap(True)
 
-        # —— 本地重定向通道：勾选框 + 文字 + 折叠按钮同行 ——
-        self.local_check = CheckBox(self.tr("本地重定向（零配置、按进程）"), self)
+        # —— 本地重定向通道：勾选框 + 摘要 + 「选择」按钮同行（R1：勾选才展开）——
+        self.local_check = CheckBox(self.tr("本地重定向"), self)
+        self.local_check.setToolTip(
+            self.tr("零配置、按进程截获本机流量，启用时可能请求管理员授权")
+        )
         self.local_check.setChecked(use_local)
         self.local_fold_btn = TransparentToolButton(FluentIcon.CHEVRON_RIGHT_MED, self)
         self.local_fold_btn.setFixedSize(28, 26)
         self.local_fold_btn.setToolTip(self.tr("选择进程"))
+        self.local_fold_btn.setAccessibleName(self.tr("选择进程"))
         self.local_fold_btn.clicked.connect(self._toggle_process_list)
+
+        # header 摘要交代选了什么：无 token → 「全部进程」，有 → 「chrome +2 个」。
+        self.local_summary = CaptionLabel(self)
 
         self.local_spec_edit = LocalSpecSelector(self)
         self.local_spec_edit.set_tokens(split_spec(local_spec))
-        self.local_spec_hint = CaptionLabel(self)
-        self.local_spec_hint.setWordWrap(True)
+        # 勾选后的默认是收起；展开态只活在对话框存续期，不落盘。
+        self._process_list_expanded = False
 
-        # —— WireGuard 通道：勾选框 + 文字 + 二维码按钮同行 ——
-        self.wireguard_check = CheckBox(self.tr("WireGuard 隧道（手机等设备）"), self)
+        # —— WireGuard 通道：勾选框 + UDP 端口标签 + 二维码按钮同行 ——
+        self.wireguard_check = CheckBox(self.tr("WireGuard"), self)
+        self.wireguard_check.setToolTip(
+            self.tr("手机等设备经隧道接入，二维码导入客户端")
+        )
         self.wireguard_check.setChecked(use_wireguard)
-        self.wireguard_hint = CaptionLabel(self)
-        self.wireguard_hint.setWordWrap(True)
+        self.wireguard_port_label = CaptionLabel(
+            self.tr("UDP {}").format(WIREGUARD_PORT), self
+        )
         self.wireguard_config_btn = TransparentToolButton(FluentIcon.QRCODE, self)
-        self.wireguard_config_btn.setToolTip(self.tr("查看客户端配置"))
+        self.wireguard_config_btn.setToolTip(self.tr("查看客户端配置，扫码导入手机"))
         self.wireguard_config_btn.setAccessibleName(self.tr("查看客户端配置"))
         self.wireguard_config_btn.setFixedSize(28, 26)
-        self.wireguard_config_btn.setVisible(self._wireguard_config is not None)
 
         # —— 反向代理通道（.plans/reverse-mode.md）：勾选框 + 目标 URL + 监听端口 ——
-        self.reverse_check = CheckBox(
-            self.tr("反向代理（把 ferret 架在目标服务前）"), self
+        self.reverse_check = CheckBox(self.tr("反向代理"), self)
+        # 整句 CA 说明进标题 tooltip（R3）：常态零 hint，只报端口冲突。
+        self.reverse_check.setToolTip(
+            self.tr(
+                "把 ferret 架在目标服务前；客户端需信任 ferret CA，"
+                "按域名签目标证书，按 IP 直连签本机证书"
+            )
         )
         self.reverse_check.setChecked(use_reverse)
         self.reverse_target_edit = LineEdit(self)
         self.reverse_target_edit.setText(reverse_target)
         self.reverse_target_edit.setPlaceholderText(self.tr("https://example.com"))
+        self.reverse_target_edit.setAccessibleName(self.tr("目标 URL"))
         self.reverse_port_spin = SpinBox(self)
         self.reverse_port_spin.setRange(self.PORT_MIN, self.PORT_MAX)
         self.reverse_port_spin.setValue(reverse_port)
         self.reverse_port_spin.setSingleStep(1)
+        self.reverse_port_spin.setAccessibleName(self.tr("监听端口"))
         self.reverse_hint = CaptionLabel(self)
         self.reverse_hint.setWordWrap(True)
-        # 提示明确说出两种访问方式：按域名（SNI → 目标证书）或按 IP（SNI 空
-        # → 监听口本地证书），避免用户对「签目标证书」的过度承诺（§0）。
-        self.reverse_hint.setText(
-            self.tr("客户端需信任 ferret CA；按域名签目标证书，按 IP 直连签本机证书")
-        )
 
         self.restart_hint = CaptionLabel(self.tr("更改立即生效"), self)
         self.restart_hint.setVisible(is_running)
+
+        # R2/R3 把括号注解与常驻 hint 全搬进了 tooltip，气泡就得是 Fluent 那一套
+        # ——原生 QToolTip 不跟主题，深色下是白底黑字。延时 700ms：扫过不弹，
+        # 真想读的时候停一下就有。
+        for tipped in (
+            self.system_proxy_check,
+            self.block_global_check,
+            self.block_private_check,
+            self.upstream_check,
+            self.local_check,
+            self.local_fold_btn,
+            self.wireguard_check,
+            self.wireguard_config_btn,
+            self.reverse_check,
+            self.lan_copy_btn,
+        ):
+            tipped.installEventFilter(ToolTipFilter(tipped, 700, ToolTipPosition.TOP))
 
     def __init_layout(self):
         """初始化布局结构：四个通道各一张卡片，视觉平级。"""
@@ -1370,17 +1410,19 @@ class ProxyPortDialog(MessageBoxBase):
         header_row.addWidget(self.restart_hint, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # —— Card ① 系统代理 ——
-        form = QFormLayout()
-        form.setSpacing(8)
-        form.addRow(BodyLabel(self.tr("监听地址"), self), self.host_combo)
-        form.addRow(BodyLabel(self.tr("端口"), self), self.port_spin)
+        # 参数区收进一个 QWidget 壳，随勾选整块切换显隐（R1），不逐控件 setVisible。
+        host_port_row = QHBoxLayout()
+        host_port_row.setSpacing(6)
+        host_port_row.addWidget(self.host_combo, 1)
+        host_port_row.addWidget(BodyLabel(":", self), 0, Qt.AlignmentFlag.AlignVCenter)
+        host_port_row.addWidget(self.port_spin, 1)
 
         lan_row = QHBoxLayout()
         lan_row.setSpacing(6)
+        lan_row.addWidget(self.lan_label)
         lan_row.addWidget(self.lan_value)
         lan_row.addWidget(self.lan_copy_btn)
         lan_row.addStretch(1)
-        form.addRow(self.lan_label, lan_row)
 
         # 两个来源限制开关同行，省一行标题。
         source_row = QHBoxLayout()
@@ -1389,50 +1431,49 @@ class ProxyPortDialog(MessageBoxBase):
         source_row.addWidget(self.block_private_check)
         source_row.addStretch(1)
 
-        card_system = CardWidget(self)
-        system_layout = QVBoxLayout(card_system)
-        system_layout.setSpacing(8)
-        system_layout.addWidget(self.system_proxy_check)
-        system_layout.addLayout(form)
-        system_layout.addLayout(source_row)
-        system_layout.addWidget(self.source_hint)
-
         # 上游代理块：分隔线以下是「出口」，以上是「监听」，一张卡两件事不至于混读。
         # 整块随勾选显隐（同 reverse 的做法）：关掉时卡片回到原来的高度。
+        # 行内 BodyLabel 已删（R4）：placeholder + accessibleName 承载语义。
         self.upstream_target_row = QWidget(self)
         upstream_target_layout = QHBoxLayout(self.upstream_target_row)
         upstream_target_layout.setContentsMargins(0, 0, 0, 0)
         upstream_target_layout.setSpacing(6)
-        upstream_target_layout.addWidget(
-            BodyLabel(self.tr("代理地址"), self), 0, Qt.AlignmentFlag.AlignVCenter
-        )
         upstream_target_layout.addWidget(self.upstream_target_edit, 1)
 
         self.upstream_cred_row = QWidget(self)
         upstream_cred_layout = QHBoxLayout(self.upstream_cred_row)
         upstream_cred_layout.setContentsMargins(0, 0, 0, 0)
         upstream_cred_layout.setSpacing(6)
-        upstream_cred_layout.addWidget(
-            BodyLabel(self.tr("用户名"), self), 0, Qt.AlignmentFlag.AlignVCenter
-        )
         upstream_cred_layout.addWidget(self.upstream_user_edit, 1)
-        upstream_cred_layout.addWidget(
-            BodyLabel(self.tr("密码"), self), 0, Qt.AlignmentFlag.AlignVCenter
-        )
         upstream_cred_layout.addWidget(self.upstream_password_edit, 1)
 
-        system_layout.addWidget(self.upstream_separator)
-        system_layout.addWidget(self.upstream_check)
-        system_layout.addWidget(self.upstream_target_row)
-        system_layout.addWidget(self.upstream_cred_row)
-        system_layout.addWidget(self.upstream_hint)
+        self.system_params = QWidget(self)
+        params_layout = QVBoxLayout(self.system_params)
+        params_layout.setContentsMargins(0, 0, 0, 0)
+        params_layout.setSpacing(8)
+        params_layout.addLayout(host_port_row)
+        params_layout.addLayout(lan_row)
+        params_layout.addLayout(source_row)
+        params_layout.addWidget(self.source_hint)
+        params_layout.addWidget(self.upstream_separator)
+        params_layout.addWidget(self.upstream_check)
+        params_layout.addWidget(self.upstream_target_row)
+        params_layout.addWidget(self.upstream_cred_row)
+        params_layout.addWidget(self.upstream_hint)
+
+        card_system = CardWidget(self)
+        system_layout = QVBoxLayout(card_system)
+        system_layout.setSpacing(8)
+        system_layout.addWidget(self.system_proxy_check)
+        system_layout.addWidget(self.system_params)
 
         # —— Card ② 本地重定向 ——
-        # 通道行：勾选框 + 文字同行，右缘放折叠按钮（▾）。折叠按钮常驻可见，
-        # 不勾选通道也能提前展开挑选进程。
+        # 通道行：勾选框 + header 摘要 + 「选择」折叠按钮。进程列表默认收起（R1）。
         local_row = QHBoxLayout()
         local_row.setSpacing(6)
-        local_row.addWidget(self.local_check, 1)
+        local_row.addWidget(self.local_check)
+        local_row.addStretch(1)
+        local_row.addWidget(self.local_summary, 0, Qt.AlignmentFlag.AlignVCenter)
         local_row.addWidget(self.local_fold_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         card_local = CardWidget(self)
@@ -1440,12 +1481,15 @@ class ProxyPortDialog(MessageBoxBase):
         local_layout.setSpacing(8)
         local_layout.addLayout(local_row)
         local_layout.addWidget(self.local_spec_edit)
-        local_layout.addWidget(self.local_spec_hint)
 
         # —— Card ③ WireGuard ——
         wireguard_row = QHBoxLayout()
         wireguard_row.setSpacing(6)
-        wireguard_row.addWidget(self.wireguard_check, 1)
+        wireguard_row.addWidget(self.wireguard_check)
+        wireguard_row.addStretch(1)
+        wireguard_row.addWidget(
+            self.wireguard_port_label, 0, Qt.AlignmentFlag.AlignVCenter
+        )
         wireguard_row.addWidget(
             self.wireguard_config_btn, 0, Qt.AlignmentFlag.AlignVCenter
         )
@@ -1454,36 +1498,28 @@ class ProxyPortDialog(MessageBoxBase):
         wg_layout = QVBoxLayout(card_wg)
         wg_layout.setSpacing(8)
         wg_layout.addLayout(wireguard_row)
-        wg_layout.addWidget(self.wireguard_hint)
 
         # —— Card ④ 反向代理（.plans/reverse-mode.md §6 布局图）——
-        # 把两个行包进 QWidget：reverse 通道未启用时整体隐藏，避免矮窗口下被
-        # hint 行顶下来与上方 local_spec_hint 区域抢高度。
-        self.reverse_target_row = QWidget(self)
-        target_row_layout = QHBoxLayout(self.reverse_target_row)
-        target_row_layout.setContentsMargins(0, 0, 0, 0)
+        # 目标 URL 与端口并成一行，整体包进 QWidget 随勾选显隐（R1）。
+        self.reverse_params = QWidget(self)
+        reverse_params_layout = QVBoxLayout(self.reverse_params)
+        reverse_params_layout.setContentsMargins(0, 0, 0, 0)
+        reverse_params_layout.setSpacing(8)
+        target_row_layout = QHBoxLayout()
         target_row_layout.setSpacing(6)
-        target_row_layout.addWidget(
-            BodyLabel(self.tr("目标 URL"), self), 0, Qt.AlignmentFlag.AlignVCenter
-        )
         target_row_layout.addWidget(self.reverse_target_edit, 1)
-        self.reverse_port_row = QWidget(self)
-        port_row_layout = QHBoxLayout(self.reverse_port_row)
-        port_row_layout.setContentsMargins(0, 0, 0, 0)
-        port_row_layout.setSpacing(6)
-        port_row_layout.addWidget(
-            BodyLabel(self.tr("监听端口"), self), 0, Qt.AlignmentFlag.AlignVCenter
+        target_row_layout.addWidget(
+            BodyLabel(":", self), 0, Qt.AlignmentFlag.AlignVCenter
         )
-        # 与目标 URL 输入框等长：吃满行宽，不再右留一段 stretch。
-        port_row_layout.addWidget(self.reverse_port_spin, 1)
+        target_row_layout.addWidget(self.reverse_port_spin, 1)
+        reverse_params_layout.addLayout(target_row_layout)
+        reverse_params_layout.addWidget(self.reverse_hint)
 
         card_reverse = CardWidget(self)
         reverse_layout = QVBoxLayout(card_reverse)
         reverse_layout.setSpacing(8)
         reverse_layout.addWidget(self.reverse_check)
-        reverse_layout.addWidget(self.reverse_target_row)
-        reverse_layout.addWidget(self.reverse_port_row)
-        reverse_layout.addWidget(self.reverse_hint)
+        reverse_layout.addWidget(self.reverse_params)
 
         layout = QVBoxLayout()
         layout.setSpacing(12)
@@ -1499,7 +1535,10 @@ class ProxyPortDialog(MessageBoxBase):
         self.host_combo.currentIndexChanged.connect(self._sync_exposure)
         self.port_spin.valueChanged.connect(self._sync_exposure)
         self.lan_copy_btn.clicked.connect(self._copy_lan_address)
+        self.system_proxy_check.toggled.connect(self._sync_exposure)
         self.local_check.toggled.connect(self._sync_exposure)
+        # header 摘要跟随勾选集实时刷新（「全部进程」/「chrome +2 个」）。
+        self.local_spec_edit.tokensChanged.connect(self._update_local_summary)
         self.wireguard_check.toggled.connect(self._sync_exposure)
         self.wireguard_config_btn.clicked.connect(self._show_wireguard_config)
         # 反向代理通道：勾选 / 端口 / 目标都会影响参数可用性与撞车提示。
@@ -1571,11 +1610,25 @@ class ProxyPortDialog(MessageBoxBase):
         dialog.exec()
 
     def _toggle_process_list(self) -> None:
-        expanded = not self.local_spec_edit.isVisible()
-        self.local_spec_edit.setVisible(expanded)
+        self._process_list_expanded = not self._process_list_expanded
         self.local_fold_btn.setIcon(
-            FluentIcon.CHEVRON_DOWN_MED if expanded else FluentIcon.CHEVRON_RIGHT_MED
+            FluentIcon.CHEVRON_DOWN_MED
+            if self._process_list_expanded
+            else FluentIcon.CHEVRON_RIGHT_MED
         )
+        self._sync_exposure()
+
+    def _update_local_summary(self) -> None:
+        """header 摘要：无 token → 「全部进程」，有 → 「首个 +N 个」。"""
+        tokens = self.local_spec_edit.tokens()
+        if not tokens:
+            self.local_summary.setText(self.tr("全部进程"))
+        elif len(tokens) == 1:
+            self.local_summary.setText(tokens[0])
+        else:
+            self.local_summary.setText(
+                self.tr("{} +{} 个").format(tokens[0], len(tokens) - 1)
+            )
 
     def get_port(self) -> int:
         """获取用户设置的端口号
@@ -1598,9 +1651,10 @@ class ProxyPortDialog(MessageBoxBase):
         return self.block_private_check.isChecked()
 
     def _sync_exposure(self):
-        """按当前选择刷新提示文案与各参数区的可用性。"""
+        """按当前选择刷新提示文案与各参数区的可见性（唯一真相源，R1–R3）。"""
         exposed = self.get_listen_host() == ANY_HOST
         port = self.port_spin.value()
+        system_on = self.get_use_system_proxy()
         wireguard_on = self.get_use_wireguard()
         local_on = self.get_use_local()
         reverse_on = self.get_use_reverse()
@@ -1610,18 +1664,21 @@ class ProxyPortDialog(MessageBoxBase):
         # 时让路条件不成立，block_private 走原值，与本地客户端无关。
         reverse_yield = reverse_on and exposed
 
+        # R1：勾选即展开。未勾的卡就是一行 header，参数区整体收进壳里切换。
+        self.system_params.setVisible(system_on)
+
         self.lan_label.setVisible(exposed)
         self.lan_value.setVisible(exposed)
         self.lan_copy_btn.setVisible(exposed)
+        lan_unknown = False
         if exposed:
-            self.lan_label.setText(self.tr("局域网地址"))
+            self.lan_label.setText(self.tr("局域网"))
             if self._lan_address:
                 self.lan_value.setText(f"{self._lan_address}:{port}")
                 self.lan_copy_btn.setEnabled(True)
             else:
-                # 多网卡 / VPN 场景下探测可能失败。宁可说「未知」，也不要显示一个
-                # Hyper-V 虚拟网卡的地址让用户白试半天。
-                self.lan_value.setText(self.tr("未能识别，请在系统网络设置中查看"))
+                lan_unknown = True
+                self.lan_value.setText(self.tr("未知"))
                 self.lan_copy_btn.setEnabled(False)
 
         # 环回监听时两个开关都是空转：外部来源根本到不了 socket，而环回来源被
@@ -1633,83 +1690,60 @@ class ProxyPortDialog(MessageBoxBase):
         self.block_private_check.setEnabled(
             exposed and not wireguard_on and not reverse_yield
         )
-        self.source_hint.setVisible(not exposed or wireguard_on or reverse_yield)
-        if not exposed:
-            self.source_hint.setText(self.tr("仅本机监听，不生效"))
-        elif wireguard_on:
+        # R3：提示只报异常。置灰本身已说明「仅本机不生效」，不再配一句话。
+        if wireguard_on:
             self.source_hint.setText(
-                self.tr("WireGuard 开启期间「拒绝局域网」暂停生效")
+                self.tr("! WireGuard 开启期间「拒绝局域网」暂停生效")
             )
         elif reverse_yield:
-            self.source_hint.setText(self.tr("反向代理开启期间「拒绝局域网」暂停生效"))
-
-        # 进程列表只看展开态（不勾选也能提前展开挑选进程）；提示仍随勾选显隐。
-        self.local_spec_edit.setVisible(self.local_spec_edit.is_expanded())
-        self.local_spec_hint.setVisible(local_on)
-        self.local_spec_hint.setText(
-            self.tr("留空即截获全部进程，启用时可能请求管理员授权")
+            self.source_hint.setText(
+                self.tr("! 反向代理开启期间「拒绝局域网」暂停生效")
+            )
+        elif lan_unknown:
+            self.source_hint.setText(self.tr("! 未能识别局域网地址"))
+        self.source_hint.setVisible(
+            exposed and (wireguard_on or reverse_yield or lan_unknown)
         )
-        self.wireguard_hint.setVisible(wireguard_on)
-        self.wireguard_hint.setText(
-            self.tr("监听 UDP {}，点右侧二维码导入客户端").format(WIREGUARD_PORT)
-        )
-        self.wireguard_config_btn.setEnabled(wireguard_on)
 
-        # 反向代理：勾选未启用时参数区置灰。目标 URL 与端口始终跟随勾选状态，
-        # 端口撞车提示只在启用时才有意义（§3）。wireguard 端口（51820/UDP）
-        # 与 reverse_port 撞车同样在启用时校验，避免 reverse https 的 UDP 侧
-        # 与 wireguard 撞地址。
-        self.reverse_check.setChecked(reverse_on)
-        self.reverse_target_edit.setEnabled(reverse_on)
-        self.reverse_port_spin.setEnabled(reverse_on)
-        # 通道未启用时整组子参数 + hint 一起隐掉：避免矮窗口下 reverse 行
-        # 顶高整体高度、与 local_spec_hint 区抢空间（test_short_window_shrinks）。
-        self.reverse_target_row.setVisible(reverse_on)
-        self.reverse_port_row.setVisible(reverse_on)
-        self.reverse_hint.setVisible(reverse_on)
+        # 进程列表：勾选后出现摘要与「选择」按钮，列表默认收起。
+        self._update_local_summary()
+        self.local_summary.setVisible(local_on)
+        self.local_fold_btn.setVisible(local_on)
+        self.local_spec_edit.setVisible(local_on and self._process_list_expanded)
+
+        # WireGuard：二维码按钮与 UDP 标签只在勾选后出现（勾上即生码，见 facade）。
+        self.wireguard_port_label.setVisible(wireguard_on)
+        self.wireguard_config_btn.setVisible(
+            wireguard_on and self._wireguard_config is not None
+        )
+
+        # 反向代理：参数区随勾选显隐；hint 只报端口冲突（常态 CA 说明在标题 tooltip）。
+        self.reverse_params.setVisible(reverse_on)
+        conflict = None
         if reverse_on:
             reverse_port = self.reverse_port_spin.value()
             if reverse_port == port:
-                self.reverse_hint.setText(
-                    self.tr(
-                        "端口 {} 与系统代理监听端口撞车，提交后内核会拒（已配置查重兜底）。"
-                    ).format(reverse_port)
-                )
+                conflict = self.tr("! 端口与系统代理 {} 冲突").format(port)
             elif reverse_port == WIREGUARD_PORT and wireguard_on:
-                self.reverse_hint.setText(
-                    self.tr(
-                        "端口 {} 与 WireGuard UDP 51820 撞车，提交后内核会拒。"
-                    ).format(reverse_port)
-                )
-            else:
-                self.reverse_hint.setText(
-                    self.tr(
-                        "客户端需信任 ferret CA；按域名签目标证书，按 IP 直连签本机证书"
-                    )
-                )
+                conflict = self.tr("! 端口与 WireGuard UDP 51820 冲突")
+        self.reverse_hint.setVisible(conflict is not None)
+        if conflict is not None:
+            self.reverse_hint.setText(conflict)
 
-        # 上游代理：整块随勾选显隐（同 reverse），hint 复用同一行位置轮播两条文案。
+        # 上游代理：整块随勾选显隐；hint 只在凭证串台时出现（常态说明在 tooltip）。
         upstream_on = self.get_use_upstream()
         self.upstream_separator.setVisible(upstream_on)
         self.upstream_target_row.setVisible(upstream_on)
         self.upstream_cred_row.setVisible(upstream_on)
-        self.upstream_hint.setVisible(upstream_on)
-        if upstream_on:
-            if reverse_on and self.get_upstream_username():
-                # 原生 UpstreamAuth 的模式闸门放行 upstream **和 reverse**
-                # （upstream_auth.py:40-58），两者同开时反代目标也会收到这份
-                # Authorization 头。分不开，只能明说 —— 详见 runtime._upstream_auth。
-                self.upstream_hint.setText(
-                    self.tr(
-                        "注意：反向代理同时开启时，上游凭证也会发给反代目标（内核限制）"
-                    )
-                )
-            else:
-                self.upstream_hint.setText(
-                    self.tr(
-                        "仅系统代理通道经上游出口；本地重定向 / WireGuard / 反向代理仍为直连"
-                    )
-                )
+        # 原生 UpstreamAuth 的模式闸门放行 upstream **和 reverse**
+        # （upstream_auth.py:40-58），两者同开且有凭证时反代目标也会收到这份
+        # Authorization 头。分不开，只能明说 —— 详见 runtime._upstream_auth。
+        credential_leak = (
+            upstream_on and reverse_on and bool(self.get_upstream_username())
+        )
+        self.upstream_hint.setVisible(credential_leak)
+        if credential_leak:
+            self.upstream_hint.setText(self.tr("! 反代目标也会收到上游凭证"))
 
     def _copy_lan_address(self):
         if not self._lan_address:
