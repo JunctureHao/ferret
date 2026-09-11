@@ -106,11 +106,11 @@ class ProxySettingsSeedingTests(unittest.TestCase):
         self.assertEqual(app_runtime.mitm.local_client_host, LOOPBACK_HOST)
         self.assertEqual(app_runtime.mitm.listen_host, "0.0.0.0")
 
-    def test_channel_flags_default_to_all_on(self) -> None:
-        """三条通道默认全勾：点「开始抓包」就开整个会话（应用启动仍零动作）。"""
+    def test_channel_flags_default_to_system_proxy_only(self) -> None:
+        """默认只勾系统代理：local 要提权、WireGuard 要开端口，不替用户决定。"""
         runtime = self.build().mitm_runtime
-        self.assertTrue(runtime.use_local)
-        self.assertTrue(runtime.use_wireguard)
+        self.assertFalse(runtime.use_local)
+        self.assertFalse(runtime.use_wireguard)
         self.assertFalse(runtime.channels_engaged)
 
     def test_a_broken_local_spec_converges_to_capture_everything(self) -> None:

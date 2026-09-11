@@ -127,7 +127,8 @@ class Config(QConfig):
 
     # 抓包通道的启用开关（见 core/mitm/modes.py）。持久化决定的是「点击开始抓包
     # 时开启哪些通道」—— 应用启动本身零抓包动作（内核 regular 空转），所以这里
-    # 落盘的是偏好而不是运行态。默认全开：三条通道都要经过一次显式点击才生效。
+    # 落盘的是偏好而不是运行态。默认只开系统代理：本地重定向要提权装驱动、
+    # WireGuard 要开 UDP 端口，都不该在用户没点之前替他决定。
     system_proxy_enabled = ConfigItem(
         group="Proxy",
         name="SystemProxyEnabled",
@@ -138,7 +139,7 @@ class Config(QConfig):
     local_enabled = ConfigItem(
         group="Proxy",
         name="LocalEnabled",
-        default=True,
+        default=False,
         validator=BoolValidator(),
     )
 
@@ -153,7 +154,7 @@ class Config(QConfig):
     wireguard_enabled = ConfigItem(
         group="Proxy",
         name="WireGuardEnabled",
-        default=True,
+        default=False,
         validator=BoolValidator(),
     )
 
