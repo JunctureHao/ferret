@@ -5,10 +5,13 @@
      ``# nuitka-project:`` 注释，本脚本只负责发起编译，不重复维护配置。
   2. ``vpk pack``：把 ``Ferret.dist`` 打成 Setup.exe / Portable.zip /
      full.nupkg（有上一版时再出 delta），产物落在 ``build/releases/``。
+  3. ``vpk upload github``（可选，``--upload``）：把整个 releases 目录
+     推到 GitHub Releases，作为应用内更新的更新源。
 
 用法（项目根目录）：
   uv run python scripts/package.py                  # 全量：编译 + 打包
   uv run python scripts/package.py --skip-build     # 复用 build/dist/ 最新产物，只打包
+  uv run python scripts/package.py --upload         # 打包后直传 GitHub Releases
   uv run python scripts/package.py --version 1.2.3  # 临时覆盖版本号
   uv run python scripts/package.py --dry-run        # 只打印将执行的命令
 
@@ -17,11 +20,15 @@
     ``App().run()`` 那半）；打包 CLI 是独立工具，本机须已
     ``dotnet tool install -g vpk``。
   - vpk 靠 ``build/releases/`` 里的上一版 full.nupkg 生成增量，勿随手清空该目录。
+  - ``--upload`` 需要写权限 token：设 ``GITHUB_TOKEN``/``GH_TOKEN`` 环境变量
+    （脚本转成 ``VPK_TOKEN`` 传给子进程，不上命令行）。release 默认直接发布；
+    ``--draft`` 传草稿——注意草稿不进更新源，客户端看不到。
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import tomllib
@@ -68,12 +75,12 @@ def display(path: Path) -> Path:
         return path
 
 
-def run(cmd: list[str], dry_run: bool) -> None:
+def run(cmd: list[str], dry_run: bool, env: dict[str, str] | None = None) -> None:
     print("+", " ".join(cmd))
     if dry_run:
         return
     try:
-        subprocess.run(cmd, check=True, cwd=ROOT)
+        subprocess.run(cmd, check=True, cwd=ROOT, env=env)
     except FileNotFoundError as exc:
         raise SystemExit(
             f"找不到命令 {cmd[0]}；vpk 未安装时先 `dotnet tool install -g vpk`"
@@ -113,6 +120,60 @@ def pack(
     run(cmd, args.dry_run)
 
 
+def derive_repo_url() -> str | None:
+    """从 ``git remote get-url origin`` 推导 GitHub 仓库地址，推不出返回 None。"""
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    url = result.stdout.strip()
+    if url.startswith("git@"):  # git@github.com:owner/repo → https
+        url = "https://" + url[4:].replace(":", "/", 1)
+    url = url.removesuffix(".git")
+    return url or None
+
+
+def upload(output_dir: Path, version: str, args: argparse.Namespace) -> None:
+    """把 releases 目录推上 GitHub Releases（即应用内更新的更新源）。"""
+    repo_url = args.repo_url or derive_repo_url()
+    if not repo_url:
+        raise SystemExit("无法从 git origin 推导仓库地址，请用 --repo-url 显式指定")
+    cmd = [
+        "vpk",
+        "--yes",
+        "upload",
+        "github",
+        "--outputDir",
+        str(output_dir),
+        "--repoUrl",
+        repo_url,
+        "--tag",
+        f"v{version}",
+        "--releaseName",
+        f"{PACK_ID} v{version}",
+    ]
+    # 草稿不进更新源（客户端看不到），所以默认 --publish；semver 预发版自动标 pre-release
+    if not args.draft:
+        cmd.append("--publish")
+    if "-" in version:
+        cmd.append("--pre")
+    if args.merge:
+        cmd.append("--merge")
+    # token 不上命令行（进程命令行全系统可读）：GITHUB_TOKEN/GH_TOKEN 转成
+    # vpk 认的 VPK_TOKEN 环境变量；都没设时 vpk 会自己读 VPK_TOKEN 或报错。
+    env = None
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        env = {**os.environ, "VPK_TOKEN": token}
+    run(cmd, args.dry_run, env=env)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Nuitka 编译 + Velopack 打包一条龙",
@@ -135,6 +196,22 @@ def main() -> None:
     parser.add_argument(
         "--dry-run", action="store_true", help="只打印将执行的命令，不真正执行"
     )
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="打包后上传 releases 目录到 GitHub Releases（需 GITHUB_TOKEN）",
+    )
+    parser.add_argument("--repo-url", help="GitHub 仓库地址（默认从 git origin 推导）")
+    parser.add_argument(
+        "--draft",
+        action="store_true",
+        help="上传为草稿（草稿不进更新源，客户端不可见）",
+    )
+    parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="合并进已存在的同名 release（同版本重传时用）",
+    )
     args = parser.parse_args()
     # 相对输出目录统一锚到项目根（subprocess 的 cwd 也是 ROOT，两边保持一致）
     if not args.output_dir.is_absolute():
@@ -147,6 +224,8 @@ def main() -> None:
         run([sys.executable, "-m", "nuitka", "src/ferret"], args.dry_run)
     standalone = find_standalone_dir()
     pack(standalone, version, args.output_dir, args)
+    if args.upload:
+        upload(args.output_dir, version, args)
 
     if not args.dry_run:
         print("产物清单：")
