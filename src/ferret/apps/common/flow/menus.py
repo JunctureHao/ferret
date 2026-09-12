@@ -27,7 +27,9 @@ from ferret.core.mitm import HTTPFlow
 class FlowContextMenu(RoundMenu):
     """Flow 上下文菜单 - 提供复制、删除、查看等操作。"""
 
-    delete_requested = Signal(int)  # 删除请求信号
+    # 删除请求信号：载荷是选区而非行号 —— 行删除由表格侧按选区批量走，
+    # 菜单只负责报「用户点了删除」（多选时右键行号只是选区之一，发它会漏删）。
+    delete_requested = Signal()
     replay_file_requested = Signal()  # 从文件回放请求信号
     block_host_requested = Signal(str)  # 屏蔽此主机请求信号（携带 host）
     # 「在 Compose 中编辑」请求信号（携带 flow id）。载荷是 id 不是 flow：
@@ -70,6 +72,10 @@ class FlowContextMenu(RoundMenu):
         self.row_data = row_data
         self.flows = selected_flows or []
         self._refresh_replay_label()
+        count = len(self.flows)
+        self.delete_action.setText(
+            self.tr("删除") if count <= 1 else self.tr("删除 {} 条").format(count)
+        )
         # 多选禁用（「编辑并重发」语义不明）、CONNECT 禁用（隧道请求没有可编辑的
         # 报文形态）。判据都来自既有入参，不新读活 flow。
         self.edit_in_compose_action.setEnabled(
@@ -166,9 +172,9 @@ class FlowContextMenu(RoundMenu):
 
     @Slot()
     def __on_delete_triggered(self):
-        """删除动作触发时"""
-        if self.row_index != -1:
-            self.delete_requested.emit(self.row_index)
+        """删除动作触发时：作用于整个选区（单选/多选同一条路）。"""
+        if self.flows:
+            self.delete_requested.emit()
 
     @Slot()
     def __on_block_host_triggered(self):

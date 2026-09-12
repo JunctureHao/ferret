@@ -501,6 +501,12 @@ class FlowTableModel(QAbstractTableModel):
         flow = self._rows[row]
         self._source.remove([flow])
 
+    def remove_flows(self, flows: list[HTTPFlow]) -> None:
+        """批量删除：一次 remove 调用，逐行移除走 View 的 flow_removed 信号回路。"""
+        if not self._source or not flows:
+            return
+        self._source.remove(flows)
+
 
 class FlowProxyModel(QSortFilterProxyModel):
     """排序代理（透明过滤）。

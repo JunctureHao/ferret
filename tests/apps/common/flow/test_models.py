@@ -91,6 +91,21 @@ class FlowTableModelTests(unittest.TestCase):
         self.assertTrue(source.cleared)
         self.assertEqual(model.rowCount(), 0)
 
+    def test_remove_flows_delegates_the_whole_selection_in_one_call(self) -> None:
+        """批量删除只调一次 source.remove，UI 更新走 View 的 flow_removed 回路。"""
+        first = self.completed_flow()
+        second = self.completed_flow()
+        source = _ListSource([first, second])
+        model = FlowTableModel(None)  # type: ignore
+        model.set_source(source)
+
+        model.remove_flows([first, second])
+        self.assertEqual(source.removed, [first, second])
+
+        # 空调用是空转，不得触碰 source
+        model.remove_flows([])
+        self.assertEqual(source.removed, [first, second])
+
     def test_handle_add_is_ignored_before_a_source_is_attached(self) -> None:
         model = FlowTableModel(None)  # type: ignore
         model.handle_add(self.completed_flow())

@@ -6,6 +6,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -117,7 +118,14 @@ class FlowDataTable(TableView):
         self.source_model.modelReset.connect(self.__on_sync_visual)
 
         self.customContextMenuRequested.connect(self.__on_show_context_menu)
-        self.context_menu.delete_requested.connect(self._remove_row)
+        self.context_menu.delete_requested.connect(self.remove_selected)
+
+        # 菜单 action 上的 shortcut 挂不到表格，Delete 键得在表格侧另接一条 ——
+        # 仅 capture 能力集才允许删除（会话页 can_delete=False，快捷键同菜单一起缺席）。
+        if self.capabilities.can_delete:
+            QShortcut(QKeySequence.StandardKey.Delete, self).activated.connect(
+                self.remove_selected
+            )
 
         self.selectionModel().selectionChanged.connect(self.__on_selection_changed)
 
@@ -214,12 +222,12 @@ class FlowDataTable(TableView):
         self.clearSelection()
         QTimer.singleShot(0, self.__emit_stats_updated)
 
-    @Slot(int)
-    def _remove_row(self, row: int) -> None:
-        flow = self.source_model.get_flow(row)
-        if flow is None:
-            return
-        self.source_model.remove_row(row)
+    @Slot()
+    def remove_selected(self) -> None:
+        """删除当前选中的 flow（单选/多选同一条路）。"""
+        flows = self.get_selected_flows()
+        if flows:
+            self.source_model.remove_flows(flows)
 
     def set_source(self, source) -> None:
         """注入数据源（满足 FlowSource 协议：View 本体或其适配器）"""
