@@ -68,14 +68,14 @@ class Config(QConfig):
     minimize_to_tray = ConfigItem(
         group="MainWindow",
         name="MinimizeToTray",
-        default=True,
+        default=False,
         validator=BoolValidator(),
     )
 
     layout = OptionsConfigItem(
         group="MainWindow",
         name="Layout",
-        default=Layout.HORIZONTAL,
+        default=Layout.VERTICAL,
         validator=OptionsValidator(Layout),
         serializer=LayoutSerializer(),
     )
