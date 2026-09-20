@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import ipaddress
 import socket
 from collections.abc import Callable
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -71,6 +72,44 @@ def anticache_option_updates(enabled: bool) -> dict[str, bool]:
     bool 选项与 sticky 的过滤串不同：关掉写 ``False``（出厂默认）而不是 ``None``。
     """
     return {"anticache": enabled, "anticomp": enabled}
+
+
+# DNS 解析（.plans/dns-options.md）：原生 DnsResolver addon 的两个选项。仅对隧道内
+# DNS 生效（WireGuard 通道的 10.0.0.53）；不产生 DNSFlow 就没有代码路径碰到它，
+# 全局偏好、不随通道回滚（不进 _CHANNEL_INTENTS）。
+def dns_option_updates(
+    name_servers: list[str], use_hosts_file: bool
+) -> dict[str, list[str] | bool]:
+    """Translate the DNS config into the ``options.update`` kwargs."""
+    return {
+        "dns_name_servers": list(name_servers),
+        "dns_use_hosts_file": use_hosts_file,
+    }
+
+
+def _validate_dns_name_servers(items: list[str]) -> list[str]:
+    """Reject non-IP entries, drop blank ones; returns a new stripped list.
+
+    原生 ``dns_name_servers`` 注册时无校验器，``_Option.set`` 只查类型不查值
+    （optmanager.py），坏 IP 串过 ``options.update`` 静默放行 —— 这里是唯一闸门，
+    界面提交与内核种子两处共用。错误文案会上面（对话框内联展示），按 AGENTS.md
+    用 ``"runtime"`` context 包整句，变量交给 ``.format()``。
+    """
+    checked: list[str] = []
+    for item in items:
+        text = item.strip()
+        if not text:
+            continue
+        try:
+            ipaddress.ip_address(text)
+        except ValueError:
+            raise ValueError(
+                QCoreApplication.translate("runtime", "“{}”不是合法的 IP 地址").format(
+                    text
+                )
+            ) from None
+        checked.append(text)
+    return checked
 
 
 # 抓包通道的**意图值**字段名（见 `MitmRuntime.__init__` 的逐条注释）：落盘偏好，
@@ -234,6 +273,7 @@ class _MitmThread(QThread):
         self._apply_anticache_plaintext(master)
         self._apply_upstream_auth(master)
         self._apply_proxyauth(master)
+        self._apply_dns_options(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -349,6 +389,37 @@ class _MitmThread(QThread):
         except (ValueError, OptionsError) as exc:
             log.warning("上游代理凭证无法应用，已忽略: %s", exc)
 
+    def _apply_dns_options(self, master: FerretMaster) -> None:
+        """Seed the DNS resolver options before serving traffic (on the mitm loop).
+
+        ``dns_*`` 由 ``DnsResolver.load`` 注册，构造 Options 时还不存在，只能等
+        Master 建好再写 —— 与 sticky / anticache / upstream_auth 同款约束。关键
+        差异在坏值守卫必须在这里自建：该选项注册时无校验器，原生 ``_Option.set``
+        只查类型不查值，坏 IP 串过 ``options.update`` 静默放行不抛 ``OptionsError``
+        （历史落盘坏值的唯一拦截点）。校验失败回退 ``[]``（= 系统 DNS），不炸启动。
+        """
+        try:
+            master.options.update(
+                **dns_option_updates(
+                    _validate_dns_name_servers(self.runtime.dns_name_servers),
+                    self.runtime.dns_use_hosts_file,
+                )
+            )
+        except ValueError as exc:
+            # 提示性日志失败不值得连坐启动：全量测试里可能有残留的 mitmproxy
+            # 日志 handler 指着已关闭的事件循环（同 core/runtime.py 的 local_spec
+            # 兜底与 _MitmThread.run 的姿态）；回退语义不依赖日志是否送达。
+            try:
+                log.warning("DNS 服务器配置无法应用，已回退系统 DNS: %s", exc)
+            except RuntimeError:
+                pass
+        except OptionsError as exc:
+            # 对该选项近乎死代码（无校验器），防上游未来加校验器时分叉。
+            try:
+                log.warning("DNS 选项无法应用，已忽略: %s", exc)
+            except RuntimeError:
+                pass
+
     def _apply_proxyauth(self, master: FerretMaster) -> None:
         """Seed the inbound proxy credential before serving traffic (on the mitm loop).
 
@@ -441,6 +512,8 @@ class MitmRuntime(QObject):
         proxyauth_password: str = "",
         sticky_session_enabled: bool = False,
         anticache_plaintext: bool = False,
+        dns_name_servers: list[str] | None = None,
+        dns_use_hosts_file: bool = True,
     ) -> None:
         super().__init__(parent)
         self.listen_host = normalize_listen_host(listen_host)
@@ -519,6 +592,11 @@ class MitmRuntime(QObject):
         # Accept-Encoding=identity），抓到的就不是客户端原件。种子与开关位置同
         # 固定会话（core/runtime.py::_build_mitm_runtime、apps/preferences）。
         self.anticache_plaintext = anticache_plaintext
+        # DNS 解析两意图值（.plans/dns-options.md）：全局偏好、不随通道回滚，
+        # 故不进 _CHANNEL_INTENTS。类默认对齐原生出厂（[] = 系统 DNS、
+        # True = 查 hosts），真实值由 CONFIG 种子决定（core/runtime.py）。
+        self.dns_name_servers = list(dns_name_servers or [])
+        self.dns_use_hosts_file = dns_use_hosts_file
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -1049,6 +1127,45 @@ class MitmRuntime(QObject):
             # bool 选项传错类型 optmanager 抛 TypeError（未知键抛 KeyError），不经
             # OptionsError —— 编程错误原样抛出，但内存副本必须先回滚。
             self.anticache_plaintext = previous
+            raise
+
+    def apply_dns_options(
+        self,
+        *,
+        name_servers: list[str] | None = None,
+        use_hosts_file: bool | None = None,
+    ) -> None:
+        """Store the DNS options and push them to a running Master.
+
+        与 `apply_anticache_plaintext` 同构：内核没跑只对齐内存副本（下次启动
+        `_apply_dns_options` 会读到），下发失败回滚，绝不留下「界面显示已生效、
+        内核其实没收到」的状态。两个参数都是 **None = 不改动该项** —— 清空自定义
+        DNS（回系统）必须显式传 ``[]``，与 bool 开关的 None 语义刻意区分。坏 IP
+        串在动内存副本**之前**就被 `_validate_dns_name_servers` 拒掉（原生该选项
+        无校验器，静默放行坏值的路径不存在）。
+        """
+        wanted_ns = self.dns_name_servers if name_servers is None else name_servers
+        wanted_hosts = (
+            self.dns_use_hosts_file if use_hosts_file is None else use_hosts_file
+        )
+        checked = _validate_dns_name_servers(wanted_ns)
+        previous = (self.dns_name_servers, self.dns_use_hosts_file)
+        self.dns_name_servers = checked
+        self.dns_use_hosts_file = wanted_hosts
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(
+                lambda: master.options.update(
+                    **dns_option_updates(checked, wanted_hosts)
+                )
+            )
+        except OptionsError as exc:
+            self.dns_name_servers, self.dns_use_hosts_file = previous
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            self.dns_name_servers, self.dns_use_hosts_file = previous
             raise
 
     def release_intercepted(self) -> int:

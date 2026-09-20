@@ -315,6 +315,37 @@ class MitmFacade:
         """Flip the anticache/anticomp switch; applied immediately when it runs."""
         self.runtime.apply_anticache_plaintext(enabled)
 
+    # —— DNS 解析 ——
+
+    @property
+    def dns_name_servers(self) -> list[str]:
+        """自定义 DNS 服务器（内存副本）。空列表 = 跟随系统 DNS。
+
+        全局偏好（见 `core/mitm/runtime.py`），仅对隧道内 DNS 生效
+        （WireGuard 通道）。初值来自落盘配置（`core/runtime.py`）。
+        """
+        return list(self.runtime.dns_name_servers)
+
+    @property
+    def dns_use_hosts_file(self) -> bool:
+        """解析时是否查询操作系统 hosts 文件（原生默认开）。"""
+        return self.runtime.dns_use_hosts_file
+
+    def set_dns_options(
+        self,
+        *,
+        name_servers: list[str] | None = None,
+        use_hosts_file: bool | None = None,
+    ) -> None:
+        """Update the DNS options; applied immediately when the kernel runs.
+
+        两个参数都是 **None = 不改动该项**，清空自定义 DNS 传 ``[]``。坏 IP 串抛
+        ``ValueError`` 且不落盘（调用方负责只在校验通过后写 CONFIG）。
+        """
+        self.runtime.apply_dns_options(
+            name_servers=name_servers, use_hosts_file=use_hosts_file
+        )
+
     # —— 断点 ——
 
     @property

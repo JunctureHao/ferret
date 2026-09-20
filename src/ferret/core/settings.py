@@ -255,6 +255,26 @@ class Config(QConfig):
         default="",
     )
 
+    # DNS 解析两选项（.plans/dns-options.md）：原生 DnsResolver addon。仅对隧道内
+    # DNS 生效（WireGuard 通道的 10.0.0.53）；regular 模式下客户端自解 DNS、选项
+    # 管不到 —— 不产生 DNSFlow 就没有任何代码路径碰到它，故不设让路、常驻种子。
+    # 自定义服务器列表，留空 = 跟随系统 DNS（原生默认 []）。和 gateway_rules 同
+    # 一个坑：QConfig.set 开头 `if item.value == value: return`，写回必须传新 list。
+    dns_name_servers = ConfigItem(
+        group="Proxy",
+        name="DnsNameServers",
+        default=[],
+    )
+
+    # 解析时查操作系统 hosts 文件（原生默认 True，开关方向不反转 —— 呈现语义
+    # 就是「解析时查 hosts」）。
+    dns_use_hosts_file = ConfigItem(
+        group="Proxy",
+        name="DnsUseHostsFile",
+        default=True,
+        validator=BoolValidator(),
+    )
+
     # 网关规则，存 list[dict]（见 core/mitm/gateway.py 的 GatewayRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

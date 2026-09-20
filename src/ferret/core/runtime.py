@@ -75,6 +75,8 @@ class ApplicationRuntime(QObject):
             proxyauth_password=str(CONFIG.get(CONFIG.proxyauth_password) or ""),
             sticky_session_enabled=bool(CONFIG.get(CONFIG.sticky_session_enabled)),
             anticache_plaintext=bool(CONFIG.get(CONFIG.anticache_plaintext)),
+            dns_name_servers=list(CONFIG.get(CONFIG.dns_name_servers)),
+            dns_use_hosts_file=bool(CONFIG.get(CONFIG.dns_use_hosts_file)),
         )
 
     def start(self) -> None:
