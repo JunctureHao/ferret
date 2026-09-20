@@ -39,6 +39,7 @@ from qfluentwidgets import (
     StrongBodyLabel,
     TransparentToolButton,
 )
+from qfluentwidgets.components.widgets.card_widget import SimpleCardWidget
 
 from ferret.apps.common.font import FontManager
 from ferret.core.mitm import human
@@ -858,7 +859,7 @@ class OverviewPane(SingleDirectionScrollArea):
         # 关掉横向滚动条，值那侧的 word wrap 才有意义 —— 否则长 URL 会把整页撑宽。
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        self.container = QWidget(self)
+        self.container = SimpleCardWidget(self)
         layout = QVBoxLayout(self.container)
         layout.setContentsMargins(12, 8, 12, 12)
         layout.setSpacing(8)
