@@ -16,7 +16,6 @@ body 美化（上限 1 MiB）和证书解析，卡的是界面线程。
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from PySide6.QtCore import QCoreApplication
@@ -161,6 +160,10 @@ def connection_fields(conn, prefix: str) -> dict[str, Any]:
     fields: dict[str, Any] = {
         f"{prefix} Connection State": getattr(state, "name", "").lower(),
         f"{prefix} Transport Protocol": conn.transport_protocol or "",
+        # 连接建立的起点：`Server.timestamp_start` 对域名是「开始 DNS 解析」、对
+        # IP 是「发出 TCP SYN」（上游 docstring 原话）——「DNS + 连接」段的分子
+        # 全靠它，两侧都原样产出（Server 可能是 None，交给显示层）。
+        f"{prefix} Connection Start": conn.timestamp_start,
         f"{prefix} TLS Handshake": conn.timestamp_tls_setup,
         f"{prefix} Connection End": conn.timestamp_end,
     }
@@ -307,14 +310,6 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
     if request.timestamp_end and request.timestamp_start:
         req_duration = (request.timestamp_end - request.timestamp_start) * 1000
 
-    conn_time = ""
-    if request.timestamp_start:
-        conn_time = (
-            datetime.fromtimestamp(request.timestamp_start, tz=UTC)
-            .astimezone()
-            .strftime("%Y-%m-%d %H:%M:%S.%f")
-        )
-
     client_conn = flow.client_conn
     peername = client_conn.peername if client_conn else None
     sockname = getattr(client_conn, "sockname", None) if client_conn else None
@@ -341,7 +336,6 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
         # `Flow ID` 是新键。改造前叫 `Connection ID`，存的却是 `flow.id` —— 名字
         # 占着连接的位置，真正的 `Connection.id` 反而无处可放。
         "Flow ID": flow.id,
-        "Connection Time": conn_time,
         "Front Client Address": peername[0] if peername else "N/A",
         "Front Client Port": peername[1] if peername else "N/A",
         "Front Server Address": sockname[0] if sockname else "N/A",
@@ -391,7 +385,16 @@ def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
     res_duration = None
     if response.timestamp_end and response.timestamp_start:
         res_duration = (response.timestamp_end - response.timestamp_start) * 1000
-    duration = (response.timestamp_end or 0) - (flow.request.timestamp_start or 0)
+
+    # 总耗时与表格 Time 列（`FlowTableModel._duration_ms`）同一条减法、同一个
+    # None 判据，两处才必然一致。产出**裸毫秒**：原来这里直接格式化好字符串，
+    # 是同字典里唯一例外，而且 `(timestamp_end or 0) - start` 在响应未收完时
+    # 算出 -9.4e11 ms —— 响应存在但没收完（SSE/流式）就是 `None`，不是 0。
+    duration_ms = None
+    if response.timestamp_end is not None and flow.request.timestamp_start is not None:
+        duration_ms = max(
+            0.0, (response.timestamp_end - flow.request.timestamp_start) * 1000
+        )
 
     server_conn = flow.server_conn
     peername = server_conn.peername if server_conn else None
@@ -423,7 +426,7 @@ def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
         "Server Address": server_addr,
         "Protocol": protocol,
         "Proxy Protocol": proxy_protocol,
-        "Duration": f"{duration * 1000:.0f} ms",
+        "duration_ms": duration_ms,
         # `source_address` 在 mitmproxy 12 的 `Connection` 上已经不存在了，
         # 这四行历来全是 "N/A"；本机出口地址现在从 `sockname` 读。
         "Back Client Address": sockname[0] if sockname else "N/A",

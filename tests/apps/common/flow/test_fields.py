@@ -174,6 +174,10 @@ class FormatTimeTests(unittest.TestCase):
         self.assertEqual(format_time(0), "-")
         self.assertNotEqual(format_time(1756000000.0), "-")
 
+    def test_a_present_timestamp_carries_milliseconds(self) -> None:
+        """秒级精度等于没有：时序要拿两个时刻做减法，毫秒是底线。"""
+        self.assertRegex(format_time(1756000000.123), r"\.\d{3}$")
+
 
 class SectionRowsTests(unittest.TestCase):
     """规格 → 行。纯函数，不起窗口 —— 「哪些行会出现」的规则全在这一层。"""
@@ -195,11 +199,33 @@ class SectionRowsTests(unittest.TestCase):
 
     def test_a_group_with_nothing_to_show_yields_no_rows_at_all(self) -> None:
         """整组空就返回空表 —— 卡片那侧据此整张隐藏，标题不会孤零零留着。"""
-        for title in ("TLS · 服务端", "连接", "耗时"):
+        for title in ("TLS · 服务端", "连接", "时序"):
             with self.subTest(title=title):
                 self.assertEqual(
                     section_rows(find_section(title), {"Method": "GET"}), []
                 )
+
+    def test_the_total_row_reads_the_raw_milliseconds_key(self) -> None:
+        """「总时长」吃 `duration_ms` 裸值 —— 产出侧不再预格式化字符串，
+        与表格 Time 列走同一个 `format_duration`。"""
+        self.assertEqual(find_field("总时长").source, "duration_ms")
+        rows = self.flatten(find_section("时序"), {"duration_ms": 412.0})
+        self.assertIn(("总时长", "412 ms", False), rows)
+
+    def test_the_timing_group_reports_both_connection_starts(self) -> None:
+        """两侧连接建立时刻是新行：没有它们，「DNS + 连接」段的分子无处可取。"""
+        rows = self.flatten(
+            find_section("时序"), {"Back Connection Start": 1756000000.5}
+        )
+        self.assertIn(
+            ("服务端连接开始", format_time(1756000000.5), False), rows
+        )
+        rows = self.flatten(
+            find_section("时序"), {"Front Connection Start": 1756000000.5}
+        )
+        self.assertIn(
+            ("客户端连接开始", format_time(1756000000.5), False), rows
+        )
 
     def test_a_group_appears_once_its_condition_holds(self) -> None:
         rows = self.flatten(find_section("TLS · 服务端"), {"TLS Version": "TLSv1.3"})
@@ -382,6 +408,31 @@ class OverviewPaneTests(unittest.TestCase):
         self.assertNotIn(
             "TLS · 服务端", [c.section.title for c in self.pane.visible_cards()]
         )
+
+    def test_a_lead_widget_lands_inside_the_matching_card(self) -> None:
+        """时序瀑布块（自绘控件）挂进纯数据概览的唯一通道：标题匹配的那张卡里，
+        组头之下、键值网格之上 —— 在 `view` 里，随组折叠一起收起。
+
+        匹配的是 `Section.title` 标记（源文本），不随界面语言变；匹配不到必须
+        大声失败 —— 静默吞掉的后果是整块时序从概览里消失。
+        """
+        lead = QWidget()
+        pane = OverviewPane(self.host, lead_after="时序", lead=lead)
+        card = next(c for c in pane.cards if c.section.title == "时序")
+        view_layout = card.view.layout()
+        assert view_layout is not None
+        first = view_layout.itemAt(0)
+        assert first is not None
+        # lead 是 view 的第一个孩子，键值网格（布局项）跟在它后面。
+        self.assertIs(first.widget(), lead)
+        self.assertIs(lead.parent(), card.view)
+        # 折叠整组：lead 与网格一起收（都在 view 里）。
+        card.set_expanded(False)
+        self.assertFalse(card.view.isVisibleTo(card))
+        pane.deleteLater()
+
+        with self.assertRaises(ValueError):
+            OverviewPane(self.host, lead_after="不存在的组", lead=QWidget())
 
 
 if __name__ == "__main__":

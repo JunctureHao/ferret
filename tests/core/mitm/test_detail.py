@@ -207,6 +207,17 @@ class ConnectionFieldTests(unittest.TestCase):
             data["Back TCP Handshake"], flow.server_conn.timestamp_tcp_setup
         )
         self.assertNotIn("Front TCP Handshake", data)
+        # 连接建立起点（两侧）：「DNS + 连接」段的分子全靠它，此前一个都没产出。
+        self.assertEqual(
+            data["Front Connection Start"], flow.client_conn.timestamp_start
+        )
+        self.assertEqual(
+            data["Back Connection Start"], flow.server_conn.timestamp_start
+        )
+        for key in ("Front Connection Start", "Back Connection Start"):
+            # tflow 夹具的时间戳是 int（真实运行时是 time.time() 的 float），
+            # 钉的是「裸数值」而不是「被格式化成字符串」。
+            self.assertIsInstance(data[key], (int, float))
 
     def test_the_upstream_spec_is_formatted_without_touching_named_fields(self) -> None:
         """`ServerSpec` 是 ``tuple[scheme, (host, port)]`` 的别名，没有 `.scheme`。"""
@@ -235,6 +246,54 @@ class ConnectionFieldTests(unittest.TestCase):
             [w for w in caught if "Client.address" in str(w.message)],
             [],
         )
+
+
+class DurationFieldTests(unittest.TestCase):
+    """总耗时：裸毫秒、None 判据与表格 Time 列逐字同源。"""
+
+    def test_a_completed_flow_reports_raw_milliseconds(self) -> None:
+        """改造前在这里就拼好 ``"128 ms"`` 字符串 —— 详情字典里唯一的非裸值。"""
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.request.timestamp_start = 100.0
+        flow.response.timestamp_end = 100.128
+        data = build_flow_detail(flow)
+
+        # 裸数值（tflow 夹具是 int 时间戳，int 运算回 int；显示层两种都吃）。
+        self.assertIsInstance(data["duration_ms"], (int, float))
+        self.assertAlmostEqual(data["duration_ms"], 128.0, places=3)
+
+    def test_an_unfinished_response_reports_no_duration_instead_of_a_negative_epoch(
+        self,
+    ) -> None:
+        """响应存在但未收完（SSE/流式）时 ``timestamp_end`` 是 None，不是 0。
+
+        改造前 ``(end or 0) - start`` 会算出 -9.4e11 ms（负的 epoch 毫秒）。
+        """
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.timestamp_end = None
+        data = build_flow_detail(flow)
+
+        self.assertIsNone(data["duration_ms"])
+        self.assertNotIn("Duration", data)
+
+    def test_the_total_duration_matches_the_table_column(self) -> None:
+        """详情页总时长与表格 Time 列（`FlowTableModel._duration_ms`）同一条减法。
+
+        延迟 import：本文件其余用例刻意不碰 apps 层，这一条钉的是「两处同源」，
+        必须拿真的表格算法对一遍。
+        """
+        from ferret.apps.common.flow.models import FlowTableModel
+
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.request.timestamp_start = 100.0
+        flow.response.timestamp_end = 100.412
+        data = build_flow_detail(flow)
+
+        self.assertEqual(data["duration_ms"], FlowTableModel._duration_ms(flow))
+        self.assertAlmostEqual(data["duration_ms"], 412.0, places=3)
 
 
 class MessageFieldTests(unittest.TestCase):
@@ -385,6 +444,11 @@ class DetailShapeTests(unittest.TestCase):
         self.assertEqual(data["comment"], "看一下这条")
         self.assertEqual(data["marked"], ":star:")
         self.assertEqual(data["is_replay"], "")
+        # 总耗时只产裸毫秒键；字符串键与「连接时间」（存的其实是请求开始时刻，
+        # 挂在连接组里误导读者）已退役。
+        self.assertIn("duration_ms", data)
+        self.assertNotIn("Duration", data)
+        self.assertNotIn("Connection Time", data)
         # `live` / `marked` 面板按字符串渲染，布尔在这一层就定死成 "true"/"false"。
         self.assertEqual(data["live"], "true")
         flow.live = False

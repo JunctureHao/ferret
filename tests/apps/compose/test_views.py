@@ -45,7 +45,7 @@ def success_result(**overrides) -> ComposeResult:
         "Flow ID": flow.id,
         "Status Code": 200,
         "Reason": "OK",
-        "Duration": "12 ms",
+        "duration_ms": 12.0,
         "res_total_size": 1200,
         "res_headers_size": 300,
         "res_wire_size": 900,

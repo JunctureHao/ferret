@@ -3,10 +3,12 @@
 改造前是「一层导航：概览/请求/响应/消息/原始状态」+ 请求/响应页内的次级
 Pivot（Headers/Query/Form/…/Raw），两层导航点两次才到一份报文头。现在回到
 左右分栏：左栏是请求区（总览/原始/请求头/请求体/查询参数/Cookies/备注），
-右栏是响应区（原始/响应头/响应体/消息）。全局布局设置说的是「表格 vs 详情」
-的排布，内层分栏与它相反（`inverted=True`）才放得下：全局横向（详情窄而高）
-时内层上下排，全局纵向（详情宽而矮）时内层左右排，比例在切换时保持
-（`OrientationSplitter` 自己处理）。
+右栏是响应区（原始/响应头/响应体/消息）。「时序」是总览里的一张卡：瀑布块
+（见 `timing.py`）作为 lead 挂在组头之下、时刻行之上，与原「耗时」组同栖。
+全局布局设置说的是
+「表格 vs 详情」的排布，内层分栏与它相反（`inverted=True`）才放得下：全局横向
+（详情窄而高）时内层上下排，全局纵向（详情宽而矮）时内层左右排，比例在切换时
+保持（`OrientationSplitter` 自己处理）。
 
 「消息」栏只对 WebSocket 与 SSE 流量出现（见 `messages.py`），其余一律整条
 隐藏 —— 普通请求点进去只会看到一张空表。
@@ -62,6 +64,7 @@ from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     FlowViewCapabilities,
 )
+from ferret.apps.common.flow.timing import TimingPane
 from ferret.apps.common.icon import BaseAction, BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
@@ -558,7 +561,10 @@ class FlowDataPanel(QWidget):
         self.req_tabs = TabPanel()
         self.req_tabs.setTabFontSize(12)
 
-        self.overview = OverviewPane()
+        # 时序与耗时合并成一张「时序」卡：时序块（汇总 + 请求前 + 瀑布）作为
+        # lead 挂在组头之下、时刻行之上 —— 图定比例、行给精确值，整组一起折叠。
+        self.timing_pane = TimingPane()
+        self.overview = OverviewPane(lead_after="时序", lead=self.timing_pane)
 
         self.req_raw = ToolPlainTextEdit()
         self.req_raw.set_read_only(True)
@@ -1051,6 +1057,7 @@ class FlowDataPanel(QWidget):
         """
         self.datas = data
         self.overview.set_data(data)
+        self.timing_pane.set_data(data)
 
         # 左栏：请求 + flow 级信息
         headers = data.get("Request Headers", {})

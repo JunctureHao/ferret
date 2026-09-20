@@ -14,6 +14,12 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 from qfluentwidgets import isDarkTheme
 
+# format_duration 的家在 fields.py（与 format_time / _ms 同处），这里只是
+# re-export：表格 Time 列与详情页总时长第一次走同一个格式化器，旧导入点不动。
+# 冗余别名是 PEP 484 的显式 re-export 写法（ty 认这个标记）。
+from ferret.apps.common.flow.fields import (
+    format_duration as format_duration,  # noqa: PLC0414
+)
 from ferret.core.log import get_logger
 from ferret.core.mitm import (
     GATEWAY_METADATA_KEY,
@@ -95,16 +101,6 @@ def gateway_note(flow: HTTPFlow) -> str:
     if flow.metadata.get("blocklisted"):
         return translate("FlowTableModel", "已被屏蔽规则拦截")
     return ""
-
-
-def format_duration(duration_ms: float | None) -> str:
-    if duration_ms is None:
-        return ""
-    if duration_ms < 1:
-        return "< 1 ms"
-    if duration_ms < 1000:
-        return f"{duration_ms:.0f} ms"
-    return f"{duration_ms / 1000:.2f} s"
 
 
 class FlowSource(Protocol):

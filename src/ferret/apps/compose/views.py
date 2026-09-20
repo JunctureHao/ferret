@@ -44,8 +44,10 @@ from ferret.apps.common.flow.fields import (
     _decoded_size,
     _ms,
     _size_of,
+    format_duration,
     format_time,
 )
+from ferret.apps.common.flow.timing import WaterfallBar, phases
 from ferret.apps.common.http_methods import METHODS
 from ferret.apps.common.info_bar import show_error, show_success
 from ferret.apps.common.panel import TabPanel
@@ -135,7 +137,11 @@ _PERF_SECTIONS: tuple[Section, ...] = (
                 "res_duration",
                 fmt=_ms,
             ),
-            Field(QT_TRANSLATE_NOOP("ComposePerf", "总耗时"), "Duration"),
+            Field(
+                QT_TRANSLATE_NOOP("ComposePerf", "总耗时"),
+                "duration_ms",
+                fmt=format_duration,
+            ),
         ),
     ),
     Section(
@@ -285,11 +291,15 @@ class ComposeInterface(QWidget):
         status_layout.addWidget(self.status_label, 1)
 
         self.perf_overview = OverviewPane(sections=_PERF_SECTIONS)
+        # 瀑布条压在「时间」组卡片头部（状态行之下、滚动区之上）：compose 回放
+        # 的连接段嵌在等待里（lane="nested"，虚线框），与详情页时序同一模型。
+        self.perf_waterfall = WaterfallBar(self)
         perf_page = QWidget(self)
         perf_layout = QVBoxLayout(perf_page)
         perf_layout.setContentsMargins(0, 0, 0, 0)
         perf_layout.setSpacing(8)
         perf_layout.addWidget(status_row)
+        perf_layout.addWidget(self.perf_waterfall)
         perf_layout.addWidget(self.perf_overview, 1)
 
         self.response_pane.addTab("Perf", perf_page, self.tr("性能"))
@@ -508,6 +518,7 @@ class ComposeInterface(QWidget):
         self.response_stack.setCurrentWidget(self.response_pane)
         self.response_pane.set_data(detail)
         self.perf_overview.set_data(detail)
+        self.perf_waterfall.set_model(phases(detail))
 
         status = str(detail.get("Status Code", "Error" if result.error else ""))
         self.status_label.setText(self._summarize(detail, status))
@@ -531,7 +542,7 @@ class ComposeInterface(QWidget):
         parts = [
             part
             for part in (
-                str(detail.get("Duration", "")),
+                format_duration(detail.get("duration_ms")),
                 human.pretty_size(total) if total else "",
                 str(detail.get("Server Address", "")),
             )

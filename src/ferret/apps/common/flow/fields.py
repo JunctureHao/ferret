@@ -27,6 +27,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtGui import QColor, QGuiApplication
@@ -187,12 +188,42 @@ def section_rows(section: Section, data: dict) -> list[Row]:
 
 
 def format_time(ts) -> str:
-    """时间戳 → 本地时间字符串；空值显示 ``-``。
+    """时间戳 → 本地时间字符串（**带毫秒**）；空值显示 ``-``。
 
     ``human.format_timestamp`` 对 ``None`` 会返回“当前时间”（``time.localtime(None)``），
-    所以空值必须自己挡掉。
+    所以空值必须自己挡掉。毫秒是时序功能的底线精度 —— 秒级的两个时刻相减，
+    「慢在哪一段」根本算不出来。
+
+    带 ``tz=UTC`` 构造再转本地，而不是 ``fromtimestamp(ts).astimezone()``：
+    naive datetime 的 ``astimezone()`` 在 Windows 上要走 CRT ``mktime``，对落在
+    1970-01-01 附近的本地时刻直接抛 ``OSError(22)``（时序测试用的相对时刻
+    100.0 正好踩中）。
     """
-    return human.format_timestamp(ts) if ts else "-"
+    if not ts:
+        return "-"
+    return (
+        datetime.fromtimestamp(float(ts), tz=UTC)
+        .astimezone()
+        .strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    )
+
+
+def format_duration(duration_ms: object) -> str:
+    """毫秒时长 → 面向人的短串。表格 Time 列与详情页同走这一个函数。
+
+    从 `models.py` 下沉到这里：详情页的「总时长」行原来在产出侧就拼好字符串，
+    是详情字典里唯一不是裸值的耗时；现在两处第一次走同一个格式化器。参数按
+    `Field.fmt` 的契约收 ``object``：运行时是 ``float | None``，tflow 夹具的
+    int 时间戳算出来也可能是 int —— 一律 ``float()`` 归一（与 `_ms` 同款）。
+    """
+    if duration_ms is None:
+        return ""
+    value = float(duration_ms)  # ty: ignore[invalid-argument-type]
+    if value < 1:
+        return "< 1 ms"
+    if value < 1000:
+        return f"{value:.0f} ms"
+    return f"{value / 1000:.2f} s"
 
 
 def _ms(value: object) -> str:
@@ -354,16 +385,18 @@ _CERT_KEYS: tuple[str, ...] = (
 
 _TIME_KEYS: tuple[str, ...] = (
     "Flow Created",
+    "Front Connection Start",
     "Front TLS Handshake",
     "req_time",
     "req_timestamp_end",
     "req_duration",
+    "Back Connection Start",
     "Back TCP Handshake",
     "Back TLS Handshake",
     "res_timestamp_start",
     "res_time",
     "res_duration",
-    "Duration",
+    "duration_ms",
     "Front Connection End",
     "Back Connection End",
 )
@@ -500,13 +533,21 @@ SECTIONS: tuple[Section, ...] = (
             Field(QT_TRANSLATE_NOOP("FlowFields", "服务器地址"), "Server Address"),
         ),
     ),
+    # 「时序」＝瀑布块（lead，见 `timing.py`）+ 时刻行：图定比例、行给精确值，
+    # 一个组头一个故事。`when` 沿用 _TIME_KEYS：一个时间戳都没有就整组（连同
+    # 瀑布）不出现。
     Section(
-        title=QT_TRANSLATE_NOOP("FlowFields", "耗时"),
+        title=QT_TRANSLATE_NOOP("FlowFields", "时序"),
         when=_any_present(*_TIME_KEYS),
         fields=(
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "流量创建"),
                 "Flow Created",
+                fmt=format_time,
+            ),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "客户端连接开始"),
+                "Front Connection Start",
                 fmt=format_time,
             ),
             Field(
@@ -528,6 +569,11 @@ SECTIONS: tuple[Section, ...] = (
                 QT_TRANSLATE_NOOP("FlowFields", "请求时长"),
                 "req_duration",
                 fmt=_ms,
+            ),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "服务端连接开始"),
+                "Back Connection Start",
+                fmt=format_time,
             ),
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "TCP 握手"),
@@ -554,7 +600,11 @@ SECTIONS: tuple[Section, ...] = (
                 "res_duration",
                 fmt=_ms,
             ),
-            Field(QT_TRANSLATE_NOOP("FlowFields", "总时长"), "Duration"),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "总时长"),
+                "duration_ms",
+                fmt=format_duration,
+            ),
             Field(
                 QT_TRANSLATE_NOOP("FlowFields", "客户端连接结束"),
                 "Front Connection End",
@@ -609,9 +659,8 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         title=QT_TRANSLATE_NOOP("FlowFields", "连接"),
         collapsed=True,
-        when=_any_value("Connection ID", "Connection Time"),
+        when=_any_value("Connection ID", "Back Connection ID"),
         fields=(
-            Field(QT_TRANSLATE_NOOP("FlowFields", "时间"), "Connection Time"),
             Field(QT_TRANSLATE_NOOP("FlowFields", "代理模式"), "Client Proxy Mode"),
             _peer_section(
                 QT_TRANSLATE_NOOP("FlowFields", "前端"), "Front", "Connection ID"
@@ -726,9 +775,17 @@ class FieldCard(QWidget):
 
     `set_data` 每次重建网格而不是复用控件池：详情面板只在换选中行时更新，一次几十
     行的重建量级可以忽略，而混着跨列 span 的控件池极易对错格子。
+
+    ``lead``：挂在组头之下、键值网格之上的自绘控件（时序瀑布块用）。它在
+    ``view`` 里，折叠整组一起收起；规格表本身仍是纯数据，控件只能从外面挂。
     """
 
-    def __init__(self, section: Section, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        section: Section,
+        parent: QWidget | None = None,
+        lead: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.section = section
         self._rows: list[Row] = []
@@ -767,6 +824,9 @@ class FieldCard(QWidget):
         self.view = QWidget(self)
         view_layout = QVBoxLayout(self.view)
         view_layout.setContentsMargins(0, 6, 0, 0)
+        view_layout.setSpacing(8)
+        if lead is not None:
+            view_layout.addWidget(lead)
         view_layout.addLayout(self.grid)
 
         layout = QVBoxLayout(self)
@@ -880,12 +940,20 @@ class OverviewPane(SingleDirectionScrollArea):
     换行，反而更难读。窄的时候读的是「这条流量怎么了」，一列从上往下扫最快。
 
     无卡片底框：段与段只靠 8px 间距分界（平铺风格见 `FieldCard`）。
+
+    ``lead_after`` / ``lead``：把自绘控件作为 **lead** 挂进标题匹配的那张卡
+    （组头之下、键值网格之上，随组折叠 —— 时序瀑布块与「时序」组的融合靠它）。
+    规格表本身仍是纯数据，控件只能从外面挂进来；匹配的是 ``Section.title``
+    标记（源文本，不随界面语言变），匹配不到就大声失败 —— 静默吞掉的后果是
+    整块时序消失。
     """
 
     def __init__(
         self,
         parent: QWidget | None = None,
         sections: tuple[Section, ...] = SECTIONS,
+        lead_after: str | None = None,
+        lead: QWidget | None = None,
     ) -> None:
         super().__init__(parent, orient=Qt.Orientation.Vertical)
         self.setWidgetResizable(True)
@@ -896,7 +964,18 @@ class OverviewPane(SingleDirectionScrollArea):
         layout = QVBoxLayout(self.container)
         layout.setContentsMargins(12, 8, 12, 12)
         layout.setSpacing(8)
-        self.cards = [FieldCard(section, self.container) for section in sections]
+        self.cards = [
+            FieldCard(
+                section,
+                self.container,
+                lead=lead if lead is not None and section.title == lead_after else None,
+            )
+            for section in sections
+        ]
+        if lead is not None and not any(
+            card.section.title == lead_after for card in self.cards
+        ):
+            raise ValueError(f"lead_after 没匹配到任何分组: {lead_after!r}")
         for card in self.cards:
             layout.addWidget(card)
         layout.addStretch(1)

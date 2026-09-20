@@ -138,7 +138,7 @@ class FlowViewerPaneTests(unittest.TestCase):
             "Method": "GET",
             "URL": "https://api.example.com/v1/users",
             "Status Code": 200,
-            "Duration": "128 ms",
+            "duration_ms": 128.0,
         }
         self.viewer.table.row_double_clicked.emit(data)
         self.app.processEvents()

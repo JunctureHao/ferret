@@ -105,7 +105,7 @@ class FlowDataPanelTests(unittest.TestCase):
         self.app.processEvents()
 
     def test_two_columns_of_flat_tabs(self) -> None:
-        """左右两栏各一排扁平标签，导航只有一层。"""
+        """左右两栏各一排扁平标签，导航只有一层。时序不占标签 —— 融在概览里。"""
         self.assertEqual(
             list(self.panel.req_tabs.pivot.items),
             ["Overview", "Raw", "Headers", "Body", "Query", "Cookies", "Comment"],
@@ -115,6 +115,31 @@ class FlowDataPanelTests(unittest.TestCase):
             ["Raw", "Headers", "Body", "Messages"],
         )
         self.assertEqual(self.panel.req_tabs.pivot.currentRouteKey(), "Overview")
+
+    def test_the_timing_block_is_fused_into_the_overview(self) -> None:
+        """时序与耗时合并成一张「时序」卡：瀑布块作为 lead 挂在组头之下、
+        时刻行之上 —— 图定比例、行给精确值，一个组头一个故事，整组一起折叠。"""
+        card = next(
+            c for c in self.panel.overview.cards if c.section.title == "时序"
+        )
+        self.assertIs(self.panel.timing_pane.parent(), card.view)
+        view_layout = card.view.layout()
+        assert view_layout is not None
+        first = view_layout.itemAt(0)
+        assert first is not None
+        self.assertIs(first.widget(), self.panel.timing_pane)
+        self.assertFalse(hasattr(self.panel.timing_pane, "detail_card"))
+
+        # 折叠整组：瀑布与时刻行一起收（同一个 view）。
+        card.set_expanded(False)
+        self.assertFalse(card.view.isVisibleTo(card))
+        card.set_expanded(True)
+
+        # 空字典（面板先于数据构造 / 一个时间戳都没有）整块让位；有数据回来。
+        self.panel.set_data({})
+        self.assertTrue(self.panel.timing_pane.isHidden())
+        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.assertFalse(self.panel.timing_pane.isHidden())
 
     def test_a_plain_http_flow_hides_the_messages_tab(self) -> None:
         """九成流量既不是 WS 也不是 SSE，那一条标签不该出现。"""
