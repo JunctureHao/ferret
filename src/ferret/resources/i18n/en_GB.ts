@@ -1072,6 +1072,34 @@
     </message>
 </context>
 <context>
+    <name>DnsServersDialog</name>
+    <message>
+        <location filename="../../apps/settings/views.py" line="51"/>
+        <source>自定义 DNS 服务器</source>
+        <translation>Custom DNS servers</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="57"/>
+        <source>仅对 WireGuard 隧道内的 DNS 查询生效；留空使用系统 DNS。每行一个 IPv4 / IPv6 地址。</source>
+        <translation>Only applies to DNS queries inside the WireGuard tunnel; leave empty to use the system DNS. One IPv4 / IPv6 address per line.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="75"/>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="76"/>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="113"/>
+        <source>第 {} 行不是合法的 IP 地址：{}</source>
+        <translation>Line {} is not a valid IP address: {}</translation>
+    </message>
+</context>
+<context>
     <name>FilterRow</name>
     <message>
         <location filename="../../apps/common/filter.py" line="54"/>
@@ -3366,54 +3394,54 @@
         <translation>The WireGuard key file is corrupt; delete {} and try again</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="446"/>
+        <location filename="../../core/mitm/facade.py" line="477"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="497"/>
+        <location filename="../../core/mitm/facade.py" line="528"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="607"/>
-        <location filename="../../core/mitm/facade.py" line="772"/>
+        <location filename="../../core/mitm/facade.py" line="638"/>
+        <location filename="../../core/mitm/facade.py" line="803"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="779"/>
+        <location filename="../../core/mitm/facade.py" line="810"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="784"/>
-        <location filename="../../core/mitm/facade.py" line="853"/>
+        <location filename="../../core/mitm/facade.py" line="815"/>
+        <location filename="../../core/mitm/facade.py" line="884"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="802"/>
+        <location filename="../../core/mitm/facade.py" line="833"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="825"/>
+        <location filename="../../core/mitm/facade.py" line="856"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="827"/>
+        <location filename="../../core/mitm/facade.py" line="858"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="831"/>
+        <location filename="../../core/mitm/facade.py" line="862"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="867"/>
+        <location filename="../../core/mitm/facade.py" line="898"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
@@ -3421,27 +3449,27 @@
 <context>
     <name>MitmRuntime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="139"/>
+        <location filename="../../core/mitm/runtime.py" line="178"/>
         <source>代理端口监听失败</source>
         <translation>The proxy could not start listening on its port</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="376"/>
+        <location filename="../../core/mitm/runtime.py" line="447"/>
         <source>端口 {} 已被占用</source>
         <translation>Port {} is already in use</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="862"/>
+        <location filename="../../core/mitm/runtime.py" line="940"/>
         <source>mitmproxy 内核停止超时，无法重启</source>
         <translation>The mitmproxy core did not stop in time, so it cannot restart</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1199"/>
+        <location filename="../../core/mitm/runtime.py" line="1316"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1220"/>
+        <location filename="../../core/mitm/runtime.py" line="1337"/>
         <source>mitmproxy 任务执行超时</source>
         <translation>The mitmproxy task timed out</translation>
     </message>
@@ -4653,128 +4681,164 @@
 <context>
     <name>SettingsInterface</name>
     <message>
-        <location filename="../../apps/settings/views.py" line="42"/>
+        <location filename="../../apps/settings/views.py" line="139"/>
         <source>设置</source>
         <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="46"/>
+        <location filename="../../apps/settings/views.py" line="143"/>
         <source>个性化</source>
         <translation>Personalization</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="52"/>
+        <location filename="../../apps/settings/views.py" line="149"/>
         <source>应用主题</source>
         <translation>Application theme</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="53"/>
+        <location filename="../../apps/settings/views.py" line="150"/>
         <source>自定义应用外观</source>
         <translation>Customize the look of your application</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="54"/>
+        <location filename="../../apps/settings/views.py" line="151"/>
         <source>浅色</source>
         <translation>Light</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="54"/>
+        <location filename="../../apps/settings/views.py" line="151"/>
         <source>深色</source>
         <translation>Dark</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="54"/>
-        <location filename="../../apps/settings/views.py" line="75"/>
+        <location filename="../../apps/settings/views.py" line="151"/>
+        <location filename="../../apps/settings/views.py" line="172"/>
         <source>使用系统设置</source>
         <translation>Use system setting</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="60"/>
+        <location filename="../../apps/settings/views.py" line="157"/>
         <source>主题颜色</source>
         <translation>Theme color</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="61"/>
+        <location filename="../../apps/settings/views.py" line="158"/>
         <source>更改应用的主题颜色</source>
         <translation>Change the theme color of you application</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="67"/>
+        <location filename="../../apps/settings/views.py" line="164"/>
         <source>界面缩放</source>
         <translation>Interface zoom</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="68"/>
+        <location filename="../../apps/settings/views.py" line="165"/>
         <source>调整控件和字体的大小</source>
         <translation>Change the size of widgets and fonts</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="82"/>
+        <location filename="../../apps/settings/views.py" line="179"/>
         <source>语言</source>
         <translation>Language</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="83"/>
+        <location filename="../../apps/settings/views.py" line="180"/>
         <source>选择界面所使用的语言</source>
         <translation>Set your preferred language for UI</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="91"/>
+        <location filename="../../apps/settings/views.py" line="188"/>
         <source>主面板</source>
         <translation>Main Panel</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="94"/>
+        <location filename="../../apps/settings/views.py" line="191"/>
         <source>关闭后最小化至托盘</source>
         <translation>Minimize to tray after closing</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="95"/>
+        <location filename="../../apps/settings/views.py" line="192"/>
         <source>应用程序将继续在后台运行</source>
         <translation>application will continue to run in the background</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="102"/>
+        <location filename="../../apps/settings/views.py" line="199"/>
         <source>布局</source>
         <translation>Layout</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="103"/>
+        <location filename="../../apps/settings/views.py" line="200"/>
         <source>切换表格信息中详细面板布局</source>
         <translation>Where the detail panel sits next to the flow table</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="104"/>
+        <location filename="../../apps/settings/views.py" line="201"/>
         <source>水平</source>
         <translation>Horizontal</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="104"/>
+        <location filename="../../apps/settings/views.py" line="201"/>
         <source>垂直</source>
         <translation>Vertical</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="112"/>
+        <location filename="../../apps/settings/views.py" line="209"/>
         <source>固定会话</source>
         <translation>Sticky session</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="114"/>
+        <location filename="../../apps/settings/views.py" line="211"/>
         <source>固化 Cookie 与认证头：跨连接复用客户端会话不丢；仅补发给服务器的 Cookie/Auth，不改变服务器行为、不写请求参数</source>
         <translation>Replay Cookie and authorization headers across connections so the client session survives; only fills the Cookie/Auth sent to the server — never changes server behaviour or request parameters</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="125"/>
+        <location filename="../../apps/settings/views.py" line="222"/>
         <source>无缓存 · 看明文</source>
         <translation>No cache · Plaintext</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="127"/>
+        <location filename="../../apps/settings/views.py" line="224"/>
         <source>删除条件缓存头强制服务器回最新内容，并要求明文响应不解压；会改写抓到的原始请求头</source>
         <translation>Strip conditional cache headers to force fresh responses and ask for uncompressed plaintext; rewrites the captured original request headers</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="218"/>
+        <location filename="../../apps/settings/views.py" line="236"/>
+        <source>编辑</source>
+        <translation>Edit</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="238"/>
+        <source>自定义 DNS 服务器</source>
+        <translation>Custom DNS servers</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="239"/>
+        <location filename="../../apps/settings/views.py" line="354"/>
+        <source>仅对 WireGuard 隧道内的域名解析生效；留空使用系统 DNS</source>
+        <translation>Only applies to name resolution inside the WireGuard tunnel; leave empty to use the system DNS</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="244"/>
+        <source>解析时查询 hosts 文件</source>
+        <translation>Consult the hosts file during resolution</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="246"/>
+        <source>隧道内 DNS 应答先查本机 hosts，写一条即可把域名指向测试机（需管理员编辑系统 hosts 文件，且会影响本机自身解析）</source>
+        <translation>Answers for the tunnel&apos;s DNS queries consult the local hosts file first; a single entry points a domain at your test machine (editing the system hosts file requires admin rights and affects this machine&apos;s own resolution)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="350"/>
+        <source>已设 {} 台：仅隧道内生效</source>
+        <translation>{} configured: effective in tunnel only</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="378"/>
+        <source>DNS 设置未生效</source>
+        <translation>DNS settings not applied</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="389"/>
         <source>配置将在重启后生效</source>
         <translation>Configuration takes effect after restart</translation>
     </message>
@@ -4869,6 +4933,14 @@
         <location filename="../../apps/capture/views.py" line="1888"/>
         <source>在设备的 WireGuard 应用中导入此配置；该设备的全部流量将经由 Ferret。</source>
         <translation>Import this profile in the WireGuard app on your device; it routes all of that device&apos;s traffic through Ferret.</translation>
+    </message>
+</context>
+<context>
+    <name>runtime</name>
+    <message>
+        <location filename="../../core/mitm/runtime.py" line="107"/>
+        <source>“{}”不是合法的 IP 地址</source>
+        <translation>&quot;{}&quot; is not a valid IP address</translation>
     </message>
 </context>
 </TS>
