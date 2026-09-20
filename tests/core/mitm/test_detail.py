@@ -89,6 +89,67 @@ class CertificateFieldTests(unittest.TestCase):
 
         for key in ("Subject Common Name", "Not Before", "Fingerprint SHA256"):
             self.assertNotIn(key, data)
+        self.assertNotIn("Chain[1] Subject CN", data)
+
+    def test_chain_intermediates_expose_discriminating_fields(self) -> None:
+        """`chain[1:]` 每张有且仅有判别 5 项，叶证书键名与改造前逐字一致。
+
+        链不足三张就重复塞 `chain[0]` 补位 —— 验的是结构不是密码学。
+        """
+        cert, chain = certificate()
+        flow = tflow.tflow(resp=True)
+        # CertStore 的 chain_certs 即 CA 链（`Issuer Common Name == "mitmproxy CA"`
+        # 已证它在 chain[1:]）。不到三张就重复链尾补位。
+        intermediates = list(chain) or [cert]
+        while len(intermediates) < 3:
+            intermediates.append(intermediates[-1])
+        flow.server_conn.certificate_list = [cert, *intermediates]
+        data = build_flow_detail(flow)
+
+        # 叶证书键名一个不改。
+        self.assertEqual(data["Subject Common Name"], "example.com")
+        self.assertEqual(data["Issuer Common Name"], "mitmproxy CA")
+        self.assertEqual(data["Certificate Chain Depth"], 1 + len(intermediates))
+
+        for index, entry in enumerate(intermediates, start=1):
+            prefix = f"Chain[{index}]"
+            self.assertEqual(data[f"{prefix} Subject CN"], entry.cn)
+            self.assertEqual(
+                data[f"{prefix} Fingerprint SHA256"],
+                entry.fingerprint().hex(":").upper(),
+            )
+            self.assertIn(f"{prefix} Issuer CN", data)
+            self.assertIn(f"{prefix} Not Before", data)
+            self.assertIn(f"{prefix} Not After", data)
+            # 全量键不许泄漏到链小节 —— 每张就 5 项。
+            self.assertNotIn(f"{prefix} Subject Organization", data)
+            self.assertNotIn(f"{prefix} Serial Number Hex", data)
+
+    def test_a_malformed_leaf_does_not_kill_the_chain(self) -> None:
+        """叶证书畸形：链级信息与链小节仍在，叶字段不出现。
+
+        直接调 `certificate_fields` 而不是 `build_flow_detail` —— 后者先走
+        `flow.get_state()` 全量序列化，坏对象在那一步就抛了，到不了证书解析；
+        本用例钉的是「链级信息先落袋 + 按张隔离」这两条产出侧设计。
+        """
+        from ferret.core.mitm.detail import certificate_fields
+
+        cert, chain = certificate()
+        flow = tflow.tflow(resp=True)
+        flow.server_conn.certificate_list = [  # ty: ignore[invalid-assignment]
+            object(),  # 故意塞个坏对象，钉「坏一张不塌整链」
+            cert,
+            *chain,
+        ]
+        # assertLogs 顺手把 root handler 换成自己的 —— 别的用例造过的 Master
+        # 会往根 logger 留一个指向已关闭 event loop 的 handler，warning 冒上去
+        # 就是 RuntimeError（test_gateway.py 同一个坑）。
+        with self.assertLogs("ferret.mitm.detail", "WARNING"):
+            data = certificate_fields(flow.server_conn)
+
+        self.assertEqual(data["Certificate Chain Depth"], 2 + len(chain))
+        self.assertIn("Chain[1] Subject CN", data)
+        self.assertNotIn("Subject Common Name", data)
 
 
 class ConnectionFieldTests(unittest.TestCase):

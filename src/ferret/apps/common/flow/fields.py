@@ -433,6 +433,36 @@ def _cert_name_section(title: str, prefix: str) -> Section:
     )
 
 
+def _chain_section(index: int) -> Section:
+    """证书链中间/根证书小节 —— 静态声明 `Chain[1]`…`Chain[3]`，判别 5 项。
+
+    链深是运行时数据而 `SECTIONS` 是静态表，做动态小节数量要给 `section_rows`
+    加新渲染语法，越界（.plans/tls-detail.md §4.2）；现实链深几乎 ≤4，更深的链
+    退回 CN 名单。小节无可见行时连小标题一起消失，所以没用上的小节不占地方。
+    """
+    prefix = f"Chain[{index}]"
+    return Section(
+        title=prefix,
+        fields=(
+            Field("Subject CN", f"{prefix} Subject CN"),
+            Field("Issuer CN", f"{prefix} Issuer CN"),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "开始时间"),
+                f"{prefix} Not Before",
+            ),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "截止时间"),
+                f"{prefix} Not After",
+            ),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "指纹"),
+                f"{prefix} Fingerprint SHA256",
+                mono=True,
+            ),
+        ),
+    )
+
+
 def _tls_section(title: str, prefix: str, keys: tuple[str, ...]) -> Section:
     """TLS 的「服务端」「客户端」两张卡 —— 六项同名字段，只差键前缀。
 
@@ -640,6 +670,9 @@ SECTIONS: tuple[Section, ...] = (
                 "Serial Number Hex",
                 mono=True,
             ),
+            _chain_section(1),
+            _chain_section(2),
+            _chain_section(3),
         ),
     ),
     Section(

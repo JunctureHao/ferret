@@ -195,7 +195,20 @@ def certificate_fields(conn) -> dict[str, Any]:
     chain = list(getattr(conn, "certificate_list", None) or [])
     if not chain:
         return {}
-    cert = chain[0]
+    fields: dict[str, Any] = {}
+    # 链级信息先落袋：任何一张证书解析失败都不该把它一起拖下水。
+    fields["Certificate Chain Depth"] = len(chain)
+    chain_names = [entry.cn for entry in chain if getattr(entry, "cn", None)]
+    if chain_names:
+        fields["Certificate Chain"] = chain_names
+    fields.update(_leaf_certificate_fields(chain[0]))
+    for index, entry in enumerate(chain[1:], start=1):
+        fields.update(_chain_certificate_fields(index, entry))
+    return fields
+
+
+def _leaf_certificate_fields(cert) -> dict[str, Any]:
+    """叶证书全量字段。键名一个不改 —— 现有测试和 fields.py 声明钉着它们。"""
     fields: dict[str, Any] = {}
     try:
         for prefix, pairs in (("Subject", cert.subject), ("Issuer", cert.issuer)):
@@ -219,13 +232,32 @@ def certificate_fields(conn) -> dict[str, Any]:
         altnames = [str(getattr(name, "value", name)) for name in cert.altnames]
         if altnames:
             fields["Certificate Alt Names"] = altnames
-        fields["Certificate Chain Depth"] = len(chain)
-        chain_names = [entry.cn for entry in chain if entry.cn]
-        if chain_names:
-            fields["Certificate Chain"] = chain_names
     except (AttributeError, TypeError, ValueError) as e:
         # 证书是对端给的，畸形字段不该让整个详情面板打不开。
         log.warning("failed to read the server certificate: %s", e)
+    return fields
+
+
+def _chain_certificate_fields(index: int, cert) -> dict[str, Any]:
+    """中间/根证书的判别性 5 项 —— 定位「哪一环过期 / 指纹错 / 信任链断在哪」。
+
+    不做全量：链可深到几十层，全量会让证书卡失控难扫（.plans/tls-detail.md §5）。
+    每张独立 try/except，坏一张不塌整链。
+    """
+    fields: dict[str, Any] = {}
+    prefix = f"Chain[{index}]"
+    try:
+        for label, pairs in (("Subject", cert.subject), ("Issuer", cert.issuer)):
+            names: dict[str, str] = {}
+            for short_name, value in pairs:
+                names.setdefault(short_name, value)
+            if names.get("CN"):
+                fields[f"{prefix} {label} CN"] = names["CN"]
+        fields[f"{prefix} Not Before"] = cert.notbefore.strftime(_CERT_TIME_FORMAT)
+        fields[f"{prefix} Not After"] = cert.notafter.strftime(_CERT_TIME_FORMAT)
+        fields[f"{prefix} Fingerprint SHA256"] = cert.fingerprint().hex(":").upper()
+    except (AttributeError, TypeError, ValueError) as e:
+        log.warning("failed to read chain certificate %d: %s", index, e)
     return fields
 
 
