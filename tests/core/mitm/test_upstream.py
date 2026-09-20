@@ -363,11 +363,17 @@ class FakeUpstream:
         self.sock.close()
 
 
-def http_through(listen_port: int, url: str, *, timeout_ms: int = 20000) -> bytes:
+def http_through(
+    listen_port: int, url: str, *, extra_headers: str = "", timeout_ms: int = 20000
+) -> bytes:
     """经 ferret 的监听口发一条明文代理请求，返回客户端收到的原始响应。
 
     客户端跑在后台线程、主线程用 `wait_until` 泵 Qt 事件队列：内核在自己的线程
     上跑，主线程阻塞在 recv 上会让等待原语失去意义（`_qt.py` 的机理说明）。
+
+    `extra_headers` 是拼在请求行之后的原始头文本（每行自带 CRLF），给
+    test_proxyauth.py 塞 ``Proxy-Authorization`` 用 —— 代理凭证只能手写，
+    没有哪个高层客户端会对一个假源站发它。
     """
     result: dict[str, bytes] = {}
 
@@ -377,6 +383,7 @@ def http_through(listen_port: int, url: str, *, timeout_ms: int = 20000) -> byte
                 host = url.split("/")[2]
                 c.sendall(
                     f"GET {url} HTTP/1.1\r\nHost: {host}\r\n"
+                    f"{extra_headers}"
                     "Connection: close\r\n\r\n".encode()
                 )
                 buf = b""

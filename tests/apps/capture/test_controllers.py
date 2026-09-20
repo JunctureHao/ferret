@@ -52,6 +52,10 @@ class FakeRuntime(QObject):
         self.upstream_target = ""
         self.upstream_username = ""
         self.upstream_password = ""
+        # 代理认证三意图值（.plans/proxyauth.md）：独立开关，不随通道回滚。
+        self.proxyauth_enabled = False
+        self.proxyauth_username = ""
+        self.proxyauth_password = ""
         self.channels_engaged = False
         self.health: dict = {}
         self.start_calls = 0
@@ -118,6 +122,16 @@ class FakeRuntime(QObject):
     def channel_health(self) -> dict:
         return dict(self.health)
 
+    def apply_proxy_auth(
+        self, *, enabled=None, username=None, password=None
+    ) -> None:
+        if enabled is not None:
+            self.proxyauth_enabled = enabled
+        if username is not None:
+            self.proxyauth_username = username
+        if password is not None:
+            self.proxyauth_password = password
+
 
 class FakeFacade:
     def __init__(self, runtime: FakeRuntime) -> None:
@@ -153,6 +167,18 @@ class FakeFacade:
         return self.runtime.block_private
 
     @property
+    def proxyauth_enabled(self):
+        return self.runtime.proxyauth_enabled
+
+    @property
+    def proxyauth_username(self):
+        return self.runtime.proxyauth_username
+
+    @property
+    def proxyauth_password(self):
+        return self.runtime.proxyauth_password
+
+    @property
     def use_local(self):
         return self.runtime.use_local
 
@@ -169,6 +195,11 @@ class FakeFacade:
             self.runtime.block_global = block_global
         if block_private is not None:
             self.runtime.block_private = block_private
+
+    def set_proxy_auth(self, *, enabled=None, username=None, password=None) -> None:
+        self.runtime.apply_proxy_auth(
+            enabled=enabled, username=username, password=password
+        )
 
     def start_capture_recording(self):
         self.recording = True

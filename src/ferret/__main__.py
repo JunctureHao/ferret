@@ -63,7 +63,6 @@
 # 注意：pyasn1 不能排除（aioquic → service_identity 运行时硬链）
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.onboarding
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.onboardingapp
-# nuitka-project: --nofollow-import-to=mitmproxy.addons.proxyauth
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.cut
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.browser
 # nuitka-project: --nofollow-import-to=mitmproxy.addons.command_history

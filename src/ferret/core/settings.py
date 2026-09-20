@@ -125,6 +125,36 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 代理认证（原生 ProxyAuth addon，见 .plans/proxyauth.md）：和上面两个开关同属
+    # 「谁能用这个代理」。block_* 按来源 IP 类别一刀切，挡不住「要放行手机、但不想
+    # 放行同网段陌生人」这种需求 —— 那正是这里补的洞。
+    # 只对 regular / upstream 通道有效；local / wireguard / reverse 接通期间自动让路
+    # （MitmRuntime._effective_proxyauth），意图值照常保留。
+    proxyauth_enabled = ConfigItem(
+        group="Proxy",
+        name="ProxyAuthEnabled",
+        default=False,
+        validator=BoolValidator(),
+    )
+
+    # 与 upstream_username/password 拆两项存的理由相同，但**约束更严**：原生
+    # SingleUser 用 `split(":")` 要求恰好两段（addons/proxyauth.py:192-197），客户端
+    # 侧 parse_http_basic_auth 同样只切两段 —— 所以用户名和密码**都**不能含冒号。
+    # 对话框提交前前置拒绝，_effective_proxyauth 里另有一道兜底闸门（防手改配置）。
+    # 密码可为空（原生允许 "alice:"）。**明文落盘**，与 upstream_password 及 confdir
+    # 里的 CA 私钥同一安全姿态；不愿落盘的不要启用。
+    proxyauth_username = ConfigItem(
+        group="Proxy",
+        name="ProxyAuthUsername",
+        default="",
+    )
+
+    proxyauth_password = ConfigItem(
+        group="Proxy",
+        name="ProxyAuthPassword",
+        default="",
+    )
+
     # 抓包通道的启用开关（见 core/mitm/modes.py）。持久化决定的是「点击开始抓包
     # 时开启哪些通道」—— 应用启动本身零抓包动作（内核 regular 空转），所以这里
     # 落盘的是偏好而不是运行态。默认只开系统代理：本地重定向要提权装驱动、

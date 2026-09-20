@@ -70,6 +70,9 @@ class ApplicationRuntime(QObject):
             upstream_target=upstream_target,
             upstream_username=str(CONFIG.get(CONFIG.upstream_username) or ""),
             upstream_password=str(CONFIG.get(CONFIG.upstream_password) or ""),
+            proxyauth_enabled=bool(CONFIG.get(CONFIG.proxyauth_enabled)),
+            proxyauth_username=str(CONFIG.get(CONFIG.proxyauth_username) or ""),
+            proxyauth_password=str(CONFIG.get(CONFIG.proxyauth_password) or ""),
             sticky_session_enabled=bool(CONFIG.get(CONFIG.sticky_session_enabled)),
             anticache_plaintext=bool(CONFIG.get(CONFIG.anticache_plaintext)),
         )

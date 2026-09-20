@@ -10,6 +10,7 @@ from ferret.core.mitm.addons import (
     GatewayL7Addon,
     GatewayState,
     LogAddon,
+    ProxyAuthScrubAddon,
 )
 from ferret.core.mitm.bindings import (
     AntiCache,
@@ -22,6 +23,7 @@ from ferret.core.mitm.bindings import (
     Master,
     NextLayer,
     Options,
+    ProxyAuth,
     Proxyserver,
     ReadFile,
     Save,
@@ -82,6 +84,17 @@ class FerretMaster(Master):
             AntiComp(),
             self.client_playback,
             DisableH2C(),
+            # 代理认证（.plans/proxyauth.md）：位置对齐原生 default_addons() —— 紧挨
+            # proxyserver 之前。挂三个钩子（requestheaders / http_connect /
+            # socks5_auth），`proxyauth` 选项为 None 时全部空转，故常驻无开关，
+            # 开关在选项侧（MitmRuntime._effective_proxyauth）。
+            # 排在网关之前是刻意的：网关规则管「抓什么」，认证管「谁能用」，后者先判。
+            # 注意它只挑战 regular / upstream 两种模式（is_http_proxy，
+            # addons/proxyauth.py:143-151），local / wireguard / reverse 会吃 401 被
+            # 打挂 —— 这三条通道接通期间由 _effective_proxyauth() 让路置 None。
+            ProxyAuth(),
+            # 紧跟 ProxyAuth：把它写进 flow.metadata 的明文凭证抹掉，越早越好。
+            ProxyAuthScrubAddon(),
             self.proxyserver,
             DnsResolver(),
             # 只挂 server_connect：连接级屏蔽要赶在真正拨号之前把 server.error 写上。

@@ -528,6 +528,37 @@ class MitmFacade:
             block_global=block_global, block_private=block_private
         )
 
+    @property
+    def proxyauth_enabled(self) -> bool:
+        """连接本代理是否需要用户名密码（原生 ProxyAuth addon 的 `proxyauth`）。
+
+        这是**意图值**：local / wireguard / reverse 接通期间内核侧会自动让路
+        （`MitmRuntime._effective_proxyauth`），此处仍回用户配置的原值。
+        """
+        return self.runtime.proxyauth_enabled
+
+    @property
+    def proxyauth_username(self) -> str:
+        """代理认证用户名；不得含冒号（原生按 `split(":")` 切两段）。"""
+        return self.runtime.proxyauth_username
+
+    @property
+    def proxyauth_password(self) -> str:
+        """代理认证密码；可为空，同样不得含冒号。"""
+        return self.runtime.proxyauth_password
+
+    def set_proxy_auth(
+        self,
+        *,
+        enabled: bool | None = None,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> None:
+        """Update the inbound proxy credential; applied immediately when the kernel runs."""
+        self.runtime.apply_proxy_auth(
+            enabled=enabled, username=username, password=password
+        )
+
     def reload_certificate_store(self) -> bool:
         """Pick up a regenerated CA without restarting the kernel."""
         return self.runtime.reload_certificate_store()

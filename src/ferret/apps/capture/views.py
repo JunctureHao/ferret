@@ -295,6 +295,9 @@ class CapturesInterface(QWidget):
             upstream_target=self.controller.upstream_target,
             upstream_username=self.controller.upstream_username,
             upstream_password=self.controller.upstream_password,
+            proxyauth_enabled=self.controller.proxyauth_enabled,
+            proxyauth_username=self.controller.proxyauth_username,
+            proxyauth_password=self.controller.proxyauth_password,
             wireguard_config=self.controller.wireguard_client_config,
         )
         if not w.exec():
@@ -368,6 +371,25 @@ class CapturesInterface(QWidget):
                 ),
                 self.window(),
             )
+        # 代理认证前置校验（.plans/proxyauth.md §5.4）。冒号是硬拦：原生
+        # SingleUser 与客户端侧 parse_http_basic_auth 都按 split(":") 切恰好两段
+        # （proxyauth.py:192-197 / :162-176），含冒号的凭证两端都对不上 ——
+        # runtime 里虽有兜底闸门，但那条路是静默停用，提交时就该说清楚。
+        if w.get_proxyauth_enabled():
+            if not w.get_proxyauth_username():
+                show_warning(
+                    self.tr("抓包设置未生效"),
+                    self.tr("勾选了代理认证但没填用户名，请填写或取消勾选。"),
+                    self.window(),
+                )
+                return
+            if ":" in w.get_proxyauth_username() or ":" in w.get_proxyauth_password():
+                show_warning(
+                    self.tr("抓包设置未生效"),
+                    self.tr("代理认证的用户名和密码都不能含冒号，请去掉冒号后重试。"),
+                    self.window(),
+                )
+                return
         try:
             # 顺序有讲究：先提交通道（校验失败就整体中止，且抓包中重启端点前
             # 内核意图值必须先更新，否则重启会带上旧 spec），再提交端点/来源限制。
@@ -389,6 +411,9 @@ class CapturesInterface(QWidget):
                 listen_port=listen_port,
                 block_global=w.get_block_global(),
                 block_private=w.get_block_private(),
+                proxyauth_enabled=w.get_proxyauth_enabled(),
+                proxyauth_username=w.get_proxyauth_username(),
+                proxyauth_password=w.get_proxyauth_password(),
             )
         except (RuntimeError, ValueError) as exc:
             show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
@@ -1171,6 +1196,9 @@ class ProxyPortDialog(MessageBoxBase):
         upstream_target: str = "",
         upstream_username: str = "",
         upstream_password: str = "",
+        proxyauth_enabled: bool = False,
+        proxyauth_username: str = "",
+        proxyauth_password: str = "",
         wireguard_config: Callable[[], str] | None = None,
     ):
         """初始化代理监听设置对话框
@@ -1194,6 +1222,9 @@ class ProxyPortDialog(MessageBoxBase):
             upstream_target: 上游代理地址，如 http://proxy.corp:8080
             upstream_username: 上游代理的 Basic 用户名（留空 = 不发认证头）
             upstream_password: 上游代理的 Basic 密码
+            proxyauth_enabled: 连接本代理是否需要认证（.plans/proxyauth.md）
+            proxyauth_username: 代理认证用户名（必填且不得含冒号）
+            proxyauth_password: 代理认证密码（可空，同样不得含冒号）
             wireguard_config: 取客户端配置文本的回调（None 表示按钮隐藏）
         """
         super().__init__(parent)
@@ -1216,6 +1247,9 @@ class ProxyPortDialog(MessageBoxBase):
             upstream_target,
             upstream_username,
             upstream_password,
+            proxyauth_enabled,
+            proxyauth_username,
+            proxyauth_password,
         )
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -1239,6 +1273,9 @@ class ProxyPortDialog(MessageBoxBase):
         upstream_target: str,
         upstream_username: str,
         upstream_password: str,
+        proxyauth_enabled: bool,
+        proxyauth_username: str,
+        proxyauth_password: str,
     ):
         """初始化界面组件"""
         self.title_label = SubtitleLabel(self)
@@ -1293,6 +1330,32 @@ class ProxyPortDialog(MessageBoxBase):
         )
         self.source_hint = CaptionLabel(self)
         self.source_hint.setWordWrap(True)
+
+        # —— 代理认证（原生 ProxyAuth addon，.plans/proxyauth.md）：与上面两个
+        # 「拒绝……」开关同属接入控制，所以同在分隔线以上。block_* 按来源 IP
+        # 类别一刀切，挡不住「要放行手机、又不想放行同网段陌生人」—— 认证补的
+        # 正是这个洞。整块随勾选显隐（同 upstream 的做法）。
+        self.proxyauth_check = CheckBox(self.tr("需要认证"), self)
+        self.proxyauth_check.setToolTip(
+            self.tr(
+                "连接本代理需输入用户名密码，防止局域网陌生设备蹭代理；"
+                "本机系统代理流量同样会被挑战，浏览器会弹一次代理登录框"
+            )
+        )
+        self.proxyauth_check.setChecked(proxyauth_enabled)
+        self.proxyauth_user_edit = LineEdit(self)
+        self.proxyauth_user_edit.setText(proxyauth_username)
+        self.proxyauth_user_edit.setPlaceholderText(self.tr("用户名"))
+        self.proxyauth_user_edit.setAccessibleName(self.tr("代理认证用户名"))
+        self.proxyauth_password_edit = PasswordLineEdit(self)
+        self.proxyauth_password_edit.setText(proxyauth_password)
+        self.proxyauth_password_edit.setPlaceholderText(self.tr("密码（可选）"))
+        self.proxyauth_password_edit.setAccessibleName(self.tr("代理认证密码"))
+        self.proxyauth_password_edit.setToolTip(
+            self.tr("明文保存在本地配置文件，与 CA 私钥同一安全姿态")
+        )
+        self.proxyauth_hint = CaptionLabel(self)
+        self.proxyauth_hint.setWordWrap(True)
 
         # —— 上游代理出口：**不是第五条通道**，而是把系统代理这条的出口从直连换成
         # 「先交给上游代理」（内核侧是 mode 首槽位替换，见 core/mitm/modes.py::
@@ -1390,6 +1453,8 @@ class ProxyPortDialog(MessageBoxBase):
             self.system_proxy_check,
             self.block_global_check,
             self.block_private_check,
+            self.proxyauth_check,
+            self.proxyauth_password_edit,
             self.upstream_check,
             self.local_check,
             self.local_fold_btn,
@@ -1440,6 +1505,14 @@ class ProxyPortDialog(MessageBoxBase):
         upstream_target_layout.setSpacing(6)
         upstream_target_layout.addWidget(self.upstream_target_edit, 1)
 
+        # 认证凭证行：与上游那行同构（用户名 + 密码各占一半）。
+        self.proxyauth_cred_row = QWidget(self)
+        proxyauth_cred_layout = QHBoxLayout(self.proxyauth_cred_row)
+        proxyauth_cred_layout.setContentsMargins(0, 0, 0, 0)
+        proxyauth_cred_layout.setSpacing(6)
+        proxyauth_cred_layout.addWidget(self.proxyauth_user_edit, 1)
+        proxyauth_cred_layout.addWidget(self.proxyauth_password_edit, 1)
+
         self.upstream_cred_row = QWidget(self)
         upstream_cred_layout = QHBoxLayout(self.upstream_cred_row)
         upstream_cred_layout.setContentsMargins(0, 0, 0, 0)
@@ -1455,6 +1528,9 @@ class ProxyPortDialog(MessageBoxBase):
         params_layout.addLayout(lan_row)
         params_layout.addLayout(source_row)
         params_layout.addWidget(self.source_hint)
+        params_layout.addWidget(self.proxyauth_check)
+        params_layout.addWidget(self.proxyauth_cred_row)
+        params_layout.addWidget(self.proxyauth_hint)
         params_layout.addWidget(self.upstream_separator)
         params_layout.addWidget(self.upstream_check)
         params_layout.addWidget(self.upstream_target_row)
@@ -1549,6 +1625,8 @@ class ProxyPortDialog(MessageBoxBase):
         # _upstream_auth 的说明）。
         self.upstream_check.toggled.connect(self._sync_exposure)
         self.upstream_user_edit.textChanged.connect(self._sync_exposure)
+        # 代理认证：只有勾选影响显隐，凭证内容不参与任何提示文案。
+        self.proxyauth_check.toggled.connect(self._sync_exposure)
 
     def get_use_system_proxy(self) -> bool:
         """「开始抓包」时是否挂系统代理。"""
@@ -1650,6 +1728,18 @@ class ProxyPortDialog(MessageBoxBase):
         """是否拒绝局域网来源。"""
         return self.block_private_check.isChecked()
 
+    def get_proxyauth_enabled(self) -> bool:
+        """连接本代理是否需要用户名密码（原生 ProxyAuth）。"""
+        return self.proxyauth_check.isChecked()
+
+    def get_proxyauth_username(self) -> str:
+        """代理认证用户名；必填且不得含冒号，校验在调用方。"""
+        return self.proxyauth_user_edit.text().strip()
+
+    def get_proxyauth_password(self) -> str:
+        """代理认证密码（**不 strip**：尾随空格可能就是密码的一部分）。"""
+        return self.proxyauth_password_edit.text()
+
     def _sync_exposure(self):
         """按当前选择刷新提示文案与各参数区的可见性（唯一真相源，R1–R3）。"""
         exposed = self.get_listen_host() == ANY_HOST
@@ -1704,6 +1794,26 @@ class ProxyPortDialog(MessageBoxBase):
         self.source_hint.setVisible(
             exposed and (wireguard_on or reverse_yield or lan_unknown)
         )
+
+        # 代理认证：整块随勾选显隐。与上面两个开关有两处**刻意的**差异 ——
+        # 1) 绑环回时不置灰：block_* 在环回下是真空转（外部来源到不了 socket），
+        #    而认证对本机系统代理客户端照样生效，只是防不了陌生人；
+        # 2) 让路名单多一个 local：原生 Block 对 LocalMode 连接有豁免
+        #    （block.py:35），ProxyAuth 没有，被截流的应用会吃 401。
+        # 判据与内核侧 runtime._effective_proxyauth 同式（那边多一个接通位闸门，
+        # 这里的勾选本就是「按开始抓包后会接通什么」）。
+        auth_on = self.get_proxyauth_enabled()
+        auth_yield = local_on or wireguard_on or reverse_on
+        self.proxyauth_check.setEnabled(not auth_yield)
+        self.proxyauth_cred_row.setVisible(auth_on)
+        self.proxyauth_cred_row.setEnabled(not auth_yield)
+        # 独立于 source_hint：那条 label 有自己的单消息优先级链，两边共用会互相
+        # 覆盖（让路时既想说「拒绝局域网暂停」又想说「认证暂停」）。
+        self.proxyauth_hint.setVisible(auth_on and auth_yield)
+        if auth_on and auth_yield:
+            self.proxyauth_hint.setText(
+                self.tr("! 本地重定向 / WireGuard / 反向代理开启期间代理认证暂停生效")
+            )
 
         # 进程列表：勾选后出现摘要与「选择」按钮，列表默认收起。
         self._update_local_summary()

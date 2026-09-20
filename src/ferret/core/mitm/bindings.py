@@ -74,18 +74,30 @@ def _safe_join(directory: str, *pathnames: str) -> str | None:
 #   mitmproxy/flow.py 的 Flow 上，ferret 在 facade.py 里直接赋值，不经过这个 addon。
 # - werkzeug 见上面的 _safe_join。colorama / markupsafe 只有 werkzeug 引用，桩掉
 #   werkzeug 之后它们自然不可达，不必单独立桩。
+# - ldap3 / mitmproxy.utils.htpasswd 是 proxyauth 的两条弃用分支，见下面的就地注释。
 # 别顺手把 script 也桩了：脚本功能后面要做，留着。
+# 也别顺手把 proxyauth 桩回去：它已经解桩装载（master.py 的 ProxyAuth()）。
 _STUBBED_MODULES: dict[str, dict[str, Any]] = {
     "mitmproxy.addons.browser": {},
     "mitmproxy.addons.command_history": {},
     "mitmproxy.addons.comment": {},
     "mitmproxy.addons.onboarding": {},
     "mitmproxy.addons.onboardingapp": {"app": None},
-    "mitmproxy.addons.proxyauth": {},
     "mitmproxy.addons.cut": {},
     # mitmproxy/master.py:25 的类注解 `termlog.TermLog | None` 在导入期就求值（那个
     # 文件没写 from __future__ import annotations），所以桩必须带上这个名字。
     "mitmproxy.addons.termlog": {"TermLog": type("TermLog", (), {})},
+    # proxyauth 装载了，但 ferret 只下发 "user:pass" 单用户格式，htpasswd / ldap /
+    # "any" 三种 spec 都不产出（UI 无入口，_effective_proxyauth 只拼这一种），所以把
+    # 它那两条永不可达的分支反向桩掉 —— 否则 addons/proxyauth.py 的两句模块级导入
+    # （`import ldap3` 与 `from mitmproxy.utils import htpasswd`）会把 ldap3 整包拖进
+    # 构建，而 utils/htpasswd.py 的模块级 `import bcrypt` 会在 exe 里直接炸
+    # （bcrypt 带 --nofollow-import-to，__main__.py:81）。
+    # 两个桩都是死代码：Ldap 在 proxyauth 里只出现在 from __future__ annotations 延迟
+    # 求值的类注解里；htpasswd 在整个 mitmproxy 里只有 proxyauth 一个消费者。
+    # 哪天要开 htpasswd / ldap 入口，先把这两行删掉再说。
+    "ldap3": {},
+    "mitmproxy.utils.htpasswd": {},
     "pyperclip": {"copy": None, "PyperclipException": Exception},
     "werkzeug": {},
     "werkzeug.security": {"safe_join": _safe_join},
@@ -114,6 +126,7 @@ from mitmproxy.addons.disable_h2c import DisableH2C
 from mitmproxy.addons.dns_resolver import DnsResolver
 from mitmproxy.addons.intercept import Intercept
 from mitmproxy.addons.next_layer import NextLayer
+from mitmproxy.addons.proxyauth import ProxyAuth
 from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.readfile import ReadFile
 from mitmproxy.addons.save import Save
@@ -191,6 +204,7 @@ __all__ = [
     "Opcode",
     "Options",
     "OptionsError",
+    "ProxyAuth",
     "ProxyMode",
     "Proxyserver",
     "ReadFile",

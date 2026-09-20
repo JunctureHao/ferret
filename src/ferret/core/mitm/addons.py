@@ -36,8 +36,38 @@ from ferret.core.mitm.rewrite import (
 from ferret.core.settings import APP_NAME
 
 
+class ProxyAuthScrubAddon:
+    """抹掉原生 ProxyAuth 写进 flow 的明文凭证元组。
+
+    `ProxyAuth.authenticate_http` 认证成功后会写
+    `flow.metadata["proxyauth"] = (username, password)`
+    （addons/proxyauth.py:107）。该键在 mitmproxy 与 ferret 里都**没有任何读者**
+    （grep 实证），却会顺着两条路把用户的代理密码带出内核：
+
+    - 详情面板：`core/mitm/detail.py` 把 `dict(flow.metadata)` 整份铺成「Flow
+      Metadata」子树，外加 `raw_state` 兜底子树也含它 —— 明文上屏，截图即泄漏；
+    - 存盘：`Flow.get_state()` 含 `metadata`（mitmproxy/flow.py:154），保存的
+      `.flows` 文件因此带着密码，而这类文件正是用户拿去交换排障的东西。
+
+    所以在链上紧跟 ProxyAuth 把它删掉 —— 删得比 View 收录更早，任何快照都看不到。
+    这是对原生行为的**减法**，按 AGENTS.md §2 本该克制，但此处删的是死数据、
+    换来的是不让凭证离开内核，划算。哪天有人真要用这个键，改成只留 username。
+    """
+
+    def requestheaders(self, flow: HTTPFlow) -> None:
+        flow.metadata.pop("proxyauth", None)
+
+
 class CertDownloadAddon:
-    """访问  http://ferret-ca/ 直接下载 CA PEM 证书(无页面)"""
+    """访问  http://ferret-ca/ 直接下载 CA PEM 证书(无页面)
+
+    注意与 proxyauth 的交叉：开启代理认证后，本地址**依然免认证可达**。
+    ProxyAuth 在 `requestheaders` 里给未认证请求设 407 响应，而本 addon 的
+    `request` 钩子晚一拍、无条件覆写 `flow.response` —— 407 被顶掉。
+    这是要的行为：没装证书的手机得先能把证书下下来，不能被认证挡在门外；
+    而这个端点只吐一份公开的 CA 公钥证书，本来就不含任何秘密。
+    别「修」它（tests/core/mitm/test_proxyauth.py 有钉子）。
+    """
 
     HOST = "ferret-ca"
 

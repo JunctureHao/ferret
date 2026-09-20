@@ -54,6 +54,10 @@ class FakeController:
         self.upstream_target = ""
         self.upstream_username = ""
         self.upstream_password = ""
+        # 代理认证三意图值（.plans/proxyauth.md）：对话框回填要读。
+        self.proxyauth_enabled = False
+        self.proxyauth_username = ""
+        self.proxyauth_password = ""
         self.local_endpoint = "127.0.0.1:8080"
         self.is_lan_exposed = False
         self.channel_updates: list[dict] = []
@@ -143,6 +147,15 @@ class FakeDialog:
 
     def get_upstream_password(self) -> str:
         return self._get("upstream_password", "")
+
+    def get_proxyauth_enabled(self) -> bool:
+        return self._get("proxyauth_enabled", False)
+
+    def get_proxyauth_username(self) -> str:
+        return self._get("proxyauth_username", "")
+
+    def get_proxyauth_password(self) -> str:
+        return self._get("proxyauth_password", "")
 
 
 class Host(QWidget):

@@ -76,6 +76,10 @@ def anticache_option_updates(enabled: bool) -> dict[str, bool]:
 # 抓包通道的**意图值**字段名（见 `MitmRuntime.__init__` 的逐条注释）：落盘偏好，
 # 与不落盘的接通位 `channels_engaged` 分开。`apply_channels` 的三条回滚路径共用
 # 这张表打包/恢复，新增一个意图值只改这里。
+# 别把 proxyauth_* 三项「统一」进来：upstream_username/password 在表内，是因为它们
+# 由 apply_channels 写入、失败要连同 mode 一起回滚；proxyauth 走自己的
+# apply_proxy_auth 热更（与 block_global 同类），apply_channels 只读不写它，没有
+# 任何属于它的状态需要回滚。详见 _effective_proxyauth。
 _CHANNEL_INTENTS: tuple[str, ...] = (
     "use_local",
     "local_spec",
@@ -229,6 +233,7 @@ class _MitmThread(QThread):
         self._apply_sticky_session(master)
         self._apply_anticache_plaintext(master)
         self._apply_upstream_auth(master)
+        self._apply_proxyauth(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -344,6 +349,21 @@ class _MitmThread(QThread):
         except (ValueError, OptionsError) as exc:
             log.warning("上游代理凭证无法应用，已忽略: %s", exc)
 
+    def _apply_proxyauth(self, master: FerretMaster) -> None:
+        """Seed the inbound proxy credential before serving traffic (on the mitm loop).
+
+        ``proxyauth`` 由原生 ``ProxyAuth.load`` 注册，构造 Options 时还不存在，
+        只能等 Master 建好之后再写 —— 与 `_apply_sticky_session` 完全同一个约束。
+
+        **刻意不等 `channels_engaged`**：ferret 的内核常驻监听，「开始抓包」只接
+        通道 + 挂系统代理 + 开写入闸门，监听口在那之前就已经对局域网开着。防蹭
+        保护的正是这个监听口，所以开机就得种下去 —— 与 block_global 常驻同理。
+        """
+        try:
+            master.options.update(proxyauth=self.runtime._effective_proxyauth())
+        except (ValueError, OptionsError) as exc:
+            log.warning("代理认证凭证无法应用，已忽略: %s", exc)
+
     def _ensure_port_available(self) -> None:
         if self.runtime.listen_port == 0:
             return
@@ -416,6 +436,9 @@ class MitmRuntime(QObject):
         upstream_target: str = "",
         upstream_username: str = "",
         upstream_password: str = "",
+        proxyauth_enabled: bool = False,
+        proxyauth_username: str = "",
+        proxyauth_password: str = "",
         sticky_session_enabled: bool = False,
         anticache_plaintext: bool = False,
     ) -> None:
@@ -452,6 +475,17 @@ class MitmRuntime(QObject):
         self.upstream_target = upstream_target.strip()
         self.upstream_username = upstream_username
         self.upstream_password = upstream_password
+        # 代理认证三意图值（.plans/proxyauth.md）：方向与 upstream_auth 正好相反
+        # —— upstream_auth 管「ferret → 上游代理」的出站凭证，这里管「客户端 →
+        # ferret」的入站挑战。两者互不相干，可以叠着用（手机认证到 ferret，
+        # ferret 再认证到企业代理）。
+        # 拆两项存的理由同 upstream_*，但约束更严：原生 SingleUser 与客户端侧
+        # parse_http_basic_auth 都按 split(":") 要求恰好两段，**用户名和密码都
+        # 不能含冒号**（upstream 那边只有用户名不能）。
+        # 不进 _CHANNEL_INTENTS，理由见那张表的注释。
+        self.proxyauth_enabled = proxyauth_enabled
+        self.proxyauth_username = proxyauth_username
+        self.proxyauth_password = proxyauth_password
         # 「抓包会话」是否接通：False 时 _mode_specs 只回 regular（应用启动态），
         # True 才把启用的通道拼进 mode 列表。与上面三个**意图值**分开 —— 停止
         # 会话只动这一位，用户的通道偏好原样保留，下次点开始照旧拼装。
@@ -543,10 +577,14 @@ class MitmRuntime(QObject):
             return
         try:
             self.call(
+                # proxyauth 必须与 mode 同一次 update 推下去，理由与
+                # apply_channels 里那条注释同源：分两次推会漏出「local 已接通、
+                # 认证还在挑战」的半拉子中间态，那一瞬里被截流的应用全吃 401。
                 lambda: master.options.update(
                     mode=specs,
                     block_global=self.block_global,
                     block_private=self._effective_block_private(),
+                    proxyauth=self._effective_proxyauth(),
                 )
             )
         except OptionsError as exc:
@@ -606,6 +644,51 @@ class MitmRuntime(QObject):
         if not self.upstream_username:
             return None
         return f"{self.upstream_username}:{self.upstream_password}"
+
+    def _effective_proxyauth(self) -> str | None:
+        """下发给原生 ``proxyauth`` 选项的值；``None`` = 不挑战，任何人可用。
+
+        与 `_effective_block_private` 同一个「让路」姿态：用户配置的意图值原样留在
+        ``self.proxyauth_*``，只有下发值受通道状态影响，通道撤下后自动恢复。
+
+        四道闸门，逐条都是必须的：
+
+        - **没启用 / 用户名为空回 None**。原生没有「关闭」spec，关就是置 ``None``
+          （``addons/proxyauth.py:48-63``）；空密码合法（``"alice:"`` 实测可用），
+          空用户名不是 —— ``":"`` 虽能过解析，但等于谁都能用空用户名进来。
+        - **任一侧含冒号回 None**。``SingleUser`` 用 ``split(":")`` 要求恰好两段
+          （``:192-197``），三段直接 ``OptionsError``，会把整个 ``options.update``
+          连 mode 一起打回。对话框已前置拒绝，这里是手改配置文件的兜底 —— 镜像
+          ``_upstream_auth`` 把闸门设在 runtime 的论证。这条路会**静默**关掉认证，
+          用户以为开着其实没开，所以必须留一行日志。
+        - **local / wireguard / reverse 接通期间让路**。这三条通道与 proxyauth 互斥：
+          ``is_http_proxy`` 只认 RegularMode / UpstreamMode（``:143-151``），其余模式
+          不是「跳过」而是按 HTTP 服务器语义回 401 —— 被截流的应用、隧道内流量、
+          反代客户端全部打挂；reverse 还额外串台（客户端发给源站的真实
+          ``Authorization`` 头会被当代理凭证消费掉）。原生 ``configure`` 没有任何
+          mode 检查（``:48-63``），不会替我们拦，闸门只能设在这里。代价是让路期间
+          regular 的保护也一并撤下（原生选项全局单值，分不开）—— UI 侧置灰并给出
+          提示，让用户知情。
+        - **让路判据是「接通位 + 通道意图值」而不是「真实接通」**。``use_reverse``
+          为 True 但 ``reverse_target`` 为空之类的坏意图，会在 ``apply_channels`` 的
+          spec 校验阶段被拒、通道根本接不通，而那时 ``channels_engaged`` 仍是 False，
+          走不到让路分支 —— 即坏意图不会误撤 proxyauth。
+
+        与 ``_effective_block_private`` 的让路名单差一个 **local**：原生 Block 对
+        LocalMode 连接有豁免（``block.py:35``），ProxyAuth 没有，LocalMode 照样落
+        401 分支。
+        """
+        if not self.proxyauth_enabled or not self.proxyauth_username:
+            return None
+        if ":" in self.proxyauth_username or ":" in self.proxyauth_password:
+            # 只可能来自手改的配置文件；静默失效比报错更坑，留一行日志。
+            log.warning("代理认证的用户名或密码含冒号，原生无法解析，已停用代理认证")
+            return None
+        if self.channels_engaged and (
+            self.use_local or self.use_wireguard or self.use_reverse
+        ):
+            return None
+        return f"{self.proxyauth_username}:{self.proxyauth_password}"
 
     def _channel_intents(self) -> tuple[Any, ...]:
         """Snapshot every channel intent value, for `apply_channels` rollback.
@@ -684,12 +767,16 @@ class MitmRuntime(QObject):
             self.call(
                 # mode 与 upstream_auth 必须同一次 update 推下去：分两次推会出现
                 # 「槽位已换成 upstream、凭证还是上一轮的」这种半拉子中间态，
-                # 期间的流量会拿着错凭证去撞上游的 407。
+                # 期间的流量会拿着错凭证去撞上游的 407。proxyauth 同理：它对
+                # local / wireguard / reverse 要让路（_effective_proxyauth），分两
+                # 次推就会漏出「通道已接通、认证还在挑战」的一瞬，那一瞬里被
+                # 截流的应用全吃 401。
                 lambda: master.options.update(
                     mode=specs,
                     upstream_auth=self._upstream_auth(),
                     block_global=self.block_global,
                     block_private=self._effective_block_private(),
+                    proxyauth=self._effective_proxyauth(),
                 )
             )
         except OptionsError as exc:
@@ -1037,6 +1124,57 @@ class MitmRuntime(QObject):
             # 但内存副本必须先回滚，否则界面会显示一个内核根本没收到的状态。
             self.block_global, self.block_private = previous
             raise
+
+    def apply_proxy_auth(
+        self,
+        *,
+        enabled: bool | None = None,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> None:
+        """Store the inbound proxy credential and push it to a running Master.
+
+        与 `apply_block_options` 同构：内核没跑只对齐内存副本（下次启动的
+        `_apply_proxyauth` 会读到），下发失败回滚，绝不留下「界面显示已生效、
+        内核其实没收到」的状态。
+
+        三项一次推是有意的：下发值是 `_effective_proxyauth()` 现算的单个字符串，
+        拆开推等于中途真的把「新用户名 + 旧密码」这种组合下发下去过。
+        """
+        previous = (
+            self.proxyauth_enabled,
+            self.proxyauth_username,
+            self.proxyauth_password,
+        )
+        if enabled is not None:
+            self.proxyauth_enabled = enabled
+        if username is not None:
+            self.proxyauth_username = username
+        if password is not None:
+            self.proxyauth_password = password
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        wanted = self._effective_proxyauth()
+        try:
+            self.call(lambda: master.options.update(proxyauth=wanted))
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            # 正常路径到不了这里（冒号已被闸门挡掉），留着是因为 spec 的唯一
+            # 真相源是原生 configure，不该假设它只认冒号这一种坏值。
+            self._restore_proxyauth(previous)
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            self._restore_proxyauth(previous)
+            raise
+
+    def _restore_proxyauth(self, previous: tuple[bool, str, str]) -> None:
+        """Roll the three proxyauth intents back after a failed push."""
+        (
+            self.proxyauth_enabled,
+            self.proxyauth_username,
+            self.proxyauth_password,
+        ) = previous
 
     def reload_certificate_store(self) -> bool:
         """Rebuild the live CertStore through mitmproxy's own TlsConfig hook.

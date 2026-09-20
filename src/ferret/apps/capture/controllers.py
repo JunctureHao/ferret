@@ -208,6 +208,18 @@ class CaptureController(QObject):
         return self._mitm.block_private
 
     @property
+    def proxyauth_enabled(self) -> bool:
+        return self._mitm.proxyauth_enabled
+
+    @property
+    def proxyauth_username(self) -> str:
+        return self._mitm.proxyauth_username
+
+    @property
+    def proxyauth_password(self) -> str:
+        return self._mitm.proxyauth_password
+
+    @property
     def recording(self) -> bool:
         """写入闸门。开着时新 flow 才进流量表；与系统代理挂载是两回事。"""
         return self._recording
@@ -359,15 +371,24 @@ class CaptureController(QObject):
         listen_port: int | None = None,
         block_global: bool | None = None,
         block_private: bool | None = None,
+        proxyauth_enabled: bool | None = None,
+        proxyauth_username: str | None = None,
+        proxyauth_password: str | None = None,
     ) -> None:
         """Commit the proxy settings dialog in one shot and persist the result.
 
-        两组设置的代价完全不同：来源过滤开关是热生效的（`options.update`），绑定地址
-        和端口要重开监听 socket。所以先做热的那组 —— 它落地后再重启，重启失败也不会
-        丢掉已经生效的开关；反过来则会留下「重启成功但开关没跟上」。
+        两组设置的代价完全不同：来源过滤开关和代理认证都是热生效的
+        （`options.update`），绑定地址和端口要重开监听 socket。所以先做热的那组 ——
+        它落地后再重启，重启失败也不会丢掉已经生效的开关；反过来则会留下「重启成功
+        但开关没跟上」。
         """
         self._apply_block_options(
             block_global=block_global, block_private=block_private
+        )
+        self._apply_proxy_auth(
+            enabled=proxyauth_enabled,
+            username=proxyauth_username,
+            password=proxyauth_password,
         )
         self._apply_listen_endpoint(listen_host=listen_host, listen_port=listen_port)
 
@@ -383,6 +404,32 @@ class CaptureController(QObject):
         )
         CONFIG.set(CONFIG.block_global, wanted_global)
         CONFIG.set(CONFIG.block_private, wanted_private)
+
+    def _apply_proxy_auth(
+        self, *, enabled: bool | None, username: str | None, password: str | None
+    ) -> None:
+        """Commit the inbound proxy credential; no-op when nothing changed.
+
+        用户名/密码的合法性（非空、不含冒号）由对话框前置校验，这里只负责「变了才
+        推、推了才落盘」—— 与 `_apply_block_options` 同构。关掉认证时刻意**不清空**
+        用户名密码：意图值留着，下次勾上还是原来那套，与通道意图值的处理一致。
+        """
+        wanted_enabled = self.proxyauth_enabled if enabled is None else enabled
+        wanted_user = self.proxyauth_username if username is None else username
+        wanted_pass = self.proxyauth_password if password is None else password
+        current = (
+            self.proxyauth_enabled,
+            self.proxyauth_username,
+            self.proxyauth_password,
+        )
+        if (wanted_enabled, wanted_user, wanted_pass) == current:
+            return
+        self._mitm.set_proxy_auth(
+            enabled=wanted_enabled, username=wanted_user, password=wanted_pass
+        )
+        CONFIG.set(CONFIG.proxyauth_enabled, wanted_enabled)
+        CONFIG.set(CONFIG.proxyauth_username, wanted_user)
+        CONFIG.set(CONFIG.proxyauth_password, wanted_pass)
 
     def _apply_listen_endpoint(
         self, *, listen_host: str | None, listen_port: int | None
