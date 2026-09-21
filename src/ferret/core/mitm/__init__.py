@@ -23,8 +23,10 @@ from ferret.core.mitm.certificate import (
     CertificateError,
     CertutilUnavailable,
     SystemCertificateService,
+    TrustedCaSummary,
     TrustState,
     export_format,
+    inspect_trusted_ca_files,
 )
 from ferret.core.mitm.compose import (
     COMPOSE_METADATA_KEY,
@@ -222,6 +224,7 @@ __all__ = [
     "SseFeeder",
     "SystemCertificateService",
     "TrustState",
+    "TrustedCaSummary",
     "View",
     "WebSocketData",
     "WebSocketMessage",
@@ -241,6 +244,7 @@ __all__ = [
     "head_size",
     "human",
     "infer_state",
+    "inspect_trusted_ca_files",
     "intercept_expression",
     "intercept_option_updates",
     "intercept_rules_from_config",

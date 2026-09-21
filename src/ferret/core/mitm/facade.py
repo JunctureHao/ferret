@@ -370,6 +370,55 @@ class MitmFacade:
             name_servers=name_servers, use_hosts_file=use_hosts_file
         )
 
+    # —— 上游 TLS 信任 ——
+
+    @property
+    def ssl_insecure(self) -> bool:
+        """不校验上游服务器证书（内存副本，原生默认关）。
+
+        开启会顺带允许不安全重协商（原生把同一个值喂给 `legacy_server_connect`），
+        文案里已写明 —— 老 Java / CBS 服务端有时正是靠这层才连得上。
+        """
+        return self.runtime.ssl_insecure
+
+    @property
+    def trusted_ca_files(self) -> list[str]:
+        """额外信任的 CA 证书文件路径（内存副本）。空列表 = 只认公共根。
+
+        刻意只给**用户填的路径**，不暴露合并产物：那份 PEM 是生成物，带内容指纹、
+        随时会被换掉（见 `core/mitm/certificate.py::build_trusted_ca_bundle`），
+        界面拿到也只会拿去显示一个随时失效的路径。
+        """
+        return list(self.runtime.ssl_trusted_ca_files)
+
+    @property
+    def add_upstream_certs_to_client_chain(self) -> bool:
+        """向客户端拼接上游真实证书链（内存副本，原生默认关）。"""
+        return self.runtime.add_upstream_certs_to_client_chain
+
+    def set_upstream_tls_options(
+        self,
+        *,
+        insecure: bool | None = None,
+        trusted_ca_files: list[str] | None = None,
+        add_upstream_certs: bool | None = None,
+    ) -> None:
+        """Update the upstream-TLS trust options; applied immediately when running.
+
+        三个参数都是 **None = 不改动该项**，清空信任文件传 ``[]``。内核拒绝时抛
+        ``ValueError``、写盘失败时抛 ``CertificateError``（`RuntimeError` 的子类），
+        两种情形都**不落盘**（调用方负责只在这里没抛之后才写 CONFIG）。
+
+        解不动的信任文件**不算坏值**、不抛异常：整批里能用的照常生效，全坏就退回
+        公共根。要在界面上显示「N 个文件已失效」请另调
+        `core.mitm.certificate.inspect_trusted_ca_files`（只读、不写产物）。
+        """
+        self.runtime.apply_ssl_options(
+            insecure=insecure,
+            trusted_ca_files=trusted_ca_files,
+            add_upstream_certs=add_upstream_certs,
+        )
+
     # —— 断点 ——
 
     @property

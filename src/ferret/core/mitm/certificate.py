@@ -18,12 +18,17 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
+import os
+import re
 import subprocess
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+import certifi
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm.bindings import KEY_SIZE, certs
@@ -203,6 +208,157 @@ class CaInfo:
     @property
     def self_signed(self) -> bool:
         return self.subject == self.issuer
+
+
+# --- 上游信任库（.plans/upstream-tls.md）---
+#
+# 原生 `ssl_verify_upstream_trusted_ca` 是**替换**语义而不是追加：
+# `net/tls.py::create_proxy_server_context` 只在 ca_path 与 ca_pemfile 双双为空时
+# 才回落 `certifi.where()`，填了用户那把根，公共根就整个不加载 —— 用户加一把测试
+# 根会把百度都搞挂。所以 ferret 自己把「公共根 + 用户根」合并成一份产物再下发，
+# 让「加测试根」与「公共站点照常校验」同时成立（方案 D1）。
+#
+# 产物名必须带内容指纹：`create_proxy_server_context` 是 `@lru_cache(256)`，缓存键
+# 里的 ca_pemfile 是**路径字符串**。文件名固定的话，用户换一把根（内容变、路径没变）
+# 会永久命中旧 context，热更静默失效且无从排查。改名即改键，旧 context 自然作废。
+TRUSTED_CA_PREFIX = "upstream-trusted-"
+TRUSTED_CA_SUFFIX = ".pem"
+
+# 一张 PEM 证书的边界。用户手上的文件常是多张拼起来的 bundle，而 `Cert.from_pem`
+# 只解第一张 —— 自己按块切开逐张解，既是校验也是计数（卡片要显示「共 N 张」）。
+_PEM_CERT_BLOCK = re.compile(
+    rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+    re.DOTALL,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedCaSummary:
+    """用户信任库的一次静态盘点：只读文件、**不写任何产物**。
+
+    界面刷新卡片文案走这条（每次刷新都写盘既浪费又意外），真要下发时才调
+    `build_trusted_ca_bundle`。两者共用同一个解析函数，判定必然一致。
+    """
+
+    good: tuple[str, ...]  # 至少解出一张证书的文件
+    bad: tuple[str, ...]  # 读不到 / 解不出证书的文件（顺序同入参）
+    cert_count: int  # good 里的证书总张数，不含公共根
+
+    @property
+    def configured(self) -> int:
+        """去掉空行之后，用户实际配了几个文件。"""
+        return len(self.good) + len(self.bad)
+
+
+def _read_cert_pems(path: str) -> list[bytes]:
+    """把一个文件里的证书逐张解出来，重新序列化成规范 PEM。
+
+    解不动就返回空列表（调用方据此归入坏文件）——「这文件根本不是证书」要在
+    保存那一刻就告诉用户，而不是等某次 TLS 握手失败。经 `Cert.to_pem()` 过一手
+    是顺带的好处：进 bundle 的一定是解析得动的规范编码。
+    """
+    try:
+        raw = Path(path).expanduser().read_bytes()
+    except OSError:
+        return []
+    pems: list[bytes] = []
+    for block in _PEM_CERT_BLOCK.findall(raw):
+        try:
+            pems.append(certs.Cert.from_pem(block).to_pem())
+        except (ValueError, TypeError):
+            # 同一个文件里只要有一块坏的就整份判坏：半份信任库比没有更难排查。
+            return []
+    return pems
+
+
+def inspect_trusted_ca_files(files: Sequence[str]) -> TrustedCaSummary:
+    """盘点用户给的信任文件，不写盘。空行 / 纯空白路径忽略。"""
+    good: list[str] = []
+    bad: list[str] = []
+    count = 0
+    for item in files:
+        path = item.strip()
+        if not path:
+            continue
+        pems = _read_cert_pems(path)
+        if pems:
+            good.append(path)
+            count += len(pems)
+        else:
+            bad.append(path)
+    return TrustedCaSummary(good=tuple(good), bad=tuple(bad), cert_count=count)
+
+
+def _prune_trusted_ca_bundles(directory: Path, keep: Path | None) -> None:
+    """清掉本函数族生成的旧指纹产物，`keep` 那份留着。
+
+    只认自己的前缀：`CA_ARTIFACTS` 那族是 `{APP_NAME}-*`，两边永不相交。
+    删不掉只是攒下垃圾文件，不值得让下发失败，所以 OSError 一律咽掉。
+    """
+    try:
+        stale_files = list(directory.glob(f"{TRUSTED_CA_PREFIX}*{TRUSTED_CA_SUFFIX}"))
+    except OSError:
+        return
+    for stale in stale_files:
+        if keep is not None and stale == keep:
+            continue
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
+def build_trusted_ca_bundle(
+    files: Sequence[str],
+    *,
+    certs_dir: Path | None = None,
+) -> tuple[str | None, list[str]]:
+    """把公共根 + 用户根合并成一份带指纹的 PEM，返回 (产物路径|None, 坏文件列表)。
+
+    返回 None 表示「不下发 ca_pemfile」= 原生 certifi 行为，两种情形：入参为空，
+    或者给的文件一张证书都解不出来（全坏 → 回退公共根，而不是把上游信任库搞成
+    空库）。坏文件只进返回值、**不抛异常** —— 一把坏证书不该拖死内核启动，
+    调用方负责记日志、界面显示「N 个文件已失效」。
+
+    写盘失败才抛 `CertificateError`：那是「用户以为加上了、其实没加」的场景，
+    必须说出来。写入走临时文件 + `os.replace`，半份 PEM 不会出现在目标路径上。
+    """
+    directory = certs_dir if certs_dir is not None else get_certs_dir()
+    summary = inspect_trusted_ca_files(files)
+    bad = list(summary.bad)
+    if not summary.good:
+        # 零产物：顺手把上一次的指纹文件清掉，别在证书目录里留孤儿。
+        _prune_trusted_ca_bundles(directory, keep=None)
+        return None, bad
+
+    chunks = [Path(certifi.where()).read_bytes()]
+    for path in summary.good:
+        chunks.extend(_read_cert_pems(path))
+    blob = b"\n".join(chunk.rstrip(b"\n") for chunk in chunks) + b"\n"
+    digest = hashlib.sha256(blob).hexdigest()[:8]
+    target = directory / f"{TRUSTED_CA_PREFIX}{digest}{TRUSTED_CA_SUFFIX}"
+
+    # 内容寻址：同名即同内容，已经在盘上就不重写（也避免动它的 mtime）。
+    if not target.exists():
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            # 临时文件落在同一个目录里：os.replace 只在同一卷上才保证原子。
+            handle, temp_name = tempfile.mkstemp(dir=directory, suffix=".tmp")
+            try:
+                with os.fdopen(handle, "wb") as fp:
+                    fp.write(blob)
+                os.replace(temp_name, target)
+            except OSError:
+                Path(temp_name).unlink(missing_ok=True)
+                raise
+        except OSError as exc:
+            raise CertificateError(
+                QCoreApplication.translate(
+                    "CertificateService", "上游信任库写入失败：{}"
+                ).format(exc)
+            ) from exc
+    _prune_trusted_ca_bundles(directory, keep=target)
+    return str(target), bad
 
 
 CertutilRunner = Callable[[Sequence[str]], int]

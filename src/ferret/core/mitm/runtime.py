@@ -22,6 +22,7 @@ from ferret.core.mitm.bindings import (
     View,
     parse_filter,
 )
+from ferret.core.mitm.certificate import CertificateError, build_trusted_ca_bundle
 from ferret.core.mitm.gateway import (
     GatewayRule,
     GatewayRuleSet,
@@ -111,6 +112,36 @@ def _validate_dns_name_servers(items: list[str]) -> list[str]:
             ) from None
         checked.append(text)
     return checked
+
+
+# 上游 TLS 信任（.plans/upstream-tls.md）：原生 tlsconfig 的三个选项。与 dns_* 相反，
+# 它们都写在 `Options.__init__` 里、构造期就存在（tests/core/mitm/test_upstream_tls.py
+# 钉着这条差异），但仍走 `_apply_*` 播种 —— 合并产物要现算，且必须支持运行中热更。
+def ssl_option_updates(
+    insecure: bool,
+    trusted_bundle: str | None,
+    add_upstream_certs: bool,
+) -> dict[str, bool | str | None]:
+    """Translate the upstream-TLS config into the ``options.update`` kwargs.
+
+    两处非写不可的细节：
+
+    * 没有合并产物时必须回 ``None`` 而**不是** ``""``。空串会让
+      ``load_verify_locations("", None)`` 抛 ``SSL.Error``，被 `net/tls.py` 重包成
+      ``RuntimeError`` 砸在握手路径上 —— 那不是 ``OptionsError``，`options.update`
+      外面那层 try/except 拦不住，只能在这里不让它产生。
+    * ``add_upstream_certs`` 为真时一并显式带上 ``upstream_cert=True``。原生
+      `addons/core.py::Core.configure` 会在 upstream_cert 关着时抛 ``OptionsError``；
+      它出厂就是 True 且 ferret 从不暴露，这行是防上游哪天翻默认值。
+    """
+    updates: dict[str, bool | str | None] = {
+        "ssl_insecure": insecure,
+        "ssl_verify_upstream_trusted_ca": trusted_bundle or None,
+        "add_upstream_certs_to_client_chain": add_upstream_certs,
+    }
+    if add_upstream_certs:
+        updates["upstream_cert"] = True
+    return updates
 
 
 # 抓包通道的**意图值**字段名（见 `MitmRuntime.__init__` 的逐条注释）：落盘偏好，
@@ -276,6 +307,7 @@ class _MitmThread(QThread):
         self._apply_upstream_auth(master)
         self._apply_proxyauth(master)
         self._apply_dns_options(master)
+        self._apply_ssl_options(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -433,6 +465,54 @@ class _MitmThread(QThread):
             except RuntimeError:
                 pass
 
+    def _apply_ssl_options(self, master: FerretMaster) -> None:
+        """Seed the upstream-TLS trust options before serving traffic (mitm loop).
+
+        与 `_apply_dns_options` 的取舍完全一致：坏值不炸启动。用户那几个信任文件
+        随时可能被删 / 挪走 / 换成截图，`build_trusted_ca_bundle` 把解不动的挑出来
+        当返回值而不是抛异常，这里只记 warning —— 全坏时它回 ``None``，落到
+        `ssl_option_updates` 就是不下发 ca_pemfile，即原生公共根行为。
+
+        写盘失败（证书目录只读之类）抛 ``CertificateError``，同样只降级不连坐：
+        没有产物就按公共根跑，用户在界面上会看到卡片仍显示旧状态而抓不到自签站点，
+        日志里有这一条可查。
+        """
+        runtime = self.runtime
+        bundle: str | None = None
+        try:
+            bundle, bad = build_trusted_ca_bundle(runtime.ssl_trusted_ca_files)
+        except CertificateError as exc:
+            bad = list(runtime.ssl_trusted_ca_files)
+            self._log_warning("上游信任库无法生成，已回退公共根证书: %s", exc)
+        if bad:
+            self._log_warning(
+                "上游信任库中 %d 个文件无法解析，已跳过: %s", len(bad), ", ".join(bad)
+            )
+        try:
+            master.options.update(
+                **ssl_option_updates(
+                    runtime.ssl_insecure,
+                    bundle,
+                    runtime.add_upstream_certs_to_client_chain,
+                )
+            )
+        except (ValueError, OptionsError) as exc:
+            # OptionsError 这支不是死代码：拼接链在 upstream_cert 关着时会被原生
+            # Core.configure 拒掉（ssl_option_updates 已显式带上 True 防着它）。
+            self._log_warning("上游 TLS 选项无法应用，已忽略: %s", exc)
+
+    @staticmethod
+    def _log_warning(message: str, *args: object) -> None:
+        """提示性日志失败不值得连坐启动（同 `_apply_dns_options` 的兜底姿态）。
+
+        全量测试里可能有残留的 mitmproxy 日志 handler 指着已关闭的事件循环，
+        而上面几处的降级语义都不依赖日志是否送达。
+        """
+        try:
+            log.warning(message, *args)
+        except RuntimeError:
+            pass
+
     def _apply_proxyauth(self, master: FerretMaster) -> None:
         """Seed the inbound proxy credential before serving traffic (on the mitm loop).
 
@@ -530,6 +610,9 @@ class MitmRuntime(QObject):
         anticache_plaintext: bool = False,
         dns_name_servers: list[str] | None = None,
         dns_use_hosts_file: bool = True,
+        ssl_insecure: bool = False,
+        ssl_trusted_ca_files: list[str] | None = None,
+        add_upstream_certs_to_client_chain: bool = False,
     ) -> None:
         super().__init__(parent)
         self.listen_host = normalize_listen_host(listen_host)
@@ -616,6 +699,16 @@ class MitmRuntime(QObject):
         # True = 查 hosts），真实值由 CONFIG 种子决定（core/runtime.py）。
         self.dns_name_servers = list(dns_name_servers or [])
         self.dns_use_hosts_file = dns_use_hosts_file
+        # 上游 TLS 信任三意图值（.plans/upstream-tls.md）：四条通道共用同一条
+        # `tls_start_server`（QUIC 路另有分支但读同两个值），语义天然一致 ——
+        # 不按通道分别下发，也不存在 block_private 那种让路需求，故不进
+        # _CHANNEL_INTENTS。类默认一律取原生出厂（False / [] / False），真实值
+        # 由 CONFIG 种子决定（core/runtime.py）。
+        # 存的是**用户给的文件路径**，合并产物（公共根 + 用户根）每次现算、永不
+        # 落盘，见 core/mitm/certificate.py::build_trusted_ca_bundle。
+        self.ssl_insecure = ssl_insecure
+        self.ssl_trusted_ca_files = list(ssl_trusted_ca_files or [])
+        self.add_upstream_certs_to_client_chain = add_upstream_certs_to_client_chain
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -1221,6 +1314,71 @@ class MitmRuntime(QObject):
             raise ValueError(str(exc)) from exc
         except Exception:
             self.dns_name_servers, self.dns_use_hosts_file = previous
+            raise
+
+    def apply_ssl_options(
+        self,
+        *,
+        insecure: bool | None = None,
+        trusted_ca_files: list[str] | None = None,
+        add_upstream_certs: bool | None = None,
+    ) -> None:
+        """Store the upstream-TLS trust options and push them to a running Master.
+
+        与 `apply_dns_options` 同构：三个参数都是 **None = 不改动该项**（清空信任
+        文件必须显式传 ``[]``），内核没跑只对齐内存副本，下发失败回滚内存副本后
+        抛 `ValueError`，绝不留下「界面显示已生效、内核其实没收到」的状态。
+
+        与 DNS 不同的一点是**没有坏值前置闸门**：信任文件解不动是常态（用户删了、
+        挪了、给了张截图），`build_trusted_ca_bundle` 把它们当返回值挑出来而不是
+        抛异常 —— 一把坏证书不该让整次保存失败。界面自己调 `inspect_trusted_ca_files`
+        复算并显示「N 个文件已失效」。真正会抛的只有写盘失败（`CertificateError`，
+        `RuntimeError` 的子类），那一支在动内存副本**之前**抛出去，配置不落盘。
+        """
+        wanted_insecure = self.ssl_insecure if insecure is None else insecure
+        wanted_files = (
+            self.ssl_trusted_ca_files if trusted_ca_files is None else trusted_ca_files
+        )
+        wanted_splice = (
+            self.add_upstream_certs_to_client_chain
+            if add_upstream_certs is None
+            else add_upstream_certs
+        )
+        previous = (
+            self.ssl_insecure,
+            self.ssl_trusted_ca_files,
+            self.add_upstream_certs_to_client_chain,
+        )
+        master = self._master
+        running = self.is_running and master is not None
+        # 合并产物只在真要下发时才生成：内核没跑就写一份没人读的 PEM，纯属给证书
+        # 目录添垃圾（下次启动 `_apply_ssl_options` 会照**那时**的文件重算）。
+        bundle = build_trusted_ca_bundle(wanted_files)[0] if running else None
+        self.ssl_insecure = wanted_insecure
+        self.ssl_trusted_ca_files = list(wanted_files)
+        self.add_upstream_certs_to_client_chain = wanted_splice
+        if not running or master is None:
+            return
+        try:
+            self.call(
+                lambda: master.options.update(
+                    **ssl_option_updates(wanted_insecure, bundle, wanted_splice)
+                )
+            )
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            (
+                self.ssl_insecure,
+                self.ssl_trusted_ca_files,
+                self.add_upstream_certs_to_client_chain,
+            ) = previous
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            (
+                self.ssl_insecure,
+                self.ssl_trusted_ca_files,
+                self.add_upstream_certs_to_client_chain,
+            ) = previous
             raise
 
     def release_intercepted(self) -> int:
