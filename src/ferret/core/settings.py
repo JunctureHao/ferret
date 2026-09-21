@@ -382,6 +382,16 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 「导出字段为 CSV」上次勾选的列（存 flow_detail 的 dict key，跨语言稳定；
+    # 见 apps/common/flow/csv_export.py）。和 block_list 同一个坑：QConfig.set 开头
+    # `if item.value == value: return`，写回必须传一个新 list。默认列在 csv_export.py
+    # 侧收敛（这里给 [] 触发回落，避免默认值在两处各写一份）。
+    csv_export_fields = ConfigItem(
+        group="Export",
+        name="CsvFields",
+        default=[],
+    )
+
 
 def get_config_dir() -> Path:
     d = Path(
