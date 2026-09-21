@@ -61,6 +61,45 @@ class CertificateController(QObject):
     def busy(self) -> bool:
         return self._active > 0
 
+    # --- 上游信任（.plans/upstream-tls.md §3.6）---
+    #
+    # 三个读属性一律取内核内存副本，不读 CONFIG：副本在 `_build_mitm_runtime` 里
+    # 就由 CONFIG 播过种，运行中热更后它才是真值（落盘值可能刚被拒、没写成）。
+    # 界面因此永远只看一个源，不会出现「卡片说 A、内核在跑 B」。
+
+    @property
+    def ssl_insecure(self) -> bool:
+        return self._mitm.ssl_insecure
+
+    @property
+    def trusted_ca_files(self) -> list[str]:
+        return self._mitm.trusted_ca_files
+
+    @property
+    def add_upstream_certs(self) -> bool:
+        return self._mitm.add_upstream_certs_to_client_chain
+
+    def set_upstream_tls(
+        self,
+        *,
+        insecure: bool | None = None,
+        trusted_ca_files: list[str] | None = None,
+        add_upstream_certs: bool | None = None,
+    ) -> None:
+        """Update the upstream-TLS trust options; **None = 不改动该项**。
+
+        不走线程池：合并产物只是读几个小 PEM + 一次 sha256 + 一次写盘，热更那步
+        `MitmRuntime.call` 自带 5s 超时，与 certutil 动辄几百毫秒不是一回事。
+        失败原样抛给调用方（`ValueError` / `CertificateError` / `TimeoutError`），
+        由提交链决定是弹警告还是静默 —— 与 certutil 那串 `_run` 的「谁失败都弹
+        InfoBar」刻意不同：开关类操作失败弹窗比不弹更扰人。
+        """
+        self._mitm.set_upstream_tls_options(
+            insecure=insecure,
+            trusted_ca_files=trusted_ca_files,
+            add_upstream_certs=add_upstream_certs,
+        )
+
     # --- 对外动作 ---
 
     def refresh(self) -> None:

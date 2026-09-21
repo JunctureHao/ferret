@@ -1,4 +1,4 @@
-"""证书页：状态 / 详情 / 导出 / 维护四组卡片。
+"""证书页：状态 / 详情 / 导出 / 上游信任 / 维护五组卡片。
 
 版式照抄 `apps/settings/views.py`——同一套 ScrollArea 骨架、悬浮标题、36px 边距、
 SettingCard 家族的卡片，两页看着才像同一个软件里的两页。有三处细节非照抄不可：
@@ -41,15 +41,26 @@ from qfluentwidgets import (
     SettingCardGroup,
     SimpleCardWidget,
     SmoothMode,
+    SwitchSettingCard,
     TitleLabel,
     TransparentToolButton,
 )
 
 from ferret.apps.certificate.controllers import CertificateController
-from ferret.apps.certificate.dialogs import RegenerateCertDialog
+from ferret.apps.certificate.dialogs import RegenerateCertDialog, TrustedCaDialog
 from ferret.apps.certificate.models import CertificateState, info_rows
-from ferret.apps.common.info_bar import show_error, show_success
-from ferret.core.mitm import EXPORT_FORMATS, CertExportFormat, TrustState
+from ferret.apps.common.info_bar import show_error, show_success, show_warning
+from ferret.core.mitm import (
+    EXPORT_FORMATS,
+    CertExportFormat,
+    TrustState,
+    inspect_trusted_ca_files,
+)
+from ferret.core.settings import CONFIG
+
+# 「文件已失效」那一档的警示色，与 `DnsServersDialog.error_label` 同款；
+# 两种主题下都读得清，故不做主题分叉。空串 = 交回 qss 管（普通档）。
+_WARN_STYLE = "color: #c07000;"
 
 STATE_ICONS: dict[TrustState, FluentIcon] = {
     TrustState.MISSING: FluentIcon.INFO,
@@ -233,6 +244,7 @@ class CertificateInterface(ScrollArea):
         self.status_group = SettingCardGroup(self.tr("安装状态"), self.scroll_widget)
         self.detail_group = SettingCardGroup(self.tr("证书详情"), self.scroll_widget)
         self.export_group = SettingCardGroup(self.tr("导出证书"), self.scroll_widget)
+        self.trust_group = SettingCardGroup(self.tr("上游信任"), self.scroll_widget)
         self.maintain_group = SettingCardGroup(self.tr("维护"), self.scroll_widget)
 
         self.__init_cards()
@@ -275,6 +287,33 @@ class CertificateInterface(ScrollArea):
             for fmt in EXPORT_FORMATS
         ]
 
+        # 上游信任（.plans/upstream-tls.md §5）：本页讲的是「谁信任谁」，
+        # 上半页是「让别人信任 Ferret」，这一组是「让 Ferret 信任别人」。
+        # 卡 1 是「查看 + 编辑」入口，content 动态反映当前状态（见
+        # `_refresh_trusted_ca_content`）；两个开关绑 configItem 自动落盘。
+        self.trusted_ca_card = PushSettingCard(
+            self.tr("编辑"),
+            FluentIcon.FINGERPRINT,
+            self.tr("信任额外的 CA 证书"),
+            " ",  # 真正的文案由 _refresh_trusted_ca_content 填
+            self.trust_group,
+        )
+        self.ssl_insecure_card = SwitchSettingCard(
+            FluentIcon.HIDE,
+            self.tr("不校验上游服务器证书"),
+            self.tr("仅测试环境用；此时无法发现上游被中间人"),
+            configItem=CONFIG.ssl_insecure,
+            parent=self.trust_group,
+        )
+        self.upstream_chain_card = SwitchSettingCard(
+            FluentIcon.LINK,
+            self.tr("向客户端拼接上游真实证书链"),       
+            self.tr("调试证书锁定（pinning）的 App 时开"),
+            configItem=CONFIG.add_upstream_certs_to_client_chain,
+            parent=self.trust_group,
+        )
+        self._refresh_trusted_ca_content()
+
         self.regenerate_card = PushSettingCard(
             self.tr("重新生成"),
             FluentIcon.UPDATE,
@@ -294,6 +333,7 @@ class CertificateInterface(ScrollArea):
         action_cards = (
             self.install_card,
             self.uninstall_card,
+            self.trusted_ca_card,
             self.regenerate_card,
             self.open_dir_card,
             *self.export_cards,
@@ -305,7 +345,7 @@ class CertificateInterface(ScrollArea):
         for card in action_cards:
             _shrinkable(card.titleLabel)
             _shrinkable(card.contentLabel)
-        # 按钮列上下对齐：四组卡片右侧的按钮共用一个宽度。
+        # 按钮列上下对齐：各组卡片右侧的按钮共用一个宽度。
         _unify_button_widths([card.button for card in action_cards])
 
         # 老名字保留：外部（含用例）按控件说事，不必知道卡片是怎么拆的。
@@ -341,6 +381,9 @@ class CertificateInterface(ScrollArea):
         self.detail_group.addSettingCard(self.detail_card)
         for card in self.export_cards:
             self.export_group.addSettingCard(card)
+        self.trust_group.addSettingCard(self.trusted_ca_card)
+        self.trust_group.addSettingCard(self.ssl_insecure_card)
+        self.trust_group.addSettingCard(self.upstream_chain_card)
         self.maintain_group.addSettingCard(self.regenerate_card)
         self.maintain_group.addSettingCard(self.open_dir_card)
 
@@ -349,6 +392,7 @@ class CertificateInterface(ScrollArea):
         self.expand_layout.addWidget(self.status_group)
         self.expand_layout.addWidget(self.detail_group)
         self.expand_layout.addWidget(self.export_group)
+        self.expand_layout.addWidget(self.trust_group)
         self.expand_layout.addWidget(self.maintain_group)
 
     def __connect_signal_to_slot(self) -> None:
@@ -365,12 +409,23 @@ class CertificateInterface(ScrollArea):
         for fmt, card in zip(EXPORT_FORMATS, self.export_cards, strict=True):
             card.clicked.connect(partial(self._on_export, fmt))
 
+        # 两个开关照 sticky / DNS-hosts 先例：接 configItem 的 valueChanged 而不是
+        # 卡片的 checkedChanged（配置项是唯一事实源），热更失败静默 —— 值已落盘，
+        # 回拨开关反而让「配置说了什么」和「界面显示什么」分家。
+        CONFIG.ssl_insecure.valueChanged.connect(self._on_ssl_insecure_changed)
+        CONFIG.add_upstream_certs_to_client_chain.valueChanged.connect(
+            self._on_upstream_chain_changed
+        )
+        self.trusted_ca_card.clicked.connect(self._on_trusted_ca)
+
     # --- 生命周期 ---
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         # 信任库随时可能被外部改动（certmgr.msc、其他抓包工具），每次进页面都重测。
         self.controller.refresh()
+        # 上游信任那几个文件同理：用户可能刚在资源管理器里把它删了。
+        self._refresh_trusted_ca_content()
 
     # --- 状态同步 ---
 
@@ -410,6 +465,82 @@ class CertificateInterface(ScrollArea):
         show_success(self.tr("证书"), message, self)
 
     # --- 用户操作 ---
+
+    # --- 上游信任 ---
+
+    def _refresh_trusted_ca_content(self) -> None:
+        """卡 1 的 content 动态反映当前状态 —— 它是「查看 + 编辑」入口。
+
+        盘点走只读的 `inspect_trusted_ca_files`：每次刷新都调
+        `build_trusted_ca_bundle` 等于每次进页面都写一份 PEM，而两者共用同一个
+        解析函数，判定必然一致。
+
+        「已失效」既可能是用户删了文件，也可能是那个文件根本不是证书 —— 两种都
+        不该等到某次 TLS 握手失败才被发现，所以在卡片上直说。
+        """
+        summary = inspect_trusted_ca_files(self.controller.trusted_ca_files)
+        warn = bool(summary.bad)
+        if not summary.configured:
+            text = self.tr("未设置 · 仅校验公共根证书（certifi）")
+        elif not summary.good:
+            text = self.tr("⚠ {} 个文件已失效，已回退公共根证书").format(
+                len(summary.bad)
+            )
+        elif self.controller.ssl_insecure:
+            # 开着「不校验上游」时根本不会走到校验，信任库形同虚设 —— 这里不写
+            # 张数，免得用户以为它还在起作用。配置值照常保留，关回去即刻复效。
+            text = self.tr("已信任 {} 个文件 · 已因「不校验上游」而失效").format(
+                len(summary.good)
+            )
+        elif summary.bad:
+            text = self.tr(
+                "已信任 {} 个文件 · 共 {} 张根证书；⚠ 另有 {} 个文件已失效"
+            ).format(len(summary.good), summary.cert_count, len(summary.bad))
+        else:
+            text = self.tr("已信任 {} 个文件 · 共 {} 张根证书").format(
+                len(summary.good), summary.cert_count
+            )
+        self.trusted_ca_card.setContent(text)
+        # 空串而不是默认色：交回 qss 管，主题切换时不会被这里钉死。
+        self.trusted_ca_card.contentLabel.setStyleSheet(_WARN_STYLE if warn else "")
+
+    @Slot(bool)
+    def _on_ssl_insecure_changed(self, enabled: bool) -> None:
+        """把「不校验上游」热更进内核；失败静默（语义同设置页那几个开关）。"""
+        try:
+            self.controller.set_upstream_tls(insecure=enabled)
+        except (ValueError, RuntimeError, TimeoutError):
+            pass
+        # 开关翻转会改变卡 1 的档位（信任库失效与否），无论热更成没成都要刷。
+        self._refresh_trusted_ca_content()
+
+    @Slot(bool)
+    def _on_upstream_chain_changed(self, enabled: bool) -> None:
+        """把「拼接上游证书链」热更进内核；失败静默。"""
+        try:
+            self.controller.set_upstream_tls(add_upstream_certs=enabled)
+        except (ValueError, RuntimeError, TimeoutError):
+            pass
+
+    @Slot()
+    def _on_trusted_ca(self) -> None:
+        """信任文件编辑框的提交链：先热更（含写盘），成功后才落盘。
+
+        与两个开关的「失败静默」刻意不同：这是用户填了一串路径、按了保存的显式
+        操作，没生效必须说，否则他会以为自签站点已经能抓了。
+        """
+        dialog = TrustedCaDialog(self.controller.trusted_ca_files, self.window())
+        if not dialog.exec():
+            return
+        files = dialog.get_files()
+        try:
+            self.controller.set_upstream_tls(trusted_ca_files=files)
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            show_warning(self.tr("上游信任设置未生效"), str(exc), self.window())
+            return
+        # 必须传新 list：原地 mutate 再 set 静默不落盘（见 core/settings.py 的坑）。
+        CONFIG.set(CONFIG.ssl_trusted_ca_files, list(files))
+        self._refresh_trusted_ca_content()
 
     @Slot()
     def _on_regenerate(self) -> None:
