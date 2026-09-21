@@ -353,47 +353,47 @@
 <context>
     <name>CertExportFormat</name>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="111"/>
+        <location filename="../../core/mitm/certificate.py" line="116"/>
         <source>PEM 证书 (.pem)</source>
         <translation>PEM certificate (.pem)</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="112"/>
+        <location filename="../../core/mitm/certificate.py" line="117"/>
         <source>桌面浏览器、curl、OpenSSL 通用格式</source>
         <translation>Common format for desktop browsers, curl and OpenSSL</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="115"/>
+        <location filename="../../core/mitm/certificate.py" line="120"/>
         <source>PEM 证书 (*.pem)</source>
         <translation>PEM certificate (*.pem)</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="121"/>
+        <location filename="../../core/mitm/certificate.py" line="126"/>
         <source>CER 证书 (.cer)</source>
         <translation>CER certificate (.cer)</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="122"/>
+        <location filename="../../core/mitm/certificate.py" line="127"/>
         <source>Android 设备导入用，内容与 PEM 相同</source>
         <translation>For importing on Android; same content as the PEM</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="125"/>
+        <location filename="../../core/mitm/certificate.py" line="130"/>
         <source>CER 证书 (*.cer)</source>
         <translation>CER certificate (*.cer)</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="130"/>
+        <location filename="../../core/mitm/certificate.py" line="135"/>
         <source>PKCS#12 证书 (.p12)</source>
         <translation>PKCS#12 certificate (.p12)</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="131"/>
+        <location filename="../../core/mitm/certificate.py" line="136"/>
         <source>Windows / iOS 设备导入用，不含私钥</source>
         <translation>For importing on Windows / iOS; does not contain the private key</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="135"/>
+        <location filename="../../core/mitm/certificate.py" line="140"/>
         <source>PKCS#12 证书 (*.p12)</source>
         <translation>PKCS#12 certificate (*.p12)</translation>
     </message>
@@ -401,48 +401,48 @@
 <context>
     <name>CertificateController</name>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="67"/>
+        <location filename="../../apps/certificate/controllers.py" line="106"/>
         <source>检测失败</source>
         <translation>Detection failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="72"/>
+        <location filename="../../apps/certificate/controllers.py" line="111"/>
         <source>安装失败</source>
         <translation>Install failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="73"/>
+        <location filename="../../apps/certificate/controllers.py" line="112"/>
         <source>证书已安装到系统信任库</source>
         <translation>Certificate installed into the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="79"/>
+        <location filename="../../apps/certificate/controllers.py" line="118"/>
         <source>卸载失败</source>
         <translation>Uninstall failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="80"/>
+        <location filename="../../apps/certificate/controllers.py" line="119"/>
         <source>证书已从系统信任库移除</source>
         <translation>Certificate removed from the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="86"/>
+        <location filename="../../apps/certificate/controllers.py" line="125"/>
         <source>重新生成失败</source>
         <translation>Regeneration failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="87"/>
+        <location filename="../../apps/certificate/controllers.py" line="126"/>
         <source>已重新生成 CA 证书，请重新安装</source>
         <translation>CA certificate regenerated; install it again</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="95"/>
-        <location filename="../../apps/certificate/controllers.py" line="101"/>
+        <location filename="../../apps/certificate/controllers.py" line="134"/>
+        <location filename="../../apps/certificate/controllers.py" line="140"/>
         <source>导出失败</source>
         <translation>Export failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="146"/>
+        <location filename="../../apps/certificate/controllers.py" line="185"/>
         <source>已导出到 {}</source>
         <translation>Exported to {}</translation>
     </message>
@@ -533,163 +533,233 @@
 <context>
     <name>CertificateInterface</name>
     <message>
-        <location filename="../../apps/certificate/views.py" line="231"/>
-        <location filename="../../apps/certificate/views.py" line="410"/>
+        <location filename="../../apps/certificate/views.py" line="241"/>
+        <location filename="../../apps/certificate/views.py" line="464"/>
         <source>证书</source>
         <translation>Certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="233"/>
+        <location filename="../../apps/certificate/views.py" line="243"/>
         <source>安装状态</source>
         <translation>Install state</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="234"/>
+        <location filename="../../apps/certificate/views.py" line="244"/>
         <source>证书详情</source>
         <translation>Certificate details</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="235"/>
-        <location filename="../../apps/certificate/views.py" line="428"/>
+        <location filename="../../apps/certificate/views.py" line="245"/>
+        <location filename="../../apps/certificate/views.py" line="558"/>
         <source>导出证书</source>
         <translation>Export certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="236"/>
+        <location filename="../../apps/certificate/views.py" line="246"/>
+        <source>上游信任</source>
+        <translation>Upstream trust</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="247"/>
         <source>维护</source>
         <translation>Maintenance</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="249"/>
-        <location filename="../../apps/certificate/views.py" line="381"/>
+        <location filename="../../apps/certificate/views.py" line="260"/>
+        <location filename="../../apps/certificate/views.py" line="435"/>
         <source>安装证书</source>
         <translation>Install certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="251"/>
+        <location filename="../../apps/certificate/views.py" line="262"/>
         <source>安装到系统信任库</source>
         <translation>Install into the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="252"/>
+        <location filename="../../apps/certificate/views.py" line="263"/>
         <source>写入当前用户的「受信任的根证书颁发机构」，无需管理员权限。</source>
         <translation>Writes to the current user&apos;s Trusted Root Certification Authorities, no administrator rights needed.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="256"/>
+        <location filename="../../apps/certificate/views.py" line="267"/>
         <source>卸载</source>
         <translation>Uninstall</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="258"/>
+        <location filename="../../apps/certificate/views.py" line="269"/>
         <source>从系统信任库移除</source>
         <translation>Remove from the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="259"/>
+        <location filename="../../apps/certificate/views.py" line="270"/>
         <source>连历次重新生成留下的同名旧证书一并清理。</source>
         <translation>Also clears the same-named older certificates left behind by earlier regenerations.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="269"/>
+        <location filename="../../apps/certificate/views.py" line="280"/>
         <source>导出</source>
         <translation>Export</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="279"/>
+        <location filename="../../apps/certificate/views.py" line="294"/>
+        <source>编辑</source>
+        <translation>Edit</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="296"/>
+        <source>信任额外的 CA 证书</source>
+        <translation>Trust additional CA certificates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="302"/>
+        <source>不校验上游服务器证书</source>
+        <translation>Do not verify upstream server certificates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="303"/>
+        <source>仅测试环境用；此时无法发现上游被中间人</source>
+        <translation>For test environments only; man-in-the-middle upstreams go undetected</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="310"/>
+        <source>调试证书锁定（pinning）的 App 时开</source>
+        <translation>Enable when debugging apps with certificate pinning</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="309"/>
+        <source>向客户端拼接上游真实证书链</source>
+        <translation>Append the real upstream certificate chain to clients</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="317"/>
         <source>重新生成</source>
         <translation>Regenerate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="281"/>
+        <location filename="../../apps/certificate/views.py" line="319"/>
         <source>重新生成 CA 证书</source>
         <translation>Regenerate the CA certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="282"/>
+        <location filename="../../apps/certificate/views.py" line="320"/>
         <source>生成新的私钥与证书，所有已导入旧证书的设备都要重新导入。</source>
         <translation>Generates a new private key and certificate. Every device that imported the old one has to import it again.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="286"/>
+        <location filename="../../apps/certificate/views.py" line="324"/>
         <source>打开目录</source>
         <translation>Open folder</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="288"/>
+        <location filename="../../apps/certificate/views.py" line="326"/>
         <source>证书目录</source>
         <translation>Certificate folder</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="381"/>
+        <location filename="../../apps/certificate/views.py" line="435"/>
         <source>重新安装</source>
         <translation>Reinstall</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="483"/>
+        <source>未设置 · 仅校验公共根证书（certifi）</source>
+        <translation>Not set · only public root certificates are verified (certifi)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="485"/>
+        <source>⚠ {} 个文件已失效，已回退公共根证书</source>
+        <translation>⚠ {} file(s) are invalid, fell back to public root certificates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="491"/>
+        <source>已信任 {} 个文件 · 已因「不校验上游」而失效</source>
+        <translation>{} file(s) trusted · disabled because &quot;do not verify upstream&quot; is on</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="496"/>
+        <source>已信任 {} 个文件 · 共 {} 张根证书；⚠ 另有 {} 个文件已失效</source>
+        <translation>{} file(s) trusted · {} root certificate(s) in total; ⚠ {} more file(s) are invalid</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="499"/>
+        <source>已信任 {} 个文件 · 共 {} 张根证书</source>
+        <translation>{} file(s) trusted · {} root certificate(s) in total</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="538"/>
+        <source>上游信任设置未生效</source>
+        <translation>Upstream trust settings not applied</translation>
     </message>
 </context>
 <context>
     <name>CertificateService</name>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="146"/>
+        <location filename="../../core/mitm/certificate.py" line="151"/>
         <source>未知的导出格式：{}</source>
         <translation>Unknown export format: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="227"/>
+        <location filename="../../core/mitm/certificate.py" line="356"/>
+        <source>上游信任库写入失败：{}</source>
+        <translation>Failed to write the upstream trust bundle: {}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="383"/>
         <source>当前系统上找不到 certutil 命令</source>
         <translation>The certutil command was not found on this system</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="278"/>
+        <location filename="../../core/mitm/certificate.py" line="434"/>
         <source>CA 证书生成失败：{}</source>
         <translation>Could not generate the CA certificate: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="285"/>
+        <location filename="../../core/mitm/certificate.py" line="441"/>
         <source>CA 证书生成后仍读不到 {}</source>
         <translation>The CA certificate was generated but {} still cannot be read</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="304"/>
+        <location filename="../../core/mitm/certificate.py" line="460"/>
         <source>无法删除旧证书 {}：{}</source>
         <translation>Could not delete the old certificate {}: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="329"/>
+        <location filename="../../core/mitm/certificate.py" line="485"/>
         <source>尚未生成 CA 证书</source>
         <translation>No CA certificate has been generated yet</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="354"/>
+        <location filename="../../core/mitm/certificate.py" line="510"/>
         <source>导出失败：{}</source>
         <translation>Export failed: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="408"/>
+        <location filename="../../core/mitm/certificate.py" line="564"/>
         <source>安装证书已取消</source>
         <translation>Certificate install cancelled</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="409"/>
+        <location filename="../../core/mitm/certificate.py" line="565"/>
         <source>安装证书失败（certutil 退出码 {}）</source>
         <translation>Could not install the certificate (certutil exit code {})</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="427"/>
+        <location filename="../../core/mitm/certificate.py" line="583"/>
         <source>系统信任库中仍有残留证书，请手动检查 certmgr.msc</source>
         <translation>Certificates are still left in the system trust store; check certmgr.msc by hand</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="434"/>
+        <location filename="../../core/mitm/certificate.py" line="590"/>
         <source>卸载证书已取消</source>
         <translation>Certificate removal cancelled</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="435"/>
+        <location filename="../../core/mitm/certificate.py" line="591"/>
         <source>卸载证书失败（certutil 退出码 {}）</source>
         <translation>Could not remove the certificate (certutil exit code {})</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="443"/>
+        <location filename="../../core/mitm/certificate.py" line="599"/>
         <source>系统信任库中没有找到 {} 的 CA 证书</source>
         <translation>No {} CA certificate was found in the system trust store</translation>
     </message>
@@ -760,7 +830,7 @@
 <context>
     <name>CertificateStatusCard</name>
     <message>
-        <location filename="../../apps/certificate/views.py" line="132"/>
+        <location filename="../../apps/certificate/views.py" line="142"/>
         <source>重新检测</source>
         <translation>Re-check</translation>
     </message>
@@ -3399,54 +3469,54 @@
         <translation>The WireGuard key file is corrupt; delete {} and try again</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="501"/>
+        <location filename="../../core/mitm/facade.py" line="550"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="552"/>
+        <location filename="../../core/mitm/facade.py" line="601"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="662"/>
-        <location filename="../../core/mitm/facade.py" line="827"/>
+        <location filename="../../core/mitm/facade.py" line="711"/>
+        <location filename="../../core/mitm/facade.py" line="876"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="834"/>
+        <location filename="../../core/mitm/facade.py" line="883"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="839"/>
-        <location filename="../../core/mitm/facade.py" line="908"/>
+        <location filename="../../core/mitm/facade.py" line="888"/>
+        <location filename="../../core/mitm/facade.py" line="957"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="857"/>
+        <location filename="../../core/mitm/facade.py" line="906"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="880"/>
+        <location filename="../../core/mitm/facade.py" line="929"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="882"/>
+        <location filename="../../core/mitm/facade.py" line="931"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="886"/>
+        <location filename="../../core/mitm/facade.py" line="935"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="922"/>
+        <location filename="../../core/mitm/facade.py" line="971"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
@@ -3454,27 +3524,27 @@
 <context>
     <name>MitmRuntime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="179"/>
+        <location filename="../../core/mitm/runtime.py" line="210"/>
         <source>代理端口监听失败</source>
         <translation>The proxy could not start listening on its port</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="460"/>
+        <location filename="../../core/mitm/runtime.py" line="540"/>
         <source>端口 {} 已被占用</source>
         <translation>Port {} is already in use</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="959"/>
+        <location filename="../../core/mitm/runtime.py" line="1052"/>
         <source>mitmproxy 内核停止超时，无法重启</source>
         <translation>The mitmproxy core did not stop in time, so it cannot restart</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1371"/>
+        <location filename="../../core/mitm/runtime.py" line="1529"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1392"/>
+        <location filename="../../core/mitm/runtime.py" line="1550"/>
         <source>mitmproxy 任务执行超时</source>
         <translation>The mitmproxy task timed out</translation>
     </message>
@@ -3837,27 +3907,27 @@
 <context>
     <name>RegenerateCertDialog</name>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="21"/>
+        <location filename="../../apps/certificate/dialogs.py" line="32"/>
         <source>重新生成 CA 证书？</source>
         <translation>Regenerate the CA certificate?</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="25"/>
+        <location filename="../../apps/certificate/dialogs.py" line="36"/>
         <source>会删除现有的私钥与证书并生成一套全新的，操作无法撤销。</source>
         <translation>This deletes the existing private key and certificate and generates a brand new pair. It cannot be undone.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="32"/>
+        <location filename="../../apps/certificate/dialogs.py" line="43"/>
         <source>生成后需要重新安装到系统信任库；其他已导入证书的设备也要重新导入。</source>
         <translation>After generating, reinstall it into the system trust store; other devices that imported the certificate have to import it again.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="37"/>
+        <location filename="../../apps/certificate/dialogs.py" line="48"/>
         <source>重新生成</source>
         <translation>Regenerate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="38"/>
+        <location filename="../../apps/certificate/dialogs.py" line="49"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
@@ -5334,6 +5404,49 @@
     </message>
 </context>
 <context>
+    <name>TrustedCaDialog</name>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="81"/>
+        <source>信任额外的 CA 证书</source>
+        <translation>Trust additional CA certificates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="87"/>
+        <source>把测试环境的自签根证书加进 Ferret 的上游信任库。公共根证书会一并保留（Ferret 自动合并），正常站点不受影响。每行一个 .pem / .crt 文件路径。</source>
+        <translation>Add the self-signed root certificates of test environments to Ferret&apos;s upstream trust store. Public root certificates are kept as well (Ferret merges them automatically), so normal sites are unaffected. One .pem / .crt file path per line.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="99"/>
+        <source>添加文件…</source>
+        <translation>Add file…</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="107"/>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="108"/>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="127"/>
+        <source>选择 CA 证书文件</source>
+        <translation>Select a CA certificate file</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="129"/>
+        <source>CA 证书 (*.pem *.crt *.cer);;所有文件 (*)</source>
+        <translation>CA certificates (*.pem *.crt *.cer);;All files (*)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="156"/>
+        <source>第 {} 个文件里没有证书：{}</source>
+        <translation>No certificate found in file #{}: {}</translation>
+    </message>
+</context>
+<context>
     <name>WireGuardConfigDialog</name>
     <message>
         <location filename="../../apps/capture/views.py" line="1882"/>
@@ -5349,7 +5462,7 @@
 <context>
     <name>runtime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="108"/>
+        <location filename="../../core/mitm/runtime.py" line="109"/>
         <source>“{}”不是合法的 IP 地址</source>
         <translation>&quot;{}&quot; is not a valid IP address</translation>
     </message>
