@@ -15,6 +15,12 @@ from PySide6.QtWidgets import QApplication, QFileDialog
 from qfluentwidgets import FluentIcon, RoundMenu
 
 from ferret.apps.common.dialog import CommentDialog, TextCopyDialog
+from ferret.apps.common.flow.csv_export import (
+    CsvFieldDialog,
+    build_csv,
+    load_selected_keys,
+    save_selected_keys,
+)
 from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     FlowViewCapabilities,
@@ -296,6 +302,9 @@ class FlowExportMenu(RoundMenu):
         self.save_flows_action = BaseAction(
             parent=self, icon=FluentIcon.SAVE, text=self.tr("导出为 FLOW")
         )
+        self.csv_action = BaseAction(
+            parent=self, icon=FluentIcon.SAVE, text=self.tr("导出字段为 CSV…")
+        )
 
     def __init_action(self):
         """初始化菜单动作"""
@@ -316,6 +325,8 @@ class FlowExportMenu(RoundMenu):
         # 门控从 FlowContextMenu 一起搬过来，保持原来的语义不变
         if self.context_menu.capabilities.can_save_selection:
             self.addAction(self.save_flows_action)
+            # CSV 是「导出选区字段」，与导出 FLOW 同一份选区、同一道门控。
+            self.addAction(self.csv_action)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
@@ -345,6 +356,7 @@ class FlowExportMenu(RoundMenu):
         )
         self.har_action.triggered.connect(lambda: self.__export_file("har"))
         self.save_flows_action.triggered.connect(lambda: self.__export_file("flow"))
+        self.csv_action.triggered.connect(self.__export_csv)
 
     def refresh_selection_labels(self) -> None:
         """和重发一致：两个文件导出都作用于整个选区，把条数写进文案避免歧义。"""
@@ -352,9 +364,11 @@ class FlowExportMenu(RoundMenu):
         if count <= 1:
             self.har_action.setText(self.tr("导出为 HAR"))
             self.save_flows_action.setText(self.tr("导出为 FLOW"))
+            self.csv_action.setText(self.tr("导出字段为 CSV…"))
         else:
             self.har_action.setText(self.tr("导出 {} 条为 HAR").format(count))
             self.save_flows_action.setText(self.tr("导出 {} 条为 FLOW").format(count))
+            self.csv_action.setText(self.tr("导出 {} 条字段为 CSV…").format(count))
 
     def __flow_id(self) -> str:
         """从上下文行数据取出 flow id"""
@@ -600,6 +614,86 @@ class FlowExportMenu(RoundMenu):
         show_success(
             self.tr("成功"),
             self.tr("已导出 {} 条流量到 {}").format(len(flows), Path(path).name),
+            self.main_window,
+        )
+
+    def __export_csv(self) -> None:
+        """把当前选区的自选字段抽成 CSV（mitmproxy cut 的 GUI 等效物）。
+
+        数据源只读 `controller.flow_detail`（mitm 线程内一次性拉好的结构化字典，
+        AGENTS §3 红线：Qt 线程不碰活 flow）。字段由对话框勾选、抽取纯函数
+        `build_csv` 产 CSV 文本，两条出口：复制剪贴板 / 保存文件。
+        """
+        if not self.controller:
+            show_warning(self.tr("警告"), self.tr("控制器不可用"), self.main_window)
+            return
+
+        flows = list(self.context_menu.flows)
+        if not flows:
+            show_warning(
+                self.tr("警告"),
+                self.tr("请先选中要导出的流量"),
+                self.main_window,
+            )
+            return
+
+        dialog = CsvFieldDialog(len(flows), load_selected_keys(), self.main_window)
+        if not dialog.exec():
+            return
+        keys = dialog.selected_keys()
+        if not keys:
+            return
+        save_selected_keys(keys)
+
+        # 每条流量问一趟详情字典。取不到（controller 拿不到活 flow）就跳过这条，
+        # 而不是让整张表塌掉 —— 抽取本就是尽力而为的读操作。
+        details = []
+        for flow in flows:
+            detail = self.controller.flow_detail(flow.id)
+            if detail:
+                details.append(detail)
+        if not details:
+            show_warning(
+                self.tr("警告"),
+                self.tr("选中的流量暂无可导出的详情"),
+                self.main_window,
+            )
+            return
+
+        text = build_csv(details, keys)
+
+        if dialog.result_action == "clip":
+            QApplication.clipboard().setText(text)
+            show_success(
+                self.tr("成功"),
+                self.tr("已复制 {} 行到剪贴板").format(len(details)),
+                self.main_window,
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self.main_window,
+            self.tr("导出 CSV"),
+            self.__default_file_name(flows, ".csv"),
+            self.tr("CSV 文件 (*.csv)"),
+        )
+        # 用户取消返回空串，必须挡在写之前（同 __export_file 的坑）。
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+
+        try:
+            # utf-8-sig：带 BOM，Excel 双击打开中文表头不乱码。newline="" 交给
+            # csv 已产好的行结束符，不让文本层二次转换。
+            Path(path).write_text(text, encoding="utf-8-sig", newline="")
+        except OSError as exc:
+            show_error(self.tr("导出失败"), str(exc), self.main_window)
+            return
+
+        show_success(
+            self.tr("成功"),
+            self.tr("已导出 {} 条流量到 {}").format(len(details), Path(path).name),
             self.main_window,
         )
 
