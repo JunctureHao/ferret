@@ -50,6 +50,13 @@ class FerretMaster(Master):
         view: View | None = None,
     ) -> None:
         super().__init__(opts, event_loop=event_loop, with_termlog=False)
+        # 原生构造器把 LegacyLogEvents 挂到**根** logger 上且从不摘（上游靠
+        # PYTEST_CURRENT_TEST 换手，我们不用 pytest）。它把每条日志
+        # call_soon_threadsafe 回内核循环、发早已废弃的 add_log 钩子 —— 装上的
+        # mitmproxy 里已经没有任何 `def add_log` 收它，纯属空转；更要命的是内核停掉
+        # 后循环一关，应用里随便哪句 log 都会从 `Handler.emit` 里抛
+        # `RuntimeError: Event loop is closed`（emit 不兜异常，直接穿透调用方）。
+        self._legacy_log_events.uninstall()
         self.view = view if view is not None else View()
         self.proxyserver = Proxyserver()
         self.readfile = ReadFile()

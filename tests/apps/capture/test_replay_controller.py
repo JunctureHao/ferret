@@ -127,7 +127,12 @@ class CaptureControllerReplayTests(unittest.TestCase):
             path = Path(file.name)
         try:
             FlowFile.write(path, [make_http_flow()])
-            with taddons.context(self.runtime.master.client_playback):
+            with taddons.context(self.runtime.master.client_playback) as context:
+                # taddons.context 退出时只关循环，不摘它挂到根 logger 上的
+                # LegacyLogEvents（上游靠 PYTEST_CURRENT_TEST 换手，我们跑
+                # unittest）——留下一个指向死循环的 handler，之后任何一句 log
+                # 都会从 emit 里抛 RuntimeError，顺手摘掉。
+                self.addCleanup(context.master._legacy_log_events.uninstall)
                 self.controller.load_replay_file(path)
         finally:
             path.unlink(missing_ok=True)

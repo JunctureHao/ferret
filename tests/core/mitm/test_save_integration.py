@@ -24,6 +24,10 @@ class NativeSaveIntegrationTests(unittest.TestCase):
             path = Path(directory) / "native.flow"
             addon = Save()
             with taddons.context(addon) as context:
+                # taddons.context 退出时只关循环，不摘它挂到根 logger 上的
+                # LegacyLogEvents（上游靠 PYTEST_CURRENT_TEST 换手，我们跑
+                # unittest）——留下一个指向死循环的 handler，顺手摘掉。
+                self.addCleanup(context.master._legacy_log_events.uninstall)
                 context.options.save_stream_file = str(path)
                 flow = tflow.tflow(resp=True)
                 addon.request(flow)

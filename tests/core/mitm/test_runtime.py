@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import os
 import socket
 import unittest
@@ -7,6 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm import MitmRuntime, MitmRuntimeState
+from ferret.core.mitm.bindings import MitmLogHandler
+from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.modes import REVERSE_DEFAULT_PORT
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST
 
@@ -350,6 +354,48 @@ class EffectiveBlockPrivateTests(unittest.TestCase):
                         on._effective_block_private(),
                         off._effective_block_private(),
                     )
+
+
+class MasterLoggingTests(unittest.TestCase):
+    """内核装配不许在根 logger 上留东西。
+
+    原生 `Master.__init__` 把 `LegacyLogEvents` 挂上根 logger 且从不摘，它每条日志
+    都 `call_soon_threadsafe` 回内核循环发早已废弃的 add_log 钩子。停掉抓包后循环
+    一关，应用里随便哪句 log 都会从 `Handler.emit` 里抛 RuntimeError 穿透调用方
+    —— 一次抓包就够把之后所有日志变成地雷，所以 FerretMaster 构造时就摘掉它。
+    """
+
+    def setUp(self) -> None:
+        # 同进程先跑过的 `taddons.context` 用例若漏摘，根 logger 上会留一个指向
+        # 死循环的 LegacyLogEvents —— 本类钉的是「FerretMaster 装配不新增」，
+        # 先把前人漏摘的垃圾清掉再验（漏摘处已在各自用例里补摘，这里只是兜底）。
+        for handler in logging.getLogger().handlers[:]:
+            if isinstance(handler, MitmLogHandler):
+                handler.uninstall()
+
+    def _master(self) -> asyncio.AbstractEventLoop:
+        loop = asyncio.new_event_loop()
+        FerretMaster(event_loop=loop)
+        return loop
+
+    def test_assembly_leaves_no_handler_on_the_root_logger(self) -> None:
+        loop = self._master()
+        self.addCleanup(loop.close)
+        self.assertEqual(
+            [h for h in logging.getLogger().handlers if isinstance(h, MitmLogHandler)],
+            [],
+        )
+
+    def test_logging_survives_the_kernel_loop_going_away(self) -> None:
+        loop = self._master()
+        loop.close()
+        # 兜底 handler 只为压住 `lastResort` 往 stderr 打这条 WARNING，
+        # 真正要验的是这句 log 不抛。
+        root = logging.getLogger()
+        quiet = logging.NullHandler()
+        root.addHandler(quiet)
+        self.addCleanup(root.removeHandler, quiet)
+        logging.getLogger("ferret.test").warning("内核已停，日志照记")
 
 
 if __name__ == "__main__":
