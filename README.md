@@ -80,8 +80,8 @@ uv run python -m ferret.utils.scripts
 
 | Addon         | 功能         | 状态 |
 | ------------- | ------------ | ---- |
-| proxyauth     | 代理层认证   | ❌   |
-| upstream_auth | 上游代理认证 | ❌   |
+| proxyauth     | 代理层认证   | ✅  |
+| upstream_auth | 上游代理认证 | ✅  |
 
 ## 界面 / 辅助类（GUI 场景通常不需要）
 
@@ -93,7 +93,7 @@ uv run python -m ferret.utils.scripts
 | comment                    | 流量备注         | ✅   |
 | eventstore                 | 事件存储         | 🟡   |
 | browser                    | 打开浏览器       | 🟡   |
-| script                     | 加载 Python 脚本 | 🟡   |
+| script                     | 加载 Python 脚本 | ✅   |
 | keepserving                | 保持运行         | 🟡   |
 | errorcheck                 | 错误检查         | 🟡   |
 | server_side_events         | SSE 不支持的告警 | 🟡   |
