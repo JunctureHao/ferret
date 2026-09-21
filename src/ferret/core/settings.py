@@ -275,6 +275,39 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 上游 TLS 信任三选项（.plans/upstream-tls.md）：原生 tlsconfig 的 ssl_* 与
+    # add_upstream_certs_to_client_chain，四条通道共用一条 tls_start_server，
+    # 语义天然一致 —— 全局偏好，不设让路、不随通道回滚。
+    # 不校验上游服务器证书（原生默认 False）。顺带打开不安全重协商
+    # （tlsconfig.py 把它同时喂给 legacy_server_connect），文案已写明。
+    ssl_insecure = ConfigItem(
+        group="Proxy",
+        name="SslInsecure",
+        default=False,
+        validator=BoolValidator(),
+    )
+
+    # 额外信任的 CA 证书文件路径（.pem / .crt / .cer），留空 = 只认公共根。
+    # 只存**用户给的路径**：合并产物（公共根 + 用户根）是生成物，每次现算、
+    # 永不落盘（换机换目录后落盘路径就是死路径，见 core/mitm/certificate.py
+    # 的 build_trusted_ca_bundle）。和 gateway_rules 同一个坑：QConfig.set 开头
+    # `if item.value == value: return`，写回必须传新 list。
+    ssl_trusted_ca_files = ConfigItem(
+        group="Proxy",
+        name="SslTrustedCaFiles",
+        default=[],
+    )
+
+    # 向客户端拼接上游真实证书链（原生默认 False）。给做了证书锁定的 App 用，
+    # 与前两项正交 —— 下发时必须一并带上 upstream_cert=True，否则原生
+    # Core.configure 抛 OptionsError（见 core/mitm/runtime.py::ssl_option_updates）。
+    add_upstream_certs_to_client_chain = ConfigItem(
+        group="Proxy",
+        name="UpstreamCertsToClientChain",
+        default=False,
+        validator=BoolValidator(),
+    )
+
     # 网关规则，存 list[dict]（见 core/mitm/gateway.py 的 GatewayRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

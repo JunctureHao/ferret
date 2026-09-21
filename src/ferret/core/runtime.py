@@ -77,6 +77,11 @@ class ApplicationRuntime(QObject):
             anticache_plaintext=bool(CONFIG.get(CONFIG.anticache_plaintext)),
             dns_name_servers=list(CONFIG.get(CONFIG.dns_name_servers)),
             dns_use_hosts_file=bool(CONFIG.get(CONFIG.dns_use_hosts_file)),
+            ssl_insecure=bool(CONFIG.get(CONFIG.ssl_insecure)),
+            ssl_trusted_ca_files=list(CONFIG.get(CONFIG.ssl_trusted_ca_files)),
+            add_upstream_certs_to_client_chain=bool(
+                CONFIG.get(CONFIG.add_upstream_certs_to_client_chain)
+            ),
         )
 
     def start(self) -> None:
