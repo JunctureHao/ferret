@@ -5,6 +5,7 @@ import asyncio
 from ferret.core.mitm.addons import (
     CertDownloadAddon,
     FerretRewriteAddon,
+    FerretScriptAddon,
     FerretTlsConfig,
     GatewayL4Addon,
     GatewayL7Addon,
@@ -57,6 +58,8 @@ class FerretMaster(Master):
         # 自研统一重写引擎（plans/rewrite-ui.md）：原生 MapRemote / MapLocal /
         # ModifyBody / ModifyHeaders 四件退役，八个类型一个 addon、行序＝执行序。
         self.rewrite = FerretRewriteAddon()
+        # 用户脚本扩展（plans/scripts.md §3.2）：常驻无开关，空列表即全空转。
+        self.scripts = FerretScriptAddon()
         # 固定会话（StickyCookie / StickyAuth）：默认关，开关在设置页。排在重写类
         # 之后 —— 代理补回的 Cookie / Authorization 要压过用户对同名头的重写规则，
         # 否则「会话不丢」这条承诺会被自己的重写页拆台；排在 View 之前 —— 流量表
@@ -117,6 +120,11 @@ class FerretMaster(Master):
             # 了 —— 它在网关**之前**，高优先级的绕行规则否决不了它，屏蔽（出）改由
             # 网关自己回响应。
             GatewayL7Addon(self.gateway),
+            # 脚本必须排在网关之后：绕行/仅允许命中时 AddonHalt 截断派发，脚本
+            # 收不到用户明确说了不管的流量（与下面 intercept 同一语义）；也必须
+            # 排在重写之后：脚本拿到的是重写**后**的报文，与 View/断点所见一致
+            # （钉死语义，见 plans/scripts.md §3.2）。
+            self.scripts,
             # 必须在网关**之后**：绕行/仅允许命中时 GatewayL7Addon 抛 AddonHalt
             # 截断派发，断点因此收不到这条流量 —— 用户明确说了不管的流量，不该
             # 被断点拦下来。位置对齐原生 console master（intercept → view）。

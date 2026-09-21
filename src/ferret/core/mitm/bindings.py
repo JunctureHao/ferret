@@ -75,7 +75,8 @@ def _safe_join(directory: str, *pathnames: str) -> str | None:
 # - werkzeug 见上面的 _safe_join。colorama / markupsafe 只有 werkzeug 引用，桩掉
 #   werkzeug 之后它们自然不可达，不必单独立桩。
 # - ldap3 / mitmproxy.utils.htpasswd 是 proxyauth 的两条弃用分支，见下面的就地注释。
-# 别顺手把 script 也桩了：脚本功能后面要做，留着。
+# script 保持不桩（脚本功能已落地 core/mitm/scripts.py，plans/scripts.md §4）：
+# 我们从不 import mitmproxy.addons.script，它必须留着不桩。
 # 也别顺手把 proxyauth 桩回去：它已经解桩装载（master.py 的 ProxyAuth()）。
 _STUBBED_MODULES: dict[str, dict[str, Any]] = {
     "mitmproxy.addons.browser": {},
@@ -111,7 +112,7 @@ for _name, _attrs in _STUBBED_MODULES.items():
         setattr(_stub, _attr, _value)
     sys.modules.setdefault(_name, _stub)
 
-from mitmproxy import certs, connection, contentviews, ctx, io
+from mitmproxy import addonmanager, certs, connection, contentviews, ctx, hooks, io
 from mitmproxy.addons import export as export_module
 from mitmproxy.addons import tlsconfig as _tlsconfig_module
 from mitmproxy.addons.anticache import AntiCache
@@ -147,6 +148,7 @@ from mitmproxy.exceptions import (
 from mitmproxy.flow import Flow
 from mitmproxy.flowfilter import parse as parse_filter
 from mitmproxy.http import Headers, HTTPFlow, Request, Response
+from mitmproxy.log import MitmLogHandler
 from mitmproxy.master import Master
 from mitmproxy.net.http import status_codes
 
@@ -200,6 +202,7 @@ __all__ = [
     "Intercept",
     "LocalRedirectorInstance",
     "Master",
+    "MitmLogHandler",
     "NextLayer",
     "Opcode",
     "Options",
@@ -223,6 +226,7 @@ __all__ = [
     "View",
     "WebSocketData",
     "WebSocketMessage",
+    "addonmanager",
     "assemble_request_head",
     "assemble_response_head",
     "certs",
@@ -230,6 +234,7 @@ __all__ = [
     "contentviews",
     "emoji",
     "export_module",
+    "hooks",
     "http_url",
     "human",
     "io",

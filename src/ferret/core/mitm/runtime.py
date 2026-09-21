@@ -35,6 +35,7 @@ from ferret.core.mitm.modes import (
     validate_mode_specs,
 )
 from ferret.core.mitm.rewrite import RewriteRule, RewriteRuleSet
+from ferret.core.mitm.scripts import ScriptEntry
 from ferret.core.mitm.wsframe import latest_frame, ws_close
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
@@ -268,6 +269,7 @@ class _MitmThread(QThread):
         self._apply_gateway_rules(master)
         self._apply_block_options(master)
         self._apply_rewrite_rules(master)
+        self._apply_scripts(master)
         self._apply_intercept_rules(master)
         self._apply_sticky_session(master)
         self._apply_anticache_plaintext(master)
@@ -328,6 +330,17 @@ class _MitmThread(QThread):
             log.warning("重写规则无法应用，已忽略: %s", exc)
             return
         master.rewrite.set_rules(snapshot, enabled=self.runtime.rewrite_enabled)
+
+    def _apply_scripts(self, master: FerretMaster) -> None:
+        """Seed the script batch before serving traffic (on the mitm loop).
+
+        状态回调也在这里接：FerretScriptAddon 只在 mitm 线程上被读写，回调本身
+        只做一次 `Signal.emit`（与 `GatewayState.on_suspend_changed` 同一条路子）。
+        set_scripts 绝不抛 —— 坏脚本只落成 ERROR 状态，不能拖死内核启动
+        （与 `_apply_rewrite_rules` 的播种姿态一致）。
+        """
+        master.scripts.on_status = self.runtime.script_status_changed.emit
+        master.scripts.set_scripts(self.runtime.scripts)
 
     def _apply_intercept_rules(self, master: FerretMaster) -> None:
         """Seed the breakpoint option before serving traffic (on the mitm loop).
@@ -485,6 +498,9 @@ class MitmRuntime(QObject):
     sse_ended = Signal(str)
     # 编辑页手工发送的落地结果：ComposeResult 值对象（见 core/mitm/compose.py）。
     compose_result = Signal(object)
+    # 脚本装载状态变更：path + ScriptStatus 值对象（core/mitm/scripts.py），
+    # 由 FerretScriptAddon.on_status 回调经本信号跨线程送达（与 compose_result 同形）。
+    script_status_changed = Signal(str, object)
 
     _master_created = Signal(int, object)
     _master_running = Signal(int)
@@ -578,6 +594,9 @@ class MitmRuntime(QObject):
         # settings.py 零改动）—— 每次启动都是开，「临时下发空规则」的语义由
         # 这个内存位承担，不碰各行规则的 enabled 落盘值。
         self.rewrite_enabled = True
+        # 用户脚本清单（plans/scripts.md）：由控制器层在启动时从 CONFIG 播种，
+        # 构造器不读 CONFIG（与 rewrite/gateway 规则同一姿态）。
+        self.scripts: list[ScriptEntry] = []
         self.intercept_rules: list[InterceptRule] = []
         # 断点默认**关**：拦截会把客户端连接一直钉住等人处理，一启动就生效等于用户
         # 还没打开界面、流量就先卡住了。开关由界面显式打开（见 core/settings.py 的
@@ -1049,6 +1068,42 @@ class MitmRuntime(QObject):
             # 同一条纪律：下发失败内存副本回滚，界面显示的状态必须内核真收到了。
             self.rewrite_rules, self.rewrite_enabled = previous
             raise
+
+    def apply_scripts(self, entries: list[ScriptEntry]) -> None:
+        """Store script entries and push them to the Master when one runs.
+
+        与 `apply_rewrite_rules` 逐行同构：整批先过 `validate()`（任何一条不合法
+        整批回滚抛 ValueError），存内存副本 `self.scripts`，在跑则经 ``self.call``
+        把清单推给自研 addon。`FerretScriptAddon.set_scripts` 本身绝不抛（坏脚本
+        只落成状态），但 `self.call` 会抛运行期故障，下发失败同样回滚。
+
+        Raises:
+            ValueError: 任何一条脚本条目不合法（整批回滚）。
+        """
+        previous = self.scripts
+        candidate = list(entries)
+        try:
+            for entry in candidate:
+                entry.validate()
+        except ValueError:
+            self.scripts = previous
+            raise
+        self.scripts = candidate
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(lambda: master.scripts.set_scripts(self.scripts))
+        except Exception:
+            self.scripts = previous
+            raise
+
+    def reload_script(self, path: str) -> None:
+        """强制重载一条脚本；内核没跑是 no-op（下次启动装载的就是新内容）。"""
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        self.call(lambda: master.scripts.reload(path))
 
     def apply_intercept_rules(
         self,

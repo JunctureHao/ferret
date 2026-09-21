@@ -116,6 +116,15 @@ from ferret.core.mitm.runtime import (
     anticache_option_updates,
     sticky_session_option_updates,
 )
+from ferret.core.mitm.scripts import (
+    SCRIPT_ORIGIN_IMPORT,
+    SCRIPT_ORIGIN_NEW,
+    ScriptEntry,
+    ScriptState,
+    ScriptStatus,
+    scripts_from_config,
+    scripts_to_config,
+)
 from ferret.core.mitm.sse import (
     DEFAULT_EVENT,
     SSE_BODY_LIMIT,
@@ -157,6 +166,8 @@ __all__ = [
     "REPLACE_KINDS",
     "REPLACE_RESPONSE_DEFAULT_STATUS",
     "REWRITE_ANSWERED_KEY",
+    "SCRIPT_ORIGIN_IMPORT",
+    "SCRIPT_ORIGIN_NEW",
     "SSE_BODY_LIMIT",
     "SSE_CONTENT_TYPE",
     "STICKY_SESSION_OPTIONS",
@@ -204,6 +215,9 @@ __all__ = [
     "RewriteLogic",
     "RewriteRule",
     "RewriteRuleSet",
+    "ScriptEntry",
+    "ScriptState",
+    "ScriptStatus",
     "SseEvent",
     "SseFeeder",
     "SystemCertificateService",
@@ -243,6 +257,8 @@ __all__ = [
     "read_replacement",
     "rewrite_rules_from_config",
     "rewrite_rules_to_config",
+    "scripts_from_config",
+    "scripts_to_config",
     "split_spec",
     "sticky_session_option_updates",
     "validate_local_spec",

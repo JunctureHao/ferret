@@ -3233,52 +3233,57 @@
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../../apps/window.py" line="109"/>
+        <location filename="../../apps/window.py" line="115"/>
         <source>捕获</source>
         <translation>Captures</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="112"/>
+        <location filename="../../apps/window.py" line="118"/>
         <source>会话</source>
         <translation>Sessions</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="115"/>
+        <location filename="../../apps/window.py" line="121"/>
         <source>网关</source>
         <translation>Gateway</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="118"/>
+        <location filename="../../apps/window.py" line="124"/>
         <source>重写</source>
         <translation>Rewrite</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="121"/>
+        <location filename="../../apps/window.py" line="127"/>
         <source>断点</source>
         <translation>Intercept</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="124"/>
+        <location filename="../../apps/window.py" line="130"/>
         <source>请求编辑</source>
         <translation>Compose</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="130"/>
+        <location filename="../../apps/window.py" line="133"/>
+        <source>脚本</source>
+        <translation>Scripts</translation>
+    </message>
+    <message>
+        <location filename="../../apps/window.py" line="138"/>
         <source>证书</source>
         <translation>Certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="136"/>
+        <location filename="../../apps/window.py" line="144"/>
         <source>设置</source>
         <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="170"/>
+        <location filename="../../apps/window.py" line="178"/>
         <source>断点拦下 {} 条流量，等待处理</source>
         <translation>Intercepted {} flow(s), waiting to be handled</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="185"/>
+        <location filename="../../apps/window.py" line="193"/>
         <source>在 Compose 中编辑失败</source>
         <translation>Edit in Compose failed</translation>
     </message>
@@ -3379,69 +3384,69 @@
 <context>
     <name>MitmFacade</name>
     <message>
-        <location filename="../../core/mitm/facade.py" line="49"/>
+        <location filename="../../core/mitm/facade.py" line="50"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="237"/>
+        <location filename="../../core/mitm/facade.py" line="238"/>
         <source>无法写入 WireGuard 密钥文件：{}</source>
         <translation>Cannot write the WireGuard key file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="248"/>
+        <location filename="../../core/mitm/facade.py" line="249"/>
         <source>WireGuard 密钥文件已损坏，删除 {} 后重试</source>
         <translation>The WireGuard key file is corrupt; delete {} and try again</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="477"/>
+        <location filename="../../core/mitm/facade.py" line="501"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="528"/>
+        <location filename="../../core/mitm/facade.py" line="552"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="638"/>
-        <location filename="../../core/mitm/facade.py" line="803"/>
+        <location filename="../../core/mitm/facade.py" line="662"/>
+        <location filename="../../core/mitm/facade.py" line="827"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="810"/>
+        <location filename="../../core/mitm/facade.py" line="834"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="815"/>
-        <location filename="../../core/mitm/facade.py" line="884"/>
+        <location filename="../../core/mitm/facade.py" line="839"/>
+        <location filename="../../core/mitm/facade.py" line="908"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="833"/>
+        <location filename="../../core/mitm/facade.py" line="857"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="856"/>
+        <location filename="../../core/mitm/facade.py" line="880"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="858"/>
+        <location filename="../../core/mitm/facade.py" line="882"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="862"/>
+        <location filename="../../core/mitm/facade.py" line="886"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="898"/>
+        <location filename="../../core/mitm/facade.py" line="922"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
@@ -3449,27 +3454,27 @@
 <context>
     <name>MitmRuntime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="178"/>
+        <location filename="../../core/mitm/runtime.py" line="179"/>
         <source>代理端口监听失败</source>
         <translation>The proxy could not start listening on its port</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="447"/>
+        <location filename="../../core/mitm/runtime.py" line="460"/>
         <source>端口 {} 已被占用</source>
         <translation>Port {} is already in use</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="940"/>
+        <location filename="../../core/mitm/runtime.py" line="959"/>
         <source>mitmproxy 内核停止超时，无法重启</source>
         <translation>The mitmproxy core did not stop in time, so it cannot restart</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1316"/>
+        <location filename="../../core/mitm/runtime.py" line="1371"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1337"/>
+        <location filename="../../core/mitm/runtime.py" line="1392"/>
         <source>mitmproxy 任务执行超时</source>
         <translation>The mitmproxy task timed out</translation>
     </message>
@@ -3505,15 +3510,64 @@
     </message>
 </context>
 <context>
+    <name>NewScriptDialog</name>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="52"/>
+        <source>新建脚本</source>
+        <translation>New script</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="60"/>
+        <source>保存到：{}</source>
+        <translation>Save to: {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="71"/>
+        <source>创建</source>
+        <translation>Create</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="72"/>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="97"/>
+        <location filename="../../apps/scripts/dialogs.py" line="105"/>
+        <source>请输入文件名</source>
+        <translation>Enter a file name</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="99"/>
+        <source>文件名需以 .py 结尾</source>
+        <translation>File name must end with .py</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="102"/>
+        <source>文件名不能包含 {}</source>
+        <translation>File name cannot contain {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="107"/>
+        <source>{} 是系统保留名</source>
+        <translation>{} is a reserved system name</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="109"/>
+        <source>同名文件已存在</source>
+        <translation>A file with that name already exists</translation>
+    </message>
+</context>
+<context>
     <name>PinButton</name>
     <message>
-        <location filename="../../apps/window.py" line="276"/>
-        <location filename="../../apps/window.py" line="302"/>
+        <location filename="../../apps/window.py" line="284"/>
+        <location filename="../../apps/window.py" line="310"/>
         <source>置顶</source>
         <translation>Pin window</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="299"/>
+        <location filename="../../apps/window.py" line="307"/>
         <source>取消置顶</source>
         <translation>Unpin window</translation>
     </message>
@@ -4409,6 +4463,363 @@
     </message>
 </context>
 <context>
+    <name>ScriptEditorPanel</name>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="84"/>
+        <source>保存并重载</source>
+        <translation>Save and reload</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="85"/>
+        <source>另存为</source>
+        <translation>Save as</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="86"/>
+        <source>重载</source>
+        <translation>Reload</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="88"/>
+        <source>在编辑器中打开</source>
+        <translation>Open in editor</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="95"/>
+        <location filename="../../apps/scripts/editors.py" line="214"/>
+        <source>加载错误</source>
+        <translation>Load error</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="99"/>
+        <source>选择左侧的脚本查看内容</source>
+        <translation>Select a script on the left to view it</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="272"/>
+        <source>文件读不到，内容无法显示</source>
+        <translation>File cannot be read, so its contents are unavailable</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="276"/>
+        <source>导入的脚本只读，改动请用系统编辑器</source>
+        <translation>Imported scripts are read-only; edit them in your system editor</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/editors.py" line="293"/>
+        <source>加载错误（保存后重新校验）</source>
+        <translation>Load error (re-checked after saving)</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptOrigin</name>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="54"/>
+        <source>导入</source>
+        <translation>Imported</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="55"/>
+        <source>新建</source>
+        <translation>Created</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptRemoveDialog</name>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="133"/>
+        <source>移除&quot;{}&quot;？</source>
+        <translation>Remove &quot;{}&quot;?</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="135"/>
+        <source>移除 {} 个脚本？</source>
+        <translation>Remove {} scripts?</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="138"/>
+        <source>默认只从列表移除，脚本文件保留在磁盘上。</source>
+        <translation>By default only the list entry goes away; the script file stays on disk.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="141"/>
+        <source>同时删除脚本文件（不可撤销）</source>
+        <translation>Delete the script file as well (cannot be undone)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="144"/>
+        <source>只删除应用内新建的脚本文件</source>
+        <translation>Only deletes script files created in the app</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="146"/>
+        <source>移除</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/dialogs.py" line="147"/>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptState</name>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="36"/>
+        <source>已装载</source>
+        <translation>Loaded</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="37"/>
+        <source>加载失败</source>
+        <translation>Load failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="38"/>
+        <source>文件缺失</source>
+        <translation>File missing</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="39"/>
+        <source>已停用</source>
+        <translation>Disabled</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="51"/>
+        <source>待装载</source>
+        <translation>Not loaded yet</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptTableModel</name>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="114"/>
+        <source>启用</source>
+        <translation>Enabled</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="115"/>
+        <source>名称</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="116"/>
+        <source>来源</source>
+        <translation>Source</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="117"/>
+        <source>状态</source>
+        <translation>State</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="118"/>
+        <source>路径</source>
+        <translation>Path</translation>
+    </message>
+</context>
+<context>
+    <name>Scripts</name>
+    <message>
+        <location filename="../../apps/scripts/models.py" line="65"/>
+        <source>脚本以应用同等权限执行，仅加载可信来源。</source>
+        <translation>Scripts run with the same privileges as the app; only load sources you trust.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/scripts.py" line="58"/>
+        <source>脚本路径不能为空</source>
+        <translation>Script path cannot be empty</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/scripts.py" line="61"/>
+        <source>脚本必须是 .py 文件</source>
+        <translation>Script must be a .py file</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/scripts.py" line="175"/>
+        <source>注意：打包版本自带 Python 环境，脚本无法 import 额外安装的第三方包。</source>
+        <translation>Note: the packaged build ships its own Python environment, so scripts cannot import third-party packages installed elsewhere.</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptsController</name>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="121"/>
+        <source>已添加 {} 个脚本</source>
+        <translation>Added {} scripts</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="130"/>
+        <source>新建脚本失败</source>
+        <translation>Could not create script</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="133"/>
+        <source>已新建脚本</source>
+        <translation>Script created</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="150"/>
+        <source>已移除 {} 个脚本</source>
+        <translation>Removed {} scripts</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="160"/>
+        <source>删除文件失败</source>
+        <translation>Could not delete file</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="213"/>
+        <source>保存失败</source>
+        <translation>Save failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="216"/>
+        <source>已保存并重载</source>
+        <translation>Saved and reloaded</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="224"/>
+        <source>重载失败</source>
+        <translation>Reload failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/controllers.py" line="237"/>
+        <source>脚本未生效</source>
+        <translation>Scripts not applied</translation>
+    </message>
+</context>
+<context>
+    <name>ScriptsInterface</name>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="110"/>
+        <location filename="../../apps/scripts/views.py" line="167"/>
+        <location filename="../../apps/scripts/views.py" line="379"/>
+        <source>导入脚本</source>
+        <translation>Import scripts</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="111"/>
+        <source>引用磁盘上现有的 .py 文件，不复制</source>
+        <translation>References existing .py files on disk, without copying them</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="112"/>
+        <location filename="../../apps/scripts/views.py" line="168"/>
+        <source>新建脚本</source>
+        <translation>New script</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="115"/>
+        <source>搜索脚本</source>
+        <translation>Search scripts</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="122"/>
+        <location filename="../../apps/scripts/views.py" line="503"/>
+        <source>重载</source>
+        <translation>Reload</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="128"/>
+        <location filename="../../apps/scripts/views.py" line="508"/>
+        <source>移除</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="156"/>
+        <source>暂无脚本</source>
+        <translation>No scripts yet</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="159"/>
+        <source>脚本按 mitmproxy 的钩子模型参与流量处理，写 request/response 等函数即可</source>
+        <translation>Scripts join traffic handling through mitmproxy&apos;s hook model: just write request/response and friends</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="287"/>
+        <source>有未保存的改动</source>
+        <translation>Unsaved changes</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="288"/>
+        <source>&quot;{}&quot; 的改动还没保存，保存后会立即重载。</source>
+        <translation>Changes to &quot;{}&quot; are not saved yet; saving reloads the script right away.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="293"/>
+        <source>保存并重载</source>
+        <translation>Save and reload</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="294"/>
+        <source>放弃改动</source>
+        <translation>Discard changes</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="367"/>
+        <source>成功</source>
+        <translation>Success</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="381"/>
+        <source>Python 脚本 (*.py)</source>
+        <translation>Python scripts (*.py)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="386"/>
+        <source>提示</source>
+        <translation>Notice</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="386"/>
+        <source>脚本已在列表中</source>
+        <translation>Script is already in the list</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="406"/>
+        <source>另存为</source>
+        <translation>Save as</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="423"/>
+        <source>打开失败</source>
+        <translation>Could not open</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="424"/>
+        <source>系统没有关联可打开 .py 文件的程序</source>
+        <translation>No application is associated with .py files</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="458"/>
+        <location filename="../../apps/scripts/views.py" line="489"/>
+        <source>启用</source>
+        <translation>Enable</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="458"/>
+        <location filename="../../apps/scripts/views.py" line="496"/>
+        <source>停用</source>
+        <translation>Disable</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="469"/>
+        <source>上移</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="475"/>
+        <source>下移</source>
+        <translation>Move down</translation>
+    </message>
+    <message>
+        <location filename="../../apps/scripts/views.py" line="482"/>
+        <source>在编辑器中打开</source>
+        <translation>Open in editor</translation>
+    </message>
+</context>
+<context>
     <name>SessionController</name>
     <message>
         <location filename="../../apps/session/controllers.py" line="168"/>
@@ -4846,7 +5257,7 @@
 <context>
     <name>SystemTray</name>
     <message>
-        <location filename="../../apps/window.py" line="247"/>
+        <location filename="../../apps/window.py" line="255"/>
         <source>退出</source>
         <translation>Quit</translation>
     </message>
@@ -4938,7 +5349,7 @@
 <context>
     <name>runtime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="107"/>
+        <location filename="../../core/mitm/runtime.py" line="108"/>
         <source>“{}”不是合法的 IP 地址</source>
         <translation>&quot;{}&quot; is not a valid IP address</translation>
     </message>

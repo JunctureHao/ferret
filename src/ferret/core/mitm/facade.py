@@ -33,6 +33,7 @@ from ferret.core.mitm.modes import (
 )
 from ferret.core.mitm.rewrite import RewriteRule
 from ferret.core.mitm.runtime import MitmRuntime
+from ferret.core.mitm.scripts import ScriptEntry, ScriptStatus
 from ferret.core.mitm.sse import SseEvent
 from ferret.core.mitm.wsframe import WsClose, WsFrame, ws_close, ws_frames
 from ferret.core.network import LOOPBACK_HOST, detect_lan_address
@@ -283,6 +284,29 @@ class MitmFacade:
     def set_rewrite_enabled(self, enabled: bool) -> None:
         """Flip the rewrite master switch; applied immediately when it runs."""
         self.runtime.apply_rewrite_rules(enabled=enabled)
+
+    # —— 用户脚本 ——
+
+    @property
+    def scripts(self) -> list[ScriptEntry]:
+        """脚本清单（内存副本）。装载状态变更走 `runtime.script_status_changed`。"""
+        return list(self.runtime.scripts)
+
+    def set_scripts(self, entries: list[ScriptEntry]) -> None:
+        """Replace the script entries; applied immediately when the kernel runs."""
+        self.runtime.apply_scripts(entries)
+
+    def reload_script(self, path: str) -> None:
+        """强制重载一条脚本；内核没跑是 no-op。"""
+        self.runtime.reload_script(path)
+
+    @property
+    def script_statuses(self) -> dict[str, ScriptStatus]:
+        """各条脚本的装载状态快照；内核没跑返回空表。"""
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
+            return {}
+        return self.runtime.call(lambda: dict(master.scripts.statuses))
 
     # —— 固定会话 ——
 

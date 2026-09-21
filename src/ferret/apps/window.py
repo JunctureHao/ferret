@@ -30,6 +30,8 @@ from ferret.apps.intercept.views import InterceptInterface
 from ferret.apps.intercept.window import InterceptWindow
 from ferret.apps.rewrite.controllers import RewriteController
 from ferret.apps.rewrite.views import RewriteInterface
+from ferret.apps.scripts.controllers import ScriptsController
+from ferret.apps.scripts.views import ScriptsInterface
 from ferret.apps.session.controllers import SessionController
 from ferret.apps.session.views import SessionsInterface
 from ferret.apps.settings.views import SettingsInterface
@@ -54,8 +56,8 @@ class MainWindow(FluentWindow):
         self.sessions_interface = SessionsInterface(
             controller=self.session_controller, parent=self
         )
-        # 三个规则控制器都建在 runtime.start() 之前：构造时就把已存规则交给 facade，
-        # Master 起来时 _run_master 会在服务第一个请求前下发。
+        # 规则控制器都建在 runtime.start() 之前：构造时就把已存规则交给 facade，
+        # Master 起来时 _run_master 会在服务第一个请求前下发（脚本清单同理）。
         self.gateway_controller = GatewayController(self, mitm=self.runtime.mitm)
         self.gateway_interface = GatewayInterface(
             controller=self.gateway_controller, parent=self
@@ -71,6 +73,10 @@ class MainWindow(FluentWindow):
         self.compose_controller = ComposeController(self, mitm=self.runtime.mitm)
         self.compose_interface = ComposeInterface(
             controller=self.compose_controller, parent=self
+        )
+        self.scripts_controller = ScriptsController(self, mitm=self.runtime.mitm)
+        self.scripts_interface = ScriptsInterface(
+            controller=self.scripts_controller, parent=self
         )
         # 断点窗口是独立顶层窗口，构造时不能给 Qt 父对象（`qframelesswindow` 的
         # `updateFrameless()` 不补 `Qt.Window`，给了父对象就退化成子控件），所以它的
@@ -123,6 +129,8 @@ class MainWindow(FluentWindow):
         self.addSubInterface(
             self.compose_interface, FluentIcon.SEND, self.tr("请求编辑")
         )
+
+        self.addSubInterface(self.scripts_interface, FluentIcon.CODE, self.tr("脚本"))
 
         self.addSubInterface(
             self.certificate_interface,

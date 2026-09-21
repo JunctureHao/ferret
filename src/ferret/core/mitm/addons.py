@@ -1,17 +1,22 @@
 """Ferret's reusable mitmproxy addons."""
 
 import mimetypes
+import traceback
 import urllib.parse
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from types import ModuleType
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import (
     AddonHalt,
     HTTPFlow,
+    Master,
     Response,
     TlsConfig,
+    addonmanager,
     connection,
+    hooks,
     human,
     safe_join,
     server_hooks,
@@ -32,6 +37,12 @@ from ferret.core.mitm.rewrite import (
     RewriteKind,
     RewriteRuleSet,
     read_replacement,
+)
+from ferret.core.mitm.scripts import (
+    ScriptEntry,
+    ScriptState,
+    ScriptStatus,
+    load_script_module,
 )
 from ferret.core.settings import APP_NAME
 
@@ -518,7 +529,9 @@ class FerretRewriteAddon:
         if flow.response is not None:
             return
         root = Path(entry.rule.replacement.strip()).expanduser()
-        candidates = [root] if root.is_file() else self._local_candidates(root, entry, url)
+        candidates = (
+            [root] if root.is_file() else self._local_candidates(root, entry, url)
+        )
         local_file = next((c for c in candidates if c.is_file()), None)
         if local_file is None:
             if candidates:
@@ -543,9 +556,7 @@ class FerretRewriteAddon:
         flow.metadata[REWRITE_ANSWERED_KEY] = "1"
 
     @staticmethod
-    def _local_candidates(
-        root: Path, entry: CompiledRewrite, url: str
-    ) -> list[Path]:
+    def _local_candidates(root: Path, entry: CompiledRewrite, url: str) -> list[Path]:
         """目录映射的候选文件，逐行对齐原生 `MapLocal.file_candidates`。"""
         match = entry.url.search(url)
         assert match is not None  # 调用方已用同一 pattern 筛过
@@ -596,9 +607,172 @@ class FerretRewriteAddon:
         flow.metadata[REWRITE_ANSWERED_KEY] = "1"
 
 
+class FerretScriptAddon:
+    """用户脚本扩展（plans/scripts.md §3.2）：装载/卸载自研，钩子派发借原生。
+
+    **只在 mitm 线程上被读写** —— 装载走 importlib、注册走 `master.addons`，
+    两者都不是线程安全资源；下发经 `MitmRuntime.call` marshal 到 mitm 循环上，
+    这里不需要锁。
+
+    为什么不装原生 ScriptLoader / Script：`ctx` 红线、`script.run` 命令行件、
+    watcher 静默吞配置，四条理由见 plans/scripts.md §2。这里只做两件原生做不了
+    的事：装载/卸载脚本模块、把异常翻译成状态快照；钩子怎么派发到脚本模块是
+    `addonmanager` 的原生机制，不重写。
+
+    派发链入口是本 addon 的 `addons` 属性，**不是** `register`：`register(ns)`
+    只发 LoadHook、写 lookup、收集命令，不进 `self.chain`（`add()` 才 append）；
+    `trigger_event` 只遍历 chain，靠 `traverse()` 递归 `a.addons` 把子 addon
+    带出来 —— 原生 `Script.addons` 就是 `return [self.ns]`。因此这里按
+    `entries` 列表序返回当前已装载的全部 ns（列表序＝执行序，同重写引擎行序
+    语义），父在链上的槽位即脚本们的实际执行槽位；`register(ns)` 只为让
+    `remove(ns)` 查得到（registry 一致性）。
+    """
+
+    def __init__(self) -> None:
+        self._log = get_logger("mitmproxy")
+        self.entries: list[ScriptEntry] = []
+        self.loaded: dict[str, ModuleType] = {}
+        self.statuses: dict[str, ScriptStatus] = {}
+        # 状态变更回调：runtime 注入，只做一次 Signal.emit（与
+        # GatewayState.on_suspend_changed 同一条路子）。
+        self.on_status: Callable[[str, ScriptStatus], None] | None = None
+        self._master: Master | None = None
+        # 内核是否已 configure 完：装载晚于内核启动时要给新 ns 补发生命周期事件
+        # （原生 Script.loadscript 同款对齐）。
+        self._configured = False
+
+    def load(self, loader: addonmanager.Loader) -> None:
+        # addons 拿不到 ctx，master 引用是 load 钩子里 loader 给的（原生同款通道）。
+        self._master = loader.master
+
+    def configure(self, updated: set[str]) -> None:
+        self._configured = True
+
+    @property
+    def addons(self) -> list[ModuleType]:
+        """当前生效的脚本 ns，按 entries 列表序（原生 traverse() 经此递归）。"""
+        return [self.loaded[e.path] for e in self.entries if e.path in self.loaded]
+
+    def set_scripts(self, entries: list[ScriptEntry]) -> None:
+        """整批下发（网关规则模式：内存副本＋self.call）。绝不抛异常。
+
+        差量执行：path 未变、启用位未变且已装载的条目不动；新增/重启用 → 装载；
+        删除/停用 → `master.addons.remove(ns)`。装载失败只记状态，其余脚本不受影响。
+        """
+        if self._master is None:
+            # master 装配前就下发不该发生（播种在 Master 构造之后），防御性兜底。
+            self._log.warning("脚本下发时 master 尚未装配，已忽略")
+            return
+        previous = {e.path: e for e in self.entries}
+        previous_statuses = dict(self.statuses)
+        wanted = {e.path: e for e in entries}
+        # 先卸：删除的、停用的、以及（路径在但内容可能要换的）由 _load_one 自处理。
+        for path, old in previous.items():
+            new = wanted.get(path)
+            gone = new is None or not new.enabled or not old.enabled
+            if gone and path in self.loaded:
+                self._unload_one(path)
+        # 再装：启用中的条目里，未装载的（新增/重启用）装载；已装载的原样留着。
+        for entry in entries:
+            if entry.enabled and entry.path not in self.loaded:
+                self._load_one(entry)
+        self.entries = list(entries)
+        self._sync_statuses(previous_statuses)
+
+    def reload(self, path: str) -> None:
+        """单条强制重装（UI「重载」按钮）；未知路径是 no-op。"""
+        entry = next((e for e in self.entries if e.path == path), None)
+        if entry is None or not entry.enabled:
+            return
+        if self._master is None:
+            self._log.warning("脚本重载时 master 尚未装配，已忽略")
+            return
+        previous_statuses = dict(self.statuses)
+        if path in self.loaded:
+            self._unload_one(path)
+        self._load_one(entry)
+        self._sync_statuses(previous_statuses)
+
+    def _load_one(self, entry: ScriptEntry) -> None:
+        """装载一条并注册；任何一步炸 → 该条 ERROR，异常不出本函数。"""
+        assert self._master is not None  # 调用方已守
+        old_ns = self.loaded.pop(entry.path, None)
+        if old_ns is not None:
+            with addonmanager.safecall():
+                self._master.addons.remove(old_ns)
+        try:
+            ns = load_script_module(entry.path, self._report_load_error)
+        except Exception:  # noqa: BLE001
+            # load_script_module 自己不抛（全经 report），这里防御 report 回调炸。
+            self.statuses[entry.path] = ScriptStatus(
+                ScriptState.ERROR, traceback.format_exc()
+            )
+            return
+        if ns is None:
+            # 状态已由 _report_load_error 写。
+            return
+        try:
+            with addonmanager.safecall():
+                self._master.addons.register(ns)
+            if self._configured:
+                self._master.addons.invoke_addon_sync(
+                    ns, hooks.ConfigureHook(self._master.options.keys())
+                )
+                self._master.addons.invoke_addon_sync(ns, hooks.RunningHook())
+        except Exception:  # noqa: BLE001
+            self.statuses[entry.path] = ScriptStatus(
+                ScriptState.ERROR, traceback.format_exc()
+            )
+            with addonmanager.safecall():
+                self._master.addons.remove(ns)
+            return
+        self.loaded[entry.path] = ns
+        self.statuses[entry.path] = ScriptStatus(ScriptState.LOADED)
+
+    def _unload_one(self, path: str) -> None:
+        assert self._master is not None  # 调用方已守
+        ns = self.loaded.pop(path, None)
+        if ns is not None:
+            with addonmanager.safecall():
+                self._master.addons.remove(ns)
+
+    def _report_load_error(self, path: str, exc: BaseException) -> None:
+        if isinstance(exc, FileNotFoundError):
+            self.statuses[path] = ScriptStatus(ScriptState.MISSING)
+        else:
+            self.statuses[path] = ScriptStatus(
+                ScriptState.ERROR,
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            )
+
+    def _sync_statuses(self, previous: dict[str, ScriptStatus]) -> None:
+        """补齐停用条目的状态、清掉已删除条目，并对变化的路径发回调。
+
+        ``previous`` 是本次下发/重载**之前**的快照（_load_one 会就地写
+        self.statuses，变化检测必须对着旧快照比）。
+        """
+        changed: list[tuple[str, ScriptStatus]] = []
+        current: dict[str, ScriptStatus] = {}
+        for entry in self.entries:
+            if entry.enabled:
+                status = self.statuses.get(
+                    entry.path, ScriptStatus(ScriptState.MISSING)
+                )
+            else:
+                status = ScriptStatus(ScriptState.DISABLED)
+            current[entry.path] = status
+            if previous.get(entry.path) != status:
+                changed.append((entry.path, status))
+        self.statuses = current
+        if self.on_status is not None:
+            for path, status in changed:
+                self.on_status(path, status)
+
+
 __all__ = [
     "SUSPEND_LIMIT",
     "FerretRewriteAddon",
+    "FerretScriptAddon",
     "FerretTlsConfig",
     "GatewayL4Addon",
     "GatewayL7Addon",

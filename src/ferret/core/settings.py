@@ -301,6 +301,15 @@ class Config(QConfig):
         default=[],
     )
 
+    # 用户脚本清单，存 list[dict]（见 core/mitm/scripts.py 的 ScriptEntry.to_dict）。
+    # 和 rewrite_rules 同一个坑：QConfig.set 开头 `if item.value == value: return`，
+    # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。
+    scripts = ConfigItem(
+        group="Scripts",
+        name="Scripts",
+        default=[],
+    )
+
     # 固定会话总开关（原生 StickyCookie / StickyAuth 两个 addon，见
     # core/mitm/runtime.py）。默认**关**：开启会改写实时抓取所见的请求头（代理侧
     # 补 Cookie / Authorization），与「抓包应如实转发原件」冲突 —— 验证「客户端
@@ -361,6 +370,13 @@ def get_certs_dir() -> Path:
 
 def get_sessions_dir() -> Path:
     directory = get_config_dir() / "sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def get_scripts_dir() -> Path:
+    """应用内新建脚本的托管目录（plans/scripts.md §3.4；打包后路径稳定可写）。"""
+    directory = get_config_dir() / "scripts"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
