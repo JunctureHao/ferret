@@ -98,6 +98,39 @@ class WebsocketFlagTests(unittest.TestCase):
         )
 
 
+class MarkFlagTests(unittest.TestCase):
+    """「标记」与 WebSocket 同形：原生 `~marked`（`FMarked`）也只看状态不看值。
+
+    标记值本身要筛得用 `~marker <regex>`，那是表达式输入框的活 —— 字段-操作符
+    这套结构里没有它的位置（`.plans/flow-mark.md` §3.5）。
+    """
+
+    def test_mark_is_a_bare_action_filter(self) -> None:
+        self.assertEqual(
+            build_filter_expression([cond("Mark", "is")]),
+            "~http & ~marked",
+        )
+
+    def test_is_not_negates_it(self) -> None:
+        self.assertEqual(
+            build_filter_expression([cond("Mark", "is not")]),
+            "~http & !~marked",
+        )
+
+    def test_a_stray_value_is_ignored(self) -> None:
+        """输入框对它是禁用的，但换字段之前框里可能还留着字。"""
+        self.assertEqual(
+            build_filter_expression([cond("Mark", "is", ":bug:")]),
+            "~http & ~marked",
+        )
+
+    def test_it_combines_with_the_other_flag(self) -> None:
+        self.assertEqual(
+            build_filter_expression([cond("Mark", "is"), cond("WebSocket", "is not")]),
+            "~http & ~marked & !~websocket",
+        )
+
+
 class CompileFilterTests(unittest.TestCase):
     """拼出来的串必须真的能被原生词法器吃下去。"""
 
@@ -117,6 +150,26 @@ class CompileFilterTests(unittest.TestCase):
         inverted = compile_filter([cond("WebSocket", "is not")])
         assert inverted is not None
         self.assertFalse(inverted(ws))
+        self.assertTrue(inverted(plain))
+
+    def test_the_mark_flag_parses(self) -> None:
+        self.assertIsNotNone(compile_filter([cond("Mark", "is")]))
+        self.assertIsNotNone(compile_filter([cond("Mark", "is not")]))
+
+    def test_the_mark_flag_separates_marked_flows_from_the_rest(self) -> None:
+        """非空即中 —— 具体标的是哪个 emoji 不影响这一层。"""
+        marked = tflow.tflow(resp=True)
+        marked.marked = ":bug:"
+        plain = tflow.tflow(resp=True)
+
+        matcher = compile_filter([cond("Mark", "is")])
+        assert matcher is not None
+        self.assertTrue(matcher(marked))
+        self.assertFalse(matcher(plain))
+
+        inverted = compile_filter([cond("Mark", "is not")])
+        assert inverted is not None
+        self.assertFalse(inverted(marked))
         self.assertTrue(inverted(plain))
 
     def test_the_http_base_keeps_tcp_flows_out(self) -> None:

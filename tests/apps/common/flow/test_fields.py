@@ -32,6 +32,7 @@ from ferret.apps.common.flow.fields import (
     section_rows,
     section_title,
 )
+from ferret.apps.common.flow.marks import FALLBACK_GLYPH, marker_glyph
 from ferret.core.mitm import MARKER_DEFAULT
 
 
@@ -125,12 +126,8 @@ class FieldValueTests(unittest.TestCase):
     def test_wire_and_decoded_are_separate_rows(self) -> None:
         """两个口径各有各的行，谁也不冒充「大小」 —— 混成一个数才是原来的毛病。"""
         data = {"res_wire_size": 900, "res_decoded_size": 4096}
-        self.assertEqual(
-            field_value(find_field("- 响应体（线上）"), data), "900b"
-        )
-        self.assertEqual(
-            field_value(find_field("- 响应体（解压后）"), data), "4.0k"
-        )
+        self.assertEqual(field_value(find_field("- 响应体（线上）"), data), "900b")
+        self.assertEqual(field_value(find_field("- 响应体（解压后）"), data), "4.0k")
 
 
 class LabelTests(unittest.TestCase):
@@ -154,13 +151,25 @@ class LabelTests(unittest.TestCase):
         self.assertEqual(field_value(state, {"state": "nonsense"}), "未知")
         self.assertEqual(field_value(state, {}), "未知")
 
-    def test_the_marker_row_reads_as_a_state_not_as_an_emoji_shortcode(self) -> None:
-        """`flow.marked` 存的是 `:default:` 这样的短码，铺在卡片上没人认得。
-
-        界面上标记只有「有 / 没有」两种，短码本身没有信息量。"""
+    def test_the_marker_row_shows_the_glyph_next_to_its_shortcode(self) -> None:
+        """`flow.marked` 存的是 `:skull:` 这样的短码，光铺短码没人认得；图形与表格
+        Mark 列走同一个 `marker_glyph`，两处必然一致。短码留在旁边是给搜索用的：
+        选择器只认短码文本。"""
         marked = find_field("标记")
-        self.assertEqual(field_value(marked, {"marked": MARKER_DEFAULT}), "标记")
-        self.assertEqual(field_value(marked, {"marked": ":skull:"}), "标记")
+        self.assertEqual(
+            field_value(marked, {"marked": ":skull:"}),
+            f"{marker_glyph(':skull:')} :skull:",
+        )
+        # `:default:`（旧版开关写的值）也是字典里的一条，照样查得到。
+        self.assertEqual(
+            field_value(marked, {"marked": MARKER_DEFAULT}),
+            f"{marker_glyph(MARKER_DEFAULT)} {MARKER_DEFAULT}",
+        )
+        # 别人存的 .flow 里的野短码不抛、不铺原文，落到兜底符号。
+        self.assertEqual(
+            field_value(marked, {"marked": ":no-such-emoji:"}),
+            f"{FALLBACK_GLYPH} :no-such-emoji:",
+        )
         # 没标记就整行不出现，而不是显示一个「没标记」—— 九成流量都没标记，
         # 每张卡片上挂一行「没标记」是纯噪音。
         self.assertIsNone(field_value(marked, {"marked": ""}))
@@ -217,15 +226,11 @@ class SectionRowsTests(unittest.TestCase):
         rows = self.flatten(
             find_section("时序"), {"Back Connection Start": 1756000000.5}
         )
-        self.assertIn(
-            ("服务端连接开始", format_time(1756000000.5), False), rows
-        )
+        self.assertIn(("服务端连接开始", format_time(1756000000.5), False), rows)
         rows = self.flatten(
             find_section("时序"), {"Front Connection Start": 1756000000.5}
         )
-        self.assertIn(
-            ("客户端连接开始", format_time(1756000000.5), False), rows
-        )
+        self.assertIn(("客户端连接开始", format_time(1756000000.5), False), rows)
 
     def test_a_group_appears_once_its_condition_holds(self) -> None:
         rows = self.flatten(find_section("TLS · 服务端"), {"TLS Version": "TLSv1.3"})
@@ -256,9 +261,7 @@ class SectionRowsTests(unittest.TestCase):
         那是 `always=True` 加 models 不产出这六项凑出来的假象。现在缺哪项少哪行 ——
         只有有效期的证书就只显示有效期，不再凭空多出主体和签发者两个小节。
         """
-        rows = self.flatten(
-            find_section("服务端证书"), {"Not Before": "2026-01-01"}
-        )
+        rows = self.flatten(find_section("服务端证书"), {"Not Before": "2026-01-01"})
         self.assertIn(("开始时间", "2026-01-01", False), rows)
         self.assertNotIn(("Subject", "", True), rows)
         self.assertNotIn(("签发者", "", True), rows)

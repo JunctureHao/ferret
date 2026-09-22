@@ -108,9 +108,7 @@ class FlowViewerPaneTests(unittest.TestCase):
             active_filter_count=2,
         )
         self.assertEqual(self.viewer.empty_state.title.text(), "没有匹配结果")
-        self.assertEqual(
-            self.viewer.empty_state.subtitle.text(), "当前有 2 个有效条件"
-        )
+        self.assertEqual(self.viewer.empty_state.subtitle.text(), "当前有 2 个有效条件")
 
     def test_table_defaults_to_newest_first(self) -> None:
         header = self.viewer.table.horizontalHeader()
@@ -121,16 +119,22 @@ class FlowViewerPaneTests(unittest.TestCase):
                 self.viewer.table.source_model.headerData(i, Qt.Orientation.Horizontal)
                 for i in range(self.viewer.table.source_model.columnCount())
             ],
-            ["#", "Method", "URL", "Status", "Type", "Size", "Time"],
+            ["#", "标记", "Method", "URL", "Status", "Type", "Size", "Time"],
         )
 
-    def test_all_table_columns_are_user_resizable(self) -> None:
+    def test_all_table_columns_but_the_mark_are_user_resizable(self) -> None:
+        """Mark 列为固定列不可拖拽；其余列都归用户拖。"""
         header = self.viewer.table.horizontalHeader()
+        mark = self.viewer.table.source_model.HEADERS.index("Mark")
         for column in range(self.viewer.table.model().columnCount()):
-            self.assertEqual(
-                header.sectionResizeMode(column),
-                header.ResizeMode.Interactive,
+            expected = (
+                header.ResizeMode.Fixed
+                if column == mark
+                else header.ResizeMode.Interactive
             )
+            with self.subTest(column=column):
+                self.assertEqual(header.sectionResizeMode(column), expected)
+        self.assertEqual(header.sectionSize(mark), 64)
 
     def test_detail_panel_consumes_the_row_data(self) -> None:
         """双击行 → 详情字典进面板并切到详情页（顶部上下文条已随改造移除）。"""
@@ -402,10 +406,13 @@ class FlowContextMenuTests(unittest.TestCase):
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
         menu.update_context(0, {"id": "flow-1"}, [])
 
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "ferret.apps.common.flow.menus.QFileDialog.getSaveFileName",
-            return_value=("", ""),
-        ) as dialog:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "ferret.apps.common.flow.menus.QFileDialog.getSaveFileName",
+                return_value=("", ""),
+            ) as dialog,
+        ):
             menu.export_menu.save_response_body_action.trigger()
             self.app.processEvents()
             self.assertEqual(dialog.call_count, 1)
@@ -419,11 +426,13 @@ class FlowContextMenuTests(unittest.TestCase):
         menu.update_context(0, {"id": "flow-1"}, [])
         menu.controller.bodies["response_body"] = b""
 
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "ferret.apps.common.flow.menus.QFileDialog.getSaveFileName"
-        ) as dialog, patch(
-            "ferret.apps.common.flow.menus.show_warning"
-        ) as warning:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "ferret.apps.common.flow.menus.QFileDialog.getSaveFileName"
+            ) as dialog,
+            patch("ferret.apps.common.flow.menus.show_warning") as warning,
+        ):
             menu.export_menu.save_response_body_action.trigger()
             self.app.processEvents()
 

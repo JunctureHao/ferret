@@ -9,6 +9,7 @@ from mitmproxy.test import tflow
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from ferret.apps.common.flow.marks import FALLBACK_GLYPH, emoji_font, marker_glyph
 from ferret.apps.common.flow.models import (
     DURATION_MS_ROLE,
     FULL_URL_ROLE,
@@ -20,7 +21,7 @@ from ferret.apps.common.flow.models import (
     FlowTableModel,
     format_duration,
 )
-from ferret.core.mitm import build_flow_detail
+from ferret.core.mitm import MARKER_DEFAULT, build_flow_detail
 
 
 class _ListSource:
@@ -116,30 +117,96 @@ class FlowTableModelTests(unittest.TestCase):
         model = self.model_with(flow)
 
         self.assertEqual(
-            model.HEADERS, ("#", "Method", "URL", "Status", "Type", "Size", "Time")
+            model.HEADERS,
+            ("#", "Mark", "Method", "URL", "Status", "Type", "Size", "Time"),
         )
-        self.assertEqual(model.data(model.index(0, 2)), flow.request.pretty_url)
-        self.assertEqual(model.data(model.index(0, 3)), 200)
-        self.assertEqual(model.data(model.index(0, 4)), "JSON")
-        self.assertEqual(model.data(model.index(0, 5)), "11b")
-        self.assertEqual(model.data(model.index(0, 6)), "128 ms")
-        self.assertEqual(model.data(model.index(0, 3), STATUS_KIND_ROLE), "success")
+        self.assertEqual(model.data(model.index(0, 3)), flow.request.pretty_url)
+        self.assertEqual(model.data(model.index(0, 4)), 200)
+        self.assertEqual(model.data(model.index(0, 5)), "JSON")
+        self.assertEqual(model.data(model.index(0, 6)), "11b")
+        self.assertEqual(model.data(model.index(0, 7)), "128 ms")
+        self.assertEqual(model.data(model.index(0, 4), STATUS_KIND_ROLE), "success")
         self.assertEqual(
-            model.data(model.index(0, 2), FULL_URL_ROLE), flow.request.pretty_url
+            model.data(model.index(0, 3), FULL_URL_ROLE), flow.request.pretty_url
         )
-        self.assertEqual(model.data(model.index(0, 4), MIME_ROLE), "application/json")
-        self.assertAlmostEqual(model.data(model.index(0, 6), DURATION_MS_ROLE), 128)
-        self.assertEqual(model.data(model.index(0, 5), SIZE_BYTES_ROLE), 11)
+        self.assertEqual(model.data(model.index(0, 5), MIME_ROLE), "application/json")
+        self.assertAlmostEqual(model.data(model.index(0, 7), DURATION_MS_ROLE), 128)
+        self.assertEqual(model.data(model.index(0, 6), SIZE_BYTES_ROLE), 11)
+
+    def test_the_mark_column_sits_right_after_the_row_number(self) -> None:
+        """表头文案「标记」与详情字段、筛选字段同名；列名 Mark 是取值不是文案。"""
+        model = FlowTableModel(None)  # type: ignore
+        self.assertEqual(model.HEADERS.index("Mark"), 1)
+        self.assertEqual(model.headerData(1, Qt.Orientation.Horizontal), "标记")
+
+    def test_the_mark_column_renders_the_glyph_and_hides_the_shortcode(self) -> None:
+        marked = self.completed_flow()
+        marked.marked = ":bug:"
+        plain = self.completed_flow()
+        model = self.model_with(marked, plain)
+
+        self.assertEqual(model.data(model.index(0, 1)), marker_glyph(":bug:"))
+        self.assertNotEqual(model.data(model.index(0, 1)), ":bug:")
+        # 认不出图形的人悬浮看短码原文。
+        self.assertEqual(
+            model.data(model.index(0, 1), Qt.ItemDataRole.ToolTipRole), ":bug:"
+        )
+        self.assertEqual(
+            model.data(model.index(0, 1), Qt.ItemDataRole.TextAlignmentRole),
+            int(Qt.AlignmentFlag.AlignCenter),
+        )
+        # 未标记：格子空着、也不弹一个空 tooltip。
+        self.assertEqual(model.data(model.index(1, 1)), "")
+        self.assertIsNone(model.data(model.index(1, 1), Qt.ItemDataRole.ToolTipRole))
+
+    def test_the_mark_column_paints_marked_cells_with_an_emoji_font(self) -> None:
+        """标记格走 emoji-first 字体（✈ ♉ 这类文本态符号才画得出彩色）；
+        delegate 认的是 FontRole，设在视图上会被盖掉。未标记格不掺字体。"""
+        marked = self.completed_flow()
+        marked.marked = ":bug:"
+        plain = self.completed_flow()
+        model = self.model_with(marked, plain)
+
+        font = model.data(model.index(0, 1), Qt.ItemDataRole.FontRole)
+        self.assertEqual(font, emoji_font(18))
+        self.assertEqual(font.families()[0], "Segoe UI Emoji")
+        self.assertIsNone(model.data(model.index(1, 1), Qt.ItemDataRole.FontRole))
+
+    def test_the_mark_column_keeps_a_glyph_for_odd_markers(self) -> None:
+        """`:default:`（旧开关写的值）查表就是 `"●"`；别人存的 .flow 里的野值不在
+        字典里，走兜底 —— 两种都得有东西，不能空着也不能把短码原文铺进去。"""
+        default = self.completed_flow()
+        default.marked = MARKER_DEFAULT
+        alien = self.completed_flow()
+        alien.marked = ":no-such-emoji:"
+        model = self.model_with(default, alien)
+        self.assertEqual(model.data(model.index(0, 1)), marker_glyph(MARKER_DEFAULT))
+        self.assertEqual(model.data(model.index(1, 1)), FALLBACK_GLYPH)
+
+    def test_sorting_by_mark_separates_marked_from_unmarked(self) -> None:
+        """SORT_ROLE 是短码字符串本身：空串与有值天然分堆，同类短码聚族。"""
+        flows = [self.completed_flow() for _ in range(4)]
+        flows[0].marked = ":fire:"
+        flows[2].marked = ":bug:"
+        model = self.model_with(*flows)
+        self.assertEqual(model.data(model.index(0, 1), SORT_ROLE), ":fire:")
+        self.assertEqual(model.data(model.index(1, 1), SORT_ROLE), "")
+
+        proxy = FlowProxyModel(None)  # type: ignore
+        proxy.setSourceModel(model)
+        proxy.sort(1, Qt.SortOrder.DescendingOrder)
+        marks = [proxy.data(proxy.index(row, 1), SORT_ROLE) for row in range(4)]
+        self.assertEqual(marks, [":fire:", ":bug:", "", ""])
 
     def test_pending_and_error_states_keep_text(self) -> None:
         pending = tflow.tflow()
         error = tflow.tflow(err=True)
         model = self.model_with(pending, error)
 
-        self.assertEqual(model.data(model.index(0, 3)), "等待中")
-        self.assertEqual(model.data(model.index(0, 3), STATUS_KIND_ROLE), "pending")
-        self.assertEqual(model.data(model.index(1, 3)), "Error")
-        self.assertEqual(model.data(model.index(1, 3), STATUS_KIND_ROLE), "error")
+        self.assertEqual(model.data(model.index(0, 4)), "等待中")
+        self.assertEqual(model.data(model.index(0, 4), STATUS_KIND_ROLE), "pending")
+        self.assertEqual(model.data(model.index(1, 4)), "Error")
+        self.assertEqual(model.data(model.index(1, 4), STATUS_KIND_ROLE), "error")
 
     def test_duration_formats_boundaries(self) -> None:
         self.assertEqual(format_duration(0.2), "< 1 ms")
@@ -152,9 +219,9 @@ class FlowTableModelTests(unittest.TestCase):
         model = self.model_with(slow, fast)
         proxy = FlowProxyModel(None)  # type: ignore
         proxy.setSourceModel(model)
-        proxy.sort(6, Qt.SortOrder.AscendingOrder)
+        proxy.sort(7, Qt.SortOrder.AscendingOrder)
 
-        first = proxy.index(0, 6)
+        first = proxy.index(0, 7)
         self.assertAlmostEqual(first.data(DURATION_MS_ROLE), 90)
         self.assertIsInstance(first.data(SORT_ROLE), float)
 
@@ -165,7 +232,7 @@ class FlowTableModelTests(unittest.TestCase):
         model = self.model_with(*flows)
         proxy = FlowProxyModel(None)  # type: ignore
         proxy.setSourceModel(model)
-        proxy.sort(6, Qt.SortOrder.AscendingOrder)
+        proxy.sort(7, Qt.SortOrder.AscendingOrder)
 
         self.assertEqual(
             [proxy.data(proxy.index(row, 0)) for row in range(3)],
@@ -193,7 +260,7 @@ class FlowTableModelTests(unittest.TestCase):
     def test_url_combines_host_and_path(self) -> None:
         flow = self.completed_flow()
         model = self.model_with(flow)
-        self.assertEqual(model.data(model.index(0, 2)), flow.request.pretty_url)
+        self.assertEqual(model.data(model.index(0, 3)), flow.request.pretty_url)
 
     def test_horizontal_headers_are_left_aligned(self) -> None:
         model = FlowTableModel(None)  # type: ignore
@@ -223,13 +290,13 @@ class FlowTableModelTests(unittest.TestCase):
         model = self.model_with(flow)
         data = build_flow_detail(flow)
 
-        column = model.data(model.index(0, 5), SIZE_BYTES_ROLE)
+        column = model.data(model.index(0, 6), SIZE_BYTES_ROLE)
         self.assertEqual(data["req_wire_size"] + data["res_wire_size"], column)
 
     def test_the_size_tooltip_states_the_caliber(self) -> None:
         """列宽只放得下一个总数，口径得靠 tooltip 说清。"""
         model = self.model_with(tflow.tflow(resp=True))
-        tooltip = model.data(model.index(0, 5), Qt.ItemDataRole.ToolTipRole)
+        tooltip = model.data(model.index(0, 6), Qt.ItemDataRole.ToolTipRole)
 
         self.assertIn("线上", tooltip)
         self.assertIn("请求", tooltip)

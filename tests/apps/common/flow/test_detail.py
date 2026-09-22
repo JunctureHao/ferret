@@ -6,7 +6,8 @@
   什么时候整个收起、× 挂在哪一栏；
 * 左栏/右栏的内容：Raw 的兜底拼装、body 三态、头数徽标；
 * `CommentPane`：脏了才亮保存、程序化灌文本不算编辑；
-* 标记与备注写回：「没点的时候绝对不写」比「点了有没有写回」更要紧。
+* 备注写回：「没点的时候绝对不写」比「点了有没有写回」更要紧（标记已挪去表格右键，
+  面板这侧只剩「不该再有」的断言）。
 
 翻译器**故意不装**，理由同 `test_fields.py`。
 """
@@ -37,7 +38,6 @@ from ferret.apps.common.flow.protocols import (
     READONLY_CAPABILITIES,
 )
 from ferret.core.mitm import (
-    MARKER_DEFAULT,
     WsClose,
     WsFrame,
     build_flow_detail,
@@ -119,9 +119,7 @@ class FlowDataPanelTests(unittest.TestCase):
     def test_the_timing_block_is_fused_into_the_overview(self) -> None:
         """时序与耗时合并成一张「时序」卡：瀑布块作为 lead 挂在组头之下、
         时刻行之上 —— 图定比例、行给精确值，一个组头一个故事，整组一起折叠。"""
-        card = next(
-            c for c in self.panel.overview.cards if c.section.title == "时序"
-        )
+        card = next(c for c in self.panel.overview.cards if c.section.title == "时序")
         self.assertIs(self.panel.timing_pane.parent(), card.view)
         view_layout = card.view.layout()
         assert view_layout is not None
@@ -215,17 +213,33 @@ class FlowDataPanelTests(unittest.TestCase):
         self.assertEqual(len(seen), 3)
 
     def test_the_more_menu_is_gated_by_capabilities(self) -> None:
-        """会话页是只读的：重放/标记/备注弹窗一律不出现，复制两样保留。"""
+        """会话页是只读的：重放/备注弹窗一律不出现，复制两样保留。"""
         readonly = FlowDataPanel(self.host, None, READONLY_CAPABILITIES)
         readonly_names = [a.text() for a in readonly._more_actions()]
         self.assertNotIn("重发", readonly_names)
-        self.assertNotIn("标记", readonly_names)
         self.assertNotIn("备注", readonly_names)
         self.assertIn("复制 URL", readonly_names)
 
         names = [a.text() for a in self.panel._more_actions()]
-        for expected in ("重发", "标记", "备注"):
+        for expected in ("重发", "备注"):
             self.assertIn(expected, names)
+
+    def test_the_more_menu_has_no_mark_switch_anymore(self) -> None:
+        """标记从「开 / 关」变成了一整本 emoji（`.plans/flow-mark.md` D1），
+        入口只在表格右键：面板这侧留一个开关就等于留一个只能写 `:default:` 的
+        窄门，两处语义对不上。`can_mark` 门控本身不删 —— 表格那侧还在用。"""
+        self.assertFalse(hasattr(self.panel, "mark_action"))
+        for names in (
+            [a.text() for a in self.panel._more_actions()],
+            [
+                a.text()
+                for a in FlowDataPanel(
+                    self.host, None, READONLY_CAPABILITIES
+                )._more_actions()
+            ],
+        ):
+            with self.subTest(names=names):
+                self.assertNotIn("标记", names)
 
     def test_the_copy_action_goes_dead_when_there_is_nothing_to_copy(self) -> None:
         self.panel.set_data(build_flow_detail(tflow.tflow()))
@@ -651,17 +665,16 @@ class CommentPaneTests(unittest.TestCase):
         self.assertFalse(self.pane.save_button.isEnabled())
 
 
-class _MarkStub:
-    """只认标记和备注两件事的控制器替身。会话页那侧刻意也是这么缺的。"""
+class _CommentStub:
+    """只认备注这一件事的控制器替身。会话页那侧刻意也是这么缺的。
+
+    **没有** `set_flow_marked` —— 面板若还留着标记写入端，这里会直接 AttributeError，
+    而不是静默写到一个恰好存在的方法上。
+    """
 
     def __init__(self, fail: bool = False) -> None:
         self.calls: list[tuple[str, str, str]] = []
         self.fail = fail
-
-    def set_flow_marked(self, flow_id: str, marked: str) -> None:
-        if self.fail:
-            raise RuntimeError("kernel is not running")
-        self.calls.append(("mark", flow_id, marked))
 
     def set_flow_comment(self, flow_id: str, comment: str) -> None:
         if self.fail:
@@ -675,12 +688,12 @@ class _MarkStub:
         return b""
 
 
-class MarkAndCommentTests(unittest.TestCase):
-    """「…」菜单上的标记与备注弹窗，加内联编辑页的写回。
+class CommentWriteBackTests(unittest.TestCase):
+    """「…」菜单上的备注弹窗，加内联编辑页的写回。
 
-    这些动作都要改**活** flow，所以除了「点了有没有写回」，更要紧的是「没点的时候
-    绝对不写」—— 切换选中行会把上一条的状态同步到动作上，一个没拦住的 `toggled`
-    就等于把上一条的标记盖到刚选中的那条流量上。
+    备注要改**活** flow，所以除了「点了有没有写回」，更要紧的是「没点的时候绝对不写」
+    —— 切换选中行会把上一条的内容灌进编辑框，一个没拦住的信号就等于把上一条的备注
+    盖到刚选中的那条流量上。
     """
 
     @classmethod
@@ -689,7 +702,7 @@ class MarkAndCommentTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.host = QWidget()
-        self.controller = _MarkStub()
+        self.controller = _CommentStub()
         self.panel = FlowDataPanel(
             self.host,
             self.controller,
@@ -702,55 +715,19 @@ class MarkAndCommentTests(unittest.TestCase):
         self.host.deleteLater()
         self.app.processEvents()
 
-    def test_the_mark_action_renders_as_a_toggle(self) -> None:
-        self.assertTrue(self.panel.mark_action.isCheckable())
-
-    def test_toggling_writes_the_marker_mitmproxy_itself_writes(self) -> None:
-        self.panel.mark_action.setChecked(True)
-        self.assertEqual(
-            self.controller.calls, [("mark", self.flow.id, MARKER_DEFAULT)]
-        )
-
-    def test_untoggling_clears_it(self) -> None:
-        self.panel.mark_action.setChecked(True)
-        self.panel.mark_action.setChecked(False)
-        self.assertEqual(self.controller.calls[-1], ("mark", self.flow.id, ""))
-
-    def test_selecting_a_marked_flow_ticks_the_toggle(self) -> None:
-        marked = tflow.tflow(resp=True)
-        marked.marked = MARKER_DEFAULT
-        self.panel.set_data(build_flow_detail(marked))
-        self.assertTrue(self.panel.mark_action.isChecked())
-
-        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
-        self.assertFalse(self.panel.mark_action.isChecked())
-
     def test_selecting_a_flow_never_writes_anything(self) -> None:
-        """这一条是整个功能里最容易错的地方：同步勾选态也会发 `toggled`。"""
-        marked = tflow.tflow(resp=True)
-        marked.marked = MARKER_DEFAULT
-        self.panel.set_data(build_flow_detail(marked))
+        """切换选中行会把新流量的备注灌进编辑框 —— 灌文本不是编辑，不得写回。"""
+        noted = tflow.tflow(resp=True)
+        noted.comment = "旧备注"
+        self.panel.set_data(build_flow_detail(noted))
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
         self.assertEqual(self.controller.calls, [])
 
-    def test_a_failed_write_rolls_the_toggle_back(self) -> None:
-        """否则界面说「标了」而 flow 上没有 —— 这条流量以后也不会再被重画。"""
-        panel = FlowDataPanel(
-            self.host,
-            _MarkStub(fail=True),
-            CAPTURE_CAPABILITIES,
-        )
-        panel.set_data(build_flow_detail(self.flow))
-        panel.mark_action.setChecked(True)
-        self.assertFalse(panel.mark_action.isChecked())
-
-    def test_both_actions_go_dead_without_a_flow_to_write_to(self) -> None:
+    def test_the_comment_action_goes_dead_without_a_flow_to_write_to(self) -> None:
         panel = FlowDataPanel(self.host, None, CAPTURE_CAPABILITIES)
         panel.set_data(build_flow_detail(self.flow))
-        self.assertFalse(panel.mark_action.isEnabled())
         self.assertFalse(panel.comment_action.isEnabled())
 
-        self.assertTrue(self.panel.mark_action.isEnabled())
         self.assertTrue(self.panel.comment_action.isEnabled())
 
     def test_the_comment_dialog_is_the_one_the_context_menu_uses(self) -> None:
@@ -823,7 +800,7 @@ class MarkAndCommentTests(unittest.TestCase):
     def test_a_failed_comment_write_leaves_the_cached_detail_alone(self) -> None:
         panel = FlowDataPanel(
             self.host,
-            _MarkStub(fail=True),
+            _CommentStub(fail=True),
             CAPTURE_CAPABILITIES,
         )
         panel.set_data(build_flow_detail(self.flow))

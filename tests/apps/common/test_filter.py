@@ -158,6 +158,21 @@ class FlagFieldTests(unittest.TestCase):
         self.select_websocket()
         changed.assert_called_once_with()
 
+    def test_the_mark_field_is_the_same_kind_of_flag(self) -> None:
+        """`~marked` 同样不带参数（`.plans/flow-mark.md` §3.5）；界面上它和
+        WebSocket 必须长得一模一样，否则「标记」那一行会留个能打字的死框。"""
+        index = self.row.field_box.findData("Mark")
+        self.assertGreaterEqual(index, 0)
+        self.assertEqual(self.row.field_box.itemText(index), "标记")
+
+        self.row.field_box.setCurrentIndex(index)
+        self.assertEqual(self.logics(), FILTER_FLAG_LOGICS)
+        self.assertFalse(self.row.value_input.isEnabled())
+        self.assertEqual(
+            self.manager.get_conditions(),
+            [{"field": "Mark", "logic": "is", "value": ""}],
+        )
+
     def test_clear_all_resets_the_row_to_a_value_field(self) -> None:
         """清空之后那一行必须能正常打字 —— 输入框还禁着就等于面板坏了。"""
         self.select_websocket()
