@@ -1,4 +1,4 @@
-"""证书页：状态 / 详情 / 导出 / 上游信任 / 维护五组卡片。
+"""证书页：状态 / 详情 / 导出 / 上游信任 / 客户端证书 / 维护六组卡片。
 
 版式照抄 `apps/settings/views.py`——同一套 ScrollArea 骨架、悬浮标题、36px 边距、
 SettingCard 家族的卡片，两页看着才像同一个软件里的两页。有三处细节非照抄不可：
@@ -47,13 +47,18 @@ from qfluentwidgets import (
 )
 
 from ferret.apps.certificate.controllers import CertificateController
-from ferret.apps.certificate.dialogs import RegenerateCertDialog, TrustedCaDialog
+from ferret.apps.certificate.dialogs import (
+    ClientCertsDialog,
+    RegenerateCertDialog,
+    TrustedCaDialog,
+)
 from ferret.apps.certificate.models import CertificateState, info_rows
 from ferret.apps.common.info_bar import show_error, show_success, show_warning
 from ferret.core.mitm import (
     EXPORT_FORMATS,
     CertExportFormat,
     TrustState,
+    inspect_client_certs,
     inspect_trusted_ca_files,
 )
 from ferret.core.settings import CONFIG
@@ -245,6 +250,7 @@ class CertificateInterface(ScrollArea):
         self.detail_group = SettingCardGroup(self.tr("证书详情"), self.scroll_widget)
         self.export_group = SettingCardGroup(self.tr("导出证书"), self.scroll_widget)
         self.trust_group = SettingCardGroup(self.tr("上游信任"), self.scroll_widget)
+        self.mtls_group = SettingCardGroup(self.tr("客户端证书"), self.scroll_widget)
         self.maintain_group = SettingCardGroup(self.tr("维护"), self.scroll_widget)
 
         self.__init_cards()
@@ -307,12 +313,25 @@ class CertificateInterface(ScrollArea):
         )
         self.upstream_chain_card = SwitchSettingCard(
             FluentIcon.LINK,
-            self.tr("向客户端拼接上游真实证书链"),       
+            self.tr("向客户端拼接上游真实证书链"),
             self.tr("调试证书锁定（pinning）的 App 时开"),
             configItem=CONFIG.add_upstream_certs_to_client_chain,
             parent=self.trust_group,
         )
         self._refresh_trusted_ca_content()
+
+        # 客户端证书（.plans/mtls-client-certs.md §5）：上游信任组解决「Ferret 不信
+        # 服务器」，这一组解决反向的「服务器不信 Ferret」。一张卡就够 —— 原生
+        # `client_certs` 只有一个路径参数，形态由它指向文件还是目录决定，没有可拆的
+        # 独立开关；content 动态反映盘点结果（见 `_refresh_client_certs_content`）。
+        self.client_certs_card = PushSettingCard(
+            self.tr("编辑"),
+            FluentIcon.CERTIFICATE,
+            self.tr("向服务器出示的客户端证书"),
+            " ",  # 真正的文案由 _refresh_client_certs_content 填
+            self.mtls_group,
+        )
+        self._refresh_client_certs_content()
 
         self.regenerate_card = PushSettingCard(
             self.tr("重新生成"),
@@ -334,6 +353,7 @@ class CertificateInterface(ScrollArea):
             self.install_card,
             self.uninstall_card,
             self.trusted_ca_card,
+            self.client_certs_card,
             self.regenerate_card,
             self.open_dir_card,
             *self.export_cards,
@@ -384,6 +404,7 @@ class CertificateInterface(ScrollArea):
         self.trust_group.addSettingCard(self.trusted_ca_card)
         self.trust_group.addSettingCard(self.ssl_insecure_card)
         self.trust_group.addSettingCard(self.upstream_chain_card)
+        self.mtls_group.addSettingCard(self.client_certs_card)
         self.maintain_group.addSettingCard(self.regenerate_card)
         self.maintain_group.addSettingCard(self.open_dir_card)
 
@@ -393,6 +414,7 @@ class CertificateInterface(ScrollArea):
         self.expand_layout.addWidget(self.detail_group)
         self.expand_layout.addWidget(self.export_group)
         self.expand_layout.addWidget(self.trust_group)
+        self.expand_layout.addWidget(self.mtls_group)
         self.expand_layout.addWidget(self.maintain_group)
 
     def __connect_signal_to_slot(self) -> None:
@@ -417,6 +439,7 @@ class CertificateInterface(ScrollArea):
             self._on_upstream_chain_changed
         )
         self.trusted_ca_card.clicked.connect(self._on_trusted_ca)
+        self.client_certs_card.clicked.connect(self._on_client_certs)
 
     # --- 生命周期 ---
 
@@ -426,6 +449,8 @@ class CertificateInterface(ScrollArea):
         self.controller.refresh()
         # 上游信任那几个文件同理：用户可能刚在资源管理器里把它删了。
         self._refresh_trusted_ca_content()
+        # 客户端证书那个目录同理，还多一层：证书会过期，昨天绿的今天可能就黄了。
+        self._refresh_client_certs_content()
 
     # --- 状态同步 ---
 
@@ -513,6 +538,8 @@ class CertificateInterface(ScrollArea):
             pass
         # 开关翻转会改变卡 1 的档位（信任库失效与否），无论热更成没成都要刷。
         self._refresh_trusted_ca_content()
+        # 也会改变客户端证书卡的档位：「不校验上游 + 单文件全局出示」是叠加风险态。
+        self._refresh_client_certs_content()
 
     @Slot(bool)
     def _on_upstream_chain_changed(self, enabled: bool) -> None:
@@ -541,6 +568,78 @@ class CertificateInterface(ScrollArea):
         # 必须传新 list：原地 mutate 再 set 静默不落盘（见 core/settings.py 的坑）。
         CONFIG.set(CONFIG.ssl_trusted_ca_files, list(files))
         self._refresh_trusted_ca_content()
+
+    # --- 客户端证书（mTLS）---
+
+    def _refresh_client_certs_content(self) -> None:
+        """卡片 content 动态反映盘点结果，警示色沿用 `_WARN_STYLE`。
+
+        最安静的失败态有两种，都在这里说出来：目录配了但一张 `.pem` 都没有（配置
+        全绿、一张证书也不会出示），以及路径被删了（功能悄悄没了）。另外「单文件」
+        本身就是风险态 —— 同一张身份证书发给每一个要证书的上游 —— 所以它也带警示色。
+        """
+        summary = inspect_client_certs(self.controller.client_certs_path)
+        if not summary.configured:
+            text = self.tr("未设置 · 服务器要求双向认证时握手会失败")
+            warn = False
+        elif not summary.exists:
+            text = self.tr("⚠ 路径已不存在，功能未生效")
+            warn = True
+        elif not summary.is_dir:
+            # 单文件 = 全局出示。叠加「不校验上游」时风险不是相加而是相乘：
+            # 既认不出中间人，又把身份证书递给它。
+            warn = True
+            if self.controller.ssl_insecure:
+                text = self.tr(
+                    "⚠ 全局出示，且已关闭上游校验：任何中间人都能拿到这张证书"
+                )
+            elif summary.bad:
+                text = self.tr("⚠ 文件不可用：{}").format(summary.bad[0].error)
+            elif summary.expired:
+                text = self.tr("⚠ 全局出示 · 这张证书已过期")
+            else:
+                text = self.tr("全局出示 · 同一张证书发给所有要求客户端证书的服务器")
+        elif not summary.entries:
+            text = self.tr("⚠ 目录里没有 <主机名>.pem，不会出示任何证书")
+            warn = True
+        elif summary.bad:
+            text = self.tr("按主机匹配 · {} 张主机证书；⚠ 另有 {} 个文件不可用").format(
+                len(summary.good), len(summary.bad)
+            )
+            warn = True
+        elif summary.expired:
+            text = self.tr("按主机匹配 · {} 张主机证书；⚠ 其中 {} 张已过期").format(
+                len(summary.good), len(summary.expired)
+            )
+            warn = True
+        else:
+            text = self.tr("按主机匹配 · 目录下 {} 张主机证书").format(
+                len(summary.good)
+            )
+            warn = False
+        self.client_certs_card.setContent(text)
+        # 空串而不是默认色：交回 qss 管，主题切换时不会被这里钉死。
+        self.client_certs_card.contentLabel.setStyleSheet(_WARN_STYLE if warn else "")
+
+    @Slot()
+    def _on_client_certs(self) -> None:
+        """客户端证书编辑框的提交链：先热更，成功后才落盘（与 `_on_trusted_ca` 同序）。
+
+        路径一字未改也照走一遍：证书续期时内容变了而路径没变，而 mitmproxy 缓存
+        上游 TLS 上下文的键里只有路径 —— 不重走这条链，新证书永远不会被出示
+        （内核侧 `apply_client_certs` 负责清缓存）。
+        """
+        dialog = ClientCertsDialog(self.controller.client_certs_path, self.window())
+        if not dialog.exec():
+            return
+        path = dialog.get_path()
+        try:
+            self.controller.set_client_certs(path)
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            show_warning(self.tr("客户端证书未生效"), str(exc), self.window())
+            return
+        CONFIG.set(CONFIG.client_certs_path, path)
+        self._refresh_client_certs_content()
 
     @Slot()
     def _on_regenerate(self) -> None:

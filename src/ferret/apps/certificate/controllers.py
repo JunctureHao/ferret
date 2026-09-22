@@ -100,6 +100,22 @@ class CertificateController(QObject):
             add_upstream_certs=add_upstream_certs,
         )
 
+    # --- mTLS 客户端证书（.plans/mtls-client-certs.md §3.5）---
+
+    @property
+    def client_certs_path(self) -> str:
+        """向上游出示的客户端证书路径（内核内存副本，理由同上面那三个读属性）。"""
+        return self._mitm.client_certs_path
+
+    def set_client_certs(self, path: str) -> None:
+        """Point mitmproxy at a client certificate；空串 = 清除。
+
+        不走线程池，理由同 `set_upstream_tls`：校验是读一两个小 PEM，热更那步
+        `MitmRuntime.call` 自带 5s 超时。坏值抛 `ValueError` 且**不落盘**，
+        由提交链决定怎么说（这一条必须说 —— 见 `views._on_client_certs`）。
+        """
+        self._mitm.set_client_certs(path)
+
     # --- 对外动作 ---
 
     def refresh(self) -> None:
