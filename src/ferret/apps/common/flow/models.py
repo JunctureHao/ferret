@@ -475,13 +475,6 @@ class FlowTableModel(QAbstractTableModel):
     def handle_update(self, flow: HTTPFlow) -> None:
         """处理 View 更新 flow"""
         row = self._row_of(flow)
-        log.warning(
-            "[MARKDBG] handle_update id=%s marked=%r row=%s rows=%d",
-            getattr(flow, "id", "?")[:8],
-            getattr(flow, "marked", "<none>"),
-            row,
-            len(self._rows),
-        )
         if row < 0:
             return
         start_idx = self.index(row, 0)
