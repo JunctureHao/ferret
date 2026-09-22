@@ -54,6 +54,8 @@ class FlowViewCapabilities:
     # 所以这两项默认关，和 `can_replay` 同一个道理。
     can_comment: bool = False
     can_mark: bool = False
+    # 「杀死」调原生 flow.kill()，同样只对活 flow 有意义，与 can_mark 同一套开关哲学。
+    can_kill: bool = False
     # 「在 Compose 中编辑」走 `MitmFacade.request_edit` 在 mitm 线程上提取活 flow，
     # 会话页（死对象）一期不做，与上面同一套开关哲学。
     can_edit_compose: bool = False
@@ -68,6 +70,7 @@ CAPTURE_CAPABILITIES = FlowViewCapabilities(
     can_block=True,
     can_comment=True,
     can_mark=True,
+    can_kill=True,
     can_edit_compose=True,
 )
 

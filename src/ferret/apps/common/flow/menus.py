@@ -92,6 +92,9 @@ class FlowContextMenu(RoundMenu):
             len(self.flows) == 1 and self.row_data.get("Method") != "CONNECT"
         )
         self.export_menu.refresh_selection_labels()
+        # 杀死只接单行：多选批量断连语义太重，一期不做（plan: .plans/0-kill-flow.md）。
+        if self.capabilities.can_kill:
+            self.kill_action.setEnabled(count == 1)
         # 「清除标记」在整选区无标记时置灰：点了也是空转，不如直接告诉用户没的搞。
         # 读的是快照对象的 `marked`，与导出子菜单同姿态，不新读活 flow。
         if self.capabilities.can_mark:
@@ -113,6 +116,11 @@ class FlowContextMenu(RoundMenu):
             icon=FluentIcon.DELETE,
             text=self.tr("删除"),
             shortcut=QKeySequence.StandardKey.Delete,
+        )
+        self.kill_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.CANCEL,
+            text=self.tr("杀死"),
         )
         self.block_host_action = BaseAction(
             parent=self,
@@ -141,6 +149,8 @@ class FlowContextMenu(RoundMenu):
             self.addAction(self.block_host_action)
         if self.capabilities.can_delete:
             self.addAction(self.delete_action)
+        if self.capabilities.can_kill:
+            self.addAction(self.kill_action)
 
         if self.capabilities.can_mark:
             self.addMenu(self.mark_menu)
@@ -154,6 +164,7 @@ class FlowContextMenu(RoundMenu):
         )
         self.replay_from_file_action.triggered.connect(self.replay_file_requested.emit)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
+        self.kill_action.triggered.connect(self.__on_kill_triggered)
         self.block_host_action.triggered.connect(self.__on_block_host_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
         self.comment_action.triggered.connect(self.__on_comment_triggered)
@@ -195,6 +206,19 @@ class FlowContextMenu(RoundMenu):
         """删除动作触发时：作用于整个选区（单选/多选同一条路）。"""
         if self.flows:
             self.delete_requested.emit()
+
+    @Slot()
+    def __on_kill_triggered(self) -> None:
+        """杀死当前行的流量（原生 flow.kill()：断连接、不再转发上游）。"""
+        if not self.controller:
+            return
+        flow_id = self.row_data.get("id", "")
+        if not flow_id:
+            return
+        try:
+            self.controller.kill_flow(flow_id)
+        except (ValueError, RuntimeError) as exc:
+            show_warning(self.tr("杀死流量失败"), str(exc), self.main_window)
 
     @Slot()
     def __on_mark_triggered(self) -> None:

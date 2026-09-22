@@ -764,5 +764,8 @@ class CaptureController(QObject):
     def set_flow_comment(self, flow_id: str, comment: str) -> None:
         self._mitm.set_flow_comment(flow_id, comment)
 
+    def kill_flow(self, flow_id: str) -> None:
+        self._mitm.kill_flow(flow_id)
+
     def set_flow_marked(self, flow_id: str, marked: str) -> None:
         self._mitm.set_flow_marked(flow_id, marked)

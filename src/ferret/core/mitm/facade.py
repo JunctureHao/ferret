@@ -552,6 +552,19 @@ class MitmFacade:
         """Undo every edit made to a held flow (native ``Flow.revert``)."""
         self._mutate(flow_id, lambda flow: flow.revert(), release=False)
 
+    def kill_flow(self, flow_id: str) -> None:
+        """Kill a single flow: native ``flow.kill()`` semantics（TCP RST、不再转发）。
+
+        已不可杀的 flow（已 kill / 已出错）静默跳过，不抛错 —— 右键菜单「点了没反应」
+        好过弹一个 ControlException。
+        """
+
+        def kill(flow) -> None:
+            if flow.killable:
+                flow.kill()
+
+        self._mutate(flow_id, kill, release=False)
+
     def set_flow_comment(self, flow_id: str, comment: str) -> None:
         """Set a comment on a held flow."""
 
