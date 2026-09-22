@@ -308,6 +308,19 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # mTLS 客户端证书路径（.plans/mtls-client-certs.md）：空串 = 未启用。
+    # 存**一个** str 而不是列表 —— 原生 client_certs 就是一个路径，指到目录时按
+    # SNI 找 `<主机名>.pem`（精确匹配、无通配、无兜底），多主机证书全在那个目录里，
+    # Ferret 不替它记账。与上面三项同属「四条通道共用一条 tls_start_server」的全局
+    # 偏好。下发前必须把空串归一成 None（见 runtime.py::client_certs_option_updates）。
+    # 存用户给的原样路径（可以带 `~`）：原生 addons/core.py 与 tlsconfig.py 两处都
+    # 自己 expanduser，我们展开了反而让 CONFIG 与 options 对不上。
+    client_certs_path = ConfigItem(
+        group="Proxy",
+        name="ClientCertsPath",
+        default="",
+    )
+
     # 网关规则，存 list[dict]（见 core/mitm/gateway.py 的 GatewayRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

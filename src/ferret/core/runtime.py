@@ -82,6 +82,7 @@ class ApplicationRuntime(QObject):
             add_upstream_certs_to_client_chain=bool(
                 CONFIG.get(CONFIG.add_upstream_certs_to_client_chain)
             ),
+            client_certs_path=str(CONFIG.get(CONFIG.client_certs_path) or ""),
         )
 
     def start(self) -> None:
