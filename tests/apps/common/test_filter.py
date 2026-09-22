@@ -73,6 +73,58 @@ class MultiFilterManagerTests(unittest.TestCase):
         self.assertGreaterEqual(self.manager._rows()[0].value_input.minimumWidth(), 160)
 
 
+class RawExpressionRowTests(unittest.TestCase):
+    """常驻的 flowfilter 输入框：不计入条件行，但计入 summary、随清除一起清。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.manager = MultiFilterManager()
+        self.manager.show()
+        self.app.processEvents()
+
+    def tearDown(self) -> None:
+        self.manager.close()
+        self.manager.deleteLater()
+        self.app.processEvents()
+
+    def test_raw_expression_is_reported_separately(self) -> None:
+        self.manager.raw_input.setText("~m GET")
+        self.assertEqual(self.manager.get_raw_expression(), "~m GET")
+        self.assertEqual(self.manager.get_conditions(), [])
+
+    def test_raw_counts_into_summary_as_native(self) -> None:
+        self.manager.raw_input.setText("~m GET")
+        self.manager._update_summary()
+        self.assertEqual(self.manager.summary_label.text(), "0 个有效条件 +1 原生")
+
+    def test_raw_keeps_clear_button_enabled(self) -> None:
+        self.manager.raw_input.setText("~m GET")
+        self.manager._update_summary()
+        self.assertTrue(self.manager.clear_btn.isEnabled())
+
+    def test_clear_conditions_clears_raw_too(self) -> None:
+        self.manager.raw_input.setText("~m GET")
+        self.manager.clear_conditions()
+        self.assertEqual(self.manager.get_raw_expression(), "")
+
+    def test_raw_change_notifies_after_debounce(self) -> None:
+        changed = Mock()
+        self.manager.conditionsChanged.connect(changed)
+        self.manager.raw_input.setText("~m GET")
+        changed.assert_not_called()  # debounce 还没走完
+        self.manager._raw_debounce.timeout.emit()
+        changed.assert_called_once_with()
+
+    def test_raw_error_state_round_trips(self) -> None:
+        self.manager.set_raw_error("Expected & or |, found 'x'")
+        self.assertIn("Expected", self.manager.raw_input.toolTip())
+        self.manager.set_raw_error("")
+        self.assertEqual(self.manager.raw_input.toolTip(), "")
+
+
 class FlagFieldTests(unittest.TestCase):
     """`WebSocket` 这类字段在 flowfilter 里没有可比的值（原生 `~websocket` 不带参数）。
 

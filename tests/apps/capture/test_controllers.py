@@ -261,6 +261,14 @@ class FakeFacade:
     def wireguard_client_config(self) -> str:
         return "[Interface]"
 
+    def set_filter(self, matcher) -> None:
+        # 记账最近一次上屏的编译结果；apply_filter 的校验断言据此看「上没上屏」。
+        self.applied_filter = matcher
+
+    def remove_unmarked_flows(self) -> int:
+        self.removed_unmarked_calls = getattr(self, "removed_unmarked_calls", 0) + 1
+        return 3
+
 
 class FakeSystemProxy:
     def __init__(self, *, fail_attach: bool = False) -> None:
@@ -605,6 +613,58 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller.start_capture()
         controller._check_channel_health()
         self.assertIn("local", controller.channel_errors)
+
+
+class ApplyFilterRawTests(unittest.TestCase):
+    """原生 flowfilter 表达式的唯一校验点在 controller（`.plans/0-mark-filter-polish.md`
+    §1.5）：合法上屏并清错误态，非法沿用上次有效结果并回传错误、绝不把半截表达式
+    打到内核层。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def make_controller(self):
+        runtime = FakeRuntime()
+        facade = FakeFacade(runtime)
+        proxy = FakeSystemProxy()
+        return CaptureController(mitm=facade, system_proxy=proxy), facade  # type: ignore
+
+    def test_a_valid_raw_expression_reaches_the_kernel_and_clears_the_error(
+        self,
+    ) -> None:
+        controller, facade = self.make_controller()
+        errors: list[str] = []
+        controller.filterExpressionRejected.connect(errors.append)
+
+        controller.apply_filter([], '~u "api/.*"')
+
+        self.assertIsNotNone(facade.applied_filter)
+        self.assertEqual(controller._last_valid_raw_filter, '~u "api/.*"')
+        self.assertEqual(errors, [""])  # 成功时清错误态
+
+    def test_an_invalid_raw_falls_back_and_reports_without_going_on_screen(self) -> None:
+        controller, facade = self.make_controller()
+        # 先攒一个有效表达式当作「上次有效」。
+        controller.apply_filter([], "~m GET")
+        good = facade.applied_filter
+        errors: list[str] = []
+        controller.filterExpressionRejected.connect(errors.append)
+
+        controller.apply_filter([], "~~~ not a filter")
+
+        # 沿用上次有效：内核上屏的仍是「上次有效」的合并结果，last_valid 不被污染。
+        self.assertEqual(controller._last_valid_raw_filter, "~m GET")
+        self.assertIsNotNone(facade.applied_filter)
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(errors[0])  # 非空错误原文回传
+        # 上一步的 good 与本次回退都源自同一表达式，说明没让坏表达式覆盖上屏结果。
+        self.assertIsNotNone(good)
+
+    def test_removing_unmarked_flows_passes_through_to_the_facade(self) -> None:
+        controller, facade = self.make_controller()
+        self.assertEqual(controller.remove_unmarked_flows(), 3)
+        self.assertEqual(facade.removed_unmarked_calls, 1)
 
 
 if __name__ == "__main__":

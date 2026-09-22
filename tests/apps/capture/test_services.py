@@ -185,5 +185,47 @@ class CompileFilterTests(unittest.TestCase):
                     self.assertIsNotNone(compile_filter([cond(field, logic, "abc")]))
 
 
+class RawExpressionTests(unittest.TestCase):
+    """原生 flowfilter 输入框的拼接语义（`.plans/0-mark-filter-polish.md` §1）。"""
+
+    def test_empty_raw_is_a_no_op(self) -> None:
+        self.assertEqual(build_filter_expression(None, ""), "~http")
+        self.assertEqual(build_filter_expression(None, "   "), "~http")
+
+    def test_raw_is_appended_as_a_parenthesized_atom(self) -> None:
+        self.assertEqual(
+            build_filter_expression(None, '~u "api/.*" & !~m GET'),
+            '~http & (~u "api/.*" & !~m GET)',
+        )
+
+    def test_raw_combines_with_condition_rows(self) -> None:
+        self.assertEqual(
+            build_filter_expression([cond("Method", "equals", "POST")], "~s"),
+            "~http & ~m ^POST$ & (~s)",
+        )
+
+    def test_a_raw_with_or_is_held_by_the_parentheses(self) -> None:
+        """flowfilter 里并列会攥住 `|`；不加括号 `~http & a | b` 会被拧成
+        `~http & (a | b)` 之外的形状（AGENTS.md §5 钉过的教训）。"""
+        matcher = compile_filter(None, "~m GET | ~m POST")
+        assert matcher is not None
+        get_flow = tflow.tflow(resp=True)
+        get_flow.request.method = "GET"
+        post_flow = tflow.tflow(resp=True)
+        post_flow.request.method = "POST"
+        put_flow = tflow.tflow(resp=True)
+        put_flow.request.method = "PUT"
+        self.assertTrue(matcher(get_flow))
+        self.assertTrue(matcher(post_flow))
+        self.assertFalse(matcher(put_flow))
+
+    def test_raw_compiles(self) -> None:
+        self.assertIsNotNone(compile_filter(None, '~u "api/.*" & !~m GET'))
+
+    def test_invalid_raw_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            compile_filter(None, "~~~ not a filter")
+
+
 if __name__ == "__main__":
     unittest.main()

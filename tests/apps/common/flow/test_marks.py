@@ -26,10 +26,13 @@ from PySide6.QtWidgets import QApplication, QWidget
 from qfluentwidgets import ListView
 
 from ferret.apps.common.flow.marks import (
+    _GLYPH_ROLE,
+    _SHORTCODE_ROLE,
     FALLBACK_GLYPH,
     MarkerPickerDialog,
     _marker_entries,
     marker_glyph,
+    strip_shortcode,
 )
 from ferret.apps.common.flow.menus import FlowContextMenu
 from ferret.apps.common.flow.protocols import (
@@ -102,6 +105,24 @@ class MarkerGlyphTests(unittest.TestCase):
         self.assertIn("‍", marker_glyph(":astronaut:"))
 
 
+class StripShortcodeTests(unittest.TestCase):
+    """caption 层剥冒号纯函数（`:laptop_computer:` → `laptop_computer`）。"""
+
+    def test_a_bracketed_shortcode_loses_both_colons(self) -> None:
+        self.assertEqual(strip_shortcode(":laptop_computer:"), "laptop_computer")
+        self.assertEqual(strip_shortcode(":bug:"), "bug")
+
+    def test_bare_letters_are_left_alone(self) -> None:
+        """字典尾部的裸字母 / 数字（`"a"`）没有冒号可剥，原样返回。"""
+        self.assertEqual(strip_shortcode("a"), "a")
+        self.assertEqual(strip_shortcode("1"), "1")
+
+    def test_degenerate_inputs_do_not_crash(self) -> None:
+        self.assertEqual(strip_shortcode(""), "")
+        self.assertEqual(strip_shortcode(":"), ":")
+        self.assertEqual(strip_shortcode("::"), "::")
+
+
 class MarkerPickerDialogTests(unittest.TestCase):
     """T-B：搜索框 + 全量网格，双击或「确定」生效，取消零副作用。"""
 
@@ -131,14 +152,13 @@ class MarkerPickerDialogTests(unittest.TestCase):
         dialog = MarkerPickerDialog(parent=self.parent)
         self.assertEqual(len(self._visible_shortcodes(dialog)), len(emoji.emoji))
 
-    def test_the_grid_is_a_themed_list_view_in_list_mode(self) -> None:
-        """竖排 ListMode + qfluentwidgets `ListView`：行委托绘制稳、底色 / 选中随主题。
-        此前 IconMode 网格在本机有活体绘制缺陷（大量格子不绘字形），故不用 IconMode。"""
+    def test_the_grid_is_a_themed_list_view_in_icon_mode(self) -> None:
+        """IconMode 方块网格：qfluentwidgets `ListView` + 全自绘方块委托，一屏看到
+        更多候选。自绘 drawText 绕开 IconMode 视图刷新层缺陷（见方案 §4.1）。"""
         dialog = MarkerPickerDialog(parent=self.parent)
         self.assertIsInstance(dialog.grid, ListView)
-        self.assertNotEqual(
-            dialog.grid.viewMode(), dialog.grid.ViewMode.IconMode
-        )
+        self.assertEqual(dialog.grid.viewMode(), dialog.grid.ViewMode.IconMode)
+        self.assertTrue(dialog.grid.isWrapping())
 
     def test_cells_carry_the_emoji_font(self) -> None:
         """字形经 FontRole 递给 delegate（`option.font = data(FontRole) or …`）；
@@ -162,6 +182,38 @@ class MarkerPickerDialogTests(unittest.TestCase):
         self.assertIn(glyph, display)
         self.assertIn(shortcode, display)
         self.assertEqual(first.data(Qt.ItemDataRole.ToolTipRole), shortcode)
+
+    def test_the_row_carries_glyph_and_shortcode_on_separate_roles(self) -> None:
+        """两级列表项自绘从 `_GLYPH_ROLE` / `_SHORTCODE_ROLE` 分两路取数
+        （`.plans/0-mark-filter-polish.md` §4.1）；DisplayRole 仍留完整拼串供读屏。"""
+        dialog = MarkerPickerDialog(parent=self.parent)
+        proxy = dialog.grid.model()
+        assert proxy is not None
+        first = proxy.index(0, 0)
+        shortcode, glyph = _marker_entries()[0]
+        self.assertEqual(first.data(_GLYPH_ROLE), glyph)
+        self.assertEqual(first.data(_SHORTCODE_ROLE), shortcode)
+
+    def test_the_empty_state_hides_until_a_search_finds_nothing(self) -> None:
+        """首开（needle 空）恒不显示；搜到 0 行才盖出「没有匹配的标记」，清空回列表。
+
+        用 `isHidden()`（显式隐藏标志）而非 `isVisible()`：对话框没 exec，祖先未显示时
+        `isVisible()` 恒 False，测不出「有没有被要求显示」。"""
+        dialog = MarkerPickerDialog(parent=self.parent)
+        self.assertTrue(dialog._empty_label.isHidden())
+
+        dialog.search_edit.setText("zzz-no-such-marker")
+        self.assertEqual(dialog.grid.model().rowCount(), 0)
+        self.assertFalse(dialog._empty_label.isHidden())
+
+        dialog.search_edit.setText("")
+        self.assertTrue(dialog._empty_label.isHidden())
+
+    def test_a_matching_search_never_shows_the_empty_state(self) -> None:
+        dialog = MarkerPickerDialog(parent=self.parent)
+        dialog.search_edit.setText("bug")
+        self.assertGreater(dialog.grid.model().rowCount(), 0)
+        self.assertTrue(dialog._empty_label.isHidden())
 
     def test_searching_keeps_only_shortcodes_containing_the_text(self) -> None:
         dialog = MarkerPickerDialog(parent=self.parent)
@@ -309,25 +361,34 @@ class ContextMenuMarkTests(unittest.TestCase):
             "ferret.apps.common.flow.menus.MarkerPickerDialog", return_value=dialog
         )
 
-    def test_both_actions_sit_right_before_the_comment_entry(self) -> None:
-        """标记 / 备注是人肉标注两件套，挨着放。"""
-        texts = [a.text() for a in self.menu.actions() if a.text()]
-        self.assertEqual(
-            texts[texts.index("标记…") :][:3], ["标记…", "清除标记", "备注..."]
-        )
+    def _view_texts(self, menu) -> list[str]:
+        """qfw RoundMenu 把动作与子菜单一起按序摆进 `view`（子菜单不进 `actions()`），
+        取带序的展示文本。"""
+        return [menu.view.item(i).text().strip() for i in range(menu.view.count())]
+
+    def test_the_mark_submenu_sits_right_before_the_comment_entry(self) -> None:
+        """两个平铺项收进「标记」浮动子菜单（`.plans/0-mark-filter-polish.md` §3）；
+        标记 / 备注是人肉标注两件套，挨着放。"""
+        self.assertIn(self.menu.mark_menu, self.menu._subMenus)
+        texts = self._view_texts(self.menu)
+        self.assertEqual(texts[texts.index("标记") :][:2], ["标记", "备注..."])
+
+    def test_the_submenu_holds_set_toggle_and_clear(self) -> None:
+        submenu = self.menu.mark_menu
+        texts = [a.text() for a in submenu.actions() if a.text()]
+        self.assertEqual(texts, ["设置标记…", "切换标记", "清除标记"])
 
     def test_readonly_capabilities_leave_no_mark_entry_at_all(self) -> None:
         """会话页那批流量是死对象，写回无处可去 —— 入口整个不出现，不是置灰。"""
         menu = FlowContextMenu(self.parent, _MarkStub(), READONLY_CAPABILITIES)
-        texts = [a.text() for a in menu.actions() if a.text()]
-        self.assertNotIn("标记…", texts)
-        self.assertNotIn("清除标记", texts)
+        self.assertNotIn(menu.mark_menu, menu._subMenus)
+        self.assertNotIn("标记", self._view_texts(menu))
 
     def test_picking_a_marker_writes_it_to_the_single_selected_flow(self) -> None:
         flows = self._flows("")
         self._select(flows)
         with self._picker(":bug:") as factory:
-            self.menu.mark_action.trigger()
+            self.menu.mark_menu.set_action.trigger()
         # 未标记的流量打开选择器时没有可定位的当前项。
         self.assertEqual(factory.call_args.kwargs["current"], "")
         self.assertEqual(self.controller.calls, [(flows[0].id, ":bug:")])
@@ -336,44 +397,62 @@ class ContextMenuMarkTests(unittest.TestCase):
         flows = self._flows(":skull:", "")
         self._select(flows)
         with self._picker(None, accepted=False) as factory:
-            self.menu.mark_action.trigger()
+            self.menu.mark_menu.set_action.trigger()
         self.assertEqual(factory.call_args.kwargs["current"], ":skull:")
 
     def test_a_multi_selection_gets_the_same_marker_flow_by_flow(self) -> None:
         flows = self._flows("", ":skull:", "")
         self._select(flows)
         with self._picker(":fire:"):
-            self.menu.mark_action.trigger()
+            self.menu.mark_menu.set_action.trigger()
         self.assertEqual(self.controller.calls, [(flow.id, ":fire:") for flow in flows])
 
     def test_cancelling_the_picker_writes_nothing(self) -> None:
         self._select(self._flows(""))
         with self._picker(None, accepted=False):
-            self.menu.mark_action.trigger()
+            self.menu.mark_menu.set_action.trigger()
         self.assertEqual(self.controller.calls, [])
 
     def test_accepting_without_a_pick_writes_nothing(self) -> None:
         """「确定」在无选中时是灰的；旁路进来的 accept 也得是空转。"""
         self._select(self._flows(""))
         with self._picker(None, accepted=True):
-            self.menu.mark_action.trigger()
+            self.menu.mark_menu.set_action.trigger()
         self.assertEqual(self.controller.calls, [])
 
     def test_clearing_sends_the_empty_string_to_every_selected_flow(self) -> None:
         flows = self._flows(":bug:", ":fire:")
         self._select(flows)
-        self.menu.unmark_action.trigger()
+        self.menu.mark_menu.clear_action.trigger()
         self.assertEqual(self.controller.calls, [(flow.id, "") for flow in flows])
 
     def test_clear_is_dead_when_nothing_in_the_selection_is_marked(self) -> None:
         self._select(self._flows("", ""))
-        self.assertFalse(self.menu.unmark_action.isEnabled())
+        self.assertFalse(self.menu.mark_menu.clear_action.isEnabled())
 
     def test_clear_is_live_when_any_selected_flow_is_marked(self) -> None:
         self._select(self._flows("", ":bug:"))
-        self.assertTrue(self.menu.unmark_action.isEnabled())
+        self.assertTrue(self.menu.mark_menu.clear_action.isEnabled())
         self._select(self._flows(":bug:"))
-        self.assertTrue(self.menu.unmark_action.isEnabled())
+        self.assertTrue(self.menu.mark_menu.clear_action.isEnabled())
+
+    def test_set_and_toggle_are_always_enabled(self) -> None:
+        """「设置」「切换」恒可用；只有「清除」随选区标记态置灰。"""
+        for marks in ([""], ["", ""], [":bug:"], [":bug:", ""]):
+            with self.subTest(marks=marks):
+                self._select(self._flows(*marks))
+                self.assertTrue(self.menu.mark_menu.set_action.isEnabled())
+                self.assertTrue(self.menu.mark_menu.toggle_action.isEnabled())
+
+    def test_toggle_marks_the_unmarked_and_clears_the_marked_flow_by_flow(self) -> None:
+        """逐 flow 翻转：无标记→ `:default:`、有标记→空串（原生 mark.toggle 语义）。"""
+        flows = self._flows("", ":bug:", "")
+        self._select(flows)
+        self.menu.mark_menu.toggle_action.trigger()
+        self.assertEqual(
+            self.controller.calls,
+            [(flows[0].id, ":default:"), (flows[1].id, ""), (flows[2].id, ":default:")],
+        )
 
     def test_a_failed_single_write_reports_the_reason(self) -> None:
         self.menu.controller = _MarkStub(fail=True)
@@ -382,7 +461,7 @@ class ContextMenuMarkTests(unittest.TestCase):
             self._picker(":bug:"),
             patch("ferret.apps.common.flow.menus.show_warning") as warning,
         ):
-            self.menu.mark_action.trigger()
+            self.menu.mark_menu.set_action.trigger()
         warning.assert_called_once()
         self.assertEqual(warning.call_args.args[1], "kernel is not running")
 
@@ -396,11 +475,28 @@ class ContextMenuMarkTests(unittest.TestCase):
             self._picker(":bug:"),
             patch("ferret.apps.common.flow.menus.show_warning") as warning,
         ):
-            self.menu.mark_action.trigger()
+            self.menu.mark_menu.set_action.trigger()
         self.assertEqual(stub.attempts, [flow.id for flow in flows])
         warning.assert_called_once()
         self.assertIn("3", warning.call_args.args[1])
         self.assertIn("kernel is not running", warning.call_args.args[1])
+
+    def test_the_submenu_icons_are_distinct_within_the_popup_path(self) -> None:
+        """同一弹出路径内图标语义一对一：清除标记避开 DELETE（撞删除流量）、切换
+        避开 SYNC（撞重发），设置保持 TAG（`.plans/0-mark-filter-polish.md` §4.3）。"""
+        from qfluentwidgets import FluentIcon
+
+        submenu = self.menu.mark_menu
+        icons = {
+            submenu.set_action.icon().cacheKey(),
+            submenu.toggle_action.icon().cacheKey(),
+            submenu.clear_action.icon().cacheKey(),
+        }
+        self.assertEqual(len(icons), 3)  # 三个动作图标互不相同
+        delete_key = FluentIcon.DELETE.icon().cacheKey()
+        sync_key = FluentIcon.SYNC.icon().cacheKey()
+        self.assertNotIn(submenu.clear_action.icon().cacheKey(), {delete_key})
+        self.assertNotIn(submenu.toggle_action.icon().cacheKey(), {sync_key})
 
 
 if __name__ == "__main__":

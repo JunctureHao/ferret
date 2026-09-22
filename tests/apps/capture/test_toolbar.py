@@ -147,6 +147,46 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.assertIn("⚠", self.bar.endpoint_btn.text())
         self.assertIn("approval needed", self.bar.endpoint_btn.toolTip())
 
+    def test_the_delete_button_is_split_with_an_arrow(self) -> None:
+        """拆分按钮：主钮维持 32×32、箭头 24×32，两钮紧挨视觉一枚
+        （`.plans/0-mark-filter-polish.md` §2.2）。"""
+        self.assertEqual(self.bar.captures_delete_btn.size().width(), 32)
+        self.assertEqual(self.bar.captures_delete_more_btn.size().width(), 24)
+        self.assertEqual(self.bar.captures_delete_more_btn.toolTip(), "更多删除操作")
+        self.assertEqual(
+            self.bar.captures_delete_more_btn.accessibleName(), "更多删除操作"
+        )
+
+    def test_the_arrow_button_tracks_the_clear_disable_gate(self) -> None:
+        """空表两钮都灰（点了空转），有流量才启用（与清空同档）。"""
+        self.bar.set_state(self.state(total_count=0), False)
+        self.assertFalse(self.bar.captures_delete_btn.isEnabled())
+        self.assertFalse(self.bar.captures_delete_more_btn.isEnabled())
+
+        self.bar.set_state(self.state(total_count=5), False)
+        self.assertTrue(self.bar.captures_delete_btn.isEnabled())
+        self.assertTrue(self.bar.captures_delete_more_btn.isEnabled())
+
+    def test_the_main_button_still_emits_clear(self) -> None:
+        """主钮单击 = 清空，行为零变化（保住肌肉记忆）。"""
+        fired = []
+        self.bar.clearRequested.connect(lambda: fired.append(True))
+        self.bar.captures_delete_btn.click()
+        self.assertEqual(fired, [True])
+
+    def test_the_dropdown_only_offers_the_action_the_button_lacks(self) -> None:
+        """下拉只放「删除未标记流量」；「清空当前流量」是主钮动作，不在下拉里重复。"""
+        unmarked = []
+        self.bar.deleteUnmarkedRequested.connect(lambda: unmarked.append(True))
+
+        menu = self.bar._build_delete_menu()
+        actions = [a for a in menu.actions() if a.text()]
+        self.assertEqual([a.text() for a in actions], ["删除未标记流量"])
+
+        actions[0].trigger()
+        self.assertEqual(unmarked, [True])
+        menu.deleteLater()
+
 
 if __name__ == "__main__":
     unittest.main()
