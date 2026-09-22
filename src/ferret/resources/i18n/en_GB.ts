@@ -401,48 +401,48 @@
 <context>
     <name>CertificateController</name>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="106"/>
+        <location filename="../../apps/certificate/controllers.py" line="122"/>
         <source>检测失败</source>
         <translation>Detection failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="111"/>
+        <location filename="../../apps/certificate/controllers.py" line="127"/>
         <source>安装失败</source>
         <translation>Install failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="112"/>
+        <location filename="../../apps/certificate/controllers.py" line="128"/>
         <source>证书已安装到系统信任库</source>
         <translation>Certificate installed into the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="118"/>
+        <location filename="../../apps/certificate/controllers.py" line="134"/>
         <source>卸载失败</source>
         <translation>Uninstall failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="119"/>
+        <location filename="../../apps/certificate/controllers.py" line="135"/>
         <source>证书已从系统信任库移除</source>
         <translation>Certificate removed from the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="125"/>
+        <location filename="../../apps/certificate/controllers.py" line="141"/>
         <source>重新生成失败</source>
         <translation>Regeneration failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="126"/>
+        <location filename="../../apps/certificate/controllers.py" line="142"/>
         <source>已重新生成 CA 证书，请重新安装</source>
         <translation>CA certificate regenerated; install it again</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="134"/>
-        <location filename="../../apps/certificate/controllers.py" line="140"/>
+        <location filename="../../apps/certificate/controllers.py" line="150"/>
+        <location filename="../../apps/certificate/controllers.py" line="156"/>
         <source>导出失败</source>
         <translation>Export failed</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/controllers.py" line="185"/>
+        <location filename="../../apps/certificate/controllers.py" line="201"/>
         <source>已导出到 {}</source>
         <translation>Exported to {}</translation>
     </message>
@@ -533,160 +533,226 @@
 <context>
     <name>CertificateInterface</name>
     <message>
-        <location filename="../../apps/certificate/views.py" line="242"/>
-        <location filename="../../apps/certificate/views.py" line="465"/>
+        <location filename="../../apps/certificate/views.py" line="247"/>
+        <location filename="../../apps/certificate/views.py" line="490"/>
         <source>证书</source>
         <translation>Certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="244"/>
+        <location filename="../../apps/certificate/views.py" line="249"/>
         <source>安装状态</source>
         <translation>Install state</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="245"/>
+        <location filename="../../apps/certificate/views.py" line="250"/>
         <source>证书详情</source>
         <translation>Certificate details</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="246"/>
-        <location filename="../../apps/certificate/views.py" line="559"/>
+        <location filename="../../apps/certificate/views.py" line="251"/>
+        <location filename="../../apps/certificate/views.py" line="658"/>
         <source>导出证书</source>
         <translation>Export certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="247"/>
+        <location filename="../../apps/certificate/views.py" line="252"/>
         <source>上游信任</source>
         <translation>Upstream trust</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="248"/>
+        <location filename="../../apps/certificate/views.py" line="253"/>
+        <source>客户端证书</source>
+        <translation>Client certificates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="254"/>
         <source>维护</source>
         <translation>Maintenance</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="261"/>
-        <location filename="../../apps/certificate/views.py" line="436"/>
+        <location filename="../../apps/certificate/views.py" line="267"/>
+        <location filename="../../apps/certificate/views.py" line="461"/>
         <source>安装证书</source>
         <translation>Install certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="263"/>
+        <location filename="../../apps/certificate/views.py" line="269"/>
         <source>安装到系统信任库</source>
         <translation>Install into the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="264"/>
+        <location filename="../../apps/certificate/views.py" line="270"/>
         <source>写入当前用户的「受信任的根证书颁发机构」，无需管理员权限。</source>
         <translation>Writes to the current user&apos;s Trusted Root Certification Authorities, no administrator rights needed.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="268"/>
+        <location filename="../../apps/certificate/views.py" line="274"/>
         <source>卸载</source>
         <translation>Uninstall</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="270"/>
+        <location filename="../../apps/certificate/views.py" line="276"/>
         <source>从系统信任库移除</source>
         <translation>Remove from the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="271"/>
+        <location filename="../../apps/certificate/views.py" line="277"/>
         <source>连历次重新生成留下的同名旧证书一并清理。</source>
         <translation>Also clears the same-named older certificates left behind by earlier regenerations.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="281"/>
+        <location filename="../../apps/certificate/views.py" line="287"/>
         <source>导出</source>
         <translation>Export</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="295"/>
+        <location filename="../../apps/certificate/views.py" line="301"/>
+        <location filename="../../apps/certificate/views.py" line="328"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="297"/>
+        <location filename="../../apps/certificate/views.py" line="303"/>
         <source>信任额外的 CA 证书</source>
         <translation>Trust additional CA certificates</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="303"/>
+        <location filename="../../apps/certificate/views.py" line="309"/>
         <source>不校验上游服务器证书</source>
         <translation>Do not verify upstream server certificates</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="304"/>
+        <location filename="../../apps/certificate/views.py" line="310"/>
         <source>仅测试环境用；此时无法发现上游被中间人</source>
         <translation>For test environments only; man-in-the-middle upstreams go undetected</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="311"/>
+        <location filename="../../apps/certificate/views.py" line="317"/>
         <source>调试证书锁定（pinning）的 App 时开</source>
         <translation>Enable when debugging apps with certificate pinning</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="310"/>
+        <location filename="../../apps/certificate/views.py" line="583"/>
+        <source>未设置 · 服务器要求双向认证时握手会失败</source>
+        <translation>Not set · the handshake fails when the server requires mutual authentication</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="586"/>
+        <source>⚠ 路径已不存在，功能未生效</source>
+        <translation>⚠ The path no longer exists; the feature is inactive</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="594"/>
+        <source>⚠ 全局出示，且已关闭上游校验：任何中间人都能拿到这张证书</source>
+        <translation>⚠ Presented globally with upstream verification disabled: any man-in-the-middle can obtain this certificate</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="597"/>
+        <source>⚠ 文件不可用：{}</source>
+        <translation>⚠ File unusable: {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="599"/>
+        <source>⚠ 全局出示 · 这张证书已过期</source>
+        <translation>⚠ Presented globally · this certificate has expired</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="601"/>
+        <source>全局出示 · 同一张证书发给所有要求客户端证书的服务器</source>
+        <translation>Presented globally · the same certificate is sent to every server that requests a client certificate</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="603"/>
+        <source>⚠ 目录里没有 &lt;主机名&gt;.pem，不会出示任何证书</source>
+        <translation>⚠ No &lt;hostname&gt;.pem in the folder; no certificate will be presented</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="606"/>
+        <source>按主机匹配 · {} 张主机证书；⚠ 另有 {} 个文件不可用</source>
+        <translation>Matched by hostname · {} host certificates; ⚠ {} more file(s) unusable</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="611"/>
+        <source>按主机匹配 · {} 张主机证书；⚠ 其中 {} 张已过期</source>
+        <translation>Matched by hostname · {} host certificates; ⚠ {} of them expired</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="616"/>
+        <source>按主机匹配 · 目录下 {} 张主机证书</source>
+        <translation>Matched by hostname · {} host certificate(s) in the folder</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="639"/>
+        <source>客户端证书未生效</source>
+        <translation>Client certificate not applied</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="316"/>
         <source>向客户端拼接上游真实证书链</source>
         <translation>Append the real upstream certificate chain to clients</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="318"/>
+        <location filename="../../apps/certificate/views.py" line="330"/>
+        <source>向服务器出示的客户端证书</source>
+        <translation>Client certificate presented to servers</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="337"/>
         <source>重新生成</source>
         <translation>Regenerate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="320"/>
+        <location filename="../../apps/certificate/views.py" line="339"/>
         <source>重新生成 CA 证书</source>
         <translation>Regenerate the CA certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="321"/>
+        <location filename="../../apps/certificate/views.py" line="340"/>
         <source>生成新的私钥与证书，所有已导入旧证书的设备都要重新导入。</source>
         <translation>Generates a new private key and certificate. Every device that imported the old one has to import it again.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="325"/>
+        <location filename="../../apps/certificate/views.py" line="344"/>
         <source>打开目录</source>
         <translation>Open folder</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="327"/>
+        <location filename="../../apps/certificate/views.py" line="346"/>
         <source>证书目录</source>
         <translation>Certificate folder</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="436"/>
+        <location filename="../../apps/certificate/views.py" line="461"/>
         <source>重新安装</source>
         <translation>Reinstall</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="484"/>
+        <location filename="../../apps/certificate/views.py" line="509"/>
         <source>未设置 · 仅校验公共根证书（certifi）</source>
         <translation>Not set · only public root certificates are verified (certifi)</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="486"/>
+        <location filename="../../apps/certificate/views.py" line="511"/>
         <source>⚠ {} 个文件已失效，已回退公共根证书</source>
         <translation>⚠ {} file(s) are invalid, fell back to public root certificates</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="492"/>
+        <location filename="../../apps/certificate/views.py" line="517"/>
         <source>已信任 {} 个文件 · 已因「不校验上游」而失效</source>
         <translation>{} file(s) trusted · disabled because &quot;do not verify upstream&quot; is on</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="497"/>
+        <location filename="../../apps/certificate/views.py" line="522"/>
         <source>已信任 {} 个文件 · 共 {} 张根证书；⚠ 另有 {} 个文件已失效</source>
         <translation>{} file(s) trusted · {} root certificate(s) in total; ⚠ {} more file(s) are invalid</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="500"/>
+        <location filename="../../apps/certificate/views.py" line="525"/>
         <source>已信任 {} 个文件 · 共 {} 张根证书</source>
         <translation>{} file(s) trusted · {} root certificate(s) in total</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="539"/>
+        <location filename="../../apps/certificate/views.py" line="566"/>
         <source>上游信任设置未生效</source>
         <translation>Upstream trust settings not applied</translation>
     </message>
@@ -704,62 +770,102 @@
         <translation>Failed to write the upstream trust bundle: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="383"/>
+        <location filename="../../core/mitm/certificate.py" line="444"/>
+        <source>文件里没有私钥。客户端证书要把私钥和证书拼进同一个 .pem。</source>
+        <translation>No private key in the file. A client certificate must combine the private key and the certificate in a single .pem.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="452"/>
+        <source>私钥已加密，Ferret 不支持口令。先解密：openssl rsa -in {} -out key.pem，再把解密后的私钥与证书拼进同一个 .pem。</source>
+        <translation>The private key is encrypted and Ferret does not support passphrases. Decrypt it first: openssl rsa -in {} -out key.pem, then combine the decrypted key and the certificate in a single .pem.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="458"/>
+        <source>私钥解析失败：{}</source>
+        <translation>Failed to parse the private key: {}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="479"/>
+        <source>读不到文件：{}</source>
+        <translation>Cannot read the file: {}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="489"/>
+        <source>文件里没有证书。</source>
+        <translation>No certificate in the file.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="498"/>
+        <source>证书解析失败：{}</source>
+        <translation>Failed to parse the certificate: {}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="512"/>
+        <source>私钥与证书不匹配，出示时会被静默丢弃。请确认两者来自同一次签发。</source>
+        <translation>The private key does not match the certificate and would be silently dropped when presented. Make sure both come from the same issuance.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="589"/>
+        <source>路径不存在：{}</source>
+        <translation>Path does not exist: {}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/certificate.py" line="624"/>
         <source>当前系统上找不到 certutil 命令</source>
         <translation>The certutil command was not found on this system</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="434"/>
+        <location filename="../../core/mitm/certificate.py" line="675"/>
         <source>CA 证书生成失败：{}</source>
         <translation>Could not generate the CA certificate: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="441"/>
+        <location filename="../../core/mitm/certificate.py" line="682"/>
         <source>CA 证书生成后仍读不到 {}</source>
         <translation>The CA certificate was generated but {} still cannot be read</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="460"/>
+        <location filename="../../core/mitm/certificate.py" line="701"/>
         <source>无法删除旧证书 {}：{}</source>
         <translation>Could not delete the old certificate {}: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="485"/>
+        <location filename="../../core/mitm/certificate.py" line="726"/>
         <source>尚未生成 CA 证书</source>
         <translation>No CA certificate has been generated yet</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="510"/>
+        <location filename="../../core/mitm/certificate.py" line="751"/>
         <source>导出失败：{}</source>
         <translation>Export failed: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="564"/>
+        <location filename="../../core/mitm/certificate.py" line="805"/>
         <source>安装证书已取消</source>
         <translation>Certificate install cancelled</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="565"/>
+        <location filename="../../core/mitm/certificate.py" line="806"/>
         <source>安装证书失败（certutil 退出码 {}）</source>
         <translation>Could not install the certificate (certutil exit code {})</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="583"/>
+        <location filename="../../core/mitm/certificate.py" line="824"/>
         <source>系统信任库中仍有残留证书，请手动检查 certmgr.msc</source>
         <translation>Certificates are still left in the system trust store; check certmgr.msc by hand</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="590"/>
+        <location filename="../../core/mitm/certificate.py" line="831"/>
         <source>卸载证书已取消</source>
         <translation>Certificate removal cancelled</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="591"/>
+        <location filename="../../core/mitm/certificate.py" line="832"/>
         <source>卸载证书失败（certutil 退出码 {}）</source>
         <translation>Could not remove the certificate (certutil exit code {})</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/certificate.py" line="599"/>
+        <location filename="../../core/mitm/certificate.py" line="840"/>
         <source>系统信任库中没有找到 {} 的 CA 证书</source>
         <translation>No {} CA certificate was found in the system trust store</translation>
     </message>
@@ -830,7 +936,7 @@
 <context>
     <name>CertificateStatusCard</name>
     <message>
-        <location filename="../../apps/certificate/views.py" line="143"/>
+        <location filename="../../apps/certificate/views.py" line="148"/>
         <source>重新检测</source>
         <translation>Re-check</translation>
     </message>
@@ -856,6 +962,139 @@
         <location filename="../../apps/capture/views.py" line="975"/>
         <source>取消</source>
         <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>ClientCertsDialog</name>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="218"/>
+        <source>向服务器出示的客户端证书</source>
+        <translation>Client certificate presented to servers</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="224"/>
+        <source>上游服务器要求双向认证（mTLS）时，Ferret 用这里的证书向它证明身份。证书与私钥要拼在同一个 .pem 文件里；Ferret 只引用文件，不拷贝、不修改。</source>
+        <translation>When an upstream server requires mutual authentication (mTLS), Ferret proves its identity with the certificate configured here. The certificate and its private key must be combined in a single .pem file; Ferret only references files — it never copies or modifies them.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="229"/>
+        <source>按主机目录</source>
+        <translation>Per-host folder</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="230"/>
+        <source>单文件</source>
+        <translation>Single file</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="244"/>
+        <source>浏览…</source>
+        <translation>Browse…</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="245"/>
+        <source>用推荐目录</source>
+        <translation>Use suggested folder</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="246"/>
+        <source>打开目录</source>
+        <translation>Open folder</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="263"/>
+        <source>重新加载</source>
+        <translation>Reload</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="268"/>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="269"/>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="329"/>
+        <source>按 SNI 精确匹配目录下的 &lt;主机名&gt;.pem：主机名必须与地址栏完全一致，子域名各放一份，匹配不到的主机不出示任何证书。</source>
+        <translation>Matches &lt;hostname&gt;.pem in the folder by exact SNI: the hostname must exactly match the address bar, each subdomain needs its own file, and hosts without a match get no certificate.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="334"/>
+        <source>这张证书会出示给每一个要求客户端证书的上游服务器，请在调试结束后清除。</source>
+        <translation>This certificate is presented to every upstream server that requests a client certificate. Clear it when you finish debugging.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="342"/>
+        <source>未设置：上游要求客户端证书时，握手会失败。</source>
+        <translation>Not set: the handshake fails when the upstream requires a client certificate.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="345"/>
+        <source>路径不存在：{}</source>
+        <translation>Path does not exist: {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="348"/>
+        <source>这是一个文件，请选「单文件」。</source>
+        <translation>This is a file — choose &quot;Single file&quot;.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="350"/>
+        <source>这是一个目录，请选「按主机目录」。</source>
+        <translation>This is a folder — choose &quot;Per-host folder&quot;.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="353"/>
+        <source>目录里没有 .pem 文件，不会出示任何证书。</source>
+        <translation>No .pem files in the folder; no certificate will be presented.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="357"/>
+        <source>（目录里的文件太多，只盘点了前 {} 个）</source>
+        <translation>(Too many files in the folder; only the first {} were inspected)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="365"/>
+        <source>✗ {} — {}</source>
+        <translation>✗ {} — {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="368"/>
+        <source>⚠ {} — CN={}，已于 {} 过期</source>
+        <translation>⚠ {} — CN={}, expired on {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="371"/>
+        <source>✓ {} — CN={}，有效期至 {}</source>
+        <translation>✓ {} — CN={}, valid until {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="381"/>
+        <source>选了「单文件」，但这个路径是一个目录。</source>
+        <translation>&quot;Single file&quot; is selected, but this path is a folder.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="383"/>
+        <source>选了「按主机目录」，但这个路径是一个文件。</source>
+        <translation>&quot;Per-host folder&quot; is selected, but this path is a file.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="396"/>
+        <source>选择客户端证书目录</source>
+        <translation>Choose client certificate folder</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="401"/>
+        <source>选择客户端证书文件</source>
+        <translation>Choose client certificate file</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/dialogs.py" line="403"/>
+        <source>客户端证书 (*.pem *.crt *.cer);;所有文件 (*)</source>
+        <translation>Client certificates (*.pem *.crt *.cer);;All files (*)</translation>
     </message>
 </context>
 <context>
@@ -1356,91 +1595,91 @@
 <context>
     <name>FlowContextMenu</name>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="102"/>
-        <location filename="../../apps/common/flow/menus.py" line="176"/>
+        <location filename="../../apps/common/flow/menus.py" line="105"/>
+        <location filename="../../apps/common/flow/menus.py" line="179"/>
         <source>重发</source>
         <translation>Replay</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="105"/>
+        <location filename="../../apps/common/flow/menus.py" line="108"/>
         <source>在 Compose 中编辑</source>
         <translation>Edit in Compose</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="108"/>
+        <location filename="../../apps/common/flow/menus.py" line="111"/>
         <source>从文件回放…</source>
         <translation>Replay from file...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="84"/>
-        <location filename="../../apps/common/flow/menus.py" line="113"/>
+        <location filename="../../apps/common/flow/menus.py" line="87"/>
+        <location filename="../../apps/common/flow/menus.py" line="116"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="84"/>
+        <location filename="../../apps/common/flow/menus.py" line="87"/>
         <source>删除 {} 条</source>
         <translation>Delete {} flow(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="119"/>
+        <location filename="../../apps/common/flow/menus.py" line="122"/>
         <source>屏蔽此主机</source>
         <translation>Block this host</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="124"/>
+        <location filename="../../apps/common/flow/menus.py" line="127"/>
         <source>备注...</source>
         <translation>Comment...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="129"/>
+        <location filename="../../apps/common/flow/menus.py" line="132"/>
         <source>标记…</source>
         <translation>Mark…</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="134"/>
+        <location filename="../../apps/common/flow/menus.py" line="137"/>
         <source>清除标记</source>
         <translation>Clear mark</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="178"/>
+        <location filename="../../apps/common/flow/menus.py" line="181"/>
         <source>重发 {} 条</source>
         <translation>Replay {} flows</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="194"/>
-        <location filename="../../apps/common/flow/menus.py" line="274"/>
+        <location filename="../../apps/common/flow/menus.py" line="197"/>
+        <location filename="../../apps/common/flow/menus.py" line="288"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="195"/>
+        <location filename="../../apps/common/flow/menus.py" line="198"/>
         <source>备注已保存</source>
         <translation>Comment saved</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="199"/>
+        <location filename="../../apps/common/flow/menus.py" line="202"/>
         <source>备注保存失败</source>
         <translation>Failed to save comment</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="247"/>
-        <location filename="../../apps/common/flow/menus.py" line="250"/>
+        <location filename="../../apps/common/flow/menus.py" line="261"/>
+        <location filename="../../apps/common/flow/menus.py" line="264"/>
         <source>标记失败</source>
         <translation>Failed to mark</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="251"/>
+        <location filename="../../apps/common/flow/menus.py" line="265"/>
         <source>{} 条流量标记失败：{}</source>
         <translation>Failed to mark {} flows: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="274"/>
+        <location filename="../../apps/common/flow/menus.py" line="288"/>
         <source>URL 已复制到剪贴板</source>
         <translation>URL copied to clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="295"/>
+        <location filename="../../apps/common/flow/menus.py" line="309"/>
         <source>回放失败</source>
         <translation>Replay failed</translation>
     </message>
@@ -1571,12 +1810,12 @@
 <context>
     <name>FlowEmptyState</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="457"/>
+        <location filename="../../apps/common/flow/views.py" line="456"/>
         <source>暂无流量</source>
         <translation>No traffic yet</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="457"/>
+        <location filename="../../apps/common/flow/views.py" line="456"/>
         <source>代理已停止</source>
         <translation>Proxy stopped</translation>
     </message>
@@ -1584,242 +1823,242 @@
 <context>
     <name>FlowExportMenu</name>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="314"/>
+        <location filename="../../apps/common/flow/menus.py" line="328"/>
         <source>导出</source>
         <translation>Export</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="319"/>
+        <location filename="../../apps/common/flow/menus.py" line="333"/>
         <source>复制 cURL</source>
         <translation>Copy as cURL</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="325"/>
+        <location filename="../../apps/common/flow/menus.py" line="339"/>
         <source>复制 HTTPie</source>
         <translation>Copy as HTTPie</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="330"/>
+        <location filename="../../apps/common/flow/menus.py" line="344"/>
         <source>复制原始请求</source>
         <translation>Copy raw request</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="335"/>
+        <location filename="../../apps/common/flow/menus.py" line="349"/>
         <source>复制原始响应</source>
         <translation>Copy raw response</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="340"/>
+        <location filename="../../apps/common/flow/menus.py" line="354"/>
         <source>复制原始流量</source>
         <translation>Copy raw flow</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="345"/>
+        <location filename="../../apps/common/flow/menus.py" line="359"/>
         <source>另存请求体为文件…</source>
         <translation>Save request body...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="350"/>
+        <location filename="../../apps/common/flow/menus.py" line="364"/>
         <source>另存响应体为文件…</source>
         <translation>Save response body...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="355"/>
+        <location filename="../../apps/common/flow/menus.py" line="369"/>
         <source>另存原始请求为文件…</source>
         <translation>Save raw request...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="360"/>
+        <location filename="../../apps/common/flow/menus.py" line="374"/>
         <source>另存原始响应为文件…</source>
         <translation>Save raw response...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="365"/>
+        <location filename="../../apps/common/flow/menus.py" line="379"/>
         <source>另存原始流量为文件…</source>
         <translation>Save raw flow...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="370"/>
-        <location filename="../../apps/common/flow/menus.py" line="435"/>
+        <location filename="../../apps/common/flow/menus.py" line="384"/>
+        <location filename="../../apps/common/flow/menus.py" line="449"/>
         <source>导出为 HAR</source>
         <translation>Export as HAR</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="373"/>
-        <location filename="../../apps/common/flow/menus.py" line="436"/>
+        <location filename="../../apps/common/flow/menus.py" line="387"/>
+        <location filename="../../apps/common/flow/menus.py" line="450"/>
         <source>导出为 FLOW</source>
         <translation>Export as FLOW</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="376"/>
-        <location filename="../../apps/common/flow/menus.py" line="437"/>
+        <location filename="../../apps/common/flow/menus.py" line="390"/>
+        <location filename="../../apps/common/flow/menus.py" line="451"/>
         <source>导出字段为 CSV…</source>
         <translation>Export fields as CSV…</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="439"/>
+        <location filename="../../apps/common/flow/menus.py" line="453"/>
         <source>导出 {} 条为 HAR</source>
         <translation>Export {} flows as HAR</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="440"/>
+        <location filename="../../apps/common/flow/menus.py" line="454"/>
         <source>导出 {} 条为 FLOW</source>
         <translation>Export {} flows as FLOW</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="441"/>
+        <location filename="../../apps/common/flow/menus.py" line="455"/>
         <source>导出 {} 条字段为 CSV…</source>
         <translation>Export fields of {} flows as CSV…</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="452"/>
-        <location filename="../../apps/common/flow/menus.py" line="468"/>
-        <location filename="../../apps/common/flow/menus.py" line="486"/>
-        <location filename="../../apps/common/flow/menus.py" line="504"/>
-        <location filename="../../apps/common/flow/menus.py" line="548"/>
-        <location filename="../../apps/common/flow/menus.py" line="572"/>
-        <location filename="../../apps/common/flow/menus.py" line="641"/>
-        <location filename="../../apps/common/flow/menus.py" line="647"/>
-        <location filename="../../apps/common/flow/menus.py" line="698"/>
-        <location filename="../../apps/common/flow/menus.py" line="704"/>
-        <location filename="../../apps/common/flow/menus.py" line="727"/>
+        <location filename="../../apps/common/flow/menus.py" line="466"/>
+        <location filename="../../apps/common/flow/menus.py" line="482"/>
+        <location filename="../../apps/common/flow/menus.py" line="500"/>
+        <location filename="../../apps/common/flow/menus.py" line="518"/>
+        <location filename="../../apps/common/flow/menus.py" line="562"/>
+        <location filename="../../apps/common/flow/menus.py" line="586"/>
+        <location filename="../../apps/common/flow/menus.py" line="655"/>
+        <location filename="../../apps/common/flow/menus.py" line="661"/>
+        <location filename="../../apps/common/flow/menus.py" line="712"/>
+        <location filename="../../apps/common/flow/menus.py" line="718"/>
+        <location filename="../../apps/common/flow/menus.py" line="741"/>
         <source>警告</source>
         <translation>Warning</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="453"/>
-        <location filename="../../apps/common/flow/menus.py" line="487"/>
-        <location filename="../../apps/common/flow/menus.py" line="549"/>
+        <location filename="../../apps/common/flow/menus.py" line="467"/>
+        <location filename="../../apps/common/flow/menus.py" line="501"/>
+        <location filename="../../apps/common/flow/menus.py" line="563"/>
         <source>导出失败：请求尚未完成或控制器不可用</source>
         <translation>Export failed: the request is unfinished or the controller is unavailable</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="469"/>
+        <location filename="../../apps/common/flow/menus.py" line="483"/>
         <source>%s 命令尚未生成，请等待请求完成</source>
         <translation>The %s command is not ready yet, wait for the request to finish</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="476"/>
-        <location filename="../../apps/common/flow/menus.py" line="518"/>
-        <location filename="../../apps/common/flow/menus.py" line="600"/>
-        <location filename="../../apps/common/flow/menus.py" line="685"/>
-        <location filename="../../apps/common/flow/menus.py" line="738"/>
-        <location filename="../../apps/common/flow/menus.py" line="765"/>
+        <location filename="../../apps/common/flow/menus.py" line="490"/>
+        <location filename="../../apps/common/flow/menus.py" line="532"/>
+        <location filename="../../apps/common/flow/menus.py" line="614"/>
+        <location filename="../../apps/common/flow/menus.py" line="699"/>
+        <location filename="../../apps/common/flow/menus.py" line="752"/>
+        <location filename="../../apps/common/flow/menus.py" line="779"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="477"/>
-        <location filename="../../apps/common/flow/menus.py" line="519"/>
+        <location filename="../../apps/common/flow/menus.py" line="491"/>
+        <location filename="../../apps/common/flow/menus.py" line="533"/>
         <source>%s 已复制到剪贴板</source>
         <translation>%s copied to clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="494"/>
+        <location filename="../../apps/common/flow/menus.py" line="508"/>
         <source>原始请求</source>
         <translation>Raw request</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="497"/>
+        <location filename="../../apps/common/flow/menus.py" line="511"/>
         <source>原始响应</source>
         <translation>Raw response</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="500"/>
+        <location filename="../../apps/common/flow/menus.py" line="514"/>
         <source>原始流量</source>
         <translation>Raw flow</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="505"/>
+        <location filename="../../apps/common/flow/menus.py" line="519"/>
         <source>%s 尚未生成，请等待请求完成</source>
         <translation>%s is not ready yet, wait for the request to finish</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="573"/>
+        <location filename="../../apps/common/flow/menus.py" line="587"/>
         <source>暂无可保存的内容，报文体为空或响应尚未到达</source>
         <translation>The body is empty or the response is pending</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="581"/>
+        <location filename="../../apps/common/flow/menus.py" line="595"/>
         <source>保存到文件</source>
         <translation>Save to file</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="583"/>
+        <location filename="../../apps/common/flow/menus.py" line="597"/>
         <source>所有文件 (*)</source>
         <translation>All files (*)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="596"/>
+        <location filename="../../apps/common/flow/menus.py" line="610"/>
         <source>保存失败</source>
         <translation>Save failed</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="601"/>
+        <location filename="../../apps/common/flow/menus.py" line="615"/>
         <source>已保存到 {}</source>
         <translation>Saved to {}</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="641"/>
-        <location filename="../../apps/common/flow/menus.py" line="698"/>
+        <location filename="../../apps/common/flow/menus.py" line="655"/>
+        <location filename="../../apps/common/flow/menus.py" line="712"/>
         <source>控制器不可用</source>
         <translation>Controller unavailable</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="648"/>
-        <location filename="../../apps/common/flow/menus.py" line="705"/>
+        <location filename="../../apps/common/flow/menus.py" line="662"/>
+        <location filename="../../apps/common/flow/menus.py" line="719"/>
         <source>请先选中要导出的流量</source>
         <translation>Select the flows you want to export first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="654"/>
+        <location filename="../../apps/common/flow/menus.py" line="668"/>
         <source>导出 HAR</source>
         <translation>Export HAR</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="656"/>
+        <location filename="../../apps/common/flow/menus.py" line="670"/>
         <source>HAR 文件 (*.har)</source>
         <translation>HAR files (*.har)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="658"/>
+        <location filename="../../apps/common/flow/menus.py" line="672"/>
         <source>导出 Flow</source>
         <translation>Export Flow</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="660"/>
+        <location filename="../../apps/common/flow/menus.py" line="674"/>
         <source>Flow 文件 (*.flow)</source>
         <translation>Flow files (*.flow)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="681"/>
-        <location filename="../../apps/common/flow/menus.py" line="761"/>
+        <location filename="../../apps/common/flow/menus.py" line="695"/>
+        <location filename="../../apps/common/flow/menus.py" line="775"/>
         <source>导出失败</source>
         <translation>Export failed</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="686"/>
-        <location filename="../../apps/common/flow/menus.py" line="766"/>
+        <location filename="../../apps/common/flow/menus.py" line="700"/>
+        <location filename="../../apps/common/flow/menus.py" line="780"/>
         <source>已导出 {} 条流量到 {}</source>
         <translation>Exported {} flow(s) to {}</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="728"/>
+        <location filename="../../apps/common/flow/menus.py" line="742"/>
         <source>选中的流量暂无可导出的详情</source>
         <translation>The selected flows have no exportable details yet</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="739"/>
+        <location filename="../../apps/common/flow/menus.py" line="753"/>
         <source>已复制 {} 行到剪贴板</source>
         <translation>Copied {} rows to the clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="746"/>
+        <location filename="../../apps/common/flow/menus.py" line="760"/>
         <source>导出 CSV</source>
         <translation>Export CSV</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="748"/>
+        <location filename="../../apps/common/flow/menus.py" line="762"/>
         <source>CSV 文件 (*.csv)</source>
         <translation>CSV files (*.csv)</translation>
     </message>
@@ -2265,12 +2504,12 @@
 <context>
     <name>FlowSubViewMenu</name>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="800"/>
+        <location filename="../../apps/common/flow/menus.py" line="814"/>
         <source>查看</source>
         <translation>View</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/menus.py" line="804"/>
+        <location filename="../../apps/common/flow/menus.py" line="818"/>
         <source>URL</source>
         <translation>URL</translation>
     </message>
@@ -2338,32 +2577,32 @@
         <translation>Unknown content type</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="403"/>
+        <location filename="../../apps/common/flow/models.py" line="410"/>
         <source>请求</source>
         <translation>Request</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="404"/>
+        <location filename="../../apps/common/flow/models.py" line="411"/>
         <source>响应</source>
         <translation>Response</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="405"/>
+        <location filename="../../apps/common/flow/models.py" line="412"/>
         <source>报文体的线上字节（压缩后）</source>
         <translation>Body bytes on the wire (compressed)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="435"/>
+        <location filename="../../apps/common/flow/models.py" line="442"/>
         <source>开始</source>
         <translation>Started</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="436"/>
+        <location filename="../../apps/common/flow/models.py" line="443"/>
         <source>结束</source>
         <translation>Ended</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="437"/>
+        <location filename="../../apps/common/flow/models.py" line="444"/>
         <source>耗时</source>
         <translation>Elapsed</translation>
     </message>
@@ -2435,32 +2674,32 @@
 <context>
     <name>FlowViewerPane</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="420"/>
+        <location filename="../../apps/common/flow/views.py" line="419"/>
         <source>没有匹配结果</source>
         <translation>No matches</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="421"/>
+        <location filename="../../apps/common/flow/views.py" line="420"/>
         <source>当前有 {} 个有效条件</source>
         <translation>{} active condition(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="425"/>
+        <location filename="../../apps/common/flow/views.py" line="424"/>
         <source>等待流量</source>
         <translation>Waiting for traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="430"/>
+        <location filename="../../apps/common/flow/views.py" line="429"/>
         <source>代理已停止</source>
         <translation>Proxy stopped</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="432"/>
+        <location filename="../../apps/common/flow/views.py" line="431"/>
         <source>当前会话没有 HTTP 流量</source>
         <translation>This session has no HTTP traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="434"/>
+        <location filename="../../apps/common/flow/views.py" line="433"/>
         <source>暂无流量</source>
         <translation>No traffic yet</translation>
     </message>
@@ -3542,22 +3781,22 @@
 <context>
     <name>MarkerPickerDialog</name>
     <message>
-        <location filename="../../apps/common/flow/marks.py" line="125"/>
+        <location filename="../../apps/common/flow/marks.py" line="203"/>
         <source>标记流量</source>
         <translation>Mark flows</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/marks.py" line="127"/>
+        <location filename="../../apps/common/flow/marks.py" line="205"/>
         <source>按标记名搜索，如 bug</source>
         <translation>Search by marker name, e.g. bug</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/marks.py" line="150"/>
+        <location filename="../../apps/common/flow/marks.py" line="230"/>
         <source>确定</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/marks.py" line="151"/>
+        <location filename="../../apps/common/flow/marks.py" line="231"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
@@ -3673,54 +3912,54 @@
         <translation>The WireGuard key file is corrupt; delete {} and try again</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="550"/>
+        <location filename="../../core/mitm/facade.py" line="576"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="601"/>
+        <location filename="../../core/mitm/facade.py" line="627"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="711"/>
-        <location filename="../../core/mitm/facade.py" line="876"/>
+        <location filename="../../core/mitm/facade.py" line="737"/>
+        <location filename="../../core/mitm/facade.py" line="902"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="883"/>
+        <location filename="../../core/mitm/facade.py" line="909"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="888"/>
-        <location filename="../../core/mitm/facade.py" line="957"/>
+        <location filename="../../core/mitm/facade.py" line="914"/>
+        <location filename="../../core/mitm/facade.py" line="983"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="906"/>
+        <location filename="../../core/mitm/facade.py" line="932"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="929"/>
+        <location filename="../../core/mitm/facade.py" line="955"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="931"/>
+        <location filename="../../core/mitm/facade.py" line="957"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="935"/>
+        <location filename="../../core/mitm/facade.py" line="961"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="971"/>
+        <location filename="../../core/mitm/facade.py" line="997"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
@@ -3728,27 +3967,27 @@
 <context>
     <name>MitmRuntime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="210"/>
+        <location filename="../../core/mitm/runtime.py" line="243"/>
         <source>代理端口监听失败</source>
         <translation>The proxy could not start listening on its port</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="540"/>
+        <location filename="../../core/mitm/runtime.py" line="597"/>
         <source>端口 {} 已被占用</source>
         <translation>Port {} is already in use</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1052"/>
+        <location filename="../../core/mitm/runtime.py" line="1115"/>
         <source>mitmproxy 内核停止超时，无法重启</source>
         <translation>The mitmproxy core did not stop in time, so it cannot restart</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1529"/>
+        <location filename="../../core/mitm/runtime.py" line="1632"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1550"/>
+        <location filename="../../core/mitm/runtime.py" line="1653"/>
         <source>mitmproxy 任务执行超时</source>
         <translation>The mitmproxy task timed out</translation>
     </message>
@@ -4111,27 +4350,27 @@
 <context>
     <name>RegenerateCertDialog</name>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="32"/>
+        <location filename="../../apps/certificate/dialogs.py" line="57"/>
         <source>重新生成 CA 证书？</source>
         <translation>Regenerate the CA certificate?</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="36"/>
+        <location filename="../../apps/certificate/dialogs.py" line="61"/>
         <source>会删除现有的私钥与证书并生成一套全新的，操作无法撤销。</source>
         <translation>This deletes the existing private key and certificate and generates a brand new pair. It cannot be undone.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="43"/>
+        <location filename="../../apps/certificate/dialogs.py" line="68"/>
         <source>生成后需要重新安装到系统信任库；其他已导入证书的设备也要重新导入。</source>
         <translation>After generating, reinstall it into the system trust store; other devices that imported the certificate have to import it again.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="48"/>
+        <location filename="../../apps/certificate/dialogs.py" line="73"/>
         <source>重新生成</source>
         <translation>Regenerate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="49"/>
+        <location filename="../../apps/certificate/dialogs.py" line="74"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
@@ -5610,42 +5849,42 @@
 <context>
     <name>TrustedCaDialog</name>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="81"/>
+        <location filename="../../apps/certificate/dialogs.py" line="106"/>
         <source>信任额外的 CA 证书</source>
         <translation>Trust additional CA certificates</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="87"/>
+        <location filename="../../apps/certificate/dialogs.py" line="112"/>
         <source>把测试环境的自签根证书加进 Ferret 的上游信任库。公共根证书会一并保留（Ferret 自动合并），正常站点不受影响。每行一个 .pem / .crt 文件路径。</source>
         <translation>Add the self-signed root certificates of test environments to Ferret&apos;s upstream trust store. Public root certificates are kept as well (Ferret merges them automatically), so normal sites are unaffected. One .pem / .crt file path per line.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="99"/>
+        <location filename="../../apps/certificate/dialogs.py" line="124"/>
         <source>添加文件…</source>
         <translation>Add file…</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="107"/>
+        <location filename="../../apps/certificate/dialogs.py" line="132"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="108"/>
+        <location filename="../../apps/certificate/dialogs.py" line="133"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="127"/>
+        <location filename="../../apps/certificate/dialogs.py" line="152"/>
         <source>选择 CA 证书文件</source>
         <translation>Select a CA certificate file</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="129"/>
+        <location filename="../../apps/certificate/dialogs.py" line="154"/>
         <source>CA 证书 (*.pem *.crt *.cer);;所有文件 (*)</source>
         <translation>CA certificates (*.pem *.crt *.cer);;All files (*)</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/dialogs.py" line="156"/>
+        <location filename="../../apps/certificate/dialogs.py" line="181"/>
         <source>第 {} 个文件里没有证书：{}</source>
         <translation>No certificate found in file #{}: {}</translation>
     </message>
@@ -5666,7 +5905,7 @@
 <context>
     <name>runtime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="109"/>
+        <location filename="../../core/mitm/runtime.py" line="114"/>
         <source>“{}”不是合法的 IP 地址</source>
         <translation>&quot;{}&quot; is not a valid IP address</translation>
     </message>
