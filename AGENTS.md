@@ -49,7 +49,7 @@
 
 - CA：`certs.CertStore.from_store` / `Cert` 字段 / `Cert.to_pem()`；系统信任库只走 Windows `certutil`。
 
-- 上游 TLS 校验/信任/拼接链：原生 `ssl_insecure` / `ssl_verify_upstream_trusted_ca` / `add_upstream_certs_to_client_chain`（`FerretTlsConfig` 已挂载），合并信任库走 `certificate.py::build_trusted_ca_bundle`（公共根+用户根、产物带内容指纹），不自建 TLS context；`client_certs`（mTLS）与 `confdir` 不接。
+- 上游 TLS 校验/信任/拼接链：原生 `ssl_insecure` / `ssl_verify_upstream_trusted_ca` / `add_upstream_certs_to_client_chain`（`FerretTlsConfig` 已挂载），合并信任库走 `certificate.py::build_trusted_ca_bundle`（公共根+用户根、产物带内容指纹），不自建 TLS context；mTLS 走原生 `client_certs`（一个路径，目录模式按 `<主机名>.pem` 精确匹配），下发前后必须清 `net_tls.create_proxy_server_context` 的 lru_cache（键里只有路径字符串，且跨内核重启存活）；`confdir` 不接。
 
 - 反向代理模式：`mode_specs.ReverseMode` + `proxyserver.configure` 走原生 spec 通道，**不要**自实现 TCP/HTTP 转发；alt-svc 重写挂原生 `UpdateAltSvc`（仅 reverse 通道有效，master.py 挂载）。
 
@@ -117,7 +117,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - 实际装载的 addon 以 `core/mitm/master.py` 为准，本文件不维护清单。
 
-- 尚未实现（实现后更新本行）：serverplayback、mTLS（`client_certs`）
+- 尚未实现（实现后更新本行）：serverplayback
 
 ## 7. i18n（中文源 + `en_GB.qm`）
 
