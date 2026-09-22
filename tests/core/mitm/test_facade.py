@@ -154,6 +154,59 @@ class ResumeCountTests(unittest.TestCase):
         self.assertEqual(self.facade.release_flows(["nope"]), 0)
 
 
+class RemoveUnmarkedTests(unittest.TestCase):
+    """`remove_unmarked_flows` 复用 `remove_flows` 的完整生命周期（放行 → 删），只是
+    受害者集合换成 store 里所有未标记 flow，对全部流量生效（`.plans/0-mark-filter-polish.md`
+    §2.3）。挂起中的未标记 flow 必须先放行，否则连接永久挂死在 wait_for_resume。"""
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+
+    def _add(self, marked: str):
+        flow = tflow.tflow(resp=True)
+        flow.marked = marked
+        self.runtime.view.add([flow])
+        return flow
+
+    def test_only_unmarked_flows_are_removed_and_the_count_is_returned(self) -> None:
+        kept = self._add(":bug:")
+        gone_a = self._add("")
+        gone_b = self._add("")
+
+        removed = self.facade.remove_unmarked_flows()
+
+        self.assertEqual(removed, 2)
+        remaining = list(self.runtime.view._store.values())
+        self.assertEqual(remaining, [kept])
+        self.assertIsNone(self.runtime.view.get_by_id(gone_a.id))
+        self.assertIsNone(self.runtime.view.get_by_id(gone_b.id))
+
+    def test_the_default_toggle_marker_counts_as_marked_and_survives(self) -> None:
+        """`:default:`（●）是「这条要留」的记号，任何标记都算已标记，不删。"""
+        kept = self._add(":default:")
+        self.facade.remove_unmarked_flows()
+        self.assertIn(kept, self.runtime.view._store.values())
+
+    def test_a_pending_unmarked_flow_is_released_before_removal(self) -> None:
+        pending = self._add("")
+        pending.intercept()
+        self.assertTrue(pending.intercepted)
+
+        self.facade.remove_unmarked_flows()
+
+        # 放行发生在删除之前：kill() 会把 intercepted 清成 False 并让 resume 再也
+        # 唤不醒它（同 remove_flows 注释），所以删前必须先 resume。
+        self.assertFalse(pending.intercepted)
+        self.assertIsNone(self.runtime.view.get_by_id(pending.id))
+
+    def test_removing_from_an_all_marked_store_is_a_no_op(self) -> None:
+        self._add(":bug:")
+        self._add(":fire:")
+        self.assertEqual(self.facade.remove_unmarked_flows(), 0)
+        self.assertEqual(len(self.runtime.view._store), 2)
+
+
 class FlowDetailTests(unittest.TestCase):
     """详情字典必须**穿过 `runtime.call`** 才交给界面（AGENTS.md §3）。
 
