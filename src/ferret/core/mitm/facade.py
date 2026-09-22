@@ -1033,21 +1033,43 @@ class MitmFacade:
         flow_ids = [flow.id for flow in flows]
 
         def remove() -> None:
-            # 必须先放行：`View.remove` 对 killable 的 flow 直接 kill()
-            # （`addons/view.py:435`），而 kill() 会把 intercepted 清成 False，之后
-            # resume() 开头那句 `if not intercepted: return` 就再也唤不醒它 ——
-            # 挂起中的行被删掉，等于让那条连接永久挂死在 wait_for_resume() 上。
-            master = self.runtime.master
-            if master is not None:
-                master.gateway.release(flow_ids)
-                master.intercept_state.release(flow_ids)
-                self._sweep(flow_ids)
-                for flow_id in flow_ids:
-                    master.sse.forget(flow_id)
-            current = [self.view.get_by_id(flow_id) for flow_id in flow_ids]
-            self.view.remove([flow for flow in current if flow is not None])
+            self._remove_flow_ids(flow_ids)
 
         if self.runtime.is_running:
             self.runtime.call(remove)
         else:
             remove()
+
+    def remove_unmarked_flows(self) -> int:
+        """删除 store 里所有未标记流量（对齐原生 `view.clear_unmarked`，
+        addons/view.py:369），返回删除数供界面播报。
+
+        不能照抄原生直接删 store：挂起中的 flow 必须先放行，否则连接永久挂在
+        wait_for_resume 上（同 `remove_flows` 注释），故复用同一条生命周期。
+        枚举发生在 mitm 线程内（桥接红线：Qt 线程不碰 view），所以闭包现算。
+        """
+
+        def remove() -> int:
+            flow_ids = [f.id for f in self.view._store.values() if not f.marked]
+            self._remove_flow_ids(flow_ids)
+            return len(flow_ids)
+
+        if self.runtime.is_running:
+            return int(self.runtime.call(remove))
+        return remove()
+
+    def _remove_flow_ids(self, flow_ids: list[str]) -> None:
+        """放行 → sweep → sse.forget → view.remove（必须在 mitm 线程跑）。"""
+        # 必须先放行：`View.remove` 对 killable 的 flow 直接 kill()
+        # （`addons/view.py:435`），而 kill() 会把 intercepted 清成 False，之后
+        # resume() 开头那句 `if not intercepted: return` 就再也唤不醒它 ——
+        # 挂起中的行被删掉，等于让那条连接永久挂死在 wait_for_resume() 上。
+        master = self.runtime.master
+        if master is not None:
+            master.gateway.release(flow_ids)
+            master.intercept_state.release(flow_ids)
+            self._sweep(flow_ids)
+            for flow_id in flow_ids:
+                master.sse.forget(flow_id)
+        current = [self.view.get_by_id(flow_id) for flow_id in flow_ids]
+        self.view.remove([flow for flow in current if flow is not None])
