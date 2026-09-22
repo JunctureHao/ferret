@@ -150,6 +150,9 @@ class CapturesInterface(QWidget):
         self.command_bar.portRequested.connect(self.__show_proxy_port_dialog)
         self.command_bar.locateRequested.connect(self.content.table.on_locate_selection)
         self.command_bar.clearRequested.connect(self.__confirm_clear_flows)
+        self.command_bar.deleteUnmarkedRequested.connect(
+            self.__on_delete_unmarked_requested
+        )
 
         # 右键菜单"从文件回放…"信号 → 弹 file dialog → 调 controller
         self.content.table.context_menu.replay_file_requested.connect(
@@ -178,6 +181,10 @@ class CapturesInterface(QWidget):
 
         self.filter_panel.conditionsChanged.connect(self.__on_search_changed)
         self.filter_panel.panelCloseRequested.connect(self.__hide_filter_panel)
+        # 非法原生表达式的错误回传：置输入框错误态（空串 = 清除）。
+        self.controller.filterExpressionRejected.connect(
+            self.filter_panel.set_raw_error
+        )
 
         # 统计信息更新
         self.content.table.stats_updated.connect(self.__on_stats_updated)
@@ -266,7 +273,7 @@ class CapturesInterface(QWidget):
         「显示过滤」——_store 保留全部流量，仅 _view 可见列表变化，无清除效果。
         """
         conditions = self.filter_panel.get_conditions()
-        self.controller.apply_filter(conditions)
+        self.controller.apply_filter(conditions, self.filter_panel.get_raw_expression())
         self._ui_state = replace(
             self._ui_state,
             active_filter_count=self.filter_panel.active_condition_count(),
@@ -481,6 +488,20 @@ class CapturesInterface(QWidget):
             self.content.table.clear_all()
 
     @Slot()
+    def __on_delete_unmarked_requested(self) -> None:
+        """删除全部未标记流量（含被当前过滤式遮住的），对全部 store 生效。"""
+        removed = self.controller.remove_unmarked_flows()
+        self._ui_state = replace(
+            self._ui_state, total_count=self.controller.total_count()
+        )
+        self._refresh_command_bar()
+        show_success(
+            self.tr("成功"),
+            self.tr("已删除 {} 条未标记流量").format(removed),
+            parent=self,
+        )
+
+    @Slot()
     def __toggle_filter_panel(self) -> None:
         self.filter_panel.setVisible(not self.filter_panel.isVisible())
         if self.filter_panel.isVisible():
@@ -673,6 +694,7 @@ class CaptureCommandBar(QWidget):
     filterToggled = Signal()
     openRequested = Signal()
     clearRequested = Signal()
+    deleteUnmarkedRequested = Signal()
     portRequested = Signal()
     locateRequested = Signal()
 
@@ -745,6 +767,16 @@ class CaptureCommandBar(QWidget):
         self.captures_delete_btn.setToolTip(self.tr("清空当前流量"))
         self.captures_delete_btn.setAccessibleName(self.tr("清空当前流量"))
 
+        # 拆分按钮：主钮 = 清空（肌肉记忆不变），箭头弹出更多删除操作。
+        # 不用 qfw `SplitToolButton`：它是自带填充底色的复合件，塞进清一色
+        # TransparentToolButton 的命令栏风格分裂（选型见
+        # `.plans/0-mark-filter-polish.md` §2.2）。
+        self.captures_delete_more_btn = TransparentToolButton(
+            FluentIcon.CHEVRON_DOWN_MED, self
+        )
+        self.captures_delete_more_btn.setToolTip(self.tr("更多删除操作"))
+        self.captures_delete_more_btn.setAccessibleName(self.tr("更多删除操作"))
+
         self.separator = VerticalSeparator(self)
         self.separator.setFixedHeight(16)
 
@@ -756,10 +788,13 @@ class CaptureCommandBar(QWidget):
             self.locate_selection_btn,
             self.control_btn,
             self.captures_delete_btn,
+            self.captures_delete_more_btn,
         ):
             button.setFixedSize(32, 32)
             button.setIconSize(QSize(18, 18))
             button.installEventFilter(ToolTipFilter(button, 700, ToolTipPosition.TOP))
+        self.captures_delete_more_btn.setFixedSize(24, 32)
+        self.captures_delete_more_btn.setIconSize(QSize(12, 12))
 
     def __init_layout(self):
         layout = QHBoxLayout(self)
@@ -783,7 +818,13 @@ class CaptureCommandBar(QWidget):
         layout.addWidget(self.locate_selection_btn)
         layout.addWidget(self.control_btn)
         layout.addWidget(self.separator)
-        layout.addWidget(self.captures_delete_btn)
+        # 拆分按钮两枚紧挨（spacing=0），视觉上一枚。
+        delete_pair = QHBoxLayout()
+        delete_pair.setContentsMargins(0, 0, 0, 0)
+        delete_pair.setSpacing(0)
+        delete_pair.addWidget(self.captures_delete_btn)
+        delete_pair.addWidget(self.captures_delete_more_btn)
+        layout.addLayout(delete_pair)
 
     def __connect_signal_to_slot(self):
         """组件内部事件管理"""
@@ -794,6 +835,7 @@ class CaptureCommandBar(QWidget):
         self.environment_btn.clicked.connect(self.__show_environment_menu)
         self.locate_selection_btn.clicked.connect(self.locateRequested.emit)
         self.captures_delete_btn.clicked.connect(self.clearRequested.emit)
+        self.captures_delete_more_btn.clicked.connect(self.__show_delete_menu)
 
     @Slot()
     def __emit_capture_toggle(self) -> None:
@@ -801,6 +843,25 @@ class CaptureCommandBar(QWidget):
             self._state and self._state.capture_state == CaptureState.RUNNING
         )
         self.captureToggled.emit(not running)
+
+    def _build_delete_menu(self) -> RoundMenu:
+        """拆分按钮下拉：只放主钮没有的删除动作（删除未标记流量）。「清空当前流量」
+        是主钮单击的动作，不在下拉里重复。菜单构建与弹出分开，弹出走
+        `__show_delete_menu`（`exec` 阻塞，不适合直接测）。"""
+        menu = RoundMenu(parent=self)
+        unmarked_action = Action(FluentIcon.DELETE, self.tr("删除未标记流量"), menu)
+        unmarked_action.triggered.connect(self.deleteUnmarkedRequested.emit)
+        menu.addAction(unmarked_action)
+        return menu
+
+    @Slot()
+    def __show_delete_menu(self) -> None:
+        menu = self._build_delete_menu()
+        menu.exec(
+            self.captures_delete_more_btn.mapToGlobal(
+                QPoint(0, self.captures_delete_more_btn.height())
+            )
+        )
 
     @Slot()
     def __show_environment_menu(self) -> None:
@@ -900,6 +961,7 @@ class CaptureCommandBar(QWidget):
         self.filter_badge.raise_()
 
         self.captures_delete_btn.setEnabled(state.total_count > 0)
+        self.captures_delete_more_btn.setEnabled(state.total_count > 0)
         self._apply_compact_mode(self.width())
 
     def resizeEvent(self, event) -> None:

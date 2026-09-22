@@ -1,4 +1,4 @@
-from PySide6.QtCore import QSize, Signal, Slot
+from PySide6.QtCore import QSize, QTimer, Signal, Slot
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -202,6 +202,18 @@ class MultiFilterManager(QWidget):
     def __init_widget(self):
         self.setVisible(False)
 
+        # 原生 flowfilter 表达式常驻行：自由表达式套不进条件行的三件套模型
+        # （字段/逻辑/值），故不做成第 6 种字段，独立于 v_layout 之外。
+        self.raw_label = CaptionLabel("flowfilter", self)
+        self.raw_input = LineEdit(self)
+        self.raw_input.setPlaceholderText(self.tr('~u "api/.*" & !~m GET'))
+        self.raw_input.setClearButtonEnabled(True)
+        self.raw_input.setAccessibleName(self.tr("原生过滤表达式"))
+        # 200ms 复位式 debounce：每个键入都重启，避免每按一键就编一次表达式。
+        self._raw_debounce = QTimer(self)
+        self._raw_debounce.setSingleShot(True)
+        self._raw_debounce.setInterval(200)
+
         self.summary_label = CaptionLabel(self)
         self.clear_btn = TransparentPushButton(
             FluentIcon.CLEAR_SELECTION, self.tr("清除全部"), self
@@ -216,6 +228,13 @@ class MultiFilterManager(QWidget):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(12, 8, 12, 8)
         root_layout.setSpacing(6)
+
+        raw_layout = QHBoxLayout()
+        raw_layout.setContentsMargins(0, 0, 0, 0)
+        raw_layout.setSpacing(6)
+        raw_layout.addWidget(self.raw_label)
+        raw_layout.addWidget(self.raw_input, 1)
+        root_layout.addLayout(raw_layout)
 
         self.v_layout = QVBoxLayout()
         self.v_layout.setContentsMargins(0, 0, 0, 0)
@@ -236,6 +255,8 @@ class MultiFilterManager(QWidget):
     def __connect_signal_to_slot(self):
         self.clear_btn.clicked.connect(self.clear_conditions)
         self.close_btn.clicked.connect(self.panelCloseRequested.emit)
+        self.raw_input.textChanged.connect(self.__on_raw_text_changed)
+        self._raw_debounce.timeout.connect(self._on_condition_changed)
 
     def _update_add_buttons(self):
         """根据当前行数更新所有行的添加按钮状态"""
@@ -274,6 +295,23 @@ class MultiFilterManager(QWidget):
         self._update_add_buttons()
         self.updateGeometry()
 
+    @Slot()
+    def __on_raw_text_changed(self) -> None:
+        self._raw_debounce.start()
+
+    def get_raw_expression(self) -> str:
+        """用户手写的原生 flowfilter 表达式（未校验，校验在 controller）。"""
+        return self.raw_input.text().strip()
+
+    def set_raw_error(self, message: str) -> None:
+        """置/清输入框错误态。错误消息是 parse 的原文（任意英文），直显不译。"""
+        # qfw LineEdit 没有 setError API，用属性标状态 + tooltip 呈现。
+        self.raw_input.setProperty("filterError", bool(message))
+        self.raw_input.setToolTip(message)
+        self.raw_input.setStyleSheet(
+            "LineEdit { border: 1px solid #c42b1c; }" if message else ""
+        )
+
     def get_conditions(self) -> list[dict]:
         """收集所有活跃的过滤条件"""
         conditions = []
@@ -309,6 +347,7 @@ class MultiFilterManager(QWidget):
     @Slot()
     def clear_conditions(self):
         """清除所有过滤条件，并恢复为一行空条件。"""
+        self.raw_input.clear()
         rows = self._rows()
         if not rows:
             self.add_new_row()
@@ -335,8 +374,13 @@ class MultiFilterManager(QWidget):
 
     def _update_summary(self) -> None:
         count = self.active_condition_count()
-        self.summary_label.setText(self.tr("{} 个有效条件").format(count))
-        self.clear_btn.setEnabled(count > 0 or len(self._rows()) > 1)
+        if self.get_raw_expression():
+            self.summary_label.setText(self.tr("{} 个有效条件 +1 原生").format(count))
+        else:
+            self.summary_label.setText(self.tr("{} 个有效条件").format(count))
+        self.clear_btn.setEnabled(
+            count > 0 or len(self._rows()) > 1 or bool(self.get_raw_expression())
+        )
 
     @Slot()
     def _on_condition_changed(self) -> None:

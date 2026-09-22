@@ -14,16 +14,22 @@ from PySide6.QtCore import (
     QAbstractListModel,
     QModelIndex,
     QPersistentModelIndex,
+    QRect,
+    QSize,
     QSortFilterProxyModel,
     Qt,
 )
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtWidgets import QStyleOptionViewItem, QVBoxLayout, QWidget
 from qfluentwidgets import (
+    CaptionLabel,
+    ListItemDelegate,
     ListView,
     MessageBoxBase,
     SearchLineEdit,
     SubtitleLabel,
+    isDarkTheme,
+    themeColor,
 )
 
 from ferret.core.mitm import emoji
@@ -35,6 +41,7 @@ from ferret.core.mitm import emoji
 FALLBACK_GLYPH = "●"
 
 _SHORTCODE_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+_GLYPH_ROLE = int(Qt.ItemDataRole.UserRole) + 2
 
 # emoji-first 字体族：把每个字形优先路由到彩色 emoji 字体（本机 Windows 的
 # `Segoe UI Emoji` 有全套彩色字形），字体里没有的（`●` 兕底符、裸字母 `a`/`1`）
@@ -70,8 +77,16 @@ def emoji_font(pixel_size: int) -> QFont:
     return font
 
 
-# 选择器列表的行字号（glyph 与短码同一行同字号）；表格 Mark 列另用字号（见 models.py）。
-_PICKER_GLYPH_PX = 18
+# 选择器网格（IconMode 方块）：每格 emoji 26px 居中 + 短码 caption 11px 垫底；
+# 表格 Mark 列另用字号（见 models.py）。
+_TILE_W = 104
+_TILE_H = 72
+_TILE_GLYPH_PX = 26
+_TILE_CAPTION_PX = 11
+
+# caption 次级色：抄 WinUI TextSecondary 档，与 models.py 的 `_semantic_color`
+# 同姿势（经 `isDarkTheme()` 取档），色值只在这里维护一份。
+_CAPTION_SECONDARY = ("#5F5F5F", "#A0A0A0")  # (light, dark)
 
 
 _ZWJ = "‍"
@@ -124,14 +139,105 @@ def _marker_entries() -> tuple[tuple[str, str], ...]:
     )
 
 
-class _MarkerListModel(QAbstractListModel):
-    """全量标记的列表模型（竖排 ListMode）：DisplayRole=「glyph  短码」，
-    Decoration 无；ToolTipRole/内部角色=纯短码（供搜索与写回）。
+def strip_shortcode(shortcode: str) -> str:
+    """``:laptop_computer:`` → ``laptop_computer``（caption 层剥掉两侧冒号）。"""
+    if shortcode.startswith(":") and shortcode.endswith(":") and len(shortcode) > 2:
+        return shortcode[1:-1]
+    return shortcode
 
-    为什么每行连短码一起显示、不用 IconMode 只摆 glyph：IconMode 网格在本机
-    实测有活体绘制缺陷（大量格子不绘字形，`grab()` 却正常，说明是视图刷新层的坑
-    而非字体），换 ListMode + qfluentwidgets `ListView` 的行委托绘制稳定；顺带把
-    短码亮在字形边上，认不出图形也能读名字，比纯网格更好用。
+
+def _caption_color(selected_or_hover: bool) -> QColor:
+    """caption 颜色：选中/hover 态在高亮底色上次级灰对比度不足，改用主文本色。"""
+    if selected_or_hover:
+        return QColor(Qt.GlobalColor.white if isDarkTheme() else Qt.GlobalColor.black)
+    light, dark = _CAPTION_SECONDARY
+    return QColor(dark if isDarkTheme() else light)
+
+
+class _MarkerTileDelegate(ListItemDelegate):
+    """标记网格的方块委托（IconMode）：emoji 26px 居中 + 剥冒号短码 11px 垫底。
+
+    整块自绘 —— 连底色/hover/选中都自己画圆角块，不走基类的整行高亮与左侧指示条
+    （那套是竖排列表的形态，铺到方格里会给每块贴一条竖杠，很怪）。仍继承
+    `ListItemDelegate` 只为白拿 `hoverRow` / `selectedRows` / `pressedRow` 的行号同步。
+
+    `initStyleOption` 里把 `option.text` 清空是关键：基类 paint 末尾会调
+    `QStyledItemDelegate.paint`，它内部重跑 `initStyleOption` 从 DisplayRole 回填文本再
+    画一遍 —— 不清空就会和自绘的 glyph/短码叠成双重文字（正是之前那个重影 bug）。
+    DisplayRole 仍保留完整拼串供读屏，只是不让它上屏。
+    """
+
+    def initStyleOption(self, option: QStyleOptionViewItem, index) -> None:
+        super().initStyleOption(option, index)
+        option.text = ""  # 文本全部自绘，禁掉基类的 DisplayRole 描字（消重影）
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        glyph = index.data(_GLYPH_ROLE) or ""
+        shortcode = index.data(_SHORTCODE_ROLE) or ""
+        selected = index.row() in self.selectedRows
+        hover = index.row() == self.hoverRow
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setClipRect(option.rect)
+        tile = option.rect.adjusted(3, 3, -3, -3)
+
+        # 底色：选中用主题色淡填 + 描边，仅 hover 用中性灰淡填；两者都不选就透明。
+        painter.setPen(Qt.PenStyle.NoPen)
+        if selected:
+            accent = themeColor()
+            fill = QColor(accent)
+            fill.setAlpha(40)
+            painter.setBrush(fill)
+            painter.drawRoundedRect(tile, 6, 6)
+        elif hover:
+            c = 255 if isDarkTheme() else 0
+            painter.setBrush(QColor(c, c, c, 20))
+            painter.drawRoundedRect(tile, 6, 6)
+
+        # glyph 层：emoji-first 字体，横向居中、块内偏上。
+        painter.setFont(emoji_font(_TILE_GLYPH_PX))
+        painter.setPen(QColor(Qt.GlobalColor.white if isDarkTheme() else Qt.GlobalColor.black))
+        glyph_rect = QRect(tile.x(), tile.y() + 6, tile.width(), 34)
+        painter.drawText(
+            glyph_rect,
+            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
+            glyph,
+        )
+        # caption 层：剥冒号短码，11px 次级色，横向居中、超宽省略。
+        caption_font = QFont()
+        caption_font.setPixelSize(_TILE_CAPTION_PX)
+        painter.setFont(caption_font)
+        painter.setPen(_caption_color(selected or hover))
+        caption_rect = QRect(
+            tile.x() + 4,
+            glyph_rect.bottom() + 2,
+            tile.width() - 8,
+            tile.bottom() - glyph_rect.bottom() - 2,
+        )
+        elided = painter.fontMetrics().elidedText(
+            strip_shortcode(shortcode),
+            Qt.TextElideMode.ElideRight,
+            caption_rect.width(),
+        )
+        painter.drawText(
+            caption_rect,
+            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
+            elided,
+        )
+        painter.restore()
+
+    def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
+        return QSize(_TILE_W, _TILE_H)
+
+
+class _MarkerListModel(QAbstractListModel):
+    """全量标记的模型：DisplayRole=「glyph  短码」完整拼串（可及性读屏用），
+    `_GLYPH_ROLE` / `_SHORTCODE_ROLE` 分两路递给方块委托自绘。
+
+    网格用 IconMode + 全自绘方块委托（`_MarkerTileDelegate`）。此前记过 IconMode
+    的「活体绘制缺陷」在视图刷新层、与字体无关，自绘 drawText 的委托正好绕开它
+    （见方案 §4.1）；方块里 emoji 居中、短码垫底，认不出图形也能读名字。
     """
 
     def __init__(self, parent: QWidget | None) -> None:
@@ -155,10 +261,12 @@ class _MarkerListModel(QAbstractListModel):
             return f"{glyph}   {shortcode}"
         if role in (Qt.ItemDataRole.ToolTipRole, _SHORTCODE_ROLE):
             return shortcode
+        if role == _GLYPH_ROLE:
+            return glyph
         # 字体经 FontRole 递出，delegate 才认（见 `emoji_font` docstring）。行内既有
         # emoji 又有拉丁短码，emoji-first 字体族的 YaHei 兜住拉丁字母。
         if role == Qt.ItemDataRole.FontRole:
-            return emoji_font(_PICKER_GLYPH_PX)
+            return emoji_font(_TILE_GLYPH_PX)
         return None
 
 
@@ -208,15 +316,24 @@ class MarkerPickerDialog(MessageBoxBase):
         self._proxy = _MarkerFilterModel(self)
         self._proxy.setSourceModel(self._model)
 
-        # 竖排 ListMode + qfluentwidgets `ListView`：行委托绘制稳定、底色 / 选中高亮
-        # 自带随主题走的 QSS。此前 IconMode 网格（无论原生 QListView 还是 ListView）在
-        # 本机都有活体绘制缺陷 —— 大量格子不绘字形，`grab()` 抓像素却正常，是视图刷新层
-        # 的坑不是字体。ListMode 是 ListView 委托的主场，绘制稳，顺带每行把短码亮在
-        # glyph 边上，更好认好搜。
+        # IconMode 方块网格：每格 emoji 居中 + 短码垫底，比一列一行更省纵向空间、
+        # 一屏看到更多候选。全自绘方块委托（`_MarkerTileDelegate`）绕开 IconMode 的
+        # 视图刷新层缺陷（见方案 §4.1）。setItemDelegate 会同步 `ListBase.delegate`，
+        # hover/press 行号自然回流到委托，无需再手工赋值。
         self.grid = ListView(self)
         self.grid.setModel(self._proxy)
+        self.grid.setItemDelegate(_MarkerTileDelegate(self.grid))
+        self.grid.setViewMode(ListView.ViewMode.IconMode)
+        self.grid.setResizeMode(ListView.ResizeMode.Adjust)
+        self.grid.setMovement(ListView.Movement.Static)
+        self.grid.setWrapping(True)
         self.grid.setUniformItemSizes(True)
-        self.grid.setMinimumSize(420, 320)
+        self.grid.setSpacing(2)
+        self.grid.setMinimumSize(440, 340)
+
+        # 搜索空态：盖在列表区中央的提示，仅在「有 needle 且 0 行」时显示。
+        self._empty_label = CaptionLabel(self.tr("没有匹配的标记"), self.grid)
+        self._empty_label.hide()
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -232,7 +349,7 @@ class MarkerPickerDialog(MessageBoxBase):
         # 没选中任何一格时「确定」没有可交付的值，置灰比 accept 后静默空转诚实。
         self.yesButton.setEnabled(False)
 
-        self.search_edit.textChanged.connect(self._proxy.set_filter_text)
+        self.search_edit.textChanged.connect(self.__on_search_changed)
         self.grid.doubleClicked.connect(self.__on_double_clicked)
         selection = self.grid.selectionModel()
         assert selection is not None
@@ -240,6 +357,23 @@ class MarkerPickerDialog(MessageBoxBase):
 
         if current:
             self.__locate(current)
+
+    def __on_search_changed(self, text: str) -> None:
+        """搜索词唯一入口：重算过滤后同步空态显隐（needle 只经这一条路变化）。"""
+        self._proxy.set_filter_text(text)
+        empty = bool(self._proxy._needle) and self._proxy.rowCount() == 0
+        self._empty_label.setVisible(empty)
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._center_empty_label()
+
+    def _center_empty_label(self) -> None:
+        self._empty_label.adjustSize()
+        self._empty_label.move(
+            (self.grid.width() - self._empty_label.width()) // 2,
+            (self.grid.height() - self._empty_label.height()) // 2,
+        )
 
     def __locate(self, shortcode: str) -> None:
         """打开时把当前标记滚动定位并选中；外部写进来的野短码无位可定，不选。"""

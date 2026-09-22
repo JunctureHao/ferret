@@ -52,16 +52,23 @@ def _condition_to_expr(condition: dict) -> str | None:
     return f"!{expression}" if logic == "excludes" else expression
 
 
-def build_filter_expression(conditions: list[dict] | None) -> str:
-    """Translate capture UI conditions into a mitmproxy flowfilter string."""
+def build_filter_expression(conditions: list[dict] | None, raw: str = "") -> str:
+    """Translate capture UI conditions into a mitmproxy flowfilter string.
+
+    raw 是用户手写的原生表达式，非空时整体加括号作最后一个原子拼入（flowfilter
+    里并列会攥住 `|`，不加括号 `a & b | c` 的优先级会把整串段拧错——见
+    AGENTS.md §5 与 `.plans/0-mark-filter-polish.md` §1.2）。
+    """
     atoms = ["~http"]
     for condition in conditions or []:
         expression = _condition_to_expr(condition)
         if expression:
             atoms.append(expression)
+    if raw.strip():
+        atoms.append(f"({raw.strip()})")
     return " & ".join(atoms)
 
 
-def compile_filter(conditions: list[dict] | None):
+def compile_filter(conditions: list[dict] | None, raw: str = ""):
     """Compile capture UI conditions into a mitmproxy filter."""
-    return parse_filter(build_filter_expression(conditions))
+    return parse_filter(build_filter_expression(conditions, raw))

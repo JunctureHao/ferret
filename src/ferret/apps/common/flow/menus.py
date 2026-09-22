@@ -95,9 +95,7 @@ class FlowContextMenu(RoundMenu):
         # 「清除标记」在整选区无标记时置灰：点了也是空转，不如直接告诉用户没的搞。
         # 读的是快照对象的 `marked`，与导出子菜单同姿态，不新读活 flow。
         if self.capabilities.can_mark:
-            self.unmark_action.setEnabled(
-                any(getattr(flow, "marked", "") for flow in self.flows)
-            )
+            self.mark_menu.refresh_context(self.flows)
 
     def __init_widget(self):
         """初始化界面组件"""
@@ -126,16 +124,7 @@ class FlowContextMenu(RoundMenu):
             icon=FluentIcon.MESSAGE,
             text=self.tr("备注..."),
         )
-        self.mark_action = BaseAction(
-            parent=self,
-            icon=FluentIcon.TAG,
-            text=self.tr("标记…"),
-        )
-        self.unmark_action = BaseAction(
-            parent=self,
-            icon=FluentIcon.DELETE,
-            text=self.tr("清除标记"),
-        )
+        self.mark_menu = FlowMarkMenu(self)
         self.export_menu = FlowExportMenu(self, self.controller)
         self.view_menu = FlowSubViewMenu(self)
 
@@ -154,8 +143,7 @@ class FlowContextMenu(RoundMenu):
             self.addAction(self.delete_action)
 
         if self.capabilities.can_mark:
-            self.addAction(self.mark_action)
-            self.addAction(self.unmark_action)
+            self.addMenu(self.mark_menu)
         self.addAction(self.comment_action)
 
     def __connect_signal_to_slot(self):
@@ -169,8 +157,9 @@ class FlowContextMenu(RoundMenu):
         self.block_host_action.triggered.connect(self.__on_block_host_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
         self.comment_action.triggered.connect(self.__on_comment_triggered)
-        self.mark_action.triggered.connect(self.__on_mark_triggered)
-        self.unmark_action.triggered.connect(self.__on_unmark_triggered)
+        self.mark_menu.set_requested.connect(self.__on_mark_triggered)
+        self.mark_menu.toggle_requested.connect(self.__on_toggle_mark_triggered)
+        self.mark_menu.clear_requested.connect(self.__on_unmark_triggered)
 
     def _refresh_replay_label(self) -> None:
         """根据当前选中数量刷新重发动作文案：单选=重发，多选=重发 N 条。"""
@@ -212,15 +201,39 @@ class FlowContextMenu(RoundMenu):
         """弹 emoji 选择器，接受后批量给选区写同一短码。
 
         原生 `flow.mark` 命令本来就是批量签名（addons/core.py:65），多选语义与
-        重发一致。`current` 取选区第一条的标记用于对话框定位高亮。
+        重发一致。`current` 取选区**第一个有标记的** flow 用于对话框定位高亮
+        （只看 `flows[0]` 时混标选区预选的是错的）。
         """
         if not self.controller or not self.flows:
             return
-        current = getattr(self.flows[0], "marked", "") or ""
+        current = next(
+            (
+                getattr(flow, "marked", "") or ""
+                for flow in self.flows
+                if getattr(flow, "marked", "")
+            ),
+            "",
+        )
         dialog = MarkerPickerDialog(current=current, parent=self.main_window)
         if not dialog.exec() or dialog.selected is None:
             return
         self.__apply_marker(dialog.selected)
+
+    @Slot()
+    def __on_toggle_mark_triggered(self) -> None:
+        """逐 flow 切换标记：有标记→清空；无标记→ ``":default:"``。
+
+        与原生 `flow.mark.toggle`（addons/core.py:80-90）的批量签名同语义 ——
+        多选混标时一半清一半标是刻意行为，不发明「统一成多数状态」。
+        """
+        if not self.controller or not self.flows:
+            return
+        self._marker_failed = 0
+        self._marker_reason = ""
+        for flow in self.flows:
+            shortcode = "" if getattr(flow, "marked", "") else ":default:"
+            self.__apply_marker_to(flow, shortcode)
+        self.__report_marker_failures()
 
     @Slot()
     def __on_unmark_triggered(self) -> None:
@@ -230,33 +243,28 @@ class FlowContextMenu(RoundMenu):
         self.__apply_marker("")
 
     def __apply_marker(self, shortcode: str) -> None:
-        """逐条写回；失败的挑出来汇总一句，不中断其余（批量操作的半截失败
-        不该拖死整批）。
-
-        单选直接报原因；多选报「几条失败」并附最后一条的原因 —— 批量失败几乎
-        都是同一个原因（内核没在跑、流量已不在列表），逐条列 id 没人看得懂。
-        """
-        failed = 0
-        reason = ""
-        log.warning(
-            "[MARKDBG] __apply_marker shortcode=%r n_selected=%d",
-            shortcode,
-            len(self.flows),
-        )
+        """把同一短码写满选区（逐条写回；失败的挑出来汇总，不中断其余）。"""
+        self._marker_failed = 0
+        self._marker_reason = ""
         for flow in self.flows:
-            try:
-                self.controller.set_flow_marked(flow.id, shortcode)
-                log.warning(
-                    "[MARKDBG] wrote id=%s -> marked=%r",
-                    flow.id[:8],
-                    getattr(flow, "marked", "<none>"),
-                )
-            except (ValueError, RuntimeError) as exc:
-                failed += 1
-                reason = str(exc)
-                log.warning("[MARKDBG] write FAILED id=%s: %s", flow.id[:8], exc)
+            self.__apply_marker_to(flow, shortcode)
+        self.__report_marker_failures()
+
+    def __apply_marker_to(self, flow: HTTPFlow, shortcode: str) -> None:
+        """写单条；失败只记账不抛出 —— 批量操作的半截失败不该拖死整批。"""
+        try:
+            self.controller.set_flow_marked(flow.id, shortcode)
+        except (ValueError, RuntimeError) as exc:
+            self._marker_failed += 1
+            self._marker_reason = str(exc)
+
+    def __report_marker_failures(self) -> None:
+        """单选直接报原因；多选报「几条失败」并附最后一条的原因 —— 批量失败几乎
+        都是同一个原因（内核没在跑、流量已不在列表），逐条列 id 没人看得懂。"""
+        failed = getattr(self, "_marker_failed", 0)
         if not failed:
             return
+        reason = self._marker_reason
         if len(self.flows) == 1:
             show_warning(self.tr("标记失败"), reason, self.main_window)
         else:
@@ -794,6 +802,60 @@ class FlowExportMenu(RoundMenu):
             )
             name = f"flows_{stamp}_{len(flows)}flows"
         return re.sub(r'[\\/:*?"<>|]', "_", name) + suffix
+
+
+class FlowMarkMenu(RoundMenu):
+    """Flow 标记子菜单 - 设置 / 切换 / 清除标记，三动作同一写回链。
+
+    「切换」是逐 flow 翻转（有标记→清空、无标记→ ``":default:"``），与原生
+    `flow.mark.toggle`（addons/core.py:80-90）同语义；菜单本体不碰 controller，
+    只发信号，由 `FlowContextMenu` 汇入统一的 `__apply_marker` 写回路径。
+    """
+
+    set_requested = Signal()
+    toggle_requested = Signal()
+    clear_requested = Signal()
+
+    def __init__(self, parent: FlowContextMenu):
+        super().__init__(parent=parent)
+
+        self.__init_widget()
+        self.__init_action()
+        self.__connect_signal_to_slot()
+
+    def __init_widget(self):
+        """初始化界面组件"""
+        self.setIcon(FluentIcon.TAG)
+        self.setTitle(self.tr("标记"))
+        self.set_action = BaseAction(
+            parent=self, icon=FluentIcon.TAG, text=self.tr("设置标记…")
+        )
+        self.toggle_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.ROTATE,
+            text=self.tr("切换标记"),
+        )
+        self.toggle_action.setToolTip(self.tr("有标记的清除，无标记的标为 ●"))
+        self.clear_action = BaseAction(
+            parent=self, icon=FluentIcon.CLEAR_SELECTION, text=self.tr("清除标记")
+        )
+
+    def __init_action(self):
+        """初始化菜单动作"""
+        self.addAction(self.set_action)
+        self.addAction(self.toggle_action)
+        self.addAction(self.clear_action)
+
+    def __connect_signal_to_slot(self):
+        """连接信号与槽函数"""
+        self.set_action.triggered.connect(self.set_requested.emit)
+        self.toggle_action.triggered.connect(self.toggle_requested.emit)
+        self.clear_action.triggered.connect(self.clear_requested.emit)
+
+    def refresh_context(self, flows: list[HTTPFlow]) -> None:
+        """按选区快照刷新启用态：「清除标记」在整选区无标记时置灰
+        （点了也是空转）；「设置」「切换」恒可用。"""
+        self.clear_action.setEnabled(any(getattr(flow, "marked", "") for flow in flows))
 
 
 class FlowSubViewMenu(RoundMenu):

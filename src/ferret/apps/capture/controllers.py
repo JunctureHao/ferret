@@ -104,6 +104,10 @@ class CaptureController(QObject):
     # 写入闸门与通道状态：流量表/命令栏据此显示「抓包中 / 已停止」与通道摘要。
     recordingChanged = Signal(bool)
     channels_changed = Signal()
+    # 原生过滤表达式非法时把 parse 错误原文回传给过滤面板（原文直显不译，
+    # `parse_filter` 的 ValueError 消息是任意英文，做不了常量映射，见
+    # `.plans/0-mark-filter-polish.md` §1.3）。
+    filterExpressionRejected = Signal(str)
 
     def __init__(
         self,
@@ -137,6 +141,9 @@ class CaptureController(QObject):
         self._sysproxy_attached = False
         # 通道健康检查（异步启动失败只能延迟读 channel_health）的最近结果。
         self._channel_errors: dict[str, str] = {}
+        # 「上次有效」的原生过滤表达式：非法输入绝不上屏，沿用上一次编译成功的
+        # 合并结果（校验与缓存都在这层，view 只做控件与错误态呈现）。
+        self._last_valid_raw_filter = ""
 
         runtime.flow_added.connect(self._on_flow_added)
         runtime.flow_updated.connect(self.flow_updated)
@@ -479,8 +486,23 @@ class CaptureController(QObject):
     def visible_http_flows(self) -> list[HTTPFlow]:
         return self._mitm.visible_http_flows()
 
-    def apply_filter(self, conditions: list[dict] | None = None) -> None:
-        self._mitm.set_filter(compile_filter(conditions))
+    def apply_filter(self, conditions: list[dict] | None = None, raw: str = "") -> None:
+        raw = raw.strip()
+        if raw:
+            try:
+                compiled = compile_filter(conditions, raw)
+            except ValueError as exc:
+                # 非法表达式不上屏：沿用上次有效的合并结果，错误回传面板置错误态。
+                self._mitm.set_filter(
+                    compile_filter(conditions, self._last_valid_raw_filter)
+                )
+                self.filterExpressionRejected.emit(str(exc))
+                return
+        else:
+            compiled = compile_filter(conditions)
+        self._last_valid_raw_filter = raw
+        self._mitm.set_filter(compiled)
+        self.filterExpressionRejected.emit("")
 
     def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
         return self._mitm.save_flows(flows, path)
@@ -523,6 +545,10 @@ class CaptureController(QObject):
 
     def remove_flows(self, flows: list[HTTPFlow]) -> None:
         self._mitm.remove_flows(flows)
+
+    def remove_unmarked_flows(self) -> int:
+        """删除全部未标记流量（含被当前过滤式遮住的），返回删除数。"""
+        return self._mitm.remove_unmarked_flows()
 
     def toggle_capture(self) -> bool:
         if self._capture_state == CaptureState.RUNNING:
