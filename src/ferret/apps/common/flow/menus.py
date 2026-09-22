@@ -1,4 +1,4 @@
-"""Flow 表格的右键菜单：查看 / 重放 / 导出 / 屏蔽 / 删除 / 备注。
+"""Flow 表格的右键菜单：查看 / 重放 / 导出 / 屏蔽 / 删除 / 标记 / 备注。
 
 从 `views.py` 整段搬出来的，只是换了个落脚处 —— 类名、信号、门控语义都没动，
 `views.py` 仍然 re-export 这三个类，挂载点的 import 不受影响。
@@ -21,13 +21,17 @@ from ferret.apps.common.flow.csv_export import (
     load_selected_keys,
     save_selected_keys,
 )
+from ferret.apps.common.flow.marks import MarkerPickerDialog
 from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     FlowViewCapabilities,
 )
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success, show_warning
+from ferret.core.log import get_logger
 from ferret.core.mitm import HTTPFlow
+
+log = get_logger("flow")
 
 
 class FlowContextMenu(RoundMenu):
@@ -88,6 +92,12 @@ class FlowContextMenu(RoundMenu):
             len(self.flows) == 1 and self.row_data.get("Method") != "CONNECT"
         )
         self.export_menu.refresh_selection_labels()
+        # 「清除标记」在整选区无标记时置灰：点了也是空转，不如直接告诉用户没的搞。
+        # 读的是快照对象的 `marked`，与导出子菜单同姿态，不新读活 flow。
+        if self.capabilities.can_mark:
+            self.unmark_action.setEnabled(
+                any(getattr(flow, "marked", "") for flow in self.flows)
+            )
 
     def __init_widget(self):
         """初始化界面组件"""
@@ -113,8 +123,18 @@ class FlowContextMenu(RoundMenu):
         )
         self.comment_action = BaseAction(
             parent=self,
-            icon=FluentIcon.TAG,
+            icon=FluentIcon.MESSAGE,
             text=self.tr("备注..."),
+        )
+        self.mark_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.TAG,
+            text=self.tr("标记…"),
+        )
+        self.unmark_action = BaseAction(
+            parent=self,
+            icon=FluentIcon.DELETE,
+            text=self.tr("清除标记"),
         )
         self.export_menu = FlowExportMenu(self, self.controller)
         self.view_menu = FlowSubViewMenu(self)
@@ -133,6 +153,9 @@ class FlowContextMenu(RoundMenu):
         if self.capabilities.can_delete:
             self.addAction(self.delete_action)
 
+        if self.capabilities.can_mark:
+            self.addAction(self.mark_action)
+            self.addAction(self.unmark_action)
         self.addAction(self.comment_action)
 
     def __connect_signal_to_slot(self):
@@ -146,6 +169,8 @@ class FlowContextMenu(RoundMenu):
         self.block_host_action.triggered.connect(self.__on_block_host_triggered)
         self.view_menu.urlViewRequested.connect(self.__show_url_window)
         self.comment_action.triggered.connect(self.__on_comment_triggered)
+        self.mark_action.triggered.connect(self.__on_mark_triggered)
+        self.unmark_action.triggered.connect(self.__on_unmark_triggered)
 
     def _refresh_replay_label(self) -> None:
         """根据当前选中数量刷新重发动作文案：单选=重发，多选=重发 N 条。"""
@@ -181,6 +206,65 @@ class FlowContextMenu(RoundMenu):
         """删除动作触发时：作用于整个选区（单选/多选同一条路）。"""
         if self.flows:
             self.delete_requested.emit()
+
+    @Slot()
+    def __on_mark_triggered(self) -> None:
+        """弹 emoji 选择器，接受后批量给选区写同一短码。
+
+        原生 `flow.mark` 命令本来就是批量签名（addons/core.py:65），多选语义与
+        重发一致。`current` 取选区第一条的标记用于对话框定位高亮。
+        """
+        if not self.controller or not self.flows:
+            return
+        current = getattr(self.flows[0], "marked", "") or ""
+        dialog = MarkerPickerDialog(current=current, parent=self.main_window)
+        if not dialog.exec() or dialog.selected is None:
+            return
+        self.__apply_marker(dialog.selected)
+
+    @Slot()
+    def __on_unmark_triggered(self) -> None:
+        """清除选区全部标记（空串即未标记，与 `flow.mark.toggle` 的清法一致）。"""
+        if not self.controller or not self.flows:
+            return
+        self.__apply_marker("")
+
+    def __apply_marker(self, shortcode: str) -> None:
+        """逐条写回；失败的挑出来汇总一句，不中断其余（批量操作的半截失败
+        不该拖死整批）。
+
+        单选直接报原因；多选报「几条失败」并附最后一条的原因 —— 批量失败几乎
+        都是同一个原因（内核没在跑、流量已不在列表），逐条列 id 没人看得懂。
+        """
+        failed = 0
+        reason = ""
+        log.warning(
+            "[MARKDBG] __apply_marker shortcode=%r n_selected=%d",
+            shortcode,
+            len(self.flows),
+        )
+        for flow in self.flows:
+            try:
+                self.controller.set_flow_marked(flow.id, shortcode)
+                log.warning(
+                    "[MARKDBG] wrote id=%s -> marked=%r",
+                    flow.id[:8],
+                    getattr(flow, "marked", "<none>"),
+                )
+            except (ValueError, RuntimeError) as exc:
+                failed += 1
+                reason = str(exc)
+                log.warning("[MARKDBG] write FAILED id=%s: %s", flow.id[:8], exc)
+        if not failed:
+            return
+        if len(self.flows) == 1:
+            show_warning(self.tr("标记失败"), reason, self.main_window)
+        else:
+            show_warning(
+                self.tr("标记失败"),
+                self.tr("{} 条流量标记失败：{}").format(failed, reason),
+                self.main_window,
+            )
 
     @Slot()
     def __on_block_host_triggered(self):

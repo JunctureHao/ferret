@@ -11,6 +11,7 @@ from ferret.core.mitm.bindings import (
     View,
     WebSocketData,
     WebSocketMessage,
+    emoji,
     human,
     parse_filter,
 )
@@ -234,6 +235,7 @@ __all__ = [
     "build_flow_detail",
     "build_request_edit",
     "capture_mode_specs",
+    "emoji",
     "ensure_wireguard_conf",
     "escape_literal",
     "escape_template",

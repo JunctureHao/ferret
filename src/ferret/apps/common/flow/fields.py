@@ -42,6 +42,7 @@ from qfluentwidgets import (
 )
 from qfluentwidgets.components.widgets.card_widget import SimpleCardWidget
 
+from ferret.apps.common.flow.marks import marker_glyph
 from ferret.apps.common.font import FontManager
 from ferret.core.mitm import human
 from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
@@ -250,15 +251,16 @@ def _pairs(value: object) -> str:
 
 
 def _marker(value: object) -> str:
-    """`flow.marked` → 面向人的一句话。
+    """`flow.marked` → 「glyph + 短码」，供概览卡纯展示（写入端在表格右键）。
 
-    原生存的是 emoji 短码（`MARKER_DEFAULT` 是 ``:default:``），直接铺在卡片上是一串
-    没人认得的记号。界面上标记只有「有 / 没有」两种状态，所以有值就是「已标记」，
-    短码本身没有信息量。空值这一行本来就不会出现（`field_value` 跳空值）。
+    原生存的是 emoji 短码（`MARKER_DEFAULT` 是 ``:default:``），只铺短码是一串
+    没人认得的记号；glyph 图形与表格 Mark 列同一翻译函数，两处必然一致。
+    空值这一行本来就不会出现（`field_value` 跳空值）。
     """
     if not value:
         return "-"
-    return QCoreApplication.translate("FlowFields", "标记")
+    shortcode = str(value)
+    return f"{marker_glyph(shortcode)} {shortcode}"
 
 
 def _size_of(*keys: str) -> Callable[[dict], object]:

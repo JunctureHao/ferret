@@ -17,11 +17,13 @@ _FIELD_TO_OP: dict[str, str] = {
     "Body": "b",
 }
 
-#: 不吃值的字段 → 原生动作过滤器。`~websocket` 是 `flowfilter.FWebSocket`：它只看
-#: `flow.websocket is not None`，没有可比的正则，所以这类条件不能走下面那套
-#: `~op <regex>` 的拼法（`quote_value` 会给它塞个参数进去，直接解析失败）。
+#: 不吃值的字段 → 原生动作过滤器。`~websocket` / `~marked` 是
+#: `flowfilter.FWebSocket` / `FMarked`：只看状态不看值，没有可比的正则，所以这类
+#: 条件不能走下面那套 `~op <regex>` 的拼法（`quote_value` 会给它塞个参数进去，
+#: 直接解析失败）。
 _FLAG_FIELDS: dict[str, str] = {
     "WebSocket": "~websocket",
+    "Mark": "~marked",
 }
 
 

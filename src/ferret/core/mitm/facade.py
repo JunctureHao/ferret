@@ -539,8 +539,8 @@ class MitmFacade:
 
         照原生 `flow.mark` 命令验一遍取值：`flow.marked` 本身是个自由字符串，写什么
         都能存进 `.flow` 文件，但只有 `emoji.emoji` 表里的短码在 mitmproxy console /
-        web 那边渲染得出东西，别的一律落到兜底符号。界面只会送 `MARKER_DEFAULT` 或
-        空串，验的是「以后别的调用方」。
+        web 那边渲染得出东西，别的一律落到兜底符号。界面送的是选择器里挑出来的
+        短码（`apps/common/flow/marks.py`）或空串，验的是「以后别的调用方」。
 
         Raises:
             ValueError: 标记值不是空串也不是认得的 emoji 短码。

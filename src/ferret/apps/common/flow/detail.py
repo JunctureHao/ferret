@@ -65,12 +65,12 @@ from ferret.apps.common.flow.protocols import (
     FlowViewCapabilities,
 )
 from ferret.apps.common.flow.timing import TimingPane
-from ferret.apps.common.icon import BaseAction, BaseIcon
+from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.core.log import get_logger
-from ferret.core.mitm import MARKER_DEFAULT, SseEvent, WsClose, WsFrame
+from ferret.core.mitm import SseEvent, WsClose, WsFrame
 from ferret.core.settings import CONFIG
 
 log = get_logger("flow.detail")
@@ -532,9 +532,6 @@ class FlowDataPanel(QWidget):
         self.capabilities = capabilities or CAPTURE_CAPABILITIES
         self.datas: dict = {}
         self._split_normalized = False
-        # 哨兵位要先于动作就位，见 `__set_mark_checked`：它分开「代码在同步勾选
-        # 态」和「人点了按钮」。
-        self.__syncing_mark = False
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -627,19 +624,16 @@ class FlowDataPanel(QWidget):
         self.message_badge.hide()
 
         # 「…」菜单动作。备注弹窗保留（内联编辑页承担日常编辑，两处共用写回）；
-        # 重放/标记都得改**活** flow，会话页那批流量是从 `.flow` 文件回来的死对象
-        # （`MitmFacade._mutate` 内核没跑就抛），动作按能力门控。cURL/raw/HAR
-        # 那套导出是右键菜单 `FlowExportMenu` 的领地，这里不重复。
+        # 重放得改**活** flow，会话页那批流量是从 `.flow` 文件回来的死对象
+        # （`MitmFacade._mutate` 内核没跑就抛），动作按能力门控。标记入口已挪到
+        # 表格右键（plans/flow-mark.md D1），面板不再背第二个写入端。
+        # cURL/raw/HAR 那套导出是右键菜单 `FlowExportMenu` 的领地，这里不重复。
         self.copy_url_action = BaseAction(
             icon=FluentIcon.LINK, text=self.tr("复制 URL"), parent=self
         )
         self.replay_action = BaseAction(
             icon=FluentIcon.SYNC, text=self.tr("重发"), parent=self
         )
-        self.mark_action = BaseAction(
-            icon=BaseIcon.BOOKMARK_ADD, text=self.tr("标记"), parent=self
-        )
-        self.mark_action.setCheckable(True)
         self.comment_action = BaseAction(
             icon=FluentIcon.EDIT, text=self.tr("备注"), parent=self
         )
@@ -697,7 +691,6 @@ class FlowDataPanel(QWidget):
         self.more_button.clicked.connect(self.__on_more)
         self.copy_url_action.triggered.connect(self.__on_copy_url)
         self.replay_action.triggered.connect(self.__on_replay)
-        self.mark_action.toggled.connect(self.__on_mark_toggled)
         self.comment_action.triggered.connect(self.__on_comment)
         self.comment_pane.commentSaved.connect(self.__on_comment_saved)
         # 分栏方向由 `OrientationSplitter` 自己跟配置走；它先连的槽先跑，
@@ -791,15 +784,13 @@ class FlowDataPanel(QWidget):
         actions = [self.copy_url_action]
         if self.capabilities.can_replay:
             actions.append(self.replay_action)
-        if self.capabilities.can_mark:
-            actions.append(self.mark_action)
         if self.capabilities.can_comment:
             actions.append(self.comment_action)
         return actions
 
     @Slot()
     def __on_more(self) -> None:
-        """「…」动作菜单：复制 / 重放 / 标记 / 备注弹窗。"""
+        """「…」动作菜单：复制 / 重放 / 备注弹窗（标记入口在表格右键）。"""
         menu = RoundMenu(parent=self)
         for action in self._more_actions():
             menu.addAction(action)
@@ -836,25 +827,7 @@ class FlowDataPanel(QWidget):
         except (AttributeError, ValueError, RuntimeError) as exc:
             show_warning(self.tr("重发失败"), str(exc), self.window())
 
-    # —— 标记与备注 ——
-
-    @Slot(bool)
-    def __on_mark_toggled(self, checked: bool) -> None:
-        """切标记。写回失败要把按钮弹回去 —— 否则界面说「标了」而 flow 上没有。"""
-        if self.__syncing_mark:
-            return
-        flow_id = self.datas.get("id", "")
-        if not self.controller or not flow_id:
-            self.__set_mark_checked(bool(self.datas.get("marked")))
-            return
-        marked = MARKER_DEFAULT if checked else ""
-        try:
-            self.controller.set_flow_marked(flow_id, marked)
-        except (AttributeError, ValueError, RuntimeError) as exc:
-            show_warning(self.tr("标记失败"), str(exc), self.window())
-            self.__set_mark_checked(bool(self.datas.get("marked")))
-            return
-        self.__store("marked", marked)
+    # —— 备注 ——
 
     @Slot()
     def __on_comment(self) -> None:
@@ -900,21 +873,6 @@ class FlowDataPanel(QWidget):
         重新问一趟 `flow_detail` 也没必要，改的就是这一个字段。"""
         self.datas[key] = value
         self.overview.set_data(self.datas)
-
-    def __set_mark_checked(self, checked: bool) -> None:
-        """摆按钮的勾选态，且不触发写回。
-
-        `toggled` 对 `setChecked` 和真人点击一样会发 —— 不拦一道，光是切换选中的
-        流量就会把「上一条的标记」写到刚选中的那条上去。
-
-        用一个哨兵位而不是 `blockSignals`：菜单动作的勾选态还要被 Fluento 的
-        action→控件同步链路照搬，掐掉 action 的信号等于让控件一直画着上一条
-        流量的样子。"""
-        self.__syncing_mark = True
-        try:
-            self.mark_action.setChecked(checked)
-        finally:
-            self.__syncing_mark = False
 
     # —— WebSocket / SSE 实时 ——
 
@@ -1104,9 +1062,7 @@ class FlowDataPanel(QWidget):
         # 「…」动作的可用性跟着这条流量走。
         self.copy_url_action.setEnabled(bool(data.get("URL")))
         self.replay_action.setEnabled(editable)
-        self.mark_action.setEnabled(editable)
         self.comment_action.setEnabled(editable)
-        self.__set_mark_checked(bool(data.get("marked")))
 
         self.__sync_response_pane(data)
         self.__sync_close_host()

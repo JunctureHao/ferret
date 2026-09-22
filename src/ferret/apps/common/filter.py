@@ -19,11 +19,12 @@ from qfluentwidgets import (
 # 过滤字段的**取值**（不是界面文案）。`get_condition()` 送出去的就是这些，
 # `apps/capture/services.py` 拿它映射 flowfilter 操作符。取值与文案必须分开：
 # 早先两者是同一个中文串，翻译一开下游就会静默失配、筛选整条失效。
-FILTER_FIELDS = ("all", "URL", "Method", "Header", "Body", "WebSocket")
+FILTER_FIELDS = ("all", "URL", "Method", "Header", "Body", "WebSocket", "Mark")
 
-# 不吃值的字段。原生 `~websocket`（`flowfilter.FWebSocket`）问的是「这条流量是不是
-# WS」，压根不带参数，所以这一类字段只能问 是 / 不是，输入框整个用不上。
-FILTER_FLAG_FIELDS = frozenset({"WebSocket"})
+# 不吃值的字段。原生 `~websocket` / `~marked`（`flowfilter.FWebSocket` / `FMarked`）
+# 问的是「这条流量是不是 WS / 有没有标记」，压根不带参数，所以这一类字段只能问
+# 是 / 不是，输入框整个用不上。
+FILTER_FLAG_FIELDS = frozenset({"WebSocket", "Mark"})
 
 # 过滤逻辑的取值，理由同上。顺序即下拉框顺序，索引 0 是默认项。
 FILTER_LOGICS = ("contains", "excludes", "regex", "equals")
@@ -58,6 +59,7 @@ class FilterRow(QWidget):
             "Body": "Body",
             # 协议名，和 URL / Method 一样不译。
             "WebSocket": "WebSocket",
+            "Mark": self.tr("标记"),
         }
         self.field_box = ComboBox(self)
         self.field_box.setMinimumWidth(96)

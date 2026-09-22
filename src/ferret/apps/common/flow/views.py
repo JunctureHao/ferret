@@ -91,7 +91,7 @@ class FlowDataTable(TableView):
         self.scrollDelagate.verticalSmoothScroll.setDynamicEngineEnabled(False)
 
         self.verticalHeader().hide()
-        widths = [80, 80, 420, 65, 100, 80, 80]
+        widths = [80, 64, 80, 420, 65, 100, 80, 80]
         h_header = self.horizontalHeader()
         h_header.setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -100,6 +100,7 @@ class FlowDataTable(TableView):
         h_header.setMinimumSectionSize(44)
         for i, w in enumerate(widths):
             self.setColumnWidth(i, w)
+        h_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         h_header.setFixedHeight(36)
         self.verticalHeader().setDefaultSectionSize(34)
         self.setMinimumWidth(360)

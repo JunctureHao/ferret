@@ -20,6 +20,7 @@ from qfluentwidgets import isDarkTheme
 from ferret.apps.common.flow.fields import (
     format_duration as format_duration,  # noqa: PLC0414
 )
+from ferret.apps.common.flow.marks import emoji_font, marker_glyph
 from ferret.core.log import get_logger
 from ferret.core.mitm import (
     GATEWAY_METADATA_KEY,
@@ -117,7 +118,9 @@ class FlowSource(Protocol):
 
 
 class FlowTableModel(QAbstractTableModel):
-    HEADERS = ("#", "Method", "URL", "Status", "Type", "Size", "Time")
+    # Mark 列紧随 #：标记载的是 emoji 短码（`flow.marked`），显示经 `marker_glyph`
+    # 翻译成图形字符；只占一个字符位，宽度在视图侧钉死（views.py 的 widths）。
+    HEADERS = ("#", "Mark", "Method", "URL", "Status", "Type", "Size", "Time")
 
     def __init__(self, parent: QObject):
         super().__init__(parent)
@@ -143,6 +146,9 @@ class FlowTableModel(QAbstractTableModel):
     ):
         if orientation == Qt.Orientation.Horizontal:
             if role == Qt.ItemDataRole.DisplayRole:
+                # "Mark" 是界面词不是协议名，走翻译；其余列头（Method/URL…）不译。
+                if self._headers[section] == "Mark":
+                    return self.tr("标记")
                 return self._headers[section]
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 # 横向表头统一左对齐（垂直居中），不按列名区分。
@@ -187,6 +193,8 @@ class FlowTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             if column_name == "#":
                 return row + 1
+            if column_name == "Mark":
+                return marker_glyph(flow.marked)
             if column_name == "Method":
                 return flow.request.method
             if column_name == "URL":
@@ -212,6 +220,9 @@ class FlowTableModel(QAbstractTableModel):
         if role == SORT_ROLE:
             if column_name == "#":
                 return row + 1
+            if column_name == "Mark":
+                # 短码字符串本身：空串与有值天然分堆，同类短码聚族。
+                return flow.marked
             if column_name == "Method":
                 return flow.request.method.upper()
             if column_name == "URL":
@@ -244,6 +255,9 @@ class FlowTableModel(QAbstractTableModel):
             return self._size_bytes(flow)
 
         if role == Qt.ItemDataRole.ToolTipRole:
+            if column_name == "Mark":
+                # 认不出图形的人悬浮看短码原文；未标记不弹空提示。
+                return flow.marked or None
             if column_name == "URL":
                 return flow.request.pretty_url
             if column_name == "Status":
@@ -267,7 +281,16 @@ class FlowTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole and column_name == "Status":
             return self._semantic_color(self._status_kind(flow))
 
+        if role == Qt.ItemDataRole.FontRole and column_name == "Mark":
+            # emoji-first 字体，让 ✈ ♉ 这类文本态符号也画成彩色（见 marks.py）；
+            # delegate 靠 FontRole 生效，设在视图上会被盖掉。行高 34px，字号取 18。
+            if flow.marked:
+                return emoji_font(18)
+            return None
+
         if role == Qt.ItemDataRole.TextAlignmentRole:
+            if column_name == "Mark":
+                return int(Qt.AlignmentFlag.AlignCenter)
             return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         return None
 
@@ -452,6 +475,13 @@ class FlowTableModel(QAbstractTableModel):
     def handle_update(self, flow: HTTPFlow) -> None:
         """处理 View 更新 flow"""
         row = self._row_of(flow)
+        log.warning(
+            "[MARKDBG] handle_update id=%s marked=%r row=%s rows=%d",
+            getattr(flow, "id", "?")[:8],
+            getattr(flow, "marked", "<none>"),
+            row,
+            len(self._rows),
+        )
         if row < 0:
             return
         start_idx = self.index(row, 0)
