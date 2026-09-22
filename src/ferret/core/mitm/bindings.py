@@ -150,6 +150,13 @@ from mitmproxy.flowfilter import parse as parse_filter
 from mitmproxy.http import Headers, HTTPFlow, Request, Response
 from mitmproxy.log import MitmLogHandler
 from mitmproxy.master import Master
+
+# mTLS 唯一触点：net_tls.create_proxy_server_context.cache_clear。该函数是模块级的
+# @lru_cache(256)，键里只有 client_cert 的**路径字符串** —— 路径不变、原地换掉证书
+# 文件内容，旧上下文会被继续复用；缓存又挂在模块上，跨 MitmRuntime.restart 存活，
+# 「停止抓包 → 换证书 → 重新开始」也清不掉。所以下发 client_certs 前后都得手动清。
+# 见 .plans/mtls-client-certs.md D4。
+from mitmproxy.net import tls as net_tls
 from mitmproxy.net.http import status_codes
 
 # ruff 默认 combine-as-imports = false，`as` 导入只能单独成句。
@@ -238,6 +245,7 @@ __all__ = [
     "http_url",
     "human",
     "io",
+    "net_tls",
     "parse_filter",
     "rs_process_info",
     "rs_wireguard",

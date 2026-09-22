@@ -361,6 +361,247 @@ def build_trusted_ca_bundle(
     return str(target), bad
 
 
+# --- mTLS 客户端证书（.plans/mtls-client-certs.md）---
+#
+# 原生 `client_certs` 是**一个路径**：指到文件 = 对每个要客户端证书的上游都出示同一张；
+# 指到目录 = 按 SNI 找 `<主机名>.pem`，精确匹配、无通配、无兜底。这里只做只读盘点与
+# 保存前的闸门，一张证书都不拷贝、不改写 —— 用户的私钥留在他自己的目录里。
+
+# 一块私钥的 PEM 边界。原生 use_privatekey_file 认得的几种头都在这个式子里：
+# PKCS#8 明文（PRIVATE KEY）、PKCS#8 加密（ENCRYPTED PRIVATE KEY）、传统格式
+# （RSA/EC/DSA PRIVATE KEY）。**加密的传统 PEM 不改块名**，靠块内的 Proc-Type 头标记
+# —— 所以「是不是加密私钥」只能真解一次才知道，不能拿字符串判（见
+# `_client_cert_key_error` 与 .plans/mtls-client-certs.md §2.4）。
+_PEM_KEY_BLOCK = re.compile(
+    rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+    re.DOTALL,
+)
+
+# 目录模式一次最多解析多少张 .pem。用户完全可能把路径指到盘根或一个 UNC 共享，而盘点
+# 跑在界面线程上（对话框实时预览 + 卡片刷新），逐张解 X.509 会肉眼可见地卡。超出就截断
+# 并置 truncated，界面照实说「只盘了前 N 个」。
+CLIENT_CERTS_SCAN_LIMIT = 200
+
+# 原生只认这一个后缀（os.path.join(dir, f"{sni}.pem")），扫目录时同口径。
+CLIENT_CERT_SUFFIX = ".pem"
+
+# 「创建推荐目录」按钮的落点名，挂在证书目录下面。
+CLIENT_CERTS_DIR_NAME = "client-certs"
+
+
+@dataclass(frozen=True, slots=True)
+class ClientCertEntry:
+    """一个客户端证书文件的解析结果。`error` 为空串 = 可用。
+
+    `error` 是**已翻译的整句**，对话框和卡片直接显示，不再二次拼装。
+    """
+
+    path: str
+    name: str  # 文件名。目录模式下它就是要匹配的主机名（<主机名>.pem）
+    error: str = ""
+    cn: str = ""
+    notafter: datetime.datetime | None = None
+    expired: bool = False
+    cert_count: int = 0  # 文件里的证书张数：1 张叶子 + N 张中间证书
+
+
+@dataclass(frozen=True, slots=True)
+class ClientCertsSummary:
+    """对配置里那一个路径的静态盘点：只读文件、**不写任何产物**。
+
+    与 `TrustedCaSummary` 同姿态 —— 界面刷新卡片、对话框实时预览都走这条，真要下发时
+    由 `client_certs_error` 做闸门，两者共用同一个解析函数，判定必然一致。
+    """
+
+    configured: str  # 用户配的原样路径（可能带 ~），空串 = 未启用
+    exists: bool
+    is_dir: bool
+    entries: tuple[ClientCertEntry, ...]
+    truncated: bool = False  # 目录里的 .pem 超过 CLIENT_CERTS_SCAN_LIMIT，只盘了前一批
+
+    @property
+    def good(self) -> tuple[ClientCertEntry, ...]:
+        return tuple(item for item in self.entries if not item.error)
+
+    @property
+    def bad(self) -> tuple[ClientCertEntry, ...]:
+        return tuple(item for item in self.entries if item.error)
+
+    @property
+    def expired(self) -> tuple[ClientCertEntry, ...]:
+        """已过期但**仍然可用**的那些：有的服务器不校验有效期，不替它拒。"""
+        return tuple(item for item in self.entries if not item.error and item.expired)
+
+
+def _client_cert_key_error(raw: bytes, path: str) -> str:
+    """解一遍私钥，返回空串 = 可用，否则一句已翻译的原因。
+
+    加密私钥判成 TypeError 而不是看字符串：传统格式的加密 PEM 块名仍是
+    `RSA PRIVATE KEY`，`ENCRYPTED PRIVATE KEY` 只覆盖 PKCS#8 那一半。
+    """
+    blocks = _PEM_KEY_BLOCK.findall(raw)
+    if not blocks:
+        return QCoreApplication.translate(
+            "CertificateService",
+            "文件里没有私钥。客户端证书要把私钥和证书拼进同一个 .pem。",
+        )
+    try:
+        certs.load_pem_private_key(blocks[0], None)
+    except TypeError:
+        # 原生 use_privatekey_file 没有口令通道，自存口令等于在配置里再落一份秘密。
+        return QCoreApplication.translate(
+            "CertificateService",
+            "私钥已加密，Ferret 不支持口令。先解密：openssl rsa -in {} -out key.pem，"
+            "再把解密后的私钥与证书拼进同一个 .pem。",
+        ).format(path)
+    except Exception as exc:  # noqa: BLE001  cryptography 的异常谱没承诺，坏文件不该炸盘点
+        return QCoreApplication.translate(
+            "CertificateService", "私钥解析失败：{}"
+        ).format(exc)
+    return ""
+
+
+def inspect_client_cert_file(path: str) -> ClientCertEntry:
+    """单份客户端证书的五连判：读得到、有证书、证书解得出、私钥解得出、公钥配对。
+
+    最后一判不能省：私钥与证书不配对时 `use_privatekey_file` 与
+    `use_certificate_chain_file` **都不报错**，OpenSSL 只是静默丢掉那把私钥，最终表现
+    为一次「没出示证书」的失败握手，用户无从排查（见 .plans/mtls-client-certs.md §2.4）。
+    """
+    target = Path(path).expanduser()
+    name = target.name
+    try:
+        raw = target.read_bytes()
+    except OSError as exc:
+        return ClientCertEntry(
+            path=path,
+            name=name,
+            error=QCoreApplication.translate(
+                "CertificateService", "读不到文件：{}"
+            ).format(exc),
+        )
+
+    cert_blocks = _PEM_CERT_BLOCK.findall(raw)
+    if not cert_blocks:
+        return ClientCertEntry(
+            path=path,
+            name=name,
+            error=QCoreApplication.translate("CertificateService", "文件里没有证书。"),
+        )
+    try:
+        # 原生 use_certificate_chain_file 拿第一张当叶子、其余算中间证书，这里同口径。
+        cert = certs.Cert.from_pem(cert_blocks[0])
+    except (ValueError, TypeError) as exc:
+        return ClientCertEntry(
+            path=path,
+            name=name,
+            error=QCoreApplication.translate(
+                "CertificateService", "证书解析失败：{}"
+            ).format(exc),
+        )
+
+    key_error = _client_cert_key_error(raw, path)
+    if key_error:
+        return ClientCertEntry(path=path, name=name, error=key_error)
+
+    key = certs.load_pem_private_key(_PEM_KEY_BLOCK.findall(raw)[0], None)
+    if key.public_key() != cert.public_key():
+        return ClientCertEntry(
+            path=path,
+            name=name,
+            error=QCoreApplication.translate(
+                "CertificateService",
+                "私钥与证书不匹配，出示时会被静默丢弃。请确认两者来自同一次签发。",
+            ),
+        )
+
+    return ClientCertEntry(
+        path=path,
+        name=name,
+        cn=cert.cn or "",
+        notafter=cert.notafter,
+        expired=cert.has_expired(),
+        cert_count=len(cert_blocks),
+    )
+
+
+def _scan_client_certs_dir(directory: Path) -> tuple[tuple[ClientCertEntry, ...], bool]:
+    """非递归扫目录里的 .pem，返回（盘点, 是否被截断）。
+
+    非递归是照原生来的：它只拼 `<目录>/<主机名>.pem`，子目录里的文件永远匹配不到。
+    """
+    try:
+        found = sorted(
+            item
+            for item in directory.iterdir()
+            if item.suffix.lower() == CLIENT_CERT_SUFFIX and item.is_file()
+        )
+    except OSError:
+        return (), False
+    truncated = len(found) > CLIENT_CERTS_SCAN_LIMIT
+    entries = tuple(
+        inspect_client_cert_file(str(item)) for item in found[:CLIENT_CERTS_SCAN_LIMIT]
+    )
+    return entries, truncated
+
+
+def inspect_client_certs(path: str) -> ClientCertsSummary:
+    """盘点配置里那一个路径，不写盘。形态（文件 / 目录）由磁盘现状决定。"""
+    configured = path.strip()
+    if not configured:
+        return ClientCertsSummary(configured="", exists=False, is_dir=False, entries=())
+    target = Path(configured).expanduser()
+    if target.is_dir():
+        entries, truncated = _scan_client_certs_dir(target)
+        return ClientCertsSummary(
+            configured=configured,
+            exists=True,
+            is_dir=True,
+            entries=entries,
+            truncated=truncated,
+        )
+    if target.is_file():
+        return ClientCertsSummary(
+            configured=configured,
+            exists=True,
+            is_dir=False,
+            entries=(inspect_client_cert_file(configured),),
+        )
+    return ClientCertsSummary(
+        configured=configured, exists=False, is_dir=False, entries=()
+    )
+
+
+def client_certs_error(path: str) -> str:
+    """保存前的唯一闸门，返回空串 = 放行，否则一句已翻译的原因。
+
+    提交链与内核种子共用它，判据必然一致。目录模式**只查存在性**：里面的坏文件只进
+    盘点、不拦保存 —— 判据同上游信任组的「坏文件回退公共根」，一份坏证书不该让整项
+    配不上，何况目录可能是刚建好还没往里放东西。
+    """
+    configured = path.strip()
+    if not configured:
+        return ""  # 空 = 清除，永远放行
+    target = Path(configured).expanduser()
+    if target.is_dir():
+        return ""
+    if not target.exists():
+        return QCoreApplication.translate(
+            "CertificateService", "路径不存在：{}"
+        ).format(configured)
+    return inspect_client_cert_file(configured).error
+
+
+def client_certs_suggest_dir(certs_dir: Path | None = None) -> Path:
+    """「按主机目录」模式的推荐落点。只算路径，**不创建目录**。
+
+    写成函数而不是模块级常量：`get_certs_dir()` 本身就是调用期取值（打包后、换用户
+    目录后都得重算），常量会把它钉死在导入那一刻。
+    """
+    directory = certs_dir if certs_dir is not None else get_certs_dir()
+    return directory / CLIENT_CERTS_DIR_NAME
+
+
 CertutilRunner = Callable[[Sequence[str]], int]
 
 

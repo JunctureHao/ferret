@@ -20,9 +20,14 @@ from ferret.core.mitm.bindings import (
     Options,
     OptionsError,
     View,
+    net_tls,
     parse_filter,
 )
-from ferret.core.mitm.certificate import CertificateError, build_trusted_ca_bundle
+from ferret.core.mitm.certificate import (
+    CertificateError,
+    build_trusted_ca_bundle,
+    client_certs_error,
+)
 from ferret.core.mitm.gateway import (
     GatewayRule,
     GatewayRuleSet,
@@ -142,6 +147,34 @@ def ssl_option_updates(
     if add_upstream_certs:
         updates["upstream_cert"] = True
     return updates
+
+
+def client_certs_option_updates(path: str) -> dict[str, str | None]:
+    """Translate the mTLS client-certificate path into ``options.update`` kwargs.
+
+    两处非写不可的细节：
+
+    * 空串必须归一成 ``None``（= 原生出厂值）。原生 `addons/core.py` 与
+      `tlsconfig.py` 两处都是 truthy 判断，``""`` 恰好也无害 —— 但那是巧合，
+      不把功能的「关」态押在别人的实现细节上。
+    * 发**用户给的原样路径**，不发展开 ``~`` 之后的。原生那两处自己 expanduser，
+      我们展开了反而让 CONFIG 与 options 存着两个不同的字符串，界面回读对不上。
+    """
+    return {"client_certs": path.strip() or None}
+
+
+def clear_proxy_server_context_cache() -> None:
+    """Drop mitmproxy's cached upstream TLS contexts.
+
+    `create_proxy_server_context` 是模块级 ``@lru_cache(256)``，键里只有
+    ``client_cert`` 的**路径字符串**：证书续期时用户在原路径上换掉文件内容，路径
+    没变 → 命中旧 context → 继续出示那张过期证书。而且缓存挂在模块上，跨
+    `MitmRuntime.restart` 存活，「停止抓包 → 换证书 → 重新开始」也清不掉。
+
+    所以下发 client_certs 的两条路径（热更、种子）都**无条件**调它。代价很小：
+    冷建一次 context 实测 5~12 ms，命中缓存 4 µs 级，而重建只发生在下一次握手。
+    """
+    net_tls.create_proxy_server_context.cache_clear()
 
 
 # 抓包通道的**意图值**字段名（见 `MitmRuntime.__init__` 的逐条注释）：落盘偏好，
@@ -308,6 +341,7 @@ class _MitmThread(QThread):
         self._apply_proxyauth(master)
         self._apply_dns_options(master)
         self._apply_ssl_options(master)
+        self._apply_client_certs(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -501,6 +535,29 @@ class _MitmThread(QThread):
             # Core.configure 拒掉（ssl_option_updates 已显式带上 True 防着它）。
             self._log_warning("上游 TLS 选项无法应用，已忽略: %s", exc)
 
+    def _apply_client_certs(self, master: FerretMaster) -> None:
+        """Seed the mTLS client certificate before serving traffic (on the mitm loop).
+
+        坏值只记 warning 并**整项跳过**（= 保持原生 None），不炸启动：用户配的那个
+        路径随时可能被删 / 挪走 / 换成加密私钥，而「今天没法出示客户端证书」远不如
+        「应用起不来」严重 —— 与 `_apply_dns_options` / `_apply_ssl_options` 同一取舍。
+        界面 showEvent 会重新盘点并把卡片打成失效态，用户在那儿看得见。
+
+        末尾**无条件**清缓存：`clear_proxy_server_context_cache` 的 docstring 写了
+        为什么内核重启不足以让它失效。
+        """
+        runtime = self.runtime
+        path = runtime.client_certs_path
+        reason = client_certs_error(path)
+        if reason:
+            self._log_warning("客户端证书无法应用，已跳过: %s", reason)
+        else:
+            try:
+                master.options.update(**client_certs_option_updates(path))
+            except (ValueError, OptionsError) as exc:
+                self._log_warning("客户端证书选项无法应用，已忽略: %s", exc)
+        clear_proxy_server_context_cache()
+
     @staticmethod
     def _log_warning(message: str, *args: object) -> None:
         """提示性日志失败不值得连坐启动（同 `_apply_dns_options` 的兜底姿态）。
@@ -613,6 +670,7 @@ class MitmRuntime(QObject):
         ssl_insecure: bool = False,
         ssl_trusted_ca_files: list[str] | None = None,
         add_upstream_certs_to_client_chain: bool = False,
+        client_certs_path: str = "",
     ) -> None:
         super().__init__(parent)
         self.listen_host = normalize_listen_host(listen_host)
@@ -709,6 +767,11 @@ class MitmRuntime(QObject):
         self.ssl_insecure = ssl_insecure
         self.ssl_trusted_ca_files = list(ssl_trusted_ca_files or [])
         self.add_upstream_certs_to_client_chain = add_upstream_certs_to_client_chain
+        # mTLS 客户端证书（.plans/mtls-client-certs.md）：与上面三项同属「四条通道
+        # 共用一条 tls_start_server」的全局偏好，同样不进 _CHANNEL_INTENTS。存**用户
+        # 给的原样路径**（可以带 ~）：原生 addons/core.py 与 tlsconfig.py 两处都自己
+        # expanduser，我们展开了反而让这份内存副本与 options 对不上。
+        self.client_certs_path = client_certs_path
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -1380,6 +1443,46 @@ class MitmRuntime(QObject):
                 self.add_upstream_certs_to_client_chain,
             ) = previous
             raise
+
+    def apply_client_certs(self, *, path: str | None = None) -> None:
+        """Store the mTLS client-certificate path and push it to a running Master.
+
+        与 `apply_ssl_options` 同构：``None`` = 不改动该项（清除必须显式传 ``""``），
+        内核没跑只对齐内存副本，下发失败回滚内存副本后抛 `ValueError`。
+
+        与上游信任那刀不同的是**有前置闸门**：信任文件解不动可以回退公共根，而客户端
+        证书解不动没有任何降级余地 —— 不拦下来，用户会得到一次「配了却不出示」的静默
+        失败（私钥与证书不配对时 OpenSSL 连报错都不给，见 certificate.py）。闸门在动
+        内存副本**之前**判，坏值不落盘、不进内核。
+
+        目录模式只查存在性：里面的坏文件由界面盘点显示，不拦保存（判据见
+        `client_certs_error`）。
+        """
+        wanted = self.client_certs_path if path is None else path
+        reason = client_certs_error(wanted)
+        if reason:
+            raise ValueError(reason)
+        previous = self.client_certs_path
+        master = self._master
+        running = self.is_running and master is not None
+        self.client_certs_path = wanted
+        if not running or master is None:
+            return
+        try:
+            # 先 update 后清缓存：反过来会给失败路径清掉本来好好的 context，无害
+            # 但白重建一遍。
+            self.call(
+                lambda: master.options.update(**client_certs_option_updates(wanted))
+            )
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            self.client_certs_path = previous
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            self.client_certs_path = previous
+            raise
+        # 清除（``""``）这条路径同样要清：关掉功能之后不该还有残留 context 在出示。
+        clear_proxy_server_context_cache()
 
     def release_intercepted(self) -> int:
         """Let every breakpoint-held flow go; 返回放行条数（内核没跑就是 0）。

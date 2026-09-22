@@ -419,6 +419,32 @@ class MitmFacade:
             add_upstream_certs=add_upstream_certs,
         )
 
+    # —— mTLS 客户端证书 ——
+
+    @property
+    def client_certs_path(self) -> str:
+        """向上游出示的客户端证书路径（内存副本）。空串 = 未启用。
+
+        原样返回用户填的那个字符串（可能带 ``~``）：原生自己展开，我们不替它展开，
+        免得界面回读到一个与配置对不上的路径。形态（单文件 / 按主机目录）不单独记
+        —— 它由磁盘现状决定，要盘点请调 `core.mitm.certificate.inspect_client_certs`。
+        """
+        return self.runtime.client_certs_path
+
+    def set_client_certs(self, path: str) -> None:
+        """Point mitmproxy at a client certificate; applied immediately when running.
+
+        空串 = 清除（下发原生默认 ``None``）。路径不存在、或单文件模式下内容不可用
+        （没私钥 / 没证书 / 私钥加密 / 私钥与证书不配对）时抛 ``ValueError`` 且
+        **不落盘** —— 调用方负责只在这里没抛之后才写 CONFIG。
+
+        与上游信任那刀的口径不同：那边坏文件可以退回公共根，这边没有降级余地，
+        坏值放过去就是一次「配了却不出示」的静默失败，所以前置拦下。目录模式只查
+        存在性，里面的坏文件由 `core.mitm.certificate.inspect_client_certs` 显示，
+        不拦保存。
+        """
+        self.runtime.apply_client_certs(path=path)
+
     # —— 断点 ——
 
     @property
