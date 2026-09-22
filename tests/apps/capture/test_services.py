@@ -1,11 +1,12 @@
-"""界面上的过滤条件翻成 flowfilter 表达式这一步。
+"""过滤面板的整条 flowfilter 表达式套上 `~http` 底座这一步。
 
-两件事值得钉：
+模型只有一条原生表达式（`.plans/0-filter-redesign.expression-first.md`）：字段/逻辑/值
+那套弱结构化翻译已退役。这里钉两件事：
 
-* **`~http` 底座不许丢**。View 的基础过滤器（`runtime.py`）和这里拼出来的表达式都
-  以它开头，少了它 tcp/udp 流量会直接涌进表格。
-* **标志字段不走正则那套**。`~websocket`（原生 `FWebSocket`）压根不带参数，硬塞一个
-  `quote_value` 出来的正则进去，整条表达式会解析失败 —— 而失败的表现是筛选静默失效。
+* **`~http` 底座不许丢**。View 的基础过滤器（`runtime.py`）也以它开头，少了它 tcp/udp
+  流量会直接涌进表格。
+* **raw 整体加括号**。flowfilter 里并列会攥住 `|`，不加括号 `~http & a | b` 的优先级会把
+  整串段拧错（AGENTS.md §5）。
 """
 
 import unittest
@@ -15,199 +16,64 @@ from mitmproxy.test import tflow
 from ferret.apps.capture.services import build_filter_expression, compile_filter
 
 
-def cond(field: str, logic: str, value: str = "") -> dict:
-    return {"field": field, "logic": logic, "value": value}
-
-
 class FilterExpressionTests(unittest.TestCase):
-    def test_no_conditions_leaves_just_the_http_base(self) -> None:
-        self.assertEqual(build_filter_expression(None), "~http")
-        self.assertEqual(build_filter_expression([]), "~http")
+    def test_empty_expression_is_just_the_http_base(self) -> None:
+        self.assertEqual(build_filter_expression(), "~http")
+        self.assertEqual(build_filter_expression(""), "~http")
+        self.assertEqual(build_filter_expression("   "), "~http")
 
-    def test_contains_becomes_an_escaped_url_match(self) -> None:
+    def test_expression_is_wrapped_as_a_parenthesized_atom(self) -> None:
         self.assertEqual(
-            build_filter_expression([cond("URL", "contains", "api.example.com")]),
-            r"~http & ~u api\.example\.com",
+            build_filter_expression('~u "api/.*" & !~m GET'),
+            '~http & ( ~u "api/.*" & !~m GET )',
         )
 
-    def test_excludes_is_the_negation(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("Body", "excludes", "token")]),
-            "~http & !~b token",
-        )
+    def test_whitespace_is_trimmed_before_wrapping(self) -> None:
+        self.assertEqual(build_filter_expression("  ~m GET  "), "~http & ( ~m GET )")
 
-    def test_equals_anchors_both_ends(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("Method", "equals", "GET")]),
-            "~http & ~m ^GET$",
-        )
-
-    def test_regex_is_passed_through_untouched(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("Header", "regex", "^X-.*")]),
-            "~http & ~h ^X-.*",
-        )
-
-    def test_an_empty_value_contributes_nothing(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("URL", "contains", "")]), "~http"
-        )
-
-    def test_conditions_are_anded_in_order(self) -> None:
-        self.assertEqual(
-            build_filter_expression(
-                [cond("Method", "equals", "POST"), cond("Body", "contains", "json")]
-            ),
-            "~http & ~m ^POST$ & ~b json",
-        )
-
-
-class WebsocketFlagTests(unittest.TestCase):
-    def test_websocket_is_a_bare_action_filter(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("WebSocket", "is")]),
-            "~http & ~websocket",
-        )
-
-    def test_is_not_negates_it(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("WebSocket", "is not")]),
-            "~http & !~websocket",
-        )
-
-    def test_an_empty_value_does_not_drop_the_condition(self) -> None:
-        """输入框对它是禁用的，拿「文本为空」判无效等于这个字段永远选不上。"""
-        self.assertEqual(
-            build_filter_expression([cond("WebSocket", "is", "")]),
-            "~http & ~websocket",
-        )
-
-    def test_a_stray_value_is_ignored(self) -> None:
-        """字段从 URL 换过来时输入框里可能还留着字；带上它表达式直接解析失败。"""
-        self.assertEqual(
-            build_filter_expression([cond("WebSocket", "is", "leftover text")]),
-            "~http & ~websocket",
-        )
-
-    def test_it_combines_with_the_value_fields(self) -> None:
-        self.assertEqual(
-            build_filter_expression(
-                [cond("WebSocket", "is"), cond("URL", "contains", "quote")]
-            ),
-            "~http & ~websocket & ~u quote",
-        )
-
-
-class MarkFlagTests(unittest.TestCase):
-    """「标记」与 WebSocket 同形：原生 `~marked`（`FMarked`）也只看状态不看值。
-
-    标记值本身要筛得用 `~marker <regex>`，那是表达式输入框的活 —— 字段-操作符
-    这套结构里没有它的位置（`.plans/flow-mark.md` §3.5）。
-    """
-
-    def test_mark_is_a_bare_action_filter(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("Mark", "is")]),
-            "~http & ~marked",
-        )
-
-    def test_is_not_negates_it(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("Mark", "is not")]),
-            "~http & !~marked",
-        )
-
-    def test_a_stray_value_is_ignored(self) -> None:
-        """输入框对它是禁用的，但换字段之前框里可能还留着字。"""
-        self.assertEqual(
-            build_filter_expression([cond("Mark", "is", ":bug:")]),
-            "~http & ~marked",
-        )
-
-    def test_it_combines_with_the_other_flag(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("Mark", "is"), cond("WebSocket", "is not")]),
-            "~http & ~marked & !~websocket",
-        )
+    def test_a_bare_no_arg_flag_survives_the_wrap(self) -> None:
+        """`(~websocket)` 解析失败，`( ~websocket )` 才过——括号内两侧的空格不能省。"""
+        self.assertEqual(build_filter_expression("~websocket"), "~http & ( ~websocket )")
+        self.assertIsNotNone(compile_filter("~websocket"))
 
 
 class CompileFilterTests(unittest.TestCase):
     """拼出来的串必须真的能被原生词法器吃下去。"""
 
-    def test_the_websocket_flag_parses(self) -> None:
-        self.assertIsNotNone(compile_filter([cond("WebSocket", "is")]))
-        self.assertIsNotNone(compile_filter([cond("WebSocket", "is not")]))
-
-    def test_the_flag_actually_separates_ws_from_plain_http(self) -> None:
-        ws = tflow.twebsocketflow()
-        plain = tflow.tflow(resp=True)
-
-        matcher = compile_filter([cond("WebSocket", "is")])
-        assert matcher is not None
-        self.assertTrue(matcher(ws))
-        self.assertFalse(matcher(plain))
-
-        inverted = compile_filter([cond("WebSocket", "is not")])
-        assert inverted is not None
-        self.assertFalse(inverted(ws))
-        self.assertTrue(inverted(plain))
-
-    def test_the_mark_flag_parses(self) -> None:
-        self.assertIsNotNone(compile_filter([cond("Mark", "is")]))
-        self.assertIsNotNone(compile_filter([cond("Mark", "is not")]))
-
-    def test_the_mark_flag_separates_marked_flows_from_the_rest(self) -> None:
-        """非空即中 —— 具体标的是哪个 emoji 不影响这一层。"""
-        marked = tflow.tflow(resp=True)
-        marked.marked = ":bug:"
-        plain = tflow.tflow(resp=True)
-
-        matcher = compile_filter([cond("Mark", "is")])
-        assert matcher is not None
-        self.assertTrue(matcher(marked))
-        self.assertFalse(matcher(plain))
-
-        inverted = compile_filter([cond("Mark", "is not")])
-        assert inverted is not None
-        self.assertFalse(inverted(marked))
-        self.assertTrue(inverted(plain))
-
-    def test_the_http_base_keeps_tcp_flows_out(self) -> None:
-        matcher = compile_filter(None)
+    def test_empty_compiles_to_the_http_base(self) -> None:
+        matcher = compile_filter()
         assert matcher is not None
         self.assertTrue(matcher(tflow.tflow(resp=True)))
         self.assertFalse(matcher(tflow.ttcpflow()))
 
-    def test_every_value_field_parses(self) -> None:
-        for field in ("all", "URL", "Method", "Header", "Body"):
-            for logic in ("contains", "excludes", "regex", "equals"):
-                with self.subTest(field=field, logic=logic):
-                    self.assertIsNotNone(compile_filter([cond(field, logic, "abc")]))
+    def test_a_valid_expression_compiles(self) -> None:
+        self.assertIsNotNone(compile_filter('~u "api/.*" & !~m GET'))
 
+    def test_an_invalid_expression_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            compile_filter("~~~ not a filter")
 
-class RawExpressionTests(unittest.TestCase):
-    """原生 flowfilter 输入框的拼接语义（`.plans/0-mark-filter-polish.md` §1）。"""
+    def test_the_websocket_flag_still_works_through_raw(self) -> None:
+        ws = tflow.twebsocketflow()
+        plain = tflow.tflow(resp=True)
+        matcher = compile_filter("~websocket")
+        assert matcher is not None
+        self.assertTrue(matcher(ws))
+        self.assertFalse(matcher(plain))
 
-    def test_empty_raw_is_a_no_op(self) -> None:
-        self.assertEqual(build_filter_expression(None, ""), "~http")
-        self.assertEqual(build_filter_expression(None, "   "), "~http")
+    def test_the_marked_flag_still_works_through_raw(self) -> None:
+        marked = tflow.tflow(resp=True)
+        marked.marked = ":bug:"
+        plain = tflow.tflow(resp=True)
+        matcher = compile_filter("~marked")
+        assert matcher is not None
+        self.assertTrue(matcher(marked))
+        self.assertFalse(matcher(plain))
 
-    def test_raw_is_appended_as_a_parenthesized_atom(self) -> None:
-        self.assertEqual(
-            build_filter_expression(None, '~u "api/.*" & !~m GET'),
-            '~http & (~u "api/.*" & !~m GET)',
-        )
-
-    def test_raw_combines_with_condition_rows(self) -> None:
-        self.assertEqual(
-            build_filter_expression([cond("Method", "equals", "POST")], "~s"),
-            "~http & ~m ^POST$ & (~s)",
-        )
-
-    def test_a_raw_with_or_is_held_by_the_parentheses(self) -> None:
-        """flowfilter 里并列会攥住 `|`；不加括号 `~http & a | b` 会被拧成
-        `~http & (a | b)` 之外的形状（AGENTS.md §5 钉过的教训）。"""
-        matcher = compile_filter(None, "~m GET | ~m POST")
+    def test_or_is_held_by_the_wrapping_parentheses(self) -> None:
+        """flowfilter 里并列会攥住 `|`；`~http & ~m GET | ~m POST` 不加括号会被拧成
+        别的形状（AGENTS.md §5 钉过的教训）。"""
+        matcher = compile_filter("~m GET | ~m POST")
         assert matcher is not None
         get_flow = tflow.tflow(resp=True)
         get_flow.request.method = "GET"
@@ -218,13 +84,6 @@ class RawExpressionTests(unittest.TestCase):
         self.assertTrue(matcher(get_flow))
         self.assertTrue(matcher(post_flow))
         self.assertFalse(matcher(put_flow))
-
-    def test_raw_compiles(self) -> None:
-        self.assertIsNotNone(compile_filter(None, '~u "api/.*" & !~m GET'))
-
-    def test_invalid_raw_raises(self) -> None:
-        with self.assertRaises(ValueError):
-            compile_filter(None, "~~~ not a filter")
 
 
 if __name__ == "__main__":

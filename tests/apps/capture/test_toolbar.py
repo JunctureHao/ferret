@@ -57,7 +57,7 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.assertEqual(self.bar.state_label.text(), "启动失败")
         self.assertTrue(self.bar.control_btn.isEnabled())
 
-    def test_counts_filter_badge_and_clear_state_are_distinct(self) -> None:
+    def test_counts_and_clear_state_are_distinct(self) -> None:
         self.bar.set_state(
             self.state(
                 total_count=43,
@@ -68,8 +68,7 @@ class CaptureCommandBarTests(unittest.TestCase):
             True,
         )
         self.assertEqual(self.bar.stats_label.text(), "12 / 43 条")
-        self.assertEqual(self.bar.filter_badge.text(), "3")
-        self.assertTrue(self.bar.filter_badge.isVisible())
+        self.assertTrue(self.bar.search_btn.isChecked())
         self.assertTrue(self.bar.captures_delete_btn.isEnabled())
         self.assertIn("已选 2 条", self.bar.stats_label.toolTip())
 

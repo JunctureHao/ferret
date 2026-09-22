@@ -5,70 +5,28 @@ Shared mitmproxy runtime, flow I/O, and export helpers live in
 application.
 """
 
-from ferret.core.mitm import escape_literal, parse_filter, quote_value
-
-#: 键是 `FilterRow.get_condition()` 送出的取值，不是下拉框上的文案 —— 文案会随语言变，
-#: 拿它当键筛选会在切到英文时静默失配（见 `apps.common.filter.FILTER_FIELDS`）。
-_FIELD_TO_OP: dict[str, str] = {
-    "all": "u",
-    "URL": "u",
-    "Method": "m",
-    "Header": "h",
-    "Body": "b",
-}
-
-#: 不吃值的字段 → 原生动作过滤器。`~websocket` / `~marked` 是
-#: `flowfilter.FWebSocket` / `FMarked`：只看状态不看值，没有可比的正则，所以这类
-#: 条件不能走下面那套 `~op <regex>` 的拼法（`quote_value` 会给它塞个参数进去，
-#: 直接解析失败）。
-_FLAG_FIELDS: dict[str, str] = {
-    "WebSocket": "~websocket",
-    "Mark": "~marked",
-}
+from ferret.core.mitm import parse_filter
 
 
-def _condition_to_expr(condition: dict) -> str | None:
-    field = condition.get("field", "all")
-    logic = condition.get("logic", "contains")
-    value = (condition.get("value") or "").strip()
+def build_filter_expression(raw: str = "") -> str:
+    """Wrap a user-authored flowfilter expression with the ``~http`` base.
 
-    flag = _FLAG_FIELDS.get(field)
-    if flag is not None:
-        # 标志字段刻意忽略 value：界面上那个输入框对它是禁用的。
-        return f"!{flag}" if logic == "is not" else flag
+    过滤面板只产出**一条**原生 flowfilter 表达式（`.plans/0-filter-redesign.
+    expression-first.md`）：字段/逻辑/值那套弱结构化模型已退役，表达式即唯一事实源。
 
-    if not value:
-        return None
+    ``~http`` 底座不许丢：View 的基础过滤器（`runtime.py`）也以它开头，少了它 tcp/udp
+    流量会直接涌进表格。raw 非空时整体加括号作最后一个原子拼入——flowfilter 里并列会
+    攥住 `|`，不加括号 `~http & a | b` 的优先级会把整串段拧错（AGENTS.md §5）。
 
-    operator = _FIELD_TO_OP.get(field, "u")
-    if logic == "regex":
-        regex = value
-    elif logic == "equals":
-        regex = f"^{escape_literal(value)}$"
-    else:
-        regex = escape_literal(value)
-
-    expression = f"~{operator} {quote_value(regex)}"
-    return f"!{expression}" if logic == "excludes" else expression
-
-
-def build_filter_expression(conditions: list[dict] | None, raw: str = "") -> str:
-    """Translate capture UI conditions into a mitmproxy flowfilter string.
-
-    raw 是用户手写的原生表达式，非空时整体加括号作最后一个原子拼入（flowfilter
-    里并列会攥住 `|`，不加括号 `a & b | c` 的优先级会把整串段拧错——见
-    AGENTS.md §5 与 `.plans/0-mark-filter-polish.md` §1.2）。
+    括号**内两侧留空格**：原生词法里不带参数的选择器（`~websocket` / `~marked` / `~q`）
+    的匹配会贪进紧挨的 `)`，`(~websocket)` 直接解析失败，`( ~websocket )` 才过。
     """
-    atoms = ["~http"]
-    for condition in conditions or []:
-        expression = _condition_to_expr(condition)
-        if expression:
-            atoms.append(expression)
-    if raw.strip():
-        atoms.append(f"({raw.strip()})")
-    return " & ".join(atoms)
+    raw = raw.strip()
+    if not raw:
+        return "~http"
+    return f"~http & ( {raw} )"
 
 
-def compile_filter(conditions: list[dict] | None, raw: str = ""):
-    """Compile capture UI conditions into a mitmproxy filter."""
-    return parse_filter(build_filter_expression(conditions, raw))
+def compile_filter(raw: str = ""):
+    """Compile the capture filter expression into a mitmproxy matcher."""
+    return parse_filter(build_filter_expression(raw))

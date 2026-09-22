@@ -637,7 +637,7 @@ class ApplyFilterRawTests(unittest.TestCase):
         errors: list[str] = []
         controller.filterExpressionRejected.connect(errors.append)
 
-        controller.apply_filter([], '~u "api/.*"')
+        controller.apply_filter('~u "api/.*"')
 
         self.assertIsNotNone(facade.applied_filter)
         self.assertEqual(controller._last_valid_raw_filter, '~u "api/.*"')
@@ -646,12 +646,12 @@ class ApplyFilterRawTests(unittest.TestCase):
     def test_an_invalid_raw_falls_back_and_reports_without_going_on_screen(self) -> None:
         controller, facade = self.make_controller()
         # 先攒一个有效表达式当作「上次有效」。
-        controller.apply_filter([], "~m GET")
+        controller.apply_filter("~m GET")
         good = facade.applied_filter
         errors: list[str] = []
         controller.filterExpressionRejected.connect(errors.append)
 
-        controller.apply_filter([], "~~~ not a filter")
+        controller.apply_filter("~~~ not a filter")
 
         # 沿用上次有效：内核上屏的仍是「上次有效」的合并结果，last_valid 不被污染。
         self.assertEqual(controller._last_valid_raw_filter, "~m GET")

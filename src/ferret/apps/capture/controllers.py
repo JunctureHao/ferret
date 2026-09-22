@@ -486,20 +486,18 @@ class CaptureController(QObject):
     def visible_http_flows(self) -> list[HTTPFlow]:
         return self._mitm.visible_http_flows()
 
-    def apply_filter(self, conditions: list[dict] | None = None, raw: str = "") -> None:
+    def apply_filter(self, raw: str = "") -> None:
         raw = raw.strip()
         if raw:
             try:
-                compiled = compile_filter(conditions, raw)
+                compiled = compile_filter(raw)
             except ValueError as exc:
-                # 非法表达式不上屏：沿用上次有效的合并结果，错误回传面板置错误态。
-                self._mitm.set_filter(
-                    compile_filter(conditions, self._last_valid_raw_filter)
-                )
+                # 非法表达式不上屏：沿用上次有效的表达式，错误回传面板置错误态。
+                self._mitm.set_filter(compile_filter(self._last_valid_raw_filter))
                 self.filterExpressionRejected.emit(str(exc))
                 return
         else:
-            compiled = compile_filter(conditions)
+            compiled = compile_filter()
         self._last_valid_raw_filter = raw
         self._mitm.set_filter(compiled)
         self.filterExpressionRejected.emit("")

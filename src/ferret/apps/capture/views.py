@@ -31,8 +31,6 @@ from qfluentwidgets import (
     ComboBox,
     FluentIcon,
     HorizontalSeparator,
-    InfoBadge,
-    InfoBadgePosition,
     LineEdit,
     ListWidget,
     MessageBoxBase,
@@ -272,8 +270,7 @@ class CapturesInterface(QWidget):
         把 GUI 条件交给 Controller，由 View.set_filter(flowfilter 表达式) 统一做
         「显示过滤」——_store 保留全部流量，仅 _view 可见列表变化，无清除效果。
         """
-        conditions = self.filter_panel.get_conditions()
-        self.controller.apply_filter(conditions, self.filter_panel.get_raw_expression())
+        self.controller.apply_filter(self.filter_panel.get_raw_expression())
         self._ui_state = replace(
             self._ui_state,
             active_filter_count=self.filter_panel.active_condition_count(),
@@ -739,10 +736,6 @@ class CaptureCommandBar(QWidget):
         self.open_btn = TransparentToolButton(FluentIcon.FOLDER, self)
         self.open_btn.setToolTip(self.tr("加载 Flow 到当前列表"))
         self.open_btn.setAccessibleName(self.tr("加载 Flow 到当前列表"))
-        self.filter_badge = InfoBadge.attension(
-            0, self, self.search_btn, InfoBadgePosition.TOP_RIGHT
-        )
-        self.filter_badge.hide()
 
         self.proxy_setting_btn = TransparentToolButton(FluentIcon.GLOBE, self)
         self.proxy_setting_btn.setToolTip(self.tr("端口设置"))
@@ -955,10 +948,6 @@ class CaptureCommandBar(QWidget):
         self.search_btn.setChecked(
             filter_panel_visible or state.active_filter_count > 0
         )
-        self.filter_badge.setText(str(state.active_filter_count))
-        self.filter_badge.setVisible(state.active_filter_count > 0)
-        self.filter_badge.adjustSize()
-        self.filter_badge.raise_()
 
         self.captures_delete_btn.setEnabled(state.total_count > 0)
         self.captures_delete_more_btn.setEnabled(state.total_count > 0)
