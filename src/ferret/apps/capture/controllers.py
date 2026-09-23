@@ -60,6 +60,17 @@ _CHANNEL_ERROR_MARKERS = (
         "wireguard",
         QT_TRANSLATE_NOOP("CaptureController", "WireGuard 隧道启动失败"),
     ),
+    # 端口占用落到这条：socks5 / reverse 的 last_exception 是裸 OSError
+    # （"[Errno 98] address already in use" / WinError 10048），文本里不含通道名，
+    # 所以按通用特征词映射；通道名由 _channel_issue 的前缀补上。
+    (
+        "address already in use",
+        QT_TRANSLATE_NOOP("CaptureController", "端口被占用，请换一个端口"),
+    ),
+    (
+        "10048",
+        QT_TRANSLATE_NOOP("CaptureController", "端口被占用，请换一个端口"),
+    ),
 )
 
 
@@ -259,6 +270,14 @@ class CaptureController(QObject):
     @property
     def reverse_port(self) -> int:
         return self._mitm.reverse_port
+
+    @property
+    def use_socks5(self) -> bool:
+        return self._mitm.use_socks5
+
+    @property
+    def socks5_port(self) -> int:
+        return self._mitm.socks5_port
 
     @property
     def use_upstream(self) -> bool:
@@ -626,6 +645,8 @@ class CaptureController(QObject):
         use_reverse: bool = False,
         reverse_target: str = "",
         reverse_port: int = 8081,
+        use_socks5: bool = False,
+        socks5_port: int = 1080,
         use_upstream: bool = False,
         upstream_target: str = "",
         upstream_username: str = "",
@@ -656,6 +677,9 @@ class CaptureController(QObject):
         CONFIG.set(CONFIG.reverse_enabled, use_reverse)
         CONFIG.set(CONFIG.reverse_target, reverse_target)
         CONFIG.set(CONFIG.reverse_port, reverse_port)
+        # SOCKS5 两参落盘：与 reverse 同姿态，监听地址跟随全局 listen_host。
+        CONFIG.set(CONFIG.socks5_enabled, use_socks5)
+        CONFIG.set(CONFIG.socks5_port, socks5_port)
         # 上游代理四参落盘：它替换的是 regular 槽位（不是第五条通道），凭证明文
         # 落盘，语义见 core/settings.py 的注释。
         CONFIG.set(CONFIG.upstream_enabled, use_upstream)
@@ -670,6 +694,8 @@ class CaptureController(QObject):
             use_reverse=use_reverse,
             reverse_target=reverse_target,
             reverse_port=reverse_port,
+            use_socks5=use_socks5,
+            socks5_port=socks5_port,
             use_upstream=use_upstream,
             upstream_target=upstream_target,
             upstream_username=upstream_username,

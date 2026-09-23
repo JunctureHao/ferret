@@ -295,6 +295,8 @@ class CapturesInterface(QWidget):
             use_reverse=self.controller.use_reverse,
             reverse_target=self.controller.reverse_target,
             reverse_port=self.controller.reverse_port,
+            use_socks5=self.controller.use_socks5,
+            socks5_port=self.controller.socks5_port,
             use_upstream=self.controller.use_upstream,
             upstream_target=self.controller.upstream_target,
             upstream_username=self.controller.upstream_username,
@@ -331,6 +333,27 @@ class CapturesInterface(QWidget):
                 self.tr(
                     "反向代理端口 {} 与 WireGuard UDP 51820 撞车，请换一个。"
                 ).format(reverse_port),
+                self.window(),
+            )
+            return
+        # SOCKS5 端口撞车前置（与 reverse 同姿态）：socks5 与 regular 共用
+        # listen_host，撞端口必被内核查重拒。
+        socks5_port = w.get_socks5_port()
+        if w.get_use_socks5() and socks5_port == listen_port:
+            show_warning(
+                self.tr("抓包设置未生效"),
+                self.tr("SOCKS5 端口 {} 与系统代理监听端口撞车，请换一个。").format(
+                    socks5_port
+                ),
+                self.window(),
+            )
+            return
+        if w.get_use_socks5() and w.get_use_reverse() and socks5_port == reverse_port:
+            show_warning(
+                self.tr("抓包设置未生效"),
+                self.tr("SOCKS5 端口 {} 与反向代理端口撞车，请换一个。").format(
+                    socks5_port
+                ),
                 self.window(),
             )
             return
@@ -405,6 +428,8 @@ class CapturesInterface(QWidget):
                 use_reverse=w.get_use_reverse(),
                 reverse_target=w.get_reverse_target(),
                 reverse_port=reverse_port,
+                use_socks5=w.get_use_socks5(),
+                socks5_port=socks5_port,
                 use_upstream=upstream_on,
                 upstream_target=upstream_target,
                 upstream_username=w.get_upstream_username(),
@@ -573,6 +598,8 @@ class CapturesInterface(QWidget):
             target = self.controller.reverse_target
             label = self.tr("反向代理 → {}").format(target or "—")
             parts.append(label)
+        if self.controller.use_socks5:
+            parts.append(self.tr("SOCKS5 :{}").format(self.controller.socks5_port))
         summary = " · ".join(parts)
         # 上游代理**不并进通道并集**：它换的是系统代理那条的出口，并进去会被读成
         # 第五条通道。另起一段跟在后面，空地址时首槽位仍是 regular，不显示。
@@ -589,6 +616,7 @@ class CapturesInterface(QWidget):
             "local": self.tr("本地重定向"),
             "wireguard": self.tr("WireGuard"),
             "reverse": self.tr("反向代理"),
+            "socks5": self.tr("SOCKS5 代理"),
         }
         return "; ".join(
             f"{names.get(key, key)}: {message}" for key, message in errors.items()
@@ -1243,6 +1271,8 @@ class ProxyPortDialog(MessageBoxBase):
         use_reverse: bool = False,
         reverse_target: str = "",
         reverse_port: int = 8081,
+        use_socks5: bool = False,
+        socks5_port: int = 1080,
         use_upstream: bool = False,
         upstream_target: str = "",
         upstream_username: str = "",
@@ -1269,6 +1299,8 @@ class ProxyPortDialog(MessageBoxBase):
             use_reverse: 反向代理通道是否启用（.plans/reverse-mode.md）
             reverse_target: 反向代理的目标 URL，如 https://example.com
             reverse_port: 反向代理的独立监听端口
+            use_socks5: SOCKS5 入站通道是否启用（.plans/0-socks5-channel.md）
+            socks5_port: SOCKS5 入站通道的独立监听端口
             use_upstream: 系统代理通道是否经上游代理出口（不是第五条通道）
             upstream_target: 上游代理地址，如 http://proxy.corp:8080
             upstream_username: 上游代理的 Basic 用户名（留空 = 不发认证头）
@@ -1294,6 +1326,8 @@ class ProxyPortDialog(MessageBoxBase):
             use_reverse,
             reverse_target,
             reverse_port,
+            use_socks5,
+            socks5_port,
             use_upstream,
             upstream_target,
             upstream_username,
@@ -1320,6 +1354,8 @@ class ProxyPortDialog(MessageBoxBase):
         use_reverse: bool,
         reverse_target: str,
         reverse_port: int,
+        use_socks5: bool,
+        socks5_port: int,
         use_upstream: bool,
         upstream_target: str,
         upstream_username: str,
@@ -1494,6 +1530,20 @@ class ProxyPortDialog(MessageBoxBase):
         self.reverse_hint = CaptionLabel(self)
         self.reverse_hint.setWordWrap(True)
 
+        # —— SOCKS5 入站通道（.plans/0-socks5-channel.md）：勾选框 + 独立端口 ——
+        self.socks5_check = CheckBox(self.tr("SOCKS5 代理"), self)
+        self.socks5_check.setToolTip(
+            self.tr("仅支持 TCP；只认 SOCKS5 的客户端（移动端 App、部分 CLI）由此接入")
+        )
+        self.socks5_check.setChecked(use_socks5)
+        self.socks5_port_spin = SpinBox(self)
+        self.socks5_port_spin.setRange(self.PORT_MIN, self.PORT_MAX)
+        self.socks5_port_spin.setValue(socks5_port)
+        self.socks5_port_spin.setSingleStep(1)
+        self.socks5_port_spin.setAccessibleName(self.tr("监听端口"))
+        self.socks5_hint = CaptionLabel(self)
+        self.socks5_hint.setWordWrap(True)
+
         self.restart_hint = CaptionLabel(self.tr("更改立即生效"), self)
         self.restart_hint.setVisible(is_running)
 
@@ -1512,12 +1562,13 @@ class ProxyPortDialog(MessageBoxBase):
             self.wireguard_check,
             self.wireguard_config_btn,
             self.reverse_check,
+            self.socks5_check,
             self.lan_copy_btn,
         ):
             tipped.installEventFilter(ToolTipFilter(tipped, 700, ToolTipPosition.TOP))
 
     def __init_layout(self):
-        """初始化布局结构：四个通道各一张卡片，视觉平级。"""
+        """初始化布局结构：五个通道各一张卡片，视觉平级。"""
         # 标题行：重启提示挪到标题右侧，不再是底部一条常态说明。
         header_row = QHBoxLayout()
         header_row.setSpacing(6)
@@ -1648,6 +1699,26 @@ class ProxyPortDialog(MessageBoxBase):
         reverse_layout.addWidget(self.reverse_check)
         reverse_layout.addWidget(self.reverse_params)
 
+        # —— Card ⑤ SOCKS5（.plans/0-socks5-channel.md §5 线框）——
+        # 与 reverse 同姿态：参数区（端口 + hint）包进 QWidget 随勾选显隐。
+        self.socks5_params = QWidget(self)
+        socks5_params_layout = QVBoxLayout(self.socks5_params)
+        socks5_params_layout.setContentsMargins(0, 0, 0, 0)
+        socks5_params_layout.setSpacing(8)
+        socks5_port_row = QHBoxLayout()
+        socks5_port_row.setSpacing(6)
+        socks5_port_row.addWidget(BodyLabel(self.tr("端口"), self))
+        socks5_port_row.addStretch(1)
+        socks5_port_row.addWidget(self.socks5_port_spin, 1)
+        socks5_params_layout.addLayout(socks5_port_row)
+        socks5_params_layout.addWidget(self.socks5_hint)
+
+        card_socks5 = CardWidget(self)
+        socks5_layout = QVBoxLayout(card_socks5)
+        socks5_layout.setSpacing(8)
+        socks5_layout.addWidget(self.socks5_check)
+        socks5_layout.addWidget(self.socks5_params)
+
         layout = QVBoxLayout()
         layout.setSpacing(12)
         layout.addLayout(header_row)
@@ -1655,6 +1726,7 @@ class ProxyPortDialog(MessageBoxBase):
         layout.addWidget(card_local)
         layout.addWidget(card_wg)
         layout.addWidget(card_reverse)
+        layout.addWidget(card_socks5)
         self.viewLayout.addLayout(layout)
         self.widget.setMinimumWidth(440)
 
@@ -1671,6 +1743,9 @@ class ProxyPortDialog(MessageBoxBase):
         # 反向代理通道：勾选 / 端口 / 目标都会影响参数可用性与撞车提示。
         self.reverse_check.toggled.connect(self._sync_exposure)
         self.reverse_port_spin.valueChanged.connect(self._sync_exposure)
+        # SOCKS5 通道：勾选 / 端口都会影响参数可用性与撞车提示。
+        self.socks5_check.toggled.connect(self._sync_exposure)
+        self.socks5_port_spin.valueChanged.connect(self._sync_exposure)
         # 上游代理：勾选切显隐；用户名变化会切换「凭证串台」那条警告文案，
         # 所以它也要连（见 _sync_exposure 末段与 core/mitm/runtime.py::
         # _upstream_auth 的说明）。
@@ -1706,6 +1781,14 @@ class ProxyPortDialog(MessageBoxBase):
     def get_reverse_port(self) -> int:
         """反向代理的独立监听端口。"""
         return self.reverse_port_spin.value()
+
+    def get_use_socks5(self) -> bool:
+        """是否启用 SOCKS5 入站通道（.plans/0-socks5-channel.md）。"""
+        return self.socks5_check.isChecked()
+
+    def get_socks5_port(self) -> int:
+        """SOCKS5 入站通道的独立监听端口。"""
+        return self.socks5_port_spin.value()
 
     def get_use_upstream(self) -> bool:
         """系统代理通道是否经上游代理出口。"""
@@ -1799,11 +1882,14 @@ class ProxyPortDialog(MessageBoxBase):
         wireguard_on = self.get_use_wireguard()
         local_on = self.get_use_local()
         reverse_on = self.get_use_reverse()
+        socks5_on = self.get_use_socks5()
         # reverse 启用时「绑定非环回」才会触发 block_private 让路（与内核
         # runtime._effective_block_private 同式：reverse_yield = use_reverse and
         # listen_host == ANY_HOST，plans/reverse-mode.md §4）。reverse 绑环回
         # 时让路条件不成立，block_private 走原值，与本地客户端无关。
         reverse_yield = reverse_on and exposed
+        # socks5 绑局域网地址时同理让路（.plans/0-socks5-channel.md §2.3）。
+        socks5_yield = socks5_on and exposed
 
         # R1：勾选即展开。未勾的卡就是一行 header，参数区整体收进壳里切换。
         self.system_params.setVisible(system_on)
@@ -1829,7 +1915,7 @@ class ProxyPortDialog(MessageBoxBase):
         # 免得用户以为勾选生效了）；reverse 开启且绑非环回时同理。
         self.block_global_check.setEnabled(exposed)
         self.block_private_check.setEnabled(
-            exposed and not wireguard_on and not reverse_yield
+            exposed and not wireguard_on and not reverse_yield and not socks5_yield
         )
         # R3：提示只报异常。置灰本身已说明「仅本机不生效」，不再配一句话。
         if wireguard_on:
@@ -1840,10 +1926,14 @@ class ProxyPortDialog(MessageBoxBase):
             self.source_hint.setText(
                 self.tr("! 反向代理开启期间「拒绝局域网」暂停生效")
             )
+        elif socks5_yield:
+            self.source_hint.setText(
+                self.tr("! SOCKS5 代理开启期间「拒绝局域网」暂停生效")
+            )
         elif lan_unknown:
             self.source_hint.setText(self.tr("! 未能识别局域网地址"))
         self.source_hint.setVisible(
-            exposed and (wireguard_on or reverse_yield or lan_unknown)
+            exposed and (wireguard_on or reverse_yield or socks5_yield or lan_unknown)
         )
 
         # 代理认证：整块随勾选显隐。与上面两个开关有两处**刻意的**差异 ——
@@ -1890,6 +1980,23 @@ class ProxyPortDialog(MessageBoxBase):
         self.reverse_hint.setVisible(conflict is not None)
         if conflict is not None:
             self.reverse_hint.setText(conflict)
+
+        # SOCKS5：参数区随勾选显隐；hint 只报异常（端口撞车 / 认证生效，§4）。
+        self.socks5_params.setVisible(socks5_on)
+        socks5_hint = None
+        if socks5_on:
+            socks5_port = self.socks5_port_spin.value()
+            if socks5_port == port:
+                socks5_hint = self.tr("! 端口与系统代理 {} 冲突").format(port)
+            elif reverse_on and socks5_port == self.reverse_port_spin.value():
+                socks5_hint = self.tr("! 端口与反向代理 {} 冲突").format(socks5_port)
+            elif self.get_proxyauth_enabled() and not auth_yield:
+                # D3：socks5 协议原生支持用户名/密码子协商，proxyauth 不为之让路，
+                # 客户端需配置凭证才能用这条通道。
+                socks5_hint = self.tr("! 已开启代理认证，客户端需配置用户名和密码")
+        self.socks5_hint.setVisible(socks5_hint is not None)
+        if socks5_hint is not None:
+            self.socks5_hint.setText(socks5_hint)
 
         # 上游代理：整块随勾选显隐；hint 只在凭证串台时出现（常态说明在 tooltip）。
         upstream_on = self.get_use_upstream()
