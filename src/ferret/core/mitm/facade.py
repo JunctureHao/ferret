@@ -841,6 +841,20 @@ class MitmFacade:
         visible = lambda: [f for f in self.view if isinstance(f, HTTPFlow)]
         return self.runtime.call(visible) if self.runtime.is_running else visible()
 
+    def match_ids(self, matcher) -> set[str]:
+        """在 mitm 线程内跑 matcher，返回命中的 flow.id 集（搜索高亮用）。
+
+        与 `visible_http_flows` 同一条「重活投 mitm 线程」的路：flowfilter 的
+        `~b`/`~bq`/`~bs` 算子会去读 flow 的 body，只有在 mitm 线程读才安全
+        （AGENTS.md §3 红线）。Qt 侧拿到 id 集后只做 `flow.id in ids` 的 O(1) 查表。
+
+        高亮模式已清掉用户过滤，`self.view` 恰是「全部 ~http」——命中集与表格所见一致。
+        """
+        run = lambda: {
+            f.id for f in self.view if isinstance(f, HTTPFlow) and matcher(f)
+        }
+        return self.runtime.call(run) if self.runtime.is_running else run()
+
     def set_filter(self, flow_filter) -> None:
         if self.runtime.is_running:
             self.runtime.call(lambda: self.view.set_filter(flow_filter))

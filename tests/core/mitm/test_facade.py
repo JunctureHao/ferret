@@ -84,6 +84,56 @@ class SnapshotIdentityTests(unittest.TestCase):
         self.assertNotEqual(self.flow.request.path, "/tampered")
 
 
+class MatchIdsTests(unittest.TestCase):
+    """搜索高亮的命中集：在 mitm 线程内跑 matcher，只回 flow.id（`~b` 类算子读活
+    body，唯有 mitm 线程读才安全，AGENTS.md §3）。Qt 侧拿到后只做 O(1) 查表。"""
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+        self.api = tflow.tflow(resp=True)
+        self.api.request.host = "api.example"
+        self.other = tflow.tflow(resp=True)
+        self.other.request.host = "elsewhere.example"
+        self.runtime.view.add([self.api, self.other])
+
+    def test_only_matching_http_flow_ids_come_back(self) -> None:
+        matcher = flowfilter.parse("~d api.example")
+        assert matcher is not None
+        self.assertEqual(self.facade.match_ids(matcher), {self.api.id})
+
+    def test_non_http_flows_are_skipped(self) -> None:
+        """View 里也躺着 tcp 流量；命中集只认 HTTP（高亮铺在流量表的 HTTP 行上）。"""
+        tcp = tflow.ttcpflow()
+        self.runtime.view.add([tcp])
+        matcher = flowfilter.parse("~all")
+        assert matcher is not None
+        ids = self.facade.match_ids(matcher)
+        self.assertEqual(ids, {self.api.id, self.other.id})
+
+    def test_the_match_runs_through_the_runtime(self) -> None:
+        calls: list[str] = []
+        inner = self.runtime.call
+
+        def spy(callback, *, timeout: float = 5.0):
+            calls.append("call")
+            return inner(callback, timeout=timeout)
+
+        self.runtime.call = spy  # type: ignore
+        matcher = flowfilter.parse("~d api.example")
+        assert matcher is not None
+        self.facade.match_ids(matcher)
+        self.assertEqual(calls, ["call"])
+
+    def test_a_stopped_kernel_matches_in_place(self) -> None:
+        """会话页的死对象没有 mitm 线程 —— 就地跑，不能因为 call 抛错而空着。"""
+        facade = MitmFacade(MitmRuntime())
+        facade.view.add([self.api])
+        matcher = flowfilter.parse("~d api.example")
+        assert matcher is not None
+        self.assertEqual(facade.match_ids(matcher), {self.api.id})
+
+
 class _FakeMaster:
     """只有三本账的 master：`_resume` / `sse_events` 用得到就这三个属性。"""
 
