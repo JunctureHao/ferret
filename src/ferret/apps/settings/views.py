@@ -17,8 +17,10 @@ from qfluentwidgets import (
     PlainTextEdit,
     PushSettingCard,
     ScrollArea,
+    SettingCard,
     SettingCardGroup,
     SmoothMode,
+    SpinBox,
     SubtitleLabel,
     SwitchSettingCard,
     TitleLabel,
@@ -27,6 +29,11 @@ from qfluentwidgets import (
 )
 
 from ferret.apps.common.info_bar import show_warning
+from ferret.core.mitm import (
+    MAX_BODY_CUT_SIZE,
+    MIN_BODY_CUT_SIZE,
+    clamp_body_cut_size,
+)
 from ferret.core.settings import CONFIG
 
 if TYPE_CHECKING:
@@ -121,6 +128,44 @@ class DnsServersDialog(MessageBoxBase):
             for line in self.editor.toPlainText().splitlines()
             if line.strip()
         ]
+
+
+class BodyCutSizeCard(SettingCard):
+    """截断阈值行（.plans/1-cut-flow-size.md §3.1）：SpinBox，单位 KB。
+
+    不绑 configItem（SettingCard 的 setValue 是空实现，绑定也不会自动落盘）——
+    写回走 valueChanged → CONFIG.set，进场与外部改动（如配置重载）经
+    `CONFIG.body_cut_size.valueChanged` 反向刷新旋钮，两个方向共用一个事实源。
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(
+            FluentIcon.CUT,
+            # 界面上只出现 KB 刻度；范围换算自内核常量（字节），两处不各写一份。
+            self.tr("截断阈值"),
+            self.tr("单位 KB（{} ~ {}）").format(
+                MIN_BODY_CUT_SIZE // 1024, MAX_BODY_CUT_SIZE // 1024
+            ),
+            parent,
+        )
+        self.spin = SpinBox(self)
+        self.spin.setRange(MIN_BODY_CUT_SIZE // 1024, MAX_BODY_CUT_SIZE // 1024)
+        self.spin.setSingleStep(1024)
+        self.spin.setValue(
+            clamp_body_cut_size(CONFIG.get(CONFIG.body_cut_size)) // 1024
+        )
+        self.hBoxLayout.addWidget(self.spin, 0, Qt.AlignmentFlag.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+        self.spin.valueChanged.connect(self._on_spin_changed)
+        CONFIG.body_cut_size.valueChanged.connect(self._on_config_changed)
+
+    def _on_spin_changed(self, kb: int) -> None:
+        CONFIG.set(CONFIG.body_cut_size, kb * 1024)
+
+    def _on_config_changed(self, size: int) -> None:
+        kb = clamp_body_cut_size(size) // 1024
+        if kb != self.spin.value():
+            self.spin.setValue(kb)
 
 
 class SettingsInterface(ScrollArea):
@@ -251,6 +296,24 @@ class SettingsInterface(ScrollArea):
         )
         self._refresh_dns_servers_content()
 
+        # 性能（.plans/1-cut-flow-size.md §3.1）：大正文截断开关 + 阈值行。
+        # 默认关：截断改变存储语义（`~b` 只搜前缀、导出缺完整正文），不该在用户
+        # 没开之前替他决定。
+        self.performance_group = SettingCardGroup(
+            title=self.tr("性能"), parent=self.scroll_widget
+        )
+        self.body_cut_card = SwitchSettingCard(
+            FluentIcon.SPEED_HIGH,
+            self.tr("大正文截断"),
+            self.tr(
+                "超过阈值的响应正文只保留前 N 字节，节省内存；"
+                "转发给客户端的数据不受影响；截断后搜索只匹配保留部分"
+            ),
+            configItem=CONFIG.body_cut_enabled,
+            parent=self.performance_group,
+        )
+        self.body_cut_size_card = BodyCutSizeCard(parent=self.performance_group)
+
         self.__init_widget()
 
     def __init_widget(self):
@@ -287,10 +350,14 @@ class SettingsInterface(ScrollArea):
         self.main_panel_group.addSettingCard(self.dns_servers_card)
         self.main_panel_group.addSettingCard(self.dns_use_hosts_card)
 
+        self.performance_group.addSettingCard(self.body_cut_card)
+        self.performance_group.addSettingCard(self.body_cut_size_card)
+
         self.expand_layout.setSpacing(28)
         self.expand_layout.setContentsMargins(36, 10, 36, 0)
         self.expand_layout.addWidget(self.personalization_group)
         self.expand_layout.addWidget(self.main_panel_group)
+        self.expand_layout.addWidget(self.performance_group)
 
     def __connect_signal_to_slot(self):
         CONFIG.appRestartSig.connect(self.__show_restart_tooltip)
@@ -309,6 +376,9 @@ class SettingsInterface(ScrollArea):
         # 走对话框提交链（校验通过才落盘，见 __on_dns_servers_clicked）。
         CONFIG.dns_use_hosts_file.valueChanged.connect(self.__on_dns_use_hosts_changed)
         self.dns_servers_card.clicked.connect(self.__on_dns_servers_clicked)
+        # 大正文截断：开关与阈值任一变动都整体热更（与固定会话同一条下发路）。
+        CONFIG.body_cut_enabled.valueChanged.connect(self.__on_body_cut_changed)
+        CONFIG.body_cut_size.valueChanged.connect(self.__on_body_cut_changed)
 
     @Slot(bool)
     def __on_sticky_session_changed(self, enabled: bool) -> None:
@@ -380,6 +450,23 @@ class SettingsInterface(ScrollArea):
         # 必须传新 list：原地 mutate 再 set 静默不落盘（见 core/settings.py 的坑）。
         CONFIG.set(CONFIG.dns_name_servers, list(servers))
         self._refresh_dns_servers_content()
+
+    @Slot(object)
+    def __on_body_cut_changed(self, _value: object = None) -> None:
+        """把截断开关/阈值热更进内核；失败静默（语义同固定会话那条）。
+
+        开关与阈值各发各的 valueChanged，这里整体重推两项 —— 快照是原子的，
+        分两条通道推只会多一次跨线程往返，还可能留下「开关新的、阈值旧的」。
+        """
+        if self._mitm is None:
+            return
+        try:
+            self._mitm.set_body_cut(
+                enabled=bool(CONFIG.get(CONFIG.body_cut_enabled)),
+                size=int(CONFIG.get(CONFIG.body_cut_size)),
+            )
+        except (ValueError, RuntimeError, TimeoutError):
+            pass
 
     @Slot()
     def __show_restart_tooltip(self):

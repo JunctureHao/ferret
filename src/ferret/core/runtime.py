@@ -6,7 +6,12 @@ from PySide6.QtCore import QObject
 from sysproxy import SystemProxyService
 
 from ferret.core.log import get_logger
-from ferret.core.mitm import MitmFacade, MitmRuntime, validate_local_spec
+from ferret.core.mitm import (
+    MitmFacade,
+    MitmRuntime,
+    clamp_body_cut_size,
+    validate_local_spec,
+)
 from ferret.core.network import normalize_listen_host, normalize_listen_port
 from ferret.core.settings import CONFIG, get_config_dir
 
@@ -85,6 +90,8 @@ class ApplicationRuntime(QObject):
                 CONFIG.get(CONFIG.add_upstream_certs_to_client_chain)
             ),
             client_certs_path=str(CONFIG.get(CONFIG.client_certs_path) or ""),
+            body_cut_enabled=bool(CONFIG.get(CONFIG.body_cut_enabled)),
+            body_cut_size=clamp_body_cut_size(CONFIG.get(CONFIG.body_cut_size)),
         )
 
     def start(self) -> None:

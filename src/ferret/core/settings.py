@@ -413,6 +413,26 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 大正文边收边截（.plans/1-cut-flow-size.md）：超阈值的响应正文只在内核存
+    # 前 N 字节，转发侧永远完整；截断后 `~b` 只搜前缀、导出缺完整正文（导出前有
+    # 确认弹窗）。默认**关**：它改变存储语义，不该在用户没开之前替他决定。
+    # 阈值存字节，上下限与默认值收敛在 core/mitm/cut.py（SpinBox 单位 KB 只是
+    # 界面刻度）。默认值这里是字面量而非引用：settings 不该为这个拖入
+    # mitmproxy 依赖（cut.py 经由 bindings），两边注释互相指着，改一边同步另一边。
+    body_cut_enabled = ConfigItem(
+        group="Performance",
+        name="BodyCutEnabled",
+        default=False,
+        validator=BoolValidator(),
+    )
+
+    body_cut_size = ConfigItem(
+        group="Performance",
+        name="BodyCutSize",
+        # = core/mitm/cut.py::DEFAULT_BODY_CUT_SIZE（10 MB）
+        default=10 * 1024 * 1024,
+    )
+
     # 「导出字段为 CSV」上次勾选的列（存 flow_detail 的 dict key，跨语言稳定；
     # 见 apps/common/flow/csv_export.py）。和 block_list 同一个坑：QConfig.set 开头
     # `if item.value == value: return`，写回必须传一个新 list。默认列在 csv_export.py

@@ -28,8 +28,6 @@ class MultiFilterManager(QWidget):
     唯一事实源，「添加筛选」下拉只在光标处**单向插入** token，不做反向解析。
     """
 
-    MAX_ROWS = 5  # 历史遗留常量，外部或有引用，保留占位（当前模型不再有多行）。
-
     # 名称保留兼容既有接线（views.py）。语义 = 「表达式变了，请重算过滤」。
     conditionsChanged = Signal()
     panelCloseRequested = Signal()  # 收起面板
@@ -188,7 +186,9 @@ class MultiFilterManager(QWidget):
         pos = editor.cursorPosition()
         prefix = ""
         # 光标前已有非空白内容 → 补连接符，省得用户手打 ` & `。
-        if text[:pos].strip() and not text[:pos].rstrip().endswith(("&", "|", "!", "(")):
+        if text[:pos].strip() and not text[:pos].rstrip().endswith(
+            ("&", "|", "!", "(")
+        ):
             prefix = " & "
         fragment = prefix + token
         editor.insert(fragment)
@@ -226,7 +226,7 @@ class MultiFilterManager(QWidget):
                 "~marked        已标记流量\n"
                 "\n"
                 "组合：a & b（与） a | b（或） !a（非） ( )（分组）\n"
-                "带空格或括号的值要加引号：~u \"api/.*\""
+                '带空格或括号的值要加引号：~u "api/.*"'
             ),
             isClosable=True,
         )
@@ -271,17 +271,7 @@ class MultiFilterManager(QWidget):
     def showEvent(self, event: QShowEvent) -> None:
         """面板展开时自动聚焦表达式编辑器。"""
         super().showEvent(event)
-        self.focus_first_input()
-
-    def focus_first_input(self):
         self.expression_input.setFocus()
-
-    @Slot()
-    def clear_conditions(self):
-        """清空表达式。"""
-        self.expression_input.clear()
-        self.set_raw_error("")
-        self.conditionsChanged.emit()
 
     @Slot()
     def _on_condition_changed(self) -> None:

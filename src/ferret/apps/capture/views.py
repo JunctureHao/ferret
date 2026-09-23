@@ -561,7 +561,7 @@ class CapturesInterface(QWidget):
     def __toggle_filter_panel(self) -> None:
         self.filter_panel.setVisible(not self.filter_panel.isVisible())
         if self.filter_panel.isVisible():
-            self.filter_panel.focus_first_input()
+            self.filter_panel.expression_input.setFocus()
         self._refresh_command_bar()
 
     @Slot()
@@ -571,7 +571,7 @@ class CapturesInterface(QWidget):
 
     def __show_and_focus_filter(self) -> None:
         self.filter_panel.show()
-        self.filter_panel.focus_first_input()
+        self.filter_panel.expression_input.setFocus()
         self._refresh_command_bar()
 
     def __handle_escape(self) -> None:

@@ -28,6 +28,7 @@ from ferret.core.mitm.certificate import (
     build_trusted_ca_bundle,
     client_certs_error,
 )
+from ferret.core.mitm.cut import DEFAULT_BODY_CUT_SIZE, clamp_body_cut_size
 from ferret.core.mitm.gateway import (
     GatewayRule,
     GatewayRuleSet,
@@ -344,6 +345,7 @@ class _MitmThread(QThread):
         self._apply_dns_options(master)
         self._apply_ssl_options(master)
         self._apply_client_certs(master)
+        self._apply_body_cut(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -538,7 +540,7 @@ class _MitmThread(QThread):
             self._log_warning("上游 TLS 选项无法应用，已忽略: %s", exc)
 
     def _apply_client_certs(self, master: FerretMaster) -> None:
-        """Seed the mTLS client certificate before serving traffic (on the mitm loop).
+        """Seed the mTLS client-cert path before serving traffic (on the mitm loop).
 
         坏值只记 warning 并**整项跳过**（= 保持原生 None），不炸启动：用户配的那个
         路径随时可能被删 / 挪走 / 换成加密私钥，而「今天没法出示客户端证书」远不如
@@ -559,6 +561,18 @@ class _MitmThread(QThread):
             except (ValueError, OptionsError) as exc:
                 self._log_warning("客户端证书选项无法应用，已忽略: %s", exc)
         clear_proxy_server_context_cache()
+
+    def _apply_body_cut(self, master: FerretMaster) -> None:
+        """Seed the body-cut snapshot before serving traffic (on the mitm loop).
+
+        阈值不落原生 options（12.x 已无对应选项，见 cut.py 模块注释），所以这里
+        没有 options.update、也不会抛 —— 直接换 addon 的内存快照，与
+        `_apply_rewrite_rules` 的播种姿态一致。
+        """
+        master.cut.set_options(
+            enabled=self.runtime.body_cut_enabled,
+            max_size=self.runtime.body_cut_size,
+        )
 
     @staticmethod
     def _log_warning(message: str, *args: object) -> None:
@@ -675,6 +689,8 @@ class MitmRuntime(QObject):
         ssl_trusted_ca_files: list[str] | None = None,
         add_upstream_certs_to_client_chain: bool = False,
         client_certs_path: str = "",
+        body_cut_enabled: bool = False,
+        body_cut_size: int = DEFAULT_BODY_CUT_SIZE,
     ) -> None:
         super().__init__(parent)
         self.listen_host = normalize_listen_host(listen_host)
@@ -782,6 +798,12 @@ class MitmRuntime(QObject):
         # 给的原样路径**（可以带 ~）：原生 addons/core.py 与 tlsconfig.py 两处都自己
         # expanduser，我们展开了反而让这份内存副本与 options 对不上。
         self.client_certs_path = client_certs_path
+        # 大正文边收边截两意图值（.plans/1-cut-flow-size.md）：全局偏好、不随通道
+        # 回滚，故不进 _CHANNEL_INTENTS。默认**关**：截断改变存储语义（`~b` 只搜
+        # 前缀、导出缺完整正文），不该在用户没开之前替他决定。阈值是 addon 的内
+        # 存快照（不落原生 options，12.x 已无对应选项），下发走网关规则模式。
+        self.body_cut_enabled = body_cut_enabled
+        self.body_cut_size = clamp_body_cut_size(body_cut_size)
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -1506,6 +1528,41 @@ class MitmRuntime(QObject):
             raise
         # 清除（``""``）这条路径同样要清：关掉功能之后不该还有残留 context 在出示。
         clear_proxy_server_context_cache()
+
+    def apply_body_cut(
+        self,
+        enabled: bool | None = None,
+        size: int | None = None,
+    ) -> None:
+        """Store the body-cut switch/threshold and push them to a running Master.
+
+        与 `apply_sticky_session` 同构：`None` = 不改动该项，内核没跑只对齐内存
+        副本（下次启动 `_apply_body_cut` 补推），下发失败回滚内存副本。阈值是
+        addon 的内存快照（不落原生 options），所以下发不会抛 `OptionsError`，
+        只有 `self.call` 本身的运行期故障（RuntimeError / TimeoutError）需要回滚。
+        阈值先过 `clamp_body_cut_size`：配置是用户可手改的纯文本，旋钮只是第一
+        道闸，这里收底。
+        """
+        previous = (self.body_cut_enabled, self.body_cut_size)
+        self.body_cut_enabled = self.body_cut_enabled if enabled is None else enabled
+        self.body_cut_size = (
+            self.body_cut_size if size is None else clamp_body_cut_size(size)
+        )
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(
+                lambda: master.cut.set_options(
+                    enabled=self.body_cut_enabled,
+                    max_size=self.body_cut_size,
+                )
+            )
+        except Exception:
+            # 与 `apply_rewrite_rules` 同一条纪律：下发失败内存副本回滚，界面
+            # 显示的状态必须内核真收到了。
+            self.body_cut_enabled, self.body_cut_size = previous
+            raise
 
     def release_intercepted(self) -> int:
         """Let every breakpoint-held flow go; 返回放行条数（内核没跑就是 0）。

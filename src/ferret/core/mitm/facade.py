@@ -351,6 +351,28 @@ class MitmFacade:
         """Flip the anticache/anticomp switch; applied immediately when it runs."""
         self.runtime.apply_anticache_plaintext(enabled)
 
+    # —— 大正文截断 ——
+
+    @property
+    def body_cut_enabled(self) -> bool:
+        """大正文截断开关：超阈值响应只存前 N 字节（.plans/1-cut-flow-size.md）。
+
+        全局行为偏好（同固定会话），初值来自落盘配置
+        （`core/runtime.py::_build_mitm_runtime`），开关在设置页「性能」组。
+        """
+        return self.runtime.body_cut_enabled
+
+    @property
+    def body_cut_size(self) -> int:
+        """截断阈值（字节）：内核内存副本，运行中热更后的真值。"""
+        return self.runtime.body_cut_size
+
+    def set_body_cut(
+        self, enabled: bool | None = None, size: int | None = None
+    ) -> None:
+        """Flip/retune the body cut; applied immediately when the kernel runs."""
+        self.runtime.apply_body_cut(enabled, size)
+
     # —— DNS 解析 ——
 
     @property
@@ -1061,6 +1083,7 @@ class MitmFacade:
                 master.intercept_state.release_all()
                 self._sweep(list(self.view._store))
                 master.sse.clear()
+                master.cut.clear()
             self.view.clear()
 
         if self.runtime.is_running:
@@ -1098,7 +1121,7 @@ class MitmFacade:
         return remove()
 
     def _remove_flow_ids(self, flow_ids: list[str]) -> None:
-        """放行 → sweep → sse.forget → view.remove（必须在 mitm 线程跑）。"""
+        """放行 → sweep → sse/cut.forget → view.remove（必须在 mitm 线程跑）。"""
         # 必须先放行：`View.remove` 对 killable 的 flow 直接 kill()
         # （`addons/view.py:435`），而 kill() 会把 intercepted 清成 False，之后
         # resume() 开头那句 `if not intercepted: return` 就再也唤不醒它 ——
@@ -1110,5 +1133,6 @@ class MitmFacade:
             self._sweep(flow_ids)
             for flow_id in flow_ids:
                 master.sse.forget(flow_id)
+                master.cut.forget(flow_id)
         current = [self.view.get_by_id(flow_id) for flow_id in flow_ids]
         self.view.remove([flow for flow in current if flow is not None])

@@ -12,7 +12,7 @@ from typing import ClassVar
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog
-from qfluentwidgets import FluentIcon, RoundMenu
+from qfluentwidgets import FluentIcon, MessageBox, RoundMenu
 
 from ferret.apps.common.dialog import CommentDialog, TextCopyDialog
 from ferret.apps.common.flow.csv_export import (
@@ -29,7 +29,7 @@ from ferret.apps.common.flow.protocols import (
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success, show_warning
 from ferret.core.log import get_logger
-from ferret.core.mitm import HTTPFlow
+from ferret.core.mitm import HTTPFlow, truncated_body_count
 
 log = get_logger("flow")
 
@@ -696,6 +696,13 @@ class FlowExportMenu(RoundMenu):
             )
             return
 
+        # 截断确认（.plans/1-cut-flow-size.md §3.3）：静默导出半截 body 是抓包
+        # 工具投诉重灾区，选中集里有截断流就必须明示一次。计数读 metadata ——
+        # 手里是 facade 快照（跨线程只读副本），安全（AGENTS.md §3）。
+        truncated = truncated_body_count(flows)
+        if truncated and not self.__confirm_truncated_export(len(flows), truncated):
+            return
+
         if kind == "har":
             title = self.tr("导出 HAR")
             suffix = ".har"
@@ -732,6 +739,20 @@ class FlowExportMenu(RoundMenu):
             self.tr("已导出 {} 条流量到 {}").format(len(flows), Path(path).name),
             self.main_window,
         )
+
+    def __confirm_truncated_export(self, total: int, truncated: int) -> bool:
+        """选中集含截断流时的导出确认；点「继续导出」返回 True。"""
+        box = MessageBox(
+            self.tr("导出确认"),
+            self.tr(
+                "选中的 {} 条流量中有 {} 条正文已被截断，"
+                "导出结果将缺失这些流量的完整正文。"
+            ).format(total, truncated),
+            self.main_window,
+        )
+        box.yesButton.setText(self.tr("继续导出"))
+        box.cancelButton.setText(self.tr("取消"))
+        return bool(box.exec())
 
     def __export_csv(self) -> None:
         """把当前选区的自选字段抽成 CSV（mitmproxy cut 的 GUI 等效物）。

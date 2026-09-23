@@ -43,7 +43,7 @@ class ExpressionPanelTests(unittest.TestCase):
 
     def test_clear_empties_the_expression(self) -> None:
         self.manager.expression_input.setText("~m GET")
-        self.manager.clear_conditions()
+        self.manager.expression_input.clear()
         self.assertEqual(self.manager.get_raw_expression(), "")
         self.assertFalse(self.manager.has_active_filter())
 
@@ -71,7 +71,7 @@ class ExpressionPanelTests(unittest.TestCase):
         """清表达式不复位开关：用户攒好的「高亮而非过滤」意图不该被一次清空吞掉。"""
         self.manager.highlight_check.setChecked(True)
         self.manager.expression_input.setText("~m GET")
-        self.manager.clear_conditions()
+        self.manager.expression_input.clear()
         self.assertEqual(self.manager.get_raw_expression(), "")
         self.assertTrue(self.manager.is_highlight_mode())
 
