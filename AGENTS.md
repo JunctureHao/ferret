@@ -89,7 +89,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 ## 5. 技术决策（勿推翻；详细理由见对应代码注释）
 
-- **四通道抓包**：regular + local + wireguard + reverse 任意组合并存，经 `options.update(mode=[...])` 热更（官方 `proxyserver` 路径）。local spec 必须挂 `@127.0.0.1:0` 占位（上游 #7063 查重缺陷，上游修复后可整体移除）。reverse spec 必带 `reverse:https://target@host:port`，https 走 `BOTH`（TCP+UDP）防 alt-svc 落到裸 TCP 后通道对不上。
+- **五通道抓包**：regular + local + wireguard + reverse + socks5 任意组合并存，经 `options.update(mode=[...])` 热更（官方 `proxyserver` 路径）。local spec 必须挂 `@127.0.0.1:0` 占位（上游 #7063 查重缺陷，上游修复后可整体移除）。reverse spec 必带 `reverse:https://target@host:port`，https 走 `BOTH`（TCP+UDP）防 alt-svc 落到裸 TCP 后通道对不上。socks5 是独立端口的 SOCKS5 入站（给只认 SOCKS5 的客户端接入），spec 必带 `socks5@host:port`（与 reverse 同动机：主动要独立端口，不带 `@` 回退全局 `listen_port` 与 regular 撞车被查重拒），监听地址跟随全局 `listen_host`；仅 TCP CONNECT（上游 `Socks5Proxy` 只实现 CONNECT，UDP ASSOCIATE 回 COMMAND_NOT_SUPPORTED），用户名/密码子协商受 `proxyauth` 同一份凭证保护、**不为之让路**。理由见 `.plans/0-socks5-channel.md`。
 
 - **上游代理不是第五条通道**：它替换 `mode[0]`（`regular` → `upstream:http://proxy:8080`），只改系统代理通道的**出口**；二者绝不并存（都回退全局 `listen_port`，同时在场被 `proxyserver` 地址查重拒）。spec **不带** `@`（与 reverse 正相反：那里要独立端口，这里要同一个，故系统代理/环回豁免/端口探测零改动），凭证**不进 spec**、走正交的 `upstream_auth` 选项（未生效时必须回 `None` 而非 `""`，校验正则 `.+:`）。**`upstream_auth` 非空时 reverse 通道的请求也会被补 `Authorization`**（原生一个 addon 服务两种模式，分不开）——既定语义不是 bug，闸门在选项侧，`tests/core/mitm/test_upstream.py` 钉着。四条边界不要在没有新需求时重开：local/wireguard/reverse 出口仍直连、裸 TCP/UDP 不经上游、凭证明文落盘（同 CA 私钥姿态）、只支持 HTTP(S) 不支持 SOCKS。理由见 `.plans/upstream-mode.md`。
 
@@ -99,7 +99,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - **守护进程拆除必须同步**：`MitmRuntime.stop` 在存活事件循环上同步 `_disarm_local_redirector`，`_run_master` 开场防御性再清一次（守护进程在进程外，内核停止会丢挂起任务，机理见 `runtime.py` 注释）。
 
-- **block\_private 为 wireguard / reverse 让路**：`_effective_block_private()` 在通道接通且 wireguard 或 reverse（且 `listen_host == ANY_HOST`）开启时强制 False，用户配置值保留、回落即恢复。
+- **block\_private 为 wireguard / reverse / socks5 让路**：`_effective_block_private()` 在通道接通且 wireguard 或 reverse / socks5（且 `listen_host == ANY_HOST`）开启时强制 False，用户配置值保留、回落即恢复。
 
 - 通道实例启动失败（UAC 拒绝等）不被 `options.update` 同步抛出，只能延迟读 `channel_health`，控制器抓包中 1.5s 轮询一次。
 

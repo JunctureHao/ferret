@@ -112,7 +112,7 @@ class MitmFacade:
     def is_running(self) -> bool:
         return self.runtime.is_running
 
-    # —— 抓包通道（local / wireguard / reverse；regular 恒在，见 core/mitm/modes.py）——
+    # —— 抓包通道（local / wireguard / reverse / socks5；regular 恒在）——
 
     @property
     def use_local(self) -> bool:
@@ -137,6 +137,14 @@ class MitmFacade:
     @property
     def reverse_port(self) -> int:
         return self.runtime.reverse_port
+
+    @property
+    def use_socks5(self) -> bool:
+        return self.runtime.use_socks5
+
+    @property
+    def socks5_port(self) -> int:
+        return self.runtime.socks5_port
 
     # —— 上游代理出口：不是第五条通道，是 mode 首槽位的替换（见 modes.py）——
 
@@ -165,6 +173,8 @@ class MitmFacade:
         use_reverse: bool | None = None,
         reverse_target: str | None = None,
         reverse_port: int | None = None,
+        use_socks5: bool | None = None,
+        socks5_port: int | None = None,
         use_upstream: bool | None = None,
         upstream_target: str | None = None,
         upstream_username: str | None = None,
@@ -178,6 +188,8 @@ class MitmFacade:
             use_reverse=use_reverse,
             reverse_target=reverse_target,
             reverse_port=reverse_port,
+            use_socks5=use_socks5,
+            socks5_port=socks5_port,
             use_upstream=use_upstream,
             upstream_target=upstream_target,
             upstream_username=upstream_username,

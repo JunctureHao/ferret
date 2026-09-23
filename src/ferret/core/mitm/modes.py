@@ -93,6 +93,21 @@ def reverse_mode_spec(target: str, listen_host: str, listen_port: int) -> str:
     return f"reverse:{target.strip()}@{listen_host}:{listen_port}"
 
 
+SOCKS5_DEFAULT_PORT = 1080
+"""SOCKS5 入站通道默认监听端口（SOCKS5 惯例端口，.plans/0-socks5-channel.md D1）。"""
+
+
+def socks5_mode_spec(listen_host: str, port: int) -> str:
+    """拼 ``socks5@<listen_host>:<port>``。
+
+    ``@`` 必须显式：不带时上游回退全局 ``listen_port``，与 regular 撞同一地址被
+    ``proxyserver.configure`` 查重拒 —— 与 reverse 带 ``@`` 同一动机（主动要独立
+    端口）。上游 ``Socks5Proxy`` 只实现 CONNECT（UDP ASSOCIATE 直接回
+    COMMAND_NOT_SUPPORTED），用户名/密码子协商（method 0x02）已原生实现。
+    """
+    return f"socks5@{listen_host}:{port}"
+
+
 def upstream_mode_spec(target: str) -> str:
     """拼 ``upstream:<target>``，占掉 regular 的那个槽位。
 
@@ -154,6 +169,8 @@ def capture_mode_specs(
     use_reverse: bool = False,
     reverse_target: str = "",
     reverse_port: int = REVERSE_DEFAULT_PORT,
+    use_socks5: bool = False,
+    socks5_port: int = SOCKS5_DEFAULT_PORT,
     use_upstream: bool = False,
     upstream_target: str = "",
     listen_host: str = "",
@@ -190,6 +207,8 @@ def capture_mode_specs(
         specs.append(local_mode_spec(local_spec))
     if use_wireguard:
         specs.append(wireguard_mode_spec())
+    if use_socks5:
+        specs.append(socks5_mode_spec(listen_host, socks5_port))
     return specs
 
 

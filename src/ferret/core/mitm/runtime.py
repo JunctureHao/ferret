@@ -191,6 +191,8 @@ _CHANNEL_INTENTS: tuple[str, ...] = (
     "use_reverse",
     "reverse_target",
     "reverse_port",
+    "use_socks5",
+    "socks5_port",
     "use_upstream",
     "upstream_target",
     "upstream_username",
@@ -656,6 +658,8 @@ class MitmRuntime(QObject):
         use_reverse: bool = False,
         reverse_target: str = "",
         reverse_port: int = 8081,
+        use_socks5: bool = False,
+        socks5_port: int = 1080,
         use_upstream: bool = False,
         upstream_target: str = "",
         upstream_username: str = "",
@@ -694,6 +698,12 @@ class MitmRuntime(QObject):
         self.use_reverse = use_reverse
         self.reverse_target = reverse_target.strip()
         self.reverse_port = reverse_port
+        # SOCKS5 入站两意图值（.plans/0-socks5-channel.md）：独立端口的 SOCKS5 代理，
+        # 给只认 SOCKS5 的客户端接入。监听地址跟随全局 listen_host（D2），spec 必带
+        # ``@``（与 reverse 同一动机：主动要独立端口，不带会回退全局 listen_port 与
+        # regular 撞车被内核查重拒）。
+        self.use_socks5 = use_socks5
+        self.socks5_port = socks5_port
         # 上游代理四意图值：它**不是第五条通道**，而是把 mode 列表第一个槽位从
         # regular 换成 upstream（见 core/mitm/modes.py::upstream_mode_spec）——
         # 监听地址端口一字不动，只把系统代理这条通道的出口改成「先交给上游代理」。
@@ -806,6 +816,8 @@ class MitmRuntime(QObject):
             use_reverse=engaged and self.use_reverse,
             reverse_target=self.reverse_target,
             reverse_port=self.reverse_port,
+            use_socks5=engaged and self.use_socks5,
+            socks5_port=self.socks5_port,
             use_upstream=engaged and self.use_upstream,
             upstream_target=self.upstream_target,
             listen_host=self.listen_host,
@@ -864,8 +876,12 @@ class MitmRuntime(QObject):
         用户配置的原值保留在 ``self.block_private``，通道撤下后自动恢复。
         """
         reverse_yield = self.use_reverse and self.listen_host == ANY_HOST
+        # socks5 绑 ANY_HOST 时局域网来源同被原生 Block 误杀，与 reverse 同式让路
+        # （.plans/0-socks5-channel.md §2.3）。
+        socks5_yield = self.use_socks5 and self.listen_host == ANY_HOST
         return self.block_private and not (
-            self.channels_engaged and (self.use_wireguard or reverse_yield)
+            self.channels_engaged
+            and (self.use_wireguard or reverse_yield or socks5_yield)
         )
 
     def _upstream_auth(self) -> str | None:
@@ -929,7 +945,8 @@ class MitmRuntime(QObject):
 
         与 ``_effective_block_private`` 的让路名单差一个 **local**：原生 Block 对
         LocalMode 连接有豁免（``block.py:35``），ProxyAuth 没有，LocalMode 照样落
-        401 分支。
+        401 分支。socks5 也不在让路名单里：SOCKS5 原生支持用户名/密码子协商
+        （method 0x02），能认证就不该撤防（.plans/0-socks5-channel.md §1 D3）。
         """
         if not self.proxyauth_enabled or not self.proxyauth_username:
             return None
@@ -966,6 +983,8 @@ class MitmRuntime(QObject):
         use_reverse: bool | None = None,
         reverse_target: str | None = None,
         reverse_port: int | None = None,
+        use_socks5: bool | None = None,
+        socks5_port: int | None = None,
         use_upstream: bool | None = None,
         upstream_target: str | None = None,
         upstream_username: str | None = None,
@@ -995,6 +1014,10 @@ class MitmRuntime(QObject):
             self.reverse_target = reverse_target.strip()
         if reverse_port is not None:
             self.reverse_port = reverse_port
+        if use_socks5 is not None:
+            self.use_socks5 = use_socks5
+        if socks5_port is not None:
+            self.socks5_port = socks5_port
         if use_upstream is not None:
             self.use_upstream = use_upstream
         if upstream_target is not None:
@@ -1501,9 +1524,9 @@ class MitmRuntime(QObject):
         ``options.update(mode=...)`` 只保证 spec 语法合法并触发热启停，实例**启动**
         失败（UAC 拒绝、端口被占等）由原生 proxyserver 记日志吞掉，不会同步抛回。
         这里逐实例读 ``is_running`` / ``last_exception``，给界面一个可靠的「通道
-        真的起来了吗」。键是 ``local`` / ``wireguard`` / ``reverse``，只在对应
-        通道启用时出现；regular 由端口占用与 UiBridgeAddon.running 的全局探测
-        兜底，不单列。
+        真的起来了吗」。键是 ``local`` / ``wireguard`` / ``reverse`` / ``socks5``，
+        只在对应通道启用时出现；regular 由端口占用与 UiBridgeAddon.running 的全局
+        探测兜底，不单列。
         """
         master = self._master
         if not self.is_running or master is None:
@@ -1517,6 +1540,8 @@ class MitmRuntime(QObject):
                 key = "wireguard"
             elif spec.startswith("reverse"):
                 key = "reverse"
+            elif spec.startswith("socks5"):
+                key = "socks5"
             else:
                 continue
             health[key] = server.is_running

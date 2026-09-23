@@ -66,6 +66,8 @@ class ApplicationRuntime(QObject):
             use_reverse=bool(CONFIG.get(CONFIG.reverse_enabled)),
             reverse_target=reverse_target,
             reverse_port=reverse_port,
+            use_socks5=bool(CONFIG.get(CONFIG.socks5_enabled)),
+            socks5_port=normalize_listen_port(CONFIG.get(CONFIG.socks5_port)),
             use_upstream=bool(CONFIG.get(CONFIG.upstream_enabled)),
             upstream_target=upstream_target,
             upstream_username=str(CONFIG.get(CONFIG.upstream_username) or ""),

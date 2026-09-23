@@ -216,6 +216,24 @@ class Config(QConfig):
         default=8081,
     )
 
+    # SOCKS5 入站通道（.plans/0-socks5-channel.md）：独立端口的 SOCKS5 代理，给只认
+    # SOCKS5 的客户端（移动端 App、部分 CLI）接入。意图值落盘、接通位不落盘，与
+    # 四通道同一语义。默认关。监听地址跟随全局 listen_host（D2）。
+    socks5_enabled = ConfigItem(
+        group="Proxy",
+        name="Socks5Enabled",
+        default=False,
+        validator=BoolValidator(),
+    )
+
+    # SOCKS5 通道的独立监听端口，默认 1080（SOCKS5 惯例，D1）。与 reverse_port
+    # 同款决策：不挂 RangeValidator，收敛交给 normalize_listen_port。
+    socks5_port = ConfigItem(
+        group="Proxy",
+        name="Socks5Port",
+        default=1080,
+    )
+
     # 上游代理出口：**不是第五条通道**，而是把 mode 列表第一个槽位从 regular 换成
     # upstream（见 core/mitm/modes.py::upstream_mode_spec）—— 监听地址端口一字不动，
     # 只把系统代理这条通道的出口从直连改成「先交给上游代理」。企业强制代理、链式
