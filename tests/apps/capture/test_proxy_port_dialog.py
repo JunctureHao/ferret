@@ -527,9 +527,10 @@ class ProxyPortDialogTests(unittest.TestCase):
         """被透明文案盖住的行点不到（点击被上层兄弟件吞掉）：断言矮窗口下
         每个可见行中心的最高层控件仍是列表视口。
 
-        680px 这一档是「压矮了但四行还都在视口里」，正好能逐行断言。
+        760px 这一档是「压矮了但四行还都在视口里」，正好能逐行断言（五通道卡片
+        后可用竖向预算变小，这个高度随卡片数一起长）。
         """
-        dlg = self._expanded_dialog_at(962, 680, 4)
+        dlg = self._expanded_dialog_at(962, 760, 4)
         lst = dlg.local_spec_edit
         for row in range(lst.count()):
             rect = lst.visualItemRect(lst.item(row))

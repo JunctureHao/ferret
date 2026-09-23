@@ -227,8 +227,10 @@ class ProxyAuthAddonTests(unittest.TestCase):
         self.assertIsNone(flow.response)
 
     def test_socks5_subnegotiation_follows_the_same_credential(self) -> None:
-        """regular 监听口自带 SOCKS5 自动协商，装载后这条入口一并受保护
-        （.plans/proxyauth.md §3.2）—— 白捡的一层，没有也不需要 UI 入口。"""
+        """SOCKS5 入站通道（socks5@ spec）的用户名/密码子协商受同一份 proxyauth
+        凭证保护（.plans/0-socks5-channel.md §1 D3）。注意 regular 监听口**不**
+        自带 SOCKS5 自动协商 —— Socks5Proxy 只被 Socks5Instance 挂载，该钩子存在
+        只因 ProxyAuth addon 常驻。"""
         self.master.options.update(proxyauth="alice:secret")
         good = _Socks5("alice", "secret")
         # 鸭子替身（真身 Socks5AuthData 是 dataclass，client_conn 要真连接对象，

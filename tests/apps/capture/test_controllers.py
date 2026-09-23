@@ -47,6 +47,8 @@ class FakeRuntime(QObject):
         self.use_reverse = False
         self.reverse_target = ""
         self.reverse_port = 8081
+        self.use_socks5 = False
+        self.socks5_port = 1080
         # 上游代理不是第五条通道，它替换 mode[0] 的 regular 槽位。
         self.use_upstream = False
         self.upstream_target = ""
@@ -92,6 +94,8 @@ class FakeRuntime(QObject):
         use_reverse=None,
         reverse_target=None,
         reverse_port=None,
+        use_socks5=None,
+        socks5_port=None,
         use_upstream=None,
         upstream_target=None,
         upstream_username=None,
@@ -109,6 +113,10 @@ class FakeRuntime(QObject):
             self.reverse_target = reverse_target
         if reverse_port is not None:
             self.reverse_port = reverse_port
+        if use_socks5 is not None:
+            self.use_socks5 = use_socks5
+        if socks5_port is not None:
+            self.socks5_port = socks5_port
         if use_upstream is not None:
             self.use_upstream = use_upstream
         if upstream_target is not None:
@@ -122,9 +130,7 @@ class FakeRuntime(QObject):
     def channel_health(self) -> dict:
         return dict(self.health)
 
-    def apply_proxy_auth(
-        self, *, enabled=None, username=None, password=None
-    ) -> None:
+    def apply_proxy_auth(self, *, enabled=None, username=None, password=None) -> None:
         if enabled is not None:
             self.proxyauth_enabled = enabled
         if username is not None:
@@ -190,6 +196,26 @@ class FakeFacade:
     def use_wireguard(self):
         return self.runtime.use_wireguard
 
+    @property
+    def use_reverse(self):
+        return self.runtime.use_reverse
+
+    @property
+    def reverse_target(self):
+        return self.runtime.reverse_target
+
+    @property
+    def reverse_port(self):
+        return self.runtime.reverse_port
+
+    @property
+    def use_socks5(self):
+        return self.runtime.use_socks5
+
+    @property
+    def socks5_port(self):
+        return self.runtime.socks5_port
+
     def set_block_options(self, *, block_global=None, block_private=None) -> None:
         if block_global is not None:
             self.runtime.block_global = block_global
@@ -222,6 +248,8 @@ class FakeFacade:
         use_reverse=None,
         reverse_target=None,
         reverse_port=None,
+        use_socks5=None,
+        socks5_port=None,
         use_upstream=None,
         upstream_target=None,
         upstream_username=None,
@@ -234,6 +262,8 @@ class FakeFacade:
             use_reverse=use_reverse,
             reverse_target=reverse_target,
             reverse_port=reverse_port,
+            use_socks5=use_socks5,
+            socks5_port=socks5_port,
             use_upstream=use_upstream,
             upstream_target=upstream_target,
             upstream_username=upstream_username,
@@ -603,6 +633,19 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertIn("管理员授权（UAC）", error)
         self.assertNotIn("Failed to start", error)
 
+    def test_socks5_port_conflict_surfaces_as_displayable_message(self) -> None:
+        """socks5 实例启动失败（端口被占）的 last_exception 是裸 OSError，文本里
+        不含通道名，按通用特征词映射成人话（.plans/0-socks5-channel.md §3.6）。"""
+        controller, runtime, _, _ = self.make_controller()
+        runtime.health = {"socks5": "[Errno 98] Address already in use"}
+        controller.start_capture()
+
+        controller._check_channel_health()
+
+        error = controller.channel_errors.get("socks5", "")
+        self.assertIn("端口被占用", error)
+        self.assertNotIn("Errno", error)
+
     def test_channel_health_is_polled_only_while_capturing(self) -> None:
         controller, runtime, _, _ = self.make_controller()
         runtime.health = {"local": "boom"}
@@ -643,7 +686,9 @@ class ApplyFilterRawTests(unittest.TestCase):
         self.assertEqual(controller._last_valid_raw_filter, '~u "api/.*"')
         self.assertEqual(errors, [""])  # 成功时清错误态
 
-    def test_an_invalid_raw_falls_back_and_reports_without_going_on_screen(self) -> None:
+    def test_an_invalid_raw_falls_back_and_reports_without_going_on_screen(
+        self,
+    ) -> None:
         controller, facade = self.make_controller()
         # 先攒一个有效表达式当作「上次有效」。
         controller.apply_filter("~m GET")

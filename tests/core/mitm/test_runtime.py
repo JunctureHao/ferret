@@ -11,7 +11,7 @@ from PySide6.QtCore import QCoreApplication
 from ferret.core.mitm import MitmRuntime, MitmRuntimeState
 from ferret.core.mitm.bindings import MitmLogHandler
 from ferret.core.mitm.master import FerretMaster
-from ferret.core.mitm.modes import REVERSE_DEFAULT_PORT
+from ferret.core.mitm.modes import REVERSE_DEFAULT_PORT, SOCKS5_DEFAULT_PORT
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST
 
 from ._qt import start_runtime, wait_for_signal
@@ -121,6 +121,75 @@ class ReverseChannelStateTests(unittest.TestCase):
         # 快照断言一次，新增意图值只需改 _CHANNEL_INTENTS 一处（逐条展开的写法
         # 在字段变多后必然漏掉某一条，这正是抽出这对方法的动机）。
         self.assertEqual(runtime._channel_intents(), previous)
+
+
+class Socks5ChannelStateTests(unittest.TestCase):
+    """SOCKS5 入站两意图值与 engaged 闸门（.plans/0-socks5-channel.md）。
+
+    与 reverse 同构，只是 socks5 spec 追加在 wireguard 之后、不替换首槽。让路判据
+    在 ``EffectiveBlockPrivateTests`` 一同验，channel_health socks5 键在 test_facade
+    的实例装配用例里跟真内核一起跑。
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def test_default_intents_have_socks5_disabled_on_conventional_port(self) -> None:
+        runtime = MitmRuntime(listen_port=free_port())
+        self.assertFalse(runtime.use_socks5)
+        self.assertEqual(runtime.socks5_port, SOCKS5_DEFAULT_PORT)
+
+    def test_mode_specs_omit_socks5_when_disengaged(self) -> None:
+        """未接通时 socks5 不进 mode 列表：与 local/wireguard/reverse 同构。"""
+        runtime = MitmRuntime(
+            listen_port=free_port(),
+            use_socks5=True,
+            socks5_port=1080,
+        )
+        self.assertFalse(runtime.channels_engaged)
+        self.assertEqual(runtime._mode_specs(), ["regular"])
+
+    def test_mode_specs_include_socks5_when_engaged(self) -> None:
+        """接通后 socks5 spec 追加在末尾、带显式 ``@``（独立端口，不占首槽）。"""
+        runtime = MitmRuntime(
+            listen_port=free_port(),
+            use_socks5=True,
+            socks5_port=1080,
+        )
+        runtime.listen_host = LOOPBACK_HOST
+        runtime.channels_engaged = True
+        specs = runtime._mode_specs()
+        self.assertEqual(specs[0], "regular")
+        self.assertTrue(specs[-1].startswith("socks5@"))
+        self.assertIn(":1080", specs[-1])
+
+    def test_apply_channels_carries_both_socks5_intents(self) -> None:
+        """apply_channels 透传两意图值；未传的字段不动（None 语义）。"""
+        runtime = MitmRuntime(listen_port=free_port())
+        runtime.apply_channels(use_socks5=True, socks5_port=1081)
+        self.assertTrue(runtime.use_socks5)
+        self.assertEqual(runtime.socks5_port, 1081)
+
+    def test_socks5_intents_are_part_of_the_rollback_snapshot(self) -> None:
+        """两意图值进 ``_CHANNEL_INTENTS`` 快照：坏提交回滚时它们一并复原
+        （§3.3-1；快照写法保证新增字段零散漏）。"""
+        from ferret.core.mitm.runtime import _CHANNEL_INTENTS
+
+        self.assertIn("use_socks5", _CHANNEL_INTENTS)
+        self.assertIn("socks5_port", _CHANNEL_INTENTS)
+        runtime = MitmRuntime(
+            listen_port=free_port(),
+            use_socks5=True,
+            socks5_port=1080,
+        )
+        previous = runtime._channel_intents()
+        # 模拟一次半途改动后回滚：socks5 两值必须随快照整体复原。
+        runtime.use_socks5 = False
+        runtime.socks5_port = 9999
+        runtime._restore_intents(previous)
+        self.assertTrue(runtime.use_socks5)
+        self.assertEqual(runtime.socks5_port, 1080)
 
 
 class UpstreamIntentTests(unittest.TestCase):
@@ -257,7 +326,7 @@ class UpstreamIntentTests(unittest.TestCase):
         self.assertEqual(runtime._upstream_auth(), "alice:")
 
     def test_apply_channels_rejects_bad_upstream_and_rolls_back(self) -> None:
-        """坏上游地址在下发前被原生解析器拒，十项意图值整体回滚。"""
+        """坏上游地址在下发前被原生解析器拒，意图值整体回滚。"""
         runtime = MitmRuntime(
             listen_port=free_port(),
             use_upstream=True,
@@ -292,6 +361,7 @@ class EffectiveBlockPrivateTests(unittest.TestCase):
         listen_host: str = LOOPBACK_HOST,
         use_wireguard: bool = False,
         use_reverse: bool = False,
+        use_socks5: bool = False,
         channels_engaged: bool = True,
     ) -> MitmRuntime:
         runtime = MitmRuntime(
@@ -299,6 +369,7 @@ class EffectiveBlockPrivateTests(unittest.TestCase):
             block_private=block_private,
             use_wireguard=use_wireguard,
             use_reverse=use_reverse,
+            use_socks5=use_socks5,
         )
         runtime.listen_host = listen_host
         runtime.channels_engaged = channels_engaged
@@ -324,6 +395,21 @@ class EffectiveBlockPrivateTests(unittest.TestCase):
         any_host = self._runtime(listen_host=ANY_HOST, use_reverse=True)
         self.assertTrue(loopback._effective_block_private())
         self.assertFalse(any_host._effective_block_private())
+
+    def test_yield_only_when_socks5_enabled_and_bound_to_any(self) -> None:
+        """socks5 与 reverse 同式：绑环回不让路，绑 ANY_HOST 才让路
+        （.plans/0-socks5-channel.md §2.3）。"""
+        loopback = self._runtime(listen_host=LOOPBACK_HOST, use_socks5=True)
+        any_host = self._runtime(listen_host=ANY_HOST, use_socks5=True)
+        self.assertTrue(loopback._effective_block_private())
+        self.assertFalse(any_host._effective_block_private())
+
+    def test_socks5_yield_respects_engaged_gate(self) -> None:
+        """未接通时 socks5 让路不发生：意图开着也保留原值。"""
+        runtime = self._runtime(
+            listen_host=ANY_HOST, use_socks5=True, channels_engaged=False
+        )
+        self.assertTrue(runtime._effective_block_private())
 
     def test_wireguard_still_yields_regardless_of_listen_host(self) -> None:
         """wireguard 客户端来自固定 10.0.0.x 段，让路与绑定地址无关

@@ -50,6 +50,8 @@ class FakeController:
         self.use_reverse = False
         self.reverse_target = ""
         self.reverse_port = 8081
+        self.use_socks5 = False
+        self.socks5_port = 1080
         self.use_upstream = False
         self.upstream_target = ""
         self.upstream_username = ""
@@ -135,6 +137,12 @@ class FakeDialog:
 
     def get_reverse_port(self) -> int:
         return self._get("reverse_port", 8081)
+
+    def get_use_socks5(self) -> bool:
+        return self._get("use_socks5", False)
+
+    def get_socks5_port(self) -> int:
+        return self._get("socks5_port", 1080)
 
     def get_use_upstream(self) -> bool:
         return self._get("use_upstream", False)

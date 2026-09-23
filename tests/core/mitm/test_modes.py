@@ -23,6 +23,7 @@ from ferret.core.mitm import MitmRuntime
 from ferret.core.mitm.bindings import LocalRedirectorInstance, ProxyMode
 from ferret.core.mitm.modes import (
     REVERSE_DEFAULT_PORT,
+    SOCKS5_DEFAULT_PORT,
     WIREGUARD_PORT,
     LocalTarget,
     capture_mode_specs,
@@ -32,6 +33,7 @@ from ferret.core.mitm.modes import (
     local_mode_spec,
     qr_matrix,
     reverse_mode_spec,
+    socks5_mode_spec,
     split_spec,
     upstream_address,
     upstream_mode_spec,
@@ -517,6 +519,67 @@ class ReverseModeSpecTests(unittest.TestCase):
         spec = reverse_mode_spec("https://example.com", "127.0.0.1", 8081)
         mode = ProxyMode.parse(spec)
         self.assertEqual(mode.transport_protocol, "both")
+
+
+class Socks5ModeSpecTests(unittest.TestCase):
+    """SOCKS5 入站通道（.plans/0-socks5-channel.md）spec 组装与排他性的钉桩。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        QApplication.instance() or QApplication([])
+
+    def test_socks5_spec_always_carries_explicit_listen_address(self) -> None:
+        """``@`` 必须显式：不带时上游回退全局 listen_port，与 regular 撞同地址
+        被 ``proxyserver.configure`` 查重拒 —— 与 reverse 带 ``@`` 同一动机。"""
+        spec = socks5_mode_spec("127.0.0.1", SOCKS5_DEFAULT_PORT)
+        self.assertEqual(spec, f"socks5@127.0.0.1:{SOCKS5_DEFAULT_PORT}")
+        mode = ProxyMode.parse(spec)
+        self.assertEqual(mode.custom_listen_host, "127.0.0.1")
+        self.assertEqual(mode.custom_listen_port, SOCKS5_DEFAULT_PORT)
+
+    def test_socks5_spec_uses_callsite_listen_host(self) -> None:
+        """spec 的 @ 段必须与 regular 的 listen_host 同源（D2：一处管）。"""
+        for host in ("127.0.0.1", "0.0.0.0"):
+            spec = socks5_mode_spec(host, 1080)
+            mode = ProxyMode.parse(spec)
+            self.assertEqual(mode.custom_listen_host, host, spec)
+
+    def test_capture_mode_specs_appends_socks5_after_wireguard(self) -> None:
+        """socks5 排在 wireguard 之后（§3.2）；未勾选时不进列表。"""
+        specs = capture_mode_specs(
+            use_local=True,
+            local_spec="curl",
+            use_wireguard=True,
+            use_socks5=True,
+            socks5_port=1080,
+            listen_host="127.0.0.1",
+        )
+        self.assertEqual(specs[-1], "socks5@127.0.0.1:1080")
+        self.assertLess(specs.index(wireguard_mode_spec()), specs.index(specs[-1]))
+        off = capture_mode_specs(use_local=False, local_spec="", use_wireguard=False)
+        self.assertNotIn("socks5@127.0.0.1:1080", off)
+        self.assertEqual(off, ["regular"])
+
+    def test_socks5_listens_on_a_distinct_address_from_regular(self) -> None:
+        """与 regular/upstream 首槽的 (host, port, proto) 三元组错开。"""
+        for listen_host in ("127.0.0.1", "0.0.0.0"):
+            specs = capture_mode_specs(
+                use_local=False,
+                local_spec="",
+                use_wireguard=False,
+                use_socks5=True,
+                socks5_port=1080,
+                listen_host=listen_host,
+            )
+            addrs: set[tuple] = set()
+            for spec in specs:
+                mode = ProxyMode.parse(spec)
+                host = mode.custom_listen_host or listen_host
+                addrs.add((host, mode.custom_listen_port))
+            self.assertEqual(len(addrs), len(specs))
+
+    def test_validate_accepts_well_formed_socks5(self) -> None:
+        validate_mode_specs(["regular", "socks5@127.0.0.1:1080"])
 
 
 class UpstreamModeSpecTests(unittest.TestCase):
