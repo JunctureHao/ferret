@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     Action,
     CaptionLabel,
+    CheckBox,
     FluentIcon,
     Flyout,
     FlyoutAnimationType,
@@ -66,6 +67,14 @@ class MultiFilterManager(QWidget):
         self.help_btn = TransparentToolButton(FluentIcon.HELP, self)
         self.help_btn.setToolTip(self.tr("flowfilter 语法帮助"))
         self.help_btn.setAccessibleName(self.tr("flowfilter 语法帮助"))
+
+        # ── 「仅高亮不过滤」开关 ──
+        # 勾选后同一条表达式从「过滤（隐藏不匹配行）」切成「高亮（命中行整行染色，
+        # 不隐藏任何行）」。两模式互斥，切换立即生效（不走 200ms debounce）。
+        self.highlight_check = CheckBox(self.tr("仅高亮不过滤"), self)
+        self.highlight_check.setToolTip(
+            self.tr("勾选后不再隐藏不匹配的流量，改为高亮命中的行")
+        )
 
         # ── 收起 ──
         self.close_btn = TransparentPushButton(FluentIcon.UP, self.tr("收起"), self)
@@ -151,6 +160,7 @@ class MultiFilterManager(QWidget):
         control_row = QHBoxLayout()
         control_row.setContentsMargins(0, 0, 0, 0)
         control_row.setSpacing(8)
+        control_row.addWidget(self.highlight_check)
         control_row.addWidget(self.add_filter_btn)
         control_row.addWidget(self.help_btn)
         control_row.addStretch(1)
@@ -162,6 +172,8 @@ class MultiFilterManager(QWidget):
         self.help_btn.clicked.connect(self._show_syntax_help)
         self.expression_input.textChanged.connect(self.__on_text_changed)
         self._debounce.timeout.connect(self._on_condition_changed)
+        # 模式切换立即重算（过滤↔高亮 是两条不同下发路径，不该等 debounce）。
+        self.highlight_check.stateChanged.connect(self._on_condition_changed)
 
     # ── token 插入器 ──
 
@@ -229,6 +241,10 @@ class MultiFilterManager(QWidget):
     def get_raw_expression(self) -> str:
         """用户手写的整条原生 flowfilter 表达式（未校验，校验在 controller）。"""
         return self.expression_input.text().strip()
+
+    def is_highlight_mode(self) -> bool:
+        """勾了「仅高亮不过滤」→ 表达式当高亮用（不隐藏行）；否则当过滤用。"""
+        return self.highlight_check.isChecked()
 
     # 历史名：View 侧仍以 conditions 语义接线。当前模型下条件即整条表达式，
     # 保留空列表返回，避免任何遗留调用方炸掉（新代码不该再调）。

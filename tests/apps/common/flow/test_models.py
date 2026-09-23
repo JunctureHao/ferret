@@ -13,6 +13,7 @@ from ferret.apps.common.flow.marks import FALLBACK_GLYPH, emoji_font, marker_gly
 from ferret.apps.common.flow.models import (
     DURATION_MS_ROLE,
     FULL_URL_ROLE,
+    HIGHLIGHT_ROLE,
     MIME_ROLE,
     SIZE_BYTES_ROLE,
     SORT_ROLE,
@@ -132,6 +133,49 @@ class FlowTableModelTests(unittest.TestCase):
         self.assertEqual(model.data(model.index(0, 5), MIME_ROLE), "application/json")
         self.assertAlmostEqual(model.data(model.index(0, 7), DURATION_MS_ROLE), 128)
         self.assertEqual(model.data(model.index(0, 6), SIZE_BYTES_ROLE), 11)
+
+    def test_highlight_role_reports_membership_for_every_column(self) -> None:
+        """命中判定是整行的：HIGHLIGHT_ROLE 在任意列都回同一个真值，委托据此整行铺底。
+
+        只查一份 id 集（O(1)），不读活 flow 任何字段；放在类型分流之前，未命中行
+        回 False（其 id 本就不在集里）。
+        """
+        hit = self.completed_flow()
+        miss = self.completed_flow()
+        model = self.model_with(hit, miss)
+        model.set_highlight_ids({hit.id})
+
+        self.assertTrue(model.data(model.index(0, 0), HIGHLIGHT_ROLE))
+        self.assertTrue(model.data(model.index(0, 3), HIGHLIGHT_ROLE))
+        self.assertFalse(model.data(model.index(1, 0), HIGHLIGHT_ROLE))
+
+    def test_set_highlight_ids_repaints_the_whole_table_once(self) -> None:
+        """回推命中集只发一次全表 HIGHLIGHT_ROLE 的 dataChanged —— 只刷背景不动行集。"""
+        flows = [self.completed_flow() for _ in range(3)]
+        model = self.model_with(*flows)
+        seen: list = []
+        model.dataChanged.connect(
+            lambda tl, br, roles: seen.append((tl.row(), br.row(), list(roles)))
+        )
+
+        model.set_highlight_ids({flows[1].id})
+
+        self.assertEqual(len(seen), 1)
+        top, bottom, roles = seen[0]
+        self.assertEqual((top, bottom), (0, 2))
+        self.assertIn(HIGHLIGHT_ROLE, roles)
+
+    def test_set_highlight_ids_short_circuits_on_an_unchanged_set(self) -> None:
+        """集合相等就短路：直播重算时同一份命中集不该无谓刷屏。"""
+        flows = [self.completed_flow() for _ in range(2)]
+        model = self.model_with(*flows)
+        model.set_highlight_ids({flows[0].id})
+        seen: list = []
+        model.dataChanged.connect(lambda *args: seen.append(args))
+
+        model.set_highlight_ids({flows[0].id})
+
+        self.assertEqual(seen, [])
 
     def test_the_mark_column_sits_right_after_the_row_number(self) -> None:
         """表头文案「标记」与详情字段、筛选字段同名；列名 Mark 是取值不是文案。"""

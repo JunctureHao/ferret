@@ -130,6 +130,12 @@ class CapturesInterface(QWidget):
         # View 是 runtime.__init__ 里一次性创建、跨重启复用的持久对象，初始化期
         # 接一次源即可（比旧 master_ready 单次 emit 还早、还稳）。
         self.content.table.set_source(_CaptureFlowSource(self.controller))
+        # 搜索高亮直播重算的 debounce：抓包突发时把连串 flow 信号合并成一次重算
+        # （命中集会随新流量/响应到达而过时，见 __schedule_highlight_refresh）。
+        self._hl_debounce = QTimer(self)
+        self._hl_debounce.setSingleShot(True)
+        self._hl_debounce.setInterval(150)
+        self._hl_debounce.timeout.connect(self.__refresh_highlight)
 
     def __init_layout(self):
         """初始化布局结构"""
@@ -176,6 +182,10 @@ class CapturesInterface(QWidget):
         self.controller.flow_updated.connect(self.content.table.on_flow_updated)
         self.controller.flow_removed.connect(self.content.table.on_flow_removed)
         self.controller.view_refreshed.connect(self.content.table.on_view_refreshed)
+        # 高亮模式下，新流量/响应到达会让命中集过时 → 安排一次 debounced 重算。
+        self.controller.flow_added.connect(self.__schedule_highlight_refresh)
+        self.controller.flow_updated.connect(self.__schedule_highlight_refresh)
+        self.controller.view_refreshed.connect(self.__schedule_highlight_refresh)
 
         self.filter_panel.conditionsChanged.connect(self.__on_search_changed)
         self.filter_panel.panelCloseRequested.connect(self.__hide_filter_panel)
@@ -265,17 +275,41 @@ class CapturesInterface(QWidget):
 
     @Slot()
     def __on_search_changed(self):
-        """搜索条件变更时更新过滤。
+        """搜索条件变更时更新过滤 / 高亮（勾选框二选一）。
 
-        把 GUI 条件交给 Controller，由 View.set_filter(flowfilter 表达式) 统一做
-        「显示过滤」——_store 保留全部流量，仅 _view 可见列表变化，无清除效果。
+        默认（不勾）：把表达式交给 Controller，由 View.set_filter 做「显示过滤」——
+        _store 保留全部流量，仅 _view 可见列表变化，无清除效果。
+        勾选「仅高亮不过滤」：清掉 View 过滤（被隐藏的行全部回来），改把命中集回推给
+        表格整行高亮。两条路径互斥，切换即时生效。
         """
-        self.controller.apply_filter(self.filter_panel.get_raw_expression())
+        raw = self.filter_panel.get_raw_expression()
+        if self.filter_panel.is_highlight_mode():
+            self.controller.apply_filter("")  # 清过滤：被隐藏的行全部回来
+            self.content.table.set_highlight_ids(self.controller.apply_highlight(raw))
+        else:
+            self.content.table.set_highlight_ids(set())  # 关高亮
+            self.controller.apply_filter(raw)  # 现状：表达式直接过滤
         self._ui_state = replace(
             self._ui_state,
             active_filter_count=self.filter_panel.active_condition_count(),
         )
         self._refresh_command_bar()
+
+    def __schedule_highlight_refresh(self, *_) -> None:
+        """flow 增/改信号 → 高亮开启时安排一次 debounced 重算（合并抓包突发）。
+
+        接三个 flow 信号（新增/更新/整体刷新），签名用 ``*_`` 兼容各自的实参个数。
+        """
+        if self.filter_panel.is_highlight_mode():
+            self._hl_debounce.start()
+
+    @Slot()
+    def __refresh_highlight(self) -> None:
+        """重算并回推命中集（仅高亮模式；表达式没变，只是流量集变了）。"""
+        if not self.filter_panel.is_highlight_mode():
+            return
+        raw = self.filter_panel.get_raw_expression()
+        self.content.table.set_highlight_ids(self.controller.apply_highlight(raw))
 
     @Slot()
     def __show_proxy_port_dialog(self):

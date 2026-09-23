@@ -299,6 +299,12 @@ class FakeFacade:
         self.removed_unmarked_calls = getattr(self, "removed_unmarked_calls", 0) + 1
         return 3
 
+    def match_ids(self, matcher) -> set[str]:
+        # 记账调用次数与最近一次 matcher；apply_highlight 的断言据此看「下没下发」。
+        self.match_calls = getattr(self, "match_calls", 0) + 1
+        self.last_matcher = matcher
+        return set(getattr(self, "match_result", set()))
+
 
 class FakeSystemProxy:
     def __init__(self, *, fail_attach: bool = False) -> None:
@@ -710,6 +716,54 @@ class ApplyFilterRawTests(unittest.TestCase):
         controller, facade = self.make_controller()
         self.assertEqual(controller.remove_unmarked_flows(), 3)
         self.assertEqual(facade.removed_unmarked_calls, 1)
+
+
+class ApplyHighlightTests(unittest.TestCase):
+    """搜索高亮：复用 flowfilter 的编译与校验，但命中集只回给调用方、不动 View 过滤
+    （`.plans/0-flow-search-highlight.md`）。空表达式空转，非法沿用错误契约回空集。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def make_controller(self):
+        runtime = FakeRuntime()
+        facade = FakeFacade(runtime)
+        proxy = FakeSystemProxy()
+        return CaptureController(mitm=facade, system_proxy=proxy), facade  # type: ignore
+
+    def test_a_valid_expression_returns_the_facade_match_set(self) -> None:
+        controller, facade = self.make_controller()
+        facade.match_result = {"id-a", "id-b"}
+        errors: list[str] = []
+        controller.filterExpressionRejected.connect(errors.append)
+
+        hits = controller.apply_highlight('~u "api/.*"')
+
+        self.assertEqual(hits, {"id-a", "id-b"})
+        self.assertEqual(facade.match_calls, 1)
+        self.assertIsNotNone(facade.last_matcher)
+        self.assertEqual(errors, [])  # 合法表达式不报错
+
+    def test_an_empty_expression_short_circuits_without_touching_the_facade(
+        self,
+    ) -> None:
+        controller, facade = self.make_controller()
+
+        self.assertEqual(controller.apply_highlight("   "), set())
+        self.assertEqual(getattr(facade, "match_calls", 0), 0)
+
+    def test_an_invalid_expression_reports_and_returns_empty(self) -> None:
+        controller, facade = self.make_controller()
+        errors: list[str] = []
+        controller.filterExpressionRejected.connect(errors.append)
+
+        hits = controller.apply_highlight("~~~ not a filter")
+
+        self.assertEqual(hits, set())
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(errors[0])  # 非空错误原文回传
+        self.assertEqual(getattr(facade, "match_calls", 0), 0)  # 坏表达式不下发
 
 
 if __name__ == "__main__":

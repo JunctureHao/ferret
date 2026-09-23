@@ -521,6 +521,22 @@ class CaptureController(QObject):
         self._mitm.set_filter(compiled)
         self.filterExpressionRejected.emit("")
 
+    def apply_highlight(self, raw: str = "") -> set[str]:
+        """算出命中该表达式的 flow.id 集（搜索高亮用），不改 View 过滤。
+
+        复用 `compile_filter` 的 `~http & ( raw )` 底座与校验；非法表达式回空集并置
+        错误态（沿用 `filterExpressionRejected` 契约），命中判定在 mitm 线程完成。
+        """
+        raw = raw.strip()
+        if not raw:
+            return set()
+        try:
+            matcher = compile_filter(raw)
+        except ValueError as exc:
+            self.filterExpressionRejected.emit(str(exc))
+            return set()
+        return self._mitm.match_ids(matcher)
+
     def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
         return self._mitm.save_flows(flows, path)
 

@@ -55,6 +55,26 @@ class ExpressionPanelTests(unittest.TestCase):
         self.manager._debounce.timeout.emit()
         changed.assert_called_once_with()
 
+    def test_highlight_mode_reflects_the_checkbox(self) -> None:
+        self.assertFalse(self.manager.is_highlight_mode())
+        self.manager.highlight_check.setChecked(True)
+        self.assertTrue(self.manager.is_highlight_mode())
+
+    def test_toggling_highlight_notifies_immediately_without_the_debounce(self) -> None:
+        """过滤↔高亮是两条不同下发路径，切换立即重算 —— 不等 200ms debounce。"""
+        changed = Mock()
+        self.manager.conditionsChanged.connect(changed)
+        self.manager.highlight_check.setChecked(True)
+        changed.assert_called_once_with()
+
+    def test_clearing_the_expression_leaves_highlight_mode_untouched(self) -> None:
+        """清表达式不复位开关：用户攒好的「高亮而非过滤」意图不该被一次清空吞掉。"""
+        self.manager.highlight_check.setChecked(True)
+        self.manager.expression_input.setText("~m GET")
+        self.manager.clear_conditions()
+        self.assertEqual(self.manager.get_raw_expression(), "")
+        self.assertTrue(self.manager.is_highlight_mode())
+
     def test_error_state_round_trips(self) -> None:
         self.manager.set_raw_error("Expected & or |, found 'x'")
         self.assertIn("Expected", self.manager.expression_input.toolTip())

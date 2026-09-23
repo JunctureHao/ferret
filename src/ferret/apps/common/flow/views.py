@@ -1,16 +1,18 @@
 from PySide6.QtCore import (
     QModelIndex,
+    QPersistentModelIndex,
     QPoint,
     Qt,
     QTimer,
     Signal,
     Slot,
 )
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
     QStackedWidget,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -19,7 +21,9 @@ from qfluentwidgets import (
     CaptionLabel,
     FluentIcon,
     IconWidget,
+    TableItemDelegate,
     TableView,
+    isDarkTheme,
 )
 
 # 详情面板搬去 detail.py，但两个挂载点（capture / session）照旧从 views 导入 ——
@@ -30,7 +34,11 @@ from ferret.apps.common.flow.menus import (
     FlowExportMenu,  # noqa: F401  re-export：菜单搬去 menus.py，外部照旧从 views 导入
     FlowSubViewMenu,  # noqa: F401
 )
-from ferret.apps.common.flow.models import FlowProxyModel, FlowTableModel
+from ferret.apps.common.flow.models import (
+    HIGHLIGHT_ROLE,
+    FlowProxyModel,
+    FlowTableModel,
+)
 from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     FlowViewCapabilities,
@@ -40,6 +48,55 @@ from ferret.core.log import get_logger
 from ferret.core.mitm import HTTPFlow
 
 log = get_logger("flow")
+
+
+class HighlightRowDelegate(TableItemDelegate):
+    """命中搜索表达式的行整行垫一层琥珀底。
+
+    继承 qfw `TableItemDelegate` 以保住 Fluent 的选中/hover/斑马纹与左侧指示条 ——
+    这些都由基类按 `self.delegate` 驱动，换掉委托后 `TableBase.setItemDelegate` 会同步
+    更新该引用（见 qfw table_view.py），所以选中同步不受影响。
+
+    只在「命中且未选中」时，先按 qfw 同一套圆角行背景规则铺一层半透明琥珀，再交回
+    基类画文字与其余装饰。选中态短路 → 命中行被选中时让位给 Fluent 高亮，不叠双层底色。
+    """
+
+    # 琥珀，light/dark 两档；alpha 压到只染底不糊字（与 models._semantic_color 同姿态）。
+    _LIGHT = QColor(255, 185, 0, 48)
+    _DARK = QColor(255, 196, 0, 44)
+
+    def paint(
+        self,
+        painter: QPainter,
+        option,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> None:
+        if index.data(HIGHLIGHT_ROLE) and not (
+            option.state & QStyle.StateFlag.State_Selected
+        ):
+            self._fill_highlight(painter, option, index)
+        super().paint(painter, option, index)
+
+    def _fill_highlight(
+        self, painter: QPainter, option, index: QModelIndex | QPersistentModelIndex
+    ) -> None:
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setClipRect(option.rect)
+        painter.setBrush(self._DARK if isDarkTheme() else self._LIGHT)
+        # 复刻 qfw TableItemDelegate._drawBackground 的圆角规则（含 2px 行距 margin），
+        # 让高亮底与选中/hover 的胶囊形状严丝合缝（adjusted 返回新矩形，不动 option）。
+        rect = option.rect.adjusted(0, self.margin, 0, -self.margin)
+        radius = 5
+        last = index.model().columnCount(index.parent()) - 1
+        if index.column() == 0:
+            painter.drawRoundedRect(rect.adjusted(4, 0, radius + 1, 0), radius, radius)
+        elif index.column() == last:
+            painter.drawRoundedRect(rect.adjusted(-radius - 1, 0, -4, 0), radius, radius)
+        else:
+            painter.drawRect(rect.adjusted(-1, 0, 1, 0))
+        painter.restore()
 
 
 class FlowDataTable(TableView):
@@ -105,6 +162,8 @@ class FlowDataTable(TableView):
         self.verticalHeader().setDefaultSectionSize(34)
         self.setMinimumWidth(360)
         self.sortByColumn(0, Qt.SortOrder.DescendingOrder)
+        # 搜索高亮模式的整行染色委托（替换 qfw 默认委托，选中同步由基类透传保住）。
+        self.setItemDelegate(HighlightRowDelegate(self))
         # self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
     def __connect_signal_to_slot(self):
@@ -233,6 +292,10 @@ class FlowDataTable(TableView):
     def set_source(self, source) -> None:
         """注入数据源（满足 FlowSource 协议：View 本体或其适配器）"""
         self.source_model.set_source(source)
+
+    def set_highlight_ids(self, ids: set[str]) -> None:
+        """回推搜索高亮命中集到模型（透传，见 FlowTableModel.set_highlight_ids）。"""
+        self.source_model.set_highlight_ids(ids)
 
     def on_flow_added(self, flow):
         """处理 View 新增 flow"""

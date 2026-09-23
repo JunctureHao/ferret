@@ -41,6 +41,10 @@ MIME_ROLE = int(Qt.ItemDataRole.UserRole) + 4
 DURATION_MS_ROLE = int(Qt.ItemDataRole.UserRole) + 5
 SIZE_BYTES_ROLE = int(Qt.ItemDataRole.UserRole) + 6
 SORT_ROLE = int(Qt.ItemDataRole.UserRole) + 7
+# 「这一行是否命中当前搜索表达式」——搜索高亮模式用。命中判定在 mitm 线程算好
+# 一份 flow.id 集回推（见 set_highlight_ids），Qt 侧只做 O(1) 查表，绘制时不读活
+# flow 任何字段（避开 AGENTS.md §3 的线程红线）。
+HIGHLIGHT_ROLE = int(Qt.ItemDataRole.UserRole) + 8
 
 # 网关往 flow.metadata 里写的是策略名（`str(GatewayPolicy)`）。这里只认字符串、
 # 不导 apps/gateway —— apps/common 不该认识具体页面。
@@ -130,6 +134,8 @@ class FlowTableModel(QAbstractTableModel):
         # 排序位置（并发重排会导致插入声明位置与取数位置失配 → 空行/错数据）。
         # 数据源只作为 flow 存储/过滤后端，行号由此列表自治。
         self._rows: list[HTTPFlow] = []
+        # 搜索高亮模式下命中当前表达式的 flow.id 集（在 mitm 线程算好后回推）。
+        self._highlight_ids: set[str] = set()
 
     def set_source(self, source: FlowSource) -> None:
         """注入数据源（FlowSource 协议）并重置模型"""
@@ -180,6 +186,12 @@ class FlowTableModel(QAbstractTableModel):
 
         flow = self._rows[row]
         column_name = self._headers[col]
+
+        # 高亮命中：任何流量类型都只查一份 id 集（O(1)），不读活 flow 字段 ——
+        # 每格都返回同值，委托据此给命中行整行铺底。放在类型分流之前，非 HTTP 行
+        # 也能正确回 False（其 id 本就不会进命中集）。
+        if role == HIGHLIGHT_ROLE:
+            return flow.id in self._highlight_ids
 
         if not isinstance(flow, HTTPFlow):
             if role == Qt.ItemDataRole.DisplayRole:
@@ -495,6 +507,21 @@ class FlowTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._rows = list(self._source) if self._source else []
         self.endResetModel()
+
+    def set_highlight_ids(self, ids: set[str]) -> None:
+        """回推「命中搜索表达式」的 flow.id 集，只刷背景不动行集。
+
+        搜索高亮模式专用：命中集由上层在 mitm 线程算好（facade.match_ids），这里仅
+        存下并对全表发一次 HIGHLIGHT_ROLE 的 dataChanged 触发重绘。集合相等则短路，
+        避免直播重算时无谓刷屏。
+        """
+        if ids == self._highlight_ids:
+            return
+        self._highlight_ids = ids
+        if self._rows:
+            top = self.index(0, 0)
+            bottom = self.index(len(self._rows) - 1, self.columnCount() - 1)
+            self.dataChanged.emit(top, bottom, [HIGHLIGHT_ROLE])
 
     # ------------------------------------------------------------------
     # 数据访问
