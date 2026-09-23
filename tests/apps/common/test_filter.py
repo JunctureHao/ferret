@@ -34,7 +34,6 @@ class ExpressionPanelTests(unittest.TestCase):
     def test_empty_expression_means_no_active_filter(self) -> None:
         self.assertFalse(self.manager.has_active_filter())
         self.assertEqual(self.manager.active_condition_count(), 0)
-        self.assertEqual(self.manager.get_conditions(), [])
 
     def test_a_typed_expression_activates_the_filter(self) -> None:
         self.manager.expression_input.setText("~m GET")

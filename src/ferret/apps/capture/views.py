@@ -129,7 +129,9 @@ class CapturesInterface(QWidget):
         self.content = CapturesContentArea(self, self.controller)
         # View 是 runtime.__init__ 里一次性创建、跨重启复用的持久对象，初始化期
         # 接一次源即可（比旧 master_ready 单次 emit 还早、还稳）。
-        self.content.table.set_source(_CaptureFlowSource(self.controller))
+        self.content.set_source(_CaptureFlowSource(self.controller))
+        # 分组模式按钮进命令栏统一按钮区（按钮实体归 content/pane 所有）。
+        self.command_bar.host_grouping_button(self.content.mode_button)
         # 搜索高亮直播重算的 debounce：抓包突发时把连串 flow 信号合并成一次重算
         # （命中集会随新流量/响应到达而过时，见 __schedule_highlight_refresh）。
         self._hl_debounce = QTimer(self)
@@ -152,25 +154,23 @@ class CapturesInterface(QWidget):
         self.command_bar.filterToggled.connect(self.__toggle_filter_panel)
         self.command_bar.openRequested.connect(self.__on_open_flow_file_requested)
         self.command_bar.portRequested.connect(self.__show_proxy_port_dialog)
-        self.command_bar.locateRequested.connect(self.content.table.on_locate_selection)
+        self.command_bar.locateRequested.connect(self.content.on_locate_selection)
         self.command_bar.clearRequested.connect(self.__confirm_clear_flows)
         self.command_bar.deleteUnmarkedRequested.connect(
             self.__on_delete_unmarked_requested
         )
 
         # 右键菜单"从文件回放…"信号 → 弹 file dialog → 调 controller
-        self.content.table.context_menu.replay_file_requested.connect(
-            self.__on_replay_from_file_requested
-        )
-
-        # 右键"屏蔽此主机"信号 → 冒泡给 MainWindow
-        self.content.table.context_menu.block_host_requested.connect(
-            self.block_host_requested
-        )
-        # 右键"在 Compose 中编辑"信号 → 冒泡给 MainWindow
-        self.content.table.context_menu.edit_in_compose_requested.connect(
-            self.edit_in_compose_requested
-        )
+        # 平铺与连接树各有一份 context_menu，两路都接（连接树子流菜单同语义）。
+        for menu in (
+            self.content.table.context_menu,
+            self.content.tree.context_menu,
+        ):
+            menu.replay_file_requested.connect(self.__on_replay_from_file_requested)
+            # 右键"屏蔽此主机"信号 → 冒泡给 MainWindow
+            menu.block_host_requested.connect(self.block_host_requested)
+            # 右键"在 Compose 中编辑"信号 → 冒泡给 MainWindow
+            menu.edit_in_compose_requested.connect(self.edit_in_compose_requested)
 
         # Controller 状态信号 → UI 更新
         self.controller.capture_state_changed.connect(self.__on_capture_state_changed)
@@ -178,10 +178,10 @@ class CapturesInterface(QWidget):
             lambda _on: self._refresh_command_bar()
         )
         self.controller.channels_changed.connect(self._refresh_command_bar)
-        self.controller.flow_added.connect(self.content.table.on_flow_added)
-        self.controller.flow_updated.connect(self.content.table.on_flow_updated)
-        self.controller.flow_removed.connect(self.content.table.on_flow_removed)
-        self.controller.view_refreshed.connect(self.content.table.on_view_refreshed)
+        self.controller.flow_added.connect(self.content.on_flow_added)
+        self.controller.flow_updated.connect(self.content.on_flow_updated)
+        self.controller.flow_removed.connect(self.content.on_flow_removed)
+        self.controller.view_refreshed.connect(self.content.on_view_refreshed)
         # 高亮模式下，新流量/响应到达会让命中集过时 → 安排一次 debounced 重算。
         self.controller.flow_added.connect(self.__schedule_highlight_refresh)
         self.controller.flow_updated.connect(self.__schedule_highlight_refresh)
@@ -195,23 +195,23 @@ class CapturesInterface(QWidget):
         )
 
         # 统计信息更新
-        self.content.table.stats_updated.connect(self.__on_stats_updated)
+        self.content.stats_updated.connect(self.__on_stats_updated)
 
     def __init_shortcuts(self) -> None:
         QShortcut(QKeySequence.StandardKey.Find, self).activated.connect(
             self.__show_and_focus_filter
         )
         QShortcut(
-            QKeySequence(Qt.Key.Key_Return), self.content.table
+            QKeySequence(Qt.Key.Key_Return), self.content
         ).activated.connect(self.content.open_selected)
-        QShortcut(QKeySequence(Qt.Key.Key_Enter), self.content.table).activated.connect(
+        QShortcut(QKeySequence(Qt.Key.Key_Enter), self.content).activated.connect(
             self.content.open_selected
         )
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self).activated.connect(
             self.__handle_escape
         )
         QShortcut(QKeySequence("Ctrl+L"), self).activated.connect(
-            self.content.table.on_locate_selection
+            self.content.on_locate_selection
         )
         QShortcut(QKeySequence.StandardKey.Open, self).activated.connect(
             self.command_bar.openRequested.emit
@@ -285,9 +285,9 @@ class CapturesInterface(QWidget):
         raw = self.filter_panel.get_raw_expression()
         if self.filter_panel.is_highlight_mode():
             self.controller.apply_filter("")  # 清过滤：被隐藏的行全部回来
-            self.content.table.set_highlight_ids(self.controller.apply_highlight(raw))
+            self.content.set_highlight_ids(self.controller.apply_highlight(raw))
         else:
-            self.content.table.set_highlight_ids(set())  # 关高亮
+            self.content.set_highlight_ids(set())  # 关高亮
             self.controller.apply_filter(raw)  # 现状：表达式直接过滤
         self._ui_state = replace(
             self._ui_state,
@@ -309,7 +309,7 @@ class CapturesInterface(QWidget):
         if not self.filter_panel.is_highlight_mode():
             return
         raw = self.filter_panel.get_raw_expression()
-        self.content.table.set_highlight_ids(self.controller.apply_highlight(raw))
+        self.content.set_highlight_ids(self.controller.apply_highlight(raw))
 
     @Slot()
     def __show_proxy_port_dialog(self):
@@ -541,7 +541,7 @@ class CapturesInterface(QWidget):
             return
         dialog = ClearFlowsDialog(self._ui_state.total_count, self.window())
         if dialog.exec():
-            self.content.table.clear_all()
+            self.content.clear_all()
 
     @Slot()
     def __on_delete_unmarked_requested(self) -> None:
@@ -864,6 +864,11 @@ class CaptureCommandBar(QWidget):
         layout.addWidget(self.stats_label)
         layout.addSpacing(6)
         layout.addStretch(1)
+        # 视图分组模式切换按钮由 FlowViewerPane 创建（那边是唯一真相：翻转 / 图标
+        # 文案 / 显隐），命令栏只把它领进这条统一按钮栏显示。记下插入位 = stretch 之后、
+        # 其余动作按钮之前，让它成为右侧动作簇的第一枚。
+        self._command_layout = layout
+        self._grouping_slot = layout.count()
         layout.addWidget(self.search_btn)
         layout.addWidget(self.open_btn)
         layout.addSpacing(4)
@@ -891,6 +896,14 @@ class CaptureCommandBar(QWidget):
         self.locate_selection_btn.clicked.connect(self.locateRequested.emit)
         self.captures_delete_btn.clicked.connect(self.clearRequested.emit)
         self.captures_delete_more_btn.clicked.connect(self.__show_delete_menu)
+
+    def host_grouping_button(self, button: QWidget) -> None:
+        """把 FlowViewerPane 的分组模式按钮领进命令栏统一按钮区显示。
+
+        按钮实体归 pane 所有（翻转 / 图标文案 / 显隐都在那边），这里只负责把它插进
+        本栏布局的既定槽位；``insertWidget`` 会顺带把它 reparent 到命令栏。
+        """
+        self._command_layout.insertWidget(self._grouping_slot, button)
 
     @Slot()
     def __emit_capture_toggle(self) -> None:

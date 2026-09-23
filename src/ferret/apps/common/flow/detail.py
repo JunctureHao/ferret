@@ -653,9 +653,19 @@ class FlowDataPanel(QWidget):
             pane.setMinimumSize(0, 0)
             pane.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
 
+        # —— 连接摘要页（连接树父节点选中时显示，只读字段表）——
+        self.conn_page = QWidget()
+        self.conn_title = SubtitleLabel(self.conn_page)
+        self.conn_title.setText(self.tr("连接摘要"))
+        self.conn_close_button = TransparentToolButton(self.conn_page)
+        self.conn_close_button.setIcon(FluentIcon.CLOSE)
+        self.conn_fields = ItemDualPanel()
+        self.conn_fields.set_read_only(True)
+
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.empty_page)  # index 0
         self.stack.addWidget(self.detail_page)  # index 1
+        self.stack.addWidget(self.conn_page)  # index 2：连接摘要
 
     def __init_layout(self):
         """初始化布局结构"""
@@ -683,9 +693,21 @@ class FlowDataPanel(QWidget):
         empty_layout.addWidget(self.empty_label, 0, Qt.AlignmentFlag.AlignCenter)
         empty_layout.addStretch(1)
 
+        # 连接摘要页布局：顶部（标题 + 弹簧 + X）+ 字段表
+        conn_layout = QVBoxLayout(self.conn_page)
+        conn_layout.setContentsMargins(8, 4, 8, 8)
+        conn_layout.setSpacing(6)
+        conn_top = QHBoxLayout()
+        conn_top.addWidget(self.conn_title)
+        conn_top.addStretch(1)
+        conn_top.addWidget(self.conn_close_button)
+        conn_layout.addLayout(conn_top)
+        conn_layout.addWidget(self.conn_fields, 1)
+
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
         self.empty_close_button.clicked.connect(self.__collapse_panel)
+        self.conn_close_button.clicked.connect(self.__collapse_panel)
         self.req_tabs.close_button.clicked.connect(self.__collapse_panel)
         self.res_pane.close_button.clicked.connect(self.__collapse_panel)
         self.more_button.clicked.connect(self.__on_more)
@@ -1013,6 +1035,10 @@ class FlowDataPanel(QWidget):
         Args:
             data: 数据字典
         """
+        # 连接树父节点：走连接摘要页（只读字段表），不进逐流详情。
+        if data.get("kind") == "connection":
+            self.__set_connection_data(data)
+            return
         self.datas = data
         self.overview.set_data(data)
         self.timing_pane.set_data(data)
@@ -1067,3 +1093,29 @@ class FlowDataPanel(QWidget):
         self.__sync_response_pane(data)
         self.__sync_close_host()
         self.stack.setCurrentIndex(1)
+
+    def __set_connection_data(self, data: dict) -> None:
+        """连接节点摘要：客户端 / 目标 / TLS / 流数 / 字节 / 起止，只读渲染。"""
+        self.datas = data
+        targets = data.get("targets") or []
+        if len(targets) <= 1:
+            target_text = targets[0] if targets else "—"
+        else:
+            target_text = self.tr("{} 个目标").format(len(targets))
+        fields = {
+            self.tr("客户端"): data.get("client") or "—",
+            self.tr("目标"): target_text,
+            self.tr("传输协议"): data.get("transport") or "—",
+            self.tr("TLS 版本"): data.get("tls_version") or "—",
+            self.tr("ALPN"): data.get("alpn") or "—",
+            self.tr("SNI"): data.get("sni") or "—",
+            self.tr("加密套件"): data.get("cipher") or "—",
+            self.tr("流数"): str(data.get("flow_count", 0)),
+            self.tr("传输字节"): data.get("size") or "—",
+            self.tr("持续时间"): data.get("duration") or "—",
+            self.tr("开始时间"): data.get("start") or "—",
+            self.tr("结束时间"): data.get("end") or "—",
+            self.tr("连接 ID"): data.get("conn_id") or "—",
+        }
+        self.conn_fields.set_items(fields)
+        self.stack.setCurrentIndex(2)

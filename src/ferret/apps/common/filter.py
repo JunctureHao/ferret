@@ -246,11 +246,6 @@ class MultiFilterManager(QWidget):
         """勾了「仅高亮不过滤」→ 表达式当高亮用（不隐藏行）；否则当过滤用。"""
         return self.highlight_check.isChecked()
 
-    # 历史名：View 侧仍以 conditions 语义接线。当前模型下条件即整条表达式，
-    # 保留空列表返回，避免任何遗留调用方炸掉（新代码不该再调）。
-    def get_conditions(self) -> list[dict]:
-        return []
-
     def has_active_filter(self) -> bool:
         return bool(self.get_raw_expression())
 
@@ -260,11 +255,6 @@ class MultiFilterManager(QWidget):
 
     def set_raw_error(self, message: str) -> None:
         """置/清表达式错误态。错误消息是 parse 的原文（任意英文），直显不译。"""
-        self.expression_input.setProperty("filterError", bool(message))
-        self.expression_input.setToolTip(message)
-        self.expression_input.setStyleSheet(
-            "LineEdit { border: 1px solid #c42b1c; }" if message else ""
-        )
         self.error_label.setText(message)
         self.error_label.setVisible(bool(message))
 

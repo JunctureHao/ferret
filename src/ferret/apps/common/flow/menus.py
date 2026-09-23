@@ -99,6 +99,30 @@ class FlowContextMenu(RoundMenu):
         # 读的是快照对象的 `marked`，与导出子菜单同姿态，不新读活 flow。
         if self.capabilities.can_mark:
             self.mark_menu.refresh_context(self.flows)
+        # 连接树父节点（`kind == "connection"`）：只保留可作用于流集合的项
+        # （删除 / 导出），单流项（重发 / 编辑 / 屏蔽 / 杀死 / 标记 / 备注）禁用。
+        self._apply_connection_gating(row_data.get("kind") == "connection")
+
+    def _apply_connection_gating(self, is_connection: bool) -> None:
+        """连接节点选中时禁用单流动作；子流 / 平铺行恢复默认可用。
+
+        无独立启用条件的动作（重发 / 从文件回放 / 屏蔽 / 备注）直接按
+        `not is_connection` 切换；`edit_in_compose` / `kill` 另有基于选区数/方法的
+        判据（见 update_context），这里只在连接节点时强制置灰，非连接时不覆盖。
+        """
+        for action in (
+            self.client_replay_action,
+            self.replay_from_file_action,
+            self.block_host_action,
+            self.comment_action,
+        ):
+            action.setEnabled(not is_connection)
+        if is_connection:
+            self.edit_in_compose_action.setEnabled(False)
+            if self.capabilities.can_kill:
+                self.kill_action.setEnabled(False)
+        if self.capabilities.can_mark:
+            self.mark_menu.menuAction().setEnabled(not is_connection)
 
     def __init_widget(self):
         """初始化界面组件"""

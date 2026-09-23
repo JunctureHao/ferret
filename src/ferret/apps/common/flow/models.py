@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from PySide6.QtCore import (
+    QAbstractItemModel,
     QAbstractTableModel,
     QCoreApplication,
     QModelIndex,
@@ -11,7 +12,7 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
 )
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 from qfluentwidgets import isDarkTheme
 
 # format_duration 的家在 fields.py（与 format_time / _ms 同处），这里只是
@@ -193,118 +194,14 @@ class FlowTableModel(QAbstractTableModel):
         if role == HIGHLIGHT_ROLE:
             return flow.id in self._highlight_ids
 
-        if not isinstance(flow, HTTPFlow):
+        # `#` 列的行号是模型形状（平铺给全局行号），DisplayRole/SORT_ROLE 自算；
+        # 其余列与角色统一交给共享渲染 flow_cell —— 与连接树的子行同走一套逻辑。
+        if column_name == "#":
             if role == Qt.ItemDataRole.DisplayRole:
-                if column_name == "#":
-                    return row + 1
-                if column_name == "Method":
-                    return type(flow).__name__.replace("Flow", "").upper()
-                return ""
-            return None
-
-        if role == Qt.ItemDataRole.DisplayRole:
-            if column_name == "#":
                 return row + 1
-            if column_name == "Mark":
-                return marker_glyph(flow.marked)
-            if column_name == "Method":
-                return flow.request.method
-            if column_name == "URL":
-                return flow.request.pretty_url
-            if column_name == "Status":
-                # 挂起优先于响应码：挂起（入）时响应已经回来了，但客户端一个字节
-                # 都没拿到，显示 200 会骗人。真实码进悬浮提示。
-                if is_suspended(flow):
-                    return self.tr("挂起中")
-                if flow.error:
-                    return "Error"
-                if flow.response is None:
-                    return self.tr("等待中")
-                return flow.response.status_code
-            if column_name == "Type":
-                return self._mime_label(self._mime(flow))
-            if column_name == "Size":
-                return human.pretty_size(self._size_bytes(flow))
-            if column_name == "Time":
-                return format_duration(self._duration_ms(flow))
-            return ""
-
-        if role == SORT_ROLE:
-            if column_name == "#":
+            if role == SORT_ROLE and isinstance(flow, HTTPFlow):
                 return row + 1
-            if column_name == "Mark":
-                # 短码字符串本身：空串与有值天然分堆，同类短码聚族。
-                return flow.marked
-            if column_name == "Method":
-                return flow.request.method.upper()
-            if column_name == "URL":
-                return flow.request.pretty_url.lower()
-            if column_name == "Status":
-                if is_suspended(flow):
-                    return -1
-                if flow.error:
-                    return 600
-                return flow.response.status_code if flow.response else -1
-            if column_name == "Type":
-                return self._mime(flow).lower()
-            if column_name == "Size":
-                return self._size_bytes(flow)
-            if column_name == "Time":
-                duration = self._duration_ms(flow)
-                return duration if duration is not None else -1.0
-
-        if role == METHOD_ROLE:
-            return flow.request.method.upper()
-        if role == STATUS_KIND_ROLE:
-            return self._status_kind(flow)
-        if role == FULL_URL_ROLE:
-            return flow.request.pretty_url
-        if role == MIME_ROLE:
-            return self._mime(flow)
-        if role == DURATION_MS_ROLE:
-            return self._duration_ms(flow)
-        if role == SIZE_BYTES_ROLE:
-            return self._size_bytes(flow)
-
-        if role == Qt.ItemDataRole.ToolTipRole:
-            if column_name == "Mark":
-                # 认不出图形的人悬浮看短码原文；未标记不弹空提示。
-                return flow.marked or None
-            if column_name == "URL":
-                return flow.request.pretty_url
-            if column_name == "Status":
-                note = gateway_note(flow)
-                suffix = f" ({note})" if note else ""
-                if flow.error:
-                    msg = flow.error.msg if flow.error else "Flow error"
-                    return f"{msg}{suffix}"
-                if flow.response:
-                    status = f"{flow.response.status_code} {flow.response.reason}"
-                    return f"{status}{suffix}"
-                if note:
-                    return note
-            if column_name == "Type":
-                return self._mime(flow) or self.tr("未知内容类型")
-            if column_name == "Size":
-                return self._size_tooltip(flow)
-            if column_name == "Time":
-                return self._time_tooltip(flow)
-
-        if role == Qt.ItemDataRole.ForegroundRole and column_name == "Status":
-            return self._semantic_color(self._status_kind(flow))
-
-        if role == Qt.ItemDataRole.FontRole and column_name == "Mark":
-            # emoji-first 字体，让 ✈ ♉ 这类文本态符号也画成彩色（见 marks.py）；
-            # delegate 靠 FontRole 生效，设在视图上会被盖掉。行高 34px，字号取 18。
-            if flow.marked:
-                return emoji_font(18)
-            return None
-
-        if role == Qt.ItemDataRole.TextAlignmentRole:
-            if column_name == "Mark":
-                return int(Qt.AlignmentFlag.AlignCenter)
-            return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        return None
+        return flow_cell(flow, column_name, role)
 
     @staticmethod
     def _host(flow: HTTPFlow) -> str:
@@ -552,6 +449,661 @@ class FlowTableModel(QAbstractTableModel):
         if not self._source or not flows:
             return
         self._source.remove(flows)
+
+
+def flow_cell(flow: HTTPFlow, column_name: str, role: int):
+    """FlowTableModel 与 FlowConnTreeModel 子行共用的单元格渲染。
+
+    覆盖除 ``#`` 列外的所有列：``#`` 依赖模型形状（平铺给全局行号、树给组内序号），
+    由各模型自算；HIGHLIGHT_ROLE 命中集也各自持有，均不进这里。翻译 context 一律
+    钉死 "FlowTableModel"——本函数是从 `FlowTableModel.data` 抽出的纯搬迁，改 context
+    会让既有译文对不上号（`self.tr` 的隐式 context 正是类名）。
+    """
+    translate = QCoreApplication.translate
+
+    if not isinstance(flow, HTTPFlow):
+        if role == Qt.ItemDataRole.DisplayRole:
+            if column_name == "Method":
+                return type(flow).__name__.replace("Flow", "").upper()
+            return ""
+        return None
+
+    if role == Qt.ItemDataRole.DisplayRole:
+        if column_name == "Mark":
+            return marker_glyph(flow.marked)
+        if column_name == "Method":
+            return flow.request.method
+        if column_name == "URL":
+            return flow.request.pretty_url
+        if column_name == "Status":
+            # 挂起优先于响应码：挂起（入）时响应已经回来了，但客户端一个字节
+            # 都没拿到，显示 200 会骗人。真实码进悬浮提示。
+            if is_suspended(flow):
+                return translate("FlowTableModel", "挂起中")
+            if flow.error:
+                return "Error"
+            if flow.response is None:
+                return translate("FlowTableModel", "等待中")
+            return flow.response.status_code
+        if column_name == "Type":
+            return FlowTableModel._mime_label(FlowTableModel._mime(flow))
+        if column_name == "Size":
+            return human.pretty_size(FlowTableModel._size_bytes(flow))
+        if column_name == "Time":
+            return format_duration(FlowTableModel._duration_ms(flow))
+        return ""
+    if role == SORT_ROLE:
+        if column_name == "Mark":
+            # 短码字符串本身：空串与有值天然分堆，同类短码聚族。
+            return flow.marked
+        if column_name == "Method":
+            return flow.request.method.upper()
+        if column_name == "URL":
+            return flow.request.pretty_url.lower()
+        if column_name == "Status":
+            if is_suspended(flow):
+                return -1
+            if flow.error:
+                return 600
+            return flow.response.status_code if flow.response else -1
+        if column_name == "Type":
+            return FlowTableModel._mime(flow).lower()
+        if column_name == "Size":
+            return FlowTableModel._size_bytes(flow)
+        if column_name == "Time":
+            duration = FlowTableModel._duration_ms(flow)
+            return duration if duration is not None else -1.0
+
+    if role == METHOD_ROLE:
+        return flow.request.method.upper()
+    if role == STATUS_KIND_ROLE:
+        return FlowTableModel._status_kind(flow)
+    if role == FULL_URL_ROLE:
+        return flow.request.pretty_url
+    if role == MIME_ROLE:
+        return FlowTableModel._mime(flow)
+    if role == DURATION_MS_ROLE:
+        return FlowTableModel._duration_ms(flow)
+    if role == SIZE_BYTES_ROLE:
+        return FlowTableModel._size_bytes(flow)
+    if role == Qt.ItemDataRole.ToolTipRole:
+        if column_name == "Mark":
+            # 认不出图形的人悬浮看短码原文；未标记不弹空提示。
+            return flow.marked or None
+        if column_name == "URL":
+            return flow.request.pretty_url
+        if column_name == "Status":
+            note = gateway_note(flow)
+            suffix = f" ({note})" if note else ""
+            if flow.error:
+                msg = flow.error.msg if flow.error else "Flow error"
+                return f"{msg}{suffix}"
+            if flow.response:
+                status = f"{flow.response.status_code} {flow.response.reason}"
+                return f"{status}{suffix}"
+            if note:
+                return note
+        if column_name == "Type":
+            return FlowTableModel._mime(flow) or translate(
+                "FlowTableModel", "未知内容类型"
+            )
+        if column_name == "Size":
+            return FlowTableModel._size_tooltip(flow)
+        if column_name == "Time":
+            return FlowTableModel._time_tooltip(flow)
+
+    if role == Qt.ItemDataRole.ForegroundRole and column_name == "Status":
+        return FlowTableModel._semantic_color(FlowTableModel._status_kind(flow))
+
+    if role == Qt.ItemDataRole.FontRole and column_name == "Mark":
+        # emoji-first 字体，让 ✈ ♉ 这类文本态符号也画成彩色（见 marks.py）；
+        # delegate 靠 FontRole 生效，设在视图上会被盖掉。行高 34px，字号取 18。
+        if flow.marked:
+            return emoji_font(18)
+        return None
+
+    if role == Qt.ItemDataRole.TextAlignmentRole:
+        if column_name == "Mark":
+            return int(Qt.AlignmentFlag.AlignCenter)
+        return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    return None
+
+
+# 老会话文件、非常规通道可能缺 client_conn.id —— 统一归入这个兜底组，不崩不丢流。
+_UNKNOWN_CONN_ID = "__ferret_unknown_conn__"
+
+
+def _conn_id(flow) -> str:
+    """flow 的分组键：客户端物理连接 id；缺失回落兜底组。"""
+    cc = getattr(flow, "client_conn", None)
+    cid = getattr(cc, "id", None) if cc is not None else None
+    return cid or _UNKNOWN_CONN_ID
+
+
+class _ConnNode:
+    """一条客户端物理连接的聚合节点（连接树的顶层节点）。
+
+    `flows` 保持到达序（append），排序交给代理；聚合值都从活 flow 现算、不缓存——
+    子流 update（pending→完成）后聚合要跟着变，缓存反而要额外失效逻辑。读的都是
+    标量字段（时间戳 / client_conn 握手信息），与平铺模型 data() 同属既有可接受折中。
+    """
+
+    __slots__ = ("conn_id", "flows")
+
+    def __init__(self, conn_id: str) -> None:
+        self.conn_id = conn_id
+        self.flows: list[HTTPFlow] = []
+
+    def size_bytes(self) -> int:
+        return sum(
+            FlowTableModel._size_bytes(f)
+            for f in self.flows
+            if isinstance(f, HTTPFlow)
+        )
+
+    def _starts(self) -> list[float]:
+        out: list[float] = []
+        for f in self.flows:
+            if isinstance(f, HTTPFlow) and f.request.timestamp_start:
+                out.append(f.request.timestamp_start)
+        return out
+
+    def _ends(self) -> list[float]:
+        out: list[float] = []
+        for f in self.flows:
+            if (
+                isinstance(f, HTTPFlow)
+                and f.response is not None
+                and f.response.timestamp_end
+            ):
+                out.append(f.response.timestamp_end)
+        return out
+
+    def span_ms(self) -> float | None:
+        starts = self._starts()
+        ends = self._ends()
+        if not starts or not ends:
+            return None
+        return max(0.0, (max(ends) - min(starts)) * 1000)
+
+    def max_end_ts(self) -> float | None:
+        ends = self._ends()
+        return max(ends) if ends else None
+
+    def hosts(self) -> list[str]:
+        seen: list[str] = []
+        for f in self.flows:
+            if isinstance(f, HTTPFlow):
+                host = FlowTableModel._host_with_port(f)
+                if host and host not in seen:
+                    seen.append(host)
+        return seen
+
+    def client_address(self) -> str:
+        for f in self.flows:
+            cc = getattr(f, "client_conn", None)
+            peer = getattr(cc, "peername", None) if cc is not None else None
+            if peer:
+                try:
+                    return f"{peer[0]}:{peer[1]}"
+                except (IndexError, TypeError):
+                    return str(peer)
+        return ""
+
+    def transport_label(self) -> str:
+        for f in self.flows:
+            cc = getattr(f, "client_conn", None)
+            if cc is None:
+                continue
+            alpn = getattr(cc, "alpn", None)
+            if alpn:
+                try:
+                    return bytes(alpn).decode("ascii", "replace")
+                except (UnicodeDecodeError, TypeError):
+                    pass
+            tls = getattr(cc, "tls_version", None)
+            if tls:
+                return str(tls)
+        return "TCP"
+
+    def conn_label(self) -> str:
+        client = self.client_address() or QCoreApplication.translate(
+            "FlowConnTreeModel", "未知客户端"
+        )
+        hosts = self.hosts()
+        if len(hosts) == 1:
+            return f"{client} → {hosts[0]}"
+        if not hosts:
+            return client
+        # 显式代理 + keep-alive 下一条物理连接可跨多个 host，不误标单一 host（见方案 D4）。
+        return QCoreApplication.translate(
+            "FlowConnTreeModel", "{client} → {count} 个目标"
+        ).format(client=client, count=len(hosts))
+
+
+class FlowConnTreeModel(QAbstractItemModel):
+    """按客户端物理连接（`client_conn.id`）分组的两级树模型。
+
+    结构自治（沿用平铺模型 `_rows` 自治的教训——不依赖 View 的 SortedList 位置）：
+    `_nodes` 顶层顺序（新连接 append），`_by_conn` conn_id→节点，`_by_flow`
+    flow.id→节点（update/remove O(1) 反查）。子行渲染委托 `flow_cell`，与平铺共用。
+    """
+
+    HEADERS = FlowTableModel.HEADERS
+
+    def __init__(self, parent: QObject):
+        super().__init__(parent)
+        self._headers = list(self.HEADERS)
+        self._source: FlowSource | None = None
+        self._nodes: list[_ConnNode] = []
+        self._by_conn: dict[str, _ConnNode] = {}
+        self._by_flow: dict[str, _ConnNode] = {}
+        self._highlight_ids: set[str] = set()
+
+    # ------------------------------------------------------------------
+    # QAbstractItemModel 结构
+    # ------------------------------------------------------------------
+    def index(
+        self,
+        row: int,
+        column: int,
+        parent: QModelIndex | QPersistentModelIndex | None = None,
+    ) -> QModelIndex:
+        if parent is None:
+            parent = QModelIndex()
+        if not self.hasIndex(row, column, parent):
+            return QModelIndex()
+        if not parent.isValid():
+            # 顶层连接节点：internalPointer 留空，靠 row 定位 _nodes。
+            return self.createIndex(row, column, None)
+        # 子行：把父连接节点塞进 internalPointer，parent() 靠它回溯。
+        node = self._nodes[parent.row()]
+        return self.createIndex(row, column, node)
+
+    def parent(  # ty: ignore[invalid-method-override]
+        self, index: QModelIndex | QPersistentModelIndex
+    ) -> QModelIndex:
+        # QAbstractItemModel.parent 有无参 `-> QObject` 重载，签名与树模型的
+        # `parent(index) -> QModelIndex` 天然冲突；Qt 运行期按参数分派，这里的
+        # 覆盖是标准写法，忽略静态检查对该重载的 LSP 抱怨。
+        if not index.isValid():
+            return QModelIndex()
+        node = index.internalPointer()
+        if node is None:
+            return QModelIndex()  # 顶层节点无父
+        try:
+            top_row = self._nodes.index(node)
+        except ValueError:
+            return QModelIndex()
+        return self.createIndex(top_row, 0, None)
+
+    def rowCount(
+        self, parent: QModelIndex | QPersistentModelIndex | None = None
+    ) -> int:
+        if parent is None or not parent.isValid():
+            return len(self._nodes)
+        if parent.column() > 0:
+            return 0
+        if parent.internalPointer() is None:
+            top_row = parent.row()
+            if 0 <= top_row < len(self._nodes):
+                return len(self._nodes[top_row].flows)
+            return 0
+        return 0  # 子行（flow）没有下一级
+
+    def columnCount(
+        self, parent: QModelIndex | QPersistentModelIndex | None = None
+    ) -> int:
+        return len(self._headers)
+
+    def flags(
+        self, index: QModelIndex | QPersistentModelIndex
+    ) -> Qt.ItemFlag:
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ):
+        if orientation == Qt.Orientation.Horizontal:
+            if role == Qt.ItemDataRole.DisplayRole:
+                if self._headers[section] == "Mark":
+                    return QCoreApplication.translate("FlowTableModel", "标记")
+                return self._headers[section]
+            if role == Qt.ItemDataRole.TextAlignmentRole:
+                return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        return None
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ):
+        if not index.isValid():
+            return None
+        column_name = self._headers[index.column()]
+        node = index.internalPointer()
+        if node is None:
+            top_row = index.row()
+            if not (0 <= top_row < len(self._nodes)):
+                return None
+            return self._conn_data(self._nodes[top_row], column_name, role)
+
+        child_row = index.row()
+        if not (0 <= child_row < len(node.flows)):
+            return None
+        flow = node.flows[child_row]
+        if role == HIGHLIGHT_ROLE:
+            return flow.id in self._highlight_ids
+        # 子行的 `#` 列 = 组内序号（父节点则是子流计数，见 _conn_data）。
+        if column_name == "#":
+            if role == Qt.ItemDataRole.DisplayRole:
+                return child_row + 1
+            if role == SORT_ROLE and isinstance(flow, HTTPFlow):
+                return child_row + 1
+        return flow_cell(flow, column_name, role)
+
+    def _conn_data(self, node: _ConnNode, column_name: str, role: int):
+        if role == HIGHLIGHT_ROLE:
+            return False  # 第一版父节点不做「组内命中」染色
+        if role == Qt.ItemDataRole.DisplayRole:
+            if column_name == "#":
+                return len(node.flows)
+            if column_name == "URL":
+                return node.conn_label()
+            if column_name == "Type":
+                return node.transport_label()
+            if column_name == "Size":
+                return human.pretty_size(node.size_bytes())
+            if column_name == "Time":
+                return format_duration(node.span_ms())
+            return ""  # Mark / Method / Status 父节点留空
+        if role == SORT_ROLE:
+            if column_name == "#":
+                return len(node.flows)
+            if column_name == "Size":
+                return node.size_bytes()
+            if column_name == "Time":
+                end = node.max_end_ts()
+                return end if end is not None else -1.0
+            if column_name == "URL":
+                return node.conn_label().lower()
+            if column_name == "Type":
+                return node.transport_label().lower()
+            return ""
+        if role == Qt.ItemDataRole.FontRole:
+            font = QFont()
+            font.setBold(True)
+            return font
+        if role == Qt.ItemDataRole.ToolTipRole and column_name == "URL":
+            return node.conn_label()
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        return None
+    # ------------------------------------------------------------------
+    # 数据源与增量（由 View 桥接信号驱动，语义对齐平铺模型）
+    # ------------------------------------------------------------------
+    def set_source(self, source: FlowSource) -> None:
+        self.beginResetModel()
+        self._source = source
+        self._rebuild()
+        self.endResetModel()
+
+    def _rebuild(self) -> None:
+        self._nodes = []
+        self._by_conn = {}
+        self._by_flow = {}
+        if not self._source:
+            return
+        for flow in self._source:
+            self._append_flow(flow)
+
+    def _append_flow(self, flow: HTTPFlow) -> _ConnNode:
+        """把 flow 挂进对应节点（无信号，供全量重建复用）。"""
+        cid = _conn_id(flow)
+        node = self._by_conn.get(cid)
+        if node is None:
+            node = _ConnNode(cid)
+            self._nodes.append(node)
+            self._by_conn[cid] = node
+        node.flows.append(flow)
+        self._by_flow[flow.id] = node
+        return node
+
+    def handle_add(self, flow: HTTPFlow) -> None:
+        if not self._source or flow.id in self._by_flow:
+            return
+        cid = _conn_id(flow)
+        node = self._by_conn.get(cid)
+        if node is None:
+            # 新连接：先在顶层插入空节点，再插首条子行（两段 begin/end 各自成对）。
+            top_row = len(self._nodes)
+            self.beginInsertRows(QModelIndex(), top_row, top_row)
+            node = _ConnNode(cid)
+            self._nodes.append(node)
+            self._by_conn[cid] = node
+            self.endInsertRows()
+        top_row = self._nodes.index(node)
+        parent_index = self.index(top_row, 0, QModelIndex())
+        child_row = len(node.flows)
+        self.beginInsertRows(parent_index, child_row, child_row)
+        node.flows.append(flow)
+        self._by_flow[flow.id] = node
+        self.endInsertRows()
+        if child_row > 0:
+            # 已有连接下追加子流：父节点聚合列（#/Size/Time）跟着变。
+            self._emit_conn_changed(top_row)
+
+    def handle_update(self, flow: HTTPFlow) -> None:
+        node = self._by_flow.get(flow.id)
+        if node is None:
+            return
+        try:
+            top_row = self._nodes.index(node)
+            child_row = node.flows.index(flow)
+        except ValueError:
+            return
+        parent_index = self.index(top_row, 0, QModelIndex())
+        last_col = self.columnCount() - 1
+        self.dataChanged.emit(
+            self.index(child_row, 0, parent_index),
+            self.index(child_row, last_col, parent_index),
+        )
+        # 父节点聚合随子流状态变（pending→完成改 Size/Time）；只发 dataChanged，
+        # 绝不整树 reset（否则展开状态丢失，见方案风险 1）。
+        self._emit_conn_changed(top_row)
+
+    def handle_remove(self, flow: HTTPFlow, index: int) -> None:
+        # 签名与桥接对齐（views 传 (flow, index)），树按 flow 反查、忽略 index。
+        node = self._by_flow.pop(flow.id, None)
+        if node is None:
+            return
+        try:
+            top_row = self._nodes.index(node)
+            child_row = node.flows.index(flow)
+        except ValueError:
+            return
+        parent_index = self.index(top_row, 0, QModelIndex())
+        self.beginRemoveRows(parent_index, child_row, child_row)
+        node.flows.pop(child_row)
+        self.endRemoveRows()
+        if not node.flows:
+            # 节点空了：连父一起摘。
+            self.beginRemoveRows(QModelIndex(), top_row, top_row)
+            self._nodes.pop(top_row)
+            self._by_conn.pop(node.conn_id, None)
+            self.endRemoveRows()
+        else:
+            self._emit_conn_changed(top_row)
+
+    def handle_refresh(self) -> None:
+        # 过滤变化路径：与平铺一致允许整树 reset（展开状态丢失可接受，见风险 1）。
+        self.beginResetModel()
+        self._rebuild()
+        self.endResetModel()
+
+    def _emit_conn_changed(self, top_row: int) -> None:
+        if not (0 <= top_row < len(self._nodes)):
+            return
+        last_col = self.columnCount() - 1
+        self.dataChanged.emit(
+            self.index(top_row, 0, QModelIndex()),
+            self.index(top_row, last_col, QModelIndex()),
+        )
+
+    def set_highlight_ids(self, ids: set[str]) -> None:
+        """回推命中集，只刷子行背景（父节点第一版不染色）。集合相等则短路。"""
+        if ids == self._highlight_ids:
+            return
+        self._highlight_ids = ids
+        last_col = self.columnCount() - 1
+        for top_row, node in enumerate(self._nodes):
+            if not node.flows:
+                continue
+            parent_index = self.index(top_row, 0, QModelIndex())
+            self.dataChanged.emit(
+                self.index(0, 0, parent_index),
+                self.index(len(node.flows) - 1, last_col, parent_index),
+                [HIGHLIGHT_ROLE],
+            )
+
+    # ------------------------------------------------------------------
+    # 数据访问（供视图交互 / 统计 / 详情）
+    # ------------------------------------------------------------------
+    def child_count(self) -> int:
+        """可见子流总数（连接节点不计入）——统计 shown 用，非顶层节点数。"""
+        return len(self._by_flow)
+
+    def node_at(self, index: QModelIndex | QPersistentModelIndex) -> _ConnNode | None:
+        if not index.isValid():
+            return None
+        if index.internalPointer() is None:
+            row = index.row()
+            if 0 <= row < len(self._nodes):
+                return self._nodes[row]
+        return None
+
+    def flow_at(self, index: QModelIndex | QPersistentModelIndex) -> HTTPFlow | None:
+        if not index.isValid():
+            return None
+        node = index.internalPointer()
+        if node is None:
+            return None  # 连接节点本身不是 flow
+        row = index.row()
+        if 0 <= row < len(node.flows):
+            return node.flows[row]
+        return None
+
+    def flows_under(
+        self, index: QModelIndex | QPersistentModelIndex
+    ) -> list[HTTPFlow]:
+        """节点 → 全部子流；子行 → 该单条。删除 / 导出走这条 parent→children 展开。"""
+        node = self.node_at(index)
+        if node is not None:
+            return list(node.flows)
+        flow = self.flow_at(index)
+        return [flow] if flow is not None else []
+
+    def connection_detail(self, node: _ConnNode) -> dict:
+        """连接节点摘要字典（`kind == "connection"`），交详情面板只读渲染。
+
+        读的是 client_conn 标量握手信息（scalar 折中，见 _ConnNode docstring）；
+        握手期 alpn/tls 可能尚为 None，展示无害。
+        """
+        cc = None
+        for f in node.flows:
+            cc = getattr(f, "client_conn", None)
+            if cc is not None:
+                break
+        alpn = getattr(cc, "alpn", None) if cc is not None else None
+        if alpn:
+            try:
+                alpn = bytes(alpn).decode("ascii", "replace")
+            except (UnicodeDecodeError, TypeError):
+                alpn = str(alpn)
+        span = node.span_ms()
+        starts = node._starts()
+        return {
+            "kind": "connection",
+            "conn_id": node.conn_id,
+            "client": node.client_address(),
+            "targets": node.hosts(),
+            "transport": node.transport_label(),
+            "tls_version": getattr(cc, "tls_version", None) if cc else None,
+            "alpn": alpn or "",
+            "sni": getattr(cc, "sni", None) if cc else None,
+            "cipher": getattr(cc, "cipher", None) if cc else None,
+            "flow_count": len(node.flows),
+            "size": human.pretty_size(node.size_bytes()),
+            "duration": format_duration(span) or "—",
+            "start": _fmt_ts(min(starts)) if starts else "—",
+            "end": _fmt_ts(node.max_end_ts()),
+        }
+
+    def clear_data(self) -> None:
+        self.beginResetModel()
+        self._nodes = []
+        self._by_conn = {}
+        self._by_flow = {}
+        self.endResetModel()
+        if self._source:
+            self._source.clear()
+
+    def remove_flows(self, flows: list[HTTPFlow]) -> None:
+        """批量删除：一次 remove 调用，逐行移除走 View 的 flow_removed 信号回路。"""
+        if not self._source or not flows:
+            return
+        self._source.remove(flows)
+
+
+def _fmt_ts(ts: float | None) -> str:
+    if not ts:
+        return "—"
+    return (
+        datetime.fromtimestamp(ts, tz=UTC)
+        .astimezone()
+        .isoformat(timespec="milliseconds")
+    )
+
+
+class FlowConnProxyModel(QSortFilterProxyModel):
+    """连接树排序代理：默认锁首见序（顶层不随聚合抖动），用户点列头后才切聚合排。
+
+    平铺代理开着 `setDynamicSortFilter(True)` + `SORT_ROLE`，若顶层直接暴露聚合值，
+    每来一条子流都会触发顶层实时重排、连接行乱跳。对策见方案 §3.1：未经用户排序时
+    所有兄弟按源行号（=append/到达序）比较——顶层稳定、子行保序；用户点列头置位后
+    才回落到 `SORT_ROLE`（组间按聚合、组内按列，正是想要的语义）。
+    """
+
+    def __init__(self, parent: QObject):
+        super().__init__(parent)
+        self.setSortRole(SORT_ROLE)
+        self.setDynamicSortFilter(True)
+        self._user_sorted = False
+
+    def is_user_sorted(self) -> bool:
+        return self._user_sorted
+
+    def mark_user_sorted(self) -> None:
+        self._user_sorted = True
+
+    def filterAcceptsRow(
+        self, source_row: int, source_parent: QModelIndex | QPersistentModelIndex
+    ) -> bool:
+        return True
+
+    def lessThan(
+        self,
+        left: QModelIndex | QPersistentModelIndex,
+        right: QModelIndex | QPersistentModelIndex,
+    ) -> bool:
+        if not self._user_sorted:
+            # 兄弟按源行号：顶层=连接 append 序，子行=到达序，全程稳定不抖。
+            return left.row() < right.row()
+        return super().lessThan(left, right)
 
 
 class FlowProxyModel(QSortFilterProxyModel):

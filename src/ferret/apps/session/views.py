@@ -431,6 +431,9 @@ class SessionViewerPage(QWidget):
         tb_layout.addWidget(self.name_label, 1)
         tb_layout.addWidget(self.readonly_badge)
         tb_layout.addSpacing(8)
+        # 分组模式切换按钮进这条统一工具栏（按钮实体归 splitter/pane 所有：翻转 /
+        # 图标文案 / 显隐都在那边，这里 addWidget 会顺带把它 reparent 过来显示）。
+        tb_layout.addWidget(self.splitter.mode_button)
         tb_layout.addWidget(self.export_btn)
 
         layout.addWidget(toolbar)
@@ -445,7 +448,8 @@ class SessionViewerPage(QWidget):
 
         self.splitter.set_controller(vc)
         # 会话 flow 从文件读回、没有 mitm 线程：View 本体直接当数据源，无需适配。
-        self.table.set_source(vc.view)
+        # 经 pane fan-out 同时喂平铺与连接树两个模型（树模式在会话页同样可用）。
+        self.splitter.set_source(vc.view)
 
     def _go_back(self):
         iface = self.parent()
