@@ -16,10 +16,12 @@ from qfluentwidgets import (
     CaptionLabel,
     FluentIcon,
     IconWidget,
+    IndicatorPosition,
     LineEdit,
     MessageBox,
     PushButton,
     RoundMenu,
+    SwitchButton,
     TableView,
     TransparentToolButton,
 )
@@ -128,11 +130,21 @@ class ScriptsInterface(QWidget):
         self.delete_btn.setToolTip(self.tr("移除"))
         self.delete_btn.setEnabled(False)
 
+        self.enable_switch = SwitchButton(bar, IndicatorPosition.LEFT)
+        self.enable_switch.setOnText(self.tr("已启用"))
+        self.enable_switch.setOffText(self.tr("已停用"))
+        self.enable_switch.setToolTip(
+            self.tr("脚本总开关。关闭后所有脚本一律不装载、不参与流量处理")
+        )
+        self._sync_switch(self.controller.enabled)
+
         layout.addWidget(self.import_btn)
         layout.addWidget(self.new_btn)
         layout.addWidget(self.search_edit, 1)
         layout.addWidget(self.reload_btn)
         layout.addWidget(self.delete_btn)
+        layout.addSpacing(6)
+        layout.addWidget(self.enable_switch)
         return bar
 
     def __build_warning_bar(self) -> QWidget:
@@ -199,6 +211,7 @@ class ScriptsInterface(QWidget):
         self.new_btn.clicked.connect(self._on_new)
         self.reload_btn.clicked.connect(self._on_reload_selected)
         self.delete_btn.clicked.connect(self._on_remove)
+        self.enable_switch.checkedChanged.connect(self.controller.set_master_enabled)
         self.search_edit.textChanged.connect(self._on_search_changed)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
@@ -214,6 +227,7 @@ class ScriptsInterface(QWidget):
 
         self.controller.scripts_changed.connect(self._on_scripts_changed)
         self.controller.statuses_changed.connect(self._on_statuses_changed)
+        self.controller.enabled_changed.connect(self._sync_switch)
         self.controller.operation_failed.connect(self._on_operation_failed)
         self.controller.operation_succeeded.connect(self._on_operation_succeeded)
 
@@ -346,6 +360,14 @@ class ScriptsInterface(QWidget):
         entry = self.panel.entry
         if entry is not None:
             self.panel.set_status(statuses.get(entry.path))
+
+    @Slot(bool)
+    def _sync_switch(self, enabled: bool):
+        # SwitchButton.setChecked 也会发 checkedChanged（indicator.toggled 直连到了
+        # 它），不挡住就会绕回控制器再来一轮（与断点页 _sync_switch 同一条理由）。
+        self.enable_switch.blockSignals(True)
+        self.enable_switch.setChecked(enabled)
+        self.enable_switch.blockSignals(False)
 
     @Slot()
     def _on_selection_changed(self):

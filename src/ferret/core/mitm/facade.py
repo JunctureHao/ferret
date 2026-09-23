@@ -308,6 +308,15 @@ class MitmFacade:
         """Replace the script entries; applied immediately when the kernel runs."""
         self.runtime.apply_scripts(entries)
 
+    @property
+    def scripts_enabled(self) -> bool:
+        """脚本总开关。关掉后所有脚本一律不装载、不参与流量处理。"""
+        return self.runtime.scripts_enabled
+
+    def set_scripts_enabled(self, enabled: bool) -> None:
+        """Flip the scripts master switch; applied immediately when it runs."""
+        self.runtime.apply_scripts(enabled=enabled)
+
     def reload_script(self, path: str) -> None:
         """强制重载一条脚本；内核没跑是 no-op。"""
         self.runtime.reload_script(path)

@@ -104,9 +104,10 @@ class MitmRuntimeGatewayTests(unittest.TestCase):
     def setUp(self) -> None:
         self.runtime = MitmRuntime(listen_port=free_port())
 
-    def test_defaults_are_empty_rules_and_a_live_switch(self) -> None:
+    def test_defaults_are_empty_rules_and_the_switch_off(self) -> None:
+        # 总开关出厂**关**（各功能一律默认不启用）。
         self.assertEqual(self.runtime.gateway_rules, [])
-        self.assertTrue(self.runtime.gateway_enabled)
+        self.assertFalse(self.runtime.gateway_enabled)
 
     def test_rules_are_stored_as_a_copy(self) -> None:
         rules = [l7(GatewayPolicy.BLOCK_OUT)]
@@ -122,7 +123,7 @@ class MitmRuntimeGatewayTests(unittest.TestCase):
 
     def test_a_broken_rule_rolls_back_rules_and_switch_together(self) -> None:
         """两个平面对同一条流量给出不同判定，是这套设计最不能出的错。"""
-        self.runtime.apply_gateway_rules([l7(GatewayPolicy.BLOCK_OUT)])
+        self.runtime.apply_gateway_rules([l7(GatewayPolicy.BLOCK_OUT)], enabled=True)
         before = list(self.runtime.gateway_rules)
 
         with self.assertRaises(ValueError):
@@ -133,7 +134,9 @@ class MitmRuntimeGatewayTests(unittest.TestCase):
 
     def test_payload_carries_both_planes_and_commits_nothing(self) -> None:
         rule = l4(GatewayPolicy.BYPASS)
-        self.runtime.apply_gateway_rules([rule, l7(GatewayPolicy.BLOCK_OUT)])
+        self.runtime.apply_gateway_rules(
+            [rule, l7(GatewayPolicy.BLOCK_OUT)], enabled=True
+        )
         ruleset, updates, enabled = self.runtime._gateway_payload()
         self.assertIsInstance(ruleset, GatewayRuleSet)
         self.assertTrue(ruleset)
@@ -259,7 +262,7 @@ class MitmRuntimeGatewayLiveTests(unittest.TestCase):
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
         rule = l4(GatewayPolicy.BYPASS)
-        runtime.apply_gateway_rules([rule, l7(GatewayPolicy.BLOCK_OUT)])
+        runtime.apply_gateway_rules([rule, l7(GatewayPolicy.BLOCK_OUT)], enabled=True)
         start_runtime(runtime)
 
         master = runtime.master
@@ -273,7 +276,7 @@ class MitmRuntimeGatewayLiveTests(unittest.TestCase):
     def test_switching_the_gateway_off_reaches_the_running_kernel(self) -> None:
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)
-        runtime.apply_gateway_rules([l7(GatewayPolicy.BLOCK_OUT)])
+        runtime.apply_gateway_rules([l7(GatewayPolicy.BLOCK_OUT)], enabled=True)
         start_runtime(runtime)
         master = runtime.master
         assert master is not None

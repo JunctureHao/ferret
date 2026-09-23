@@ -126,11 +126,11 @@ class MainWindow(FluentWindow):
 
         self.addSubInterface(self.intercept_interface, BaseIcon.BUG, self.tr("断点"))
 
+        self.addSubInterface(self.scripts_interface, FluentIcon.CODE, self.tr("脚本"))
+
         self.addSubInterface(
             self.compose_interface, FluentIcon.SEND, self.tr("请求编辑")
         )
-
-        self.addSubInterface(self.scripts_interface, FluentIcon.CODE, self.tr("脚本"))
 
         self.addSubInterface(
             self.certificate_interface,

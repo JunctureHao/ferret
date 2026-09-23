@@ -7,9 +7,11 @@ from qfluentwidgets import (
     BoolValidator,
     ConfigItem,
     ConfigSerializer,
+    EnumSerializer,
     OptionsConfigItem,
     OptionsValidator,
     QConfig,
+    Theme,
 )
 
 from ferret.core.network import DEFAULT_PORT, LISTEN_HOSTS, LOOPBACK_HOST
@@ -48,6 +50,17 @@ class LayoutSerializer(ConfigSerializer):
 
 
 class Config(QConfig):
+    # 应用主题：覆盖 qfluentwidgets 基类的出厂默认（Theme.LIGHT），改为跟随系统。
+    # 键名 group/name 必须与基类一致（QFluentWidgets/ThemeMode），否则落盘与
+    # 框架读取对不上。
+    themeMode = OptionsConfigItem(
+        group="QFluentWidgets",
+        name="ThemeMode",
+        default=Theme.AUTO,
+        validator=OptionsValidator(Theme),
+        serializer=EnumSerializer(Theme),
+    )
+
     dpi_scale = OptionsConfigItem(
         group="MainWindow",
         name="DpiScale",
@@ -110,11 +123,12 @@ class Config(QConfig):
     )
 
     # 原生 Block addon 的来源过滤（mitmproxy/addons/block.py），按**来源 IP 类别**
-    # 拒连；默认沿用 mitmproxy 出厂姿态：拒公网、放局域网。环回恒放行且不可配。
+    # 拒连。默认**不拒公网**：出厂即拦公网会让用户第一次抓外网就莫名连不上，先放行、
+    # 让用户按需打开更符合直觉（环回恒放行且不可配）。
     block_global = ConfigItem(
         group="Proxy",
         name="BlockGlobal",
-        default=True,
+        default=False,
         validator=BoolValidator(),
     )
 
@@ -349,10 +363,11 @@ class Config(QConfig):
     )
 
     # 网关总开关。关掉之后所有规则一律不判，挂起中的流量立刻放行。
+    # 默认**关**：各功能一律默认不启用，由用户在界面显式打开。
     gateway_enabled = ConfigItem(
         group="Gateway",
         name="Enabled",
-        default=True,
+        default=False,
         validator=BoolValidator(),
     )
 
@@ -372,6 +387,16 @@ class Config(QConfig):
         group="Scripts",
         name="Scripts",
         default=[],
+    )
+
+    # 脚本总开关。关掉之后所有脚本一律不装载、不参与流量处理。默认**关**：脚本以
+    # 应用同等权限执行，一启动就全跑起来风险太大，由用户显式打开（各功能一律默认
+    # 不启用，与网关/断点同一姿态）。
+    scripts_enabled = ConfigItem(
+        group="Scripts",
+        name="Enabled",
+        default=False,
+        validator=BoolValidator(),
     )
 
     # 固定会话总开关（原生 StickyCookie / StickyAuth 两个 addon，见

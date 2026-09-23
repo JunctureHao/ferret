@@ -56,9 +56,10 @@ class MitmRuntimeRewriteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.runtime = MitmRuntime(listen_port=free_port())
 
-    def test_defaults_are_empty_rules_and_a_live_switch(self) -> None:
+    def test_defaults_are_empty_rules_and_the_switch_off(self) -> None:
+        # 总开关出厂**关**（各功能一律默认不启用）。
         self.assertEqual(self.runtime.rewrite_rules, [])
-        self.assertTrue(self.runtime.rewrite_enabled)
+        self.assertFalse(self.runtime.rewrite_enabled)
 
     def test_rules_are_stored_as_a_copy(self) -> None:
         rules = [good()]
@@ -76,7 +77,7 @@ class MitmRuntimeRewriteTests(unittest.TestCase):
 
     def test_a_broken_rule_rolls_back_rules_and_switch_together(self) -> None:
         """快照在提交任何东西之前编译：坏规则整批拒收，内存副本原样。"""
-        self.runtime.apply_rewrite_rules([good()])
+        self.runtime.apply_rewrite_rules([good()], enabled=True)
         before = list(self.runtime.rewrite_rules)
 
         with self.assertRaises(ValueError):

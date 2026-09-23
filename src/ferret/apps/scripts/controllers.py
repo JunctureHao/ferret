@@ -52,6 +52,7 @@ class ScriptsController(QObject):
 
     scripts_changed = Signal(list)
     statuses_changed = Signal(dict)
+    enabled_changed = Signal(bool)
     operation_failed = Signal(str, str)
     operation_succeeded = Signal(str)
 
@@ -59,6 +60,7 @@ class ScriptsController(QObject):
         super().__init__(parent)
         self._mitm = mitm
         self._statuses: dict[str, ScriptStatus] = {}
+        self._enabled = bool(CONFIG.get(CONFIG.scripts_enabled))
         # 手改坏的 config 不该把整批拖下水（`apply_scripts` 是整批校验的）。坏条目
         # 只能丢 —— 与重写页「停用留着」的处理不同：那边停用的规则仍能存回配置，
         # 这边连停用条目也要过 `validate`，留着就等于每次下发都抛。
@@ -70,6 +72,7 @@ class ScriptsController(QObject):
                 len(entries) - len(self._scripts),
             )
         self._mitm.set_scripts(self._scripts)
+        self._mitm.set_scripts_enabled(self._enabled)
         # 装载状态由 mitm 线程经 runtime 信号送达（队列连接，见 core/mitm/runtime.py）。
         self._mitm.runtime.script_status_changed.connect(self._on_status_changed)
         # 内核停了就没有「已装载」这回事了：清空回到「待装载」，别让上一轮的绿勾
@@ -81,6 +84,11 @@ class ScriptsController(QObject):
     @property
     def scripts(self) -> list[ScriptEntry]:
         return list(self._scripts)
+
+    @property
+    def enabled(self) -> bool:
+        """脚本总开关。关掉后所有脚本一律不装载、不参与流量处理。"""
+        return self._enabled
 
     @property
     def statuses(self) -> dict[str, ScriptStatus]:
@@ -180,6 +188,28 @@ class ScriptsController(QObject):
         if not touched:
             return False
         return self._commit(entries, "")
+
+    def set_master_enabled(self, enabled: bool) -> bool:
+        """翻动总开关。关掉后所有脚本一律不装载（各行 enabled 落盘值原样保留）。
+
+        与断点总开关同构：下发失败回滚并回吐旧值，成功才落盘 + 广播 —— 界面显示的
+        状态必须是内核真收到了的。
+        """
+        if enabled == self._enabled:
+            return False
+        try:
+            self._mitm.set_scripts_enabled(enabled)
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            self.enabled_changed.emit(self._enabled)
+            self.operation_failed.emit(self.tr("总开关未生效"), str(exc))
+            return False
+        self._enabled = enabled
+        CONFIG.set(CONFIG.scripts_enabled, enabled)
+        self.enabled_changed.emit(enabled)
+        self.operation_succeeded.emit(
+            self.tr("脚本已开启") if enabled else self.tr("脚本已关闭")
+        )
+        return True
 
     def move_script(self, index: int, offset: int) -> bool:
         """上移 / 下移。列表序＝执行序，所以这是有语义的操作，不只是排版。"""

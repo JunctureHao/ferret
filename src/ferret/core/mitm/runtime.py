@@ -410,7 +410,9 @@ class _MitmThread(QThread):
         （与 `_apply_rewrite_rules` 的播种姿态一致）。
         """
         master.scripts.on_status = self.runtime.script_status_changed.emit
-        master.scripts.set_scripts(self.runtime.scripts)
+        master.scripts.set_scripts(
+            self.runtime.scripts, enabled=self.runtime.scripts_enabled
+        )
 
     def _apply_intercept_rules(self, master: FerretMaster) -> None:
         """Seed the breakpoint option before serving traffic (on the mitm loop).
@@ -754,16 +756,20 @@ class MitmRuntime(QObject):
         self._last_error = ""
         self._generation = 0
         self.gateway_rules: list[GatewayRule] = []
-        self.gateway_enabled = True
+        self.gateway_enabled = False
         self.rewrite_rules: list[RewriteRule] = []
         # 重写总开关：关掉后自研件对所有流量一律不判（网关规则模式，见
         # apply_rewrite_rules）。刻意**不落盘**（plans/rewrite-ui.md §8：
-        # settings.py 零改动）—— 每次启动都是开，「临时下发空规则」的语义由
-        # 这个内存位承担，不碰各行规则的 enabled 落盘值。
-        self.rewrite_enabled = True
+        # settings.py 零改动）—— 「临时下发空规则」的语义由这个内存位承担，不碰各行
+        # 规则的 enabled 落盘值。类默认**关**：各功能一律默认不启用，由界面显式打开。
+        self.rewrite_enabled = False
         # 用户脚本清单（plans/scripts.md）：由控制器层在启动时从 CONFIG 播种，
         # 构造器不读 CONFIG（与 rewrite/gateway 规则同一姿态）。
         self.scripts: list[ScriptEntry] = []
+        # 脚本总开关：关掉后所有脚本一律不装载（FerretScriptAddon 的主闸，见
+        # apply_scripts）。默认**关**：脚本以应用同等权限执行，不该一启动就全跑起来
+        # （各功能一律默认不启用）。真实初值由 CONFIG 种子决定（控制器层播种）。
+        self.scripts_enabled = False
         self.intercept_rules: list[InterceptRule] = []
         # 断点默认**关**：拦截会把客户端连接一直钉住等人处理，一启动就生效等于用户
         # 还没打开界面、流量就先卡住了。开关由界面显式打开（见 core/settings.py 的
@@ -1270,7 +1276,12 @@ class MitmRuntime(QObject):
             self.rewrite_rules, self.rewrite_enabled = previous
             raise
 
-    def apply_scripts(self, entries: list[ScriptEntry]) -> None:
+    def apply_scripts(
+        self,
+        entries: list[ScriptEntry] | None = None,
+        *,
+        enabled: bool | None = None,
+    ) -> None:
         """Store script entries and push them to the Master when one runs.
 
         与 `apply_rewrite_rules` 逐行同构：整批先过 `validate()`（任何一条不合法
@@ -1278,25 +1289,30 @@ class MitmRuntime(QObject):
         把清单推给自研 addon。`FerretScriptAddon.set_scripts` 本身绝不抛（坏脚本
         只落成状态），但 `self.call` 会抛运行期故障，下发失败同样回滚。
 
+        ``entries=None`` = 不改动清单（只翻总开关）；``enabled=None`` = 不改总开关。
+        总开关关掉时下发的 enabled=False 等价于「整批停用」，但各行 enabled 落盘值
+        原样保留（与 `apply_rewrite_rules` 的总开关同一语义）。
+
         Raises:
             ValueError: 任何一条脚本条目不合法（整批回滚）。
         """
-        previous = self.scripts
-        candidate = list(entries)
+        previous = (self.scripts, self.scripts_enabled)
+        candidate = self.scripts if entries is None else list(entries)
+        wanted = self.scripts_enabled if enabled is None else enabled
         try:
             for entry in candidate:
                 entry.validate()
         except ValueError:
-            self.scripts = previous
+            self.scripts, self.scripts_enabled = previous
             raise
-        self.scripts = candidate
+        self.scripts, self.scripts_enabled = candidate, wanted
         master = self._master
         if not self.is_running or master is None:
             return
         try:
-            self.call(lambda: master.scripts.set_scripts(self.scripts))
+            self.call(lambda: master.scripts.set_scripts(self.scripts, enabled=wanted))
         except Exception:
-            self.scripts = previous
+            self.scripts, self.scripts_enabled = previous
             raise
 
     def reload_script(self, path: str) -> None:

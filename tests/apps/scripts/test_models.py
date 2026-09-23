@@ -449,6 +449,22 @@ class ScriptsControllerTests(unittest.TestCase):
         self.assertEqual([e.enabled for e in self.controller.scripts], [False, False])
         self.assertFalse(self.controller.set_scripts_enabled([0, 1], False))
 
+    def test_master_switch_starts_off_and_persists_when_flipped(self) -> None:
+        # 出厂**关**（core/settings.py::scripts_enabled），且已下发到内核。
+        self.assertFalse(self.controller.enabled)
+        self.assertFalse(self.runtime.scripts_enabled)
+
+        flips: list[bool] = []
+        self.controller.enabled_changed.connect(flips.append)
+        self.assertTrue(self.controller.set_master_enabled(True))
+        self.assertTrue(self.controller.enabled)
+        self.assertTrue(self.runtime.scripts_enabled)
+        self.assertTrue(CONFIG.get(CONFIG.scripts_enabled))
+        self.assertEqual(flips, [True])
+        # 同值不重复下发。
+        self.assertFalse(self.controller.set_master_enabled(True))
+        self.assertEqual(flips, [True])
+
     def test_move_script_reorders_because_order_is_execution_order(self) -> None:
         for name in ("a.py", "b.py", "c.py"):
             self.controller.import_scripts([self.write(name)])

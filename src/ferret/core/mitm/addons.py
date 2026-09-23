@@ -633,6 +633,9 @@ class FerretScriptAddon:
         self.entries: list[ScriptEntry] = []
         self.loaded: dict[str, ModuleType] = {}
         self.statuses: dict[str, ScriptStatus] = {}
+        # 脚本总开关（主闸）：关掉后所有脚本一律不装载、不参与钩子派发，各行的
+        # enabled 位原样留着（与重写总开关同一语义）。初值由 runtime 在播种时下发。
+        self.enabled = True
         # 状态变更回调：runtime 注入，只做一次 Signal.emit（与
         # GatewayState.on_suspend_changed 同一条路子）。
         self.on_status: Callable[[str, ScriptStatus], None] | None = None
@@ -653,34 +656,45 @@ class FerretScriptAddon:
         """当前生效的脚本 ns，按 entries 列表序（原生 traverse() 经此递归）。"""
         return [self.loaded[e.path] for e in self.entries if e.path in self.loaded]
 
-    def set_scripts(self, entries: list[ScriptEntry]) -> None:
+    def set_scripts(
+        self, entries: list[ScriptEntry], *, enabled: bool | None = None
+    ) -> None:
         """整批下发（网关规则模式：内存副本＋self.call）。绝不抛异常。
 
         差量执行：path 未变、启用位未变且已装载的条目不动；新增/重启用 → 装载；
         删除/停用 → `master.addons.remove(ns)`。装载失败只记状态，其余脚本不受影响。
+
+        ``enabled`` 是总开关（None = 不改动）：关掉后无论各行 enabled 位如何，全部
+        卸载、不再装载，等价于「整批停用」但落盘的各行启用位原样保留。
         """
         if self._master is None:
             # master 装配前就下发不该发生（播种在 Master 构造之后），防御性兜底。
             self._log.warning("脚本下发时 master 尚未装配，已忽略")
             return
+        if enabled is not None:
+            self.enabled = enabled
         previous = {e.path: e for e in self.entries}
         previous_statuses = dict(self.statuses)
         wanted = {e.path: e for e in entries}
-        # 先卸：删除的、停用的、以及（路径在但内容可能要换的）由 _load_one 自处理。
+        # 先卸：删除的、停用的、总开关关掉的，以及（路径在但内容可能要换的）
+        # 由 _load_one 自处理。总开关关掉时 `want_loaded` 恒 False，全数卸下。
         for path, old in previous.items():
             new = wanted.get(path)
-            gone = new is None or not new.enabled or not old.enabled
-            if gone and path in self.loaded:
+            want_loaded = self.enabled and new is not None and new.enabled
+            if not want_loaded and path in self.loaded:
                 self._unload_one(path)
-        # 再装：启用中的条目里，未装载的（新增/重启用）装载；已装载的原样留着。
-        for entry in entries:
-            if entry.enabled and entry.path not in self.loaded:
-                self._load_one(entry)
+        # 再装：总开关开着时，启用中且未装载的（新增/重启用）装载；已装载的原样留着。
+        if self.enabled:
+            for entry in entries:
+                if entry.enabled and entry.path not in self.loaded:
+                    self._load_one(entry)
         self.entries = list(entries)
         self._sync_statuses(previous_statuses)
 
     def reload(self, path: str) -> None:
-        """单条强制重装（UI「重载」按钮）；未知路径是 no-op。"""
+        """单条强制重装（UI「重载」按钮）；未知路径、总开关关掉或该行停用是 no-op。"""
+        if not self.enabled:
+            return
         entry = next((e for e in self.entries if e.path == path), None)
         if entry is None or not entry.enabled:
             return
@@ -754,11 +768,12 @@ class FerretScriptAddon:
         changed: list[tuple[str, ScriptStatus]] = []
         current: dict[str, ScriptStatus] = {}
         for entry in self.entries:
-            if entry.enabled:
+            if self.enabled and entry.enabled:
                 status = self.statuses.get(
                     entry.path, ScriptStatus(ScriptState.MISSING)
                 )
             else:
+                # 总开关关掉时全部按停用显示（不区分各行 enabled 位）。
                 status = ScriptStatus(ScriptState.DISABLED)
             current[entry.path] = status
             if previous.get(entry.path) != status:

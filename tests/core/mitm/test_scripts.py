@@ -173,6 +173,9 @@ class RuntimeScriptTests(unittest.TestCase):
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}/api"
 
         self.runtime = MitmRuntime(listen_port=free_port())
+        # 脚本总开关出厂**关**（core/settings.py::scripts_enabled）：这一组用例都在
+        # 验证脚本行为本身，先把主闸打开，等价于用户在界面上开了脚本页开关。
+        self.runtime.scripts_enabled = True
         self.addCleanup(self.runtime.stop)
         self.facade = MitmFacade(self.runtime)
         self.statuses: list[tuple[str, ScriptStatus]] = []
@@ -318,6 +321,38 @@ class RuntimeScriptTests(unittest.TestCase):
         self.facade.reload_script(path)
         self.send_once()
         self.assertEqual(self.last_headers().get("X-T"), "9")
+
+    def test_master_switch_gates_every_script(self) -> None:
+        """总开关关掉：所有脚本一律不派发、状态转停用；重开后恢复，各行启用位不变。"""
+        path = self.write("mark.py", HEADER_SCRIPT)
+        self.runtime.scripts = [ScriptEntry(path=path)]
+        start_runtime(self.runtime)
+        self.assertTrue(wait_until(lambda: bool(self.statuses)))
+        self.assertEqual(self.facade.script_statuses[path].state, ScriptState.LOADED)
+
+        # 关总开关：钩子不再生效，条目状态转停用，各行 enabled 落盘值原样保留。
+        self.facade.set_scripts_enabled(False)
+        self.assertTrue(
+            wait_until(
+                lambda: self.facade.script_statuses.get(path)
+                == ScriptStatus(ScriptState.DISABLED)
+            )
+        )
+        self.assertFalse(self.facade.scripts_enabled)
+        self.assertTrue(self.facade.scripts[0].enabled)
+        self.send_once()
+        self.assertIsNone(self.last_headers().get("X-T"))
+
+        # 重开：脚本回到派发链。
+        self.facade.set_scripts_enabled(True)
+        self.assertTrue(
+            wait_until(
+                lambda: self.facade.script_statuses.get(path)
+                == ScriptStatus(ScriptState.LOADED)
+            )
+        )
+        self.send_once()
+        self.assertEqual(self.last_headers().get("X-T"), "1")
 
     def test_apply_scripts_rejects_an_invalid_entry_without_touching_state(
         self,
