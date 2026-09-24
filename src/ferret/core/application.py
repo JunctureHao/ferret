@@ -31,6 +31,12 @@ from velopack import App
 with redirect_stdout(io.StringIO()):
     from qfluentwidgets import FluentTranslator, qconfig
 
+    # 主题切换棘轮止血：必须在任何控件创建前覆盖 qfw 的 updateStyleSheet（理由见该模块）。
+    # 放在此处而非文件顶部，是为了确保 qfluentwidgets 已导入、且早于任何 apps 控件构造。
+    from ferret.apps.common.qfw_patch import install_theme_ratchet_fix
+
+    install_theme_ratchet_fix()
+
 from ferret.apps.window import MainWindow
 from ferret.core import resources_rc  # noqa: F401  注册资源（图标/i18n/qm）
 from ferret.core.log import get_logger, init_logging
