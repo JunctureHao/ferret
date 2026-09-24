@@ -678,7 +678,7 @@ class FerretScriptAddon:
         wanted = {e.path: e for e in entries}
         # 先卸：删除的、停用的、总开关关掉的，以及（路径在但内容可能要换的）
         # 由 _load_one 自处理。总开关关掉时 `want_loaded` 恒 False，全数卸下。
-        for path, old in previous.items():
+        for path in previous:
             new = wanted.get(path)
             want_loaded = self.enabled and new is not None and new.enabled
             if not want_loaded and path in self.loaded:
