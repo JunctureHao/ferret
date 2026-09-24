@@ -468,6 +468,16 @@ class Config(QConfig):
         default=[],
     )
 
+    # 流列表列布局（存 {version, order, visible, widths} dict，稳定 key 跨语言不变；
+    # 见 apps/common/flow/columns.py）。默认 {} 触发消费侧回落到出厂布局（默认布局
+    # 只在 columns.py 收敛，不在两处各写一份）。和 block_list 同一个坑：QConfig.set
+    # 开头 `if item.value == value: return`，写回必须传一个新 dict。
+    flow_columns = ConfigItem(
+        group="FlowList",
+        name="Columns",
+        default={},
+    )
+
 
 def get_config_dir() -> Path:
     d = Path(

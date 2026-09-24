@@ -18,6 +18,12 @@ from qfluentwidgets import isDarkTheme
 # format_duration 的家在 fields.py（与 format_time / _ms 同处），这里只是
 # re-export：表格 Time 列与详情页总时长第一次走同一个格式化器，旧导入点不动。
 # 冗余别名是 PEP 484 的显式 re-export 写法（ty 认这个标记）。
+from ferret.apps.common.flow.columns import (
+    DEFAULT_ORDER,
+    column_display_title,
+    header_of,
+    key_of_header,
+)
 from ferret.apps.common.flow.fields import (
     format_duration as format_duration,  # noqa: PLC0414
 )
@@ -123,9 +129,10 @@ class FlowSource(Protocol):
 
 
 class FlowTableModel(QAbstractTableModel):
+    # 表头分派串由 columns.py 派生（稳定 key → header），逻辑列顺序恒＝DEFAULT_ORDER。
     # Mark 列紧随 #：标记载的是 emoji 短码（`flow.marked`），显示经 `marker_glyph`
-    # 翻译成图形字符；只占一个字符位，宽度在视图侧钉死（views.py 的 widths）。
-    HEADERS = ("#", "Mark", "Method", "URL", "Status", "Type", "Size", "Time")
+    # 翻译成图形字符；只占一个字符位，宽度在视图侧钉死（columns.py 的 fixed_width）。
+    HEADERS = tuple(header_of(key) for key in DEFAULT_ORDER)
 
     def __init__(self, parent: QObject):
         super().__init__(parent)
@@ -153,10 +160,9 @@ class FlowTableModel(QAbstractTableModel):
     ):
         if orientation == Qt.Orientation.Horizontal:
             if role == Qt.ItemDataRole.DisplayRole:
-                # "Mark" 是界面词不是协议名，走翻译；其余列头（Method/URL…）不译。
-                if self._headers[section] == "Mark":
-                    return self.tr("标记")
-                return self._headers[section]
+                # 显示标题走 columns.column_display_title：只 "Mark"→「标记」，其余列头
+                # 用原文，context 钉死 "FlowTableModel"，与列设置对话框共用一条路径。
+                return column_display_title(key_of_header(self._headers[section]))
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 # 横向表头统一左对齐（垂直居中），不按列名区分。
                 return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -771,9 +777,7 @@ class FlowConnTreeModel(QAbstractItemModel):
     ):
         if orientation == Qt.Orientation.Horizontal:
             if role == Qt.ItemDataRole.DisplayRole:
-                if self._headers[section] == "Mark":
-                    return QCoreApplication.translate("FlowTableModel", "标记")
-                return self._headers[section]
+                return column_display_title(key_of_header(self._headers[section]))
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         return None

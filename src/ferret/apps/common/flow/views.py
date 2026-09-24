@@ -1,4 +1,7 @@
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import (
+    QCoreApplication,
     QModelIndex,
     QPersistentModelIndex,
     QPoint,
@@ -32,12 +35,26 @@ from qfluentwidgets import (
     FluentIcon,
     IconWidget,
     PushButton,
+    RoundMenu,
     TableItemDelegate,
     TableView,
     TreeItemDelegate,
     TreeView,
     getFont,
     isDarkTheme,
+)
+
+from ferret.apps.common.flow.column_settings import ColumnSettingsDialog
+from ferret.apps.common.flow.columns import (
+    COLUMNS,
+    DEFAULT_ORDER,
+    RESPONSIVE_KEYS,
+    ColumnLayout,
+    default_layout,
+    is_fixed_width,
+    load_layout,
+    logical_index,
+    save_layout,
 )
 
 # 详情面板搬去 detail.py，但两个挂载点（capture / session）照旧从 views 导入 ——
@@ -59,11 +76,175 @@ from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     FlowViewCapabilities,
 )
+from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.core.log import get_logger
 from ferret.core.mitm import HTTPFlow
 
 log = get_logger("flow")
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from PySide6.QtCore import SignalInstance
+
+    # 类型检查专用基类：mixin 运行时是纯 `object`，但它调用的 `tr` / `setColumnWidth`
+    # / `setColumnHidden` 与 `column_layout_changed` 信号都由具体视图子类（QTableView /
+    # QTreeView 子类）提供。挂 QWidget 供类型检查拿到 `tr` 与 QWidget 身份（对话框
+    # parent），另在类体声明表格/树两者共有、但 QWidget 没有的方法 —— 不挂
+    # QAbstractItemView 是因为它与 qfw TableBase 的 setCurrentIndex/setItemDelegate
+    # 签名冲突，会误报 invalid-method-override。
+    _MixinBase = QWidget
+else:
+    _MixinBase = object
+
+
+class _ColumnLayoutMixin(_MixinBase):
+    """列布局应用（顺序 / 显隐 / 宽度 / Mark 固定宽 / 响应式），全按稳定 key。
+
+    平铺表格与连接树共用（`.plans/0-flow-list-columns.md` §4.2）。逻辑列/模型
+    `_headers` 恒定不动，重排只经 `QHeaderView.moveSection`（纯视觉），排序天然跟随
+    稳定逻辑列。子类须：声明 `column_layout_changed = Signal(object)`、提供
+    `_column_header()` 返回其 `QHeaderView`、在视图初始化里调 `_init_columns(layout)`。
+
+    宽度用户拖动经 `sectionResized` 落到 `column_layout_changed` 信号，由
+    `FlowViewerPane` 持久化并同步另一视图；程序化应用布局时 `_applying_layout` 闸门
+    短路回写，避免启动即 churn / 把响应式临时状态写进配置（§4.2）。
+    """
+
+    if TYPE_CHECKING:
+        # 具体视图子类提供的信号/方法，用注解声明（不用 `def ...: ...` 内联体：
+        # pyside6-lupdate 的 Python 扫描器会在类体内联体上错算缩进，把其后类的
+        # `tr()` 甩进空 context，英文界面静默退回中文，§7）。
+        column_layout_changed: SignalInstance
+        setColumnWidth: Callable[[int, int], None]
+        setColumnHidden: Callable[[int, bool], None]
+
+    NARROW_WIDTH = 900
+
+    def _column_header(self) -> QHeaderView:
+        raise NotImplementedError
+
+    def _init_columns(self, layout: ColumnLayout) -> None:
+        self._column_layout = layout
+        self._responsive_hidden: set[str] = set()
+        self._applying_layout = False
+        header = self._column_header()
+        # 表头 section 全程不可拖动：重排只经列设置对话框（§0：连接树装饰绑逻辑列 0，
+        # 原生拖拽把 index 拖离视觉 0 会让树形装饰跟着跑）。
+        header.setSectionsMovable(False)
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._on_header_menu)
+        header.sectionResized.connect(self._on_section_resized)
+        self._apply_column_layout(layout)
+
+    def apply_column_layout(self, layout: ColumnLayout) -> None:
+        """外部（FlowViewerPane）驱动：换一份布局并刷新表头。"""
+        self._column_layout = layout
+        self._apply_column_layout(layout)
+
+    def _apply_column_layout(self, layout: ColumnLayout) -> None:
+        header = self._column_header()
+        self._applying_layout = True
+        try:
+            for col in COLUMNS:
+                lg = logical_index(col.key)
+                width = col.default_width if col.fixed_width else layout.width(col.key)
+                self.setColumnWidth(lg, width)
+            # Mark 固定宽：按 key 取逻辑列（moveSection 不改逻辑列，仍是它本来的位置）。
+            header.setSectionResizeMode(
+                logical_index("mark"), QHeaderView.ResizeMode.Fixed
+            )
+            # 重排：不动点算法，逐个把第 k 个视觉位钉死后不再动它（§4.2）。
+            for visual_pos, key in enumerate(layout.order):
+                lg = logical_index(key)
+                current = header.visualIndex(lg)
+                if current != visual_pos:
+                    header.moveSection(current, visual_pos)
+            self._refresh_hidden()
+        finally:
+            self._applying_layout = False
+
+    def _refresh_hidden(self) -> None:
+        """按「用户可见性 ∨ 响应式隐藏」重算每列显隐（用户可见性是权威，§4.2）。"""
+        layout = self._column_layout
+        for col in COLUMNS:
+            hidden = (not layout.is_visible(col.key)) or (
+                col.key in self._responsive_hidden
+            )
+            self.setColumnHidden(logical_index(col.key), hidden)
+
+    def _apply_responsive_columns(self, width: int) -> None:
+        """窄窗临时隐藏 Status/Type（按 key，不写死索引）；只读用户配置、绝不回写。"""
+        narrow = width < self.NARROW_WIDTH
+        self._responsive_hidden = set(RESPONSIVE_KEYS) if narrow else set()
+        self._refresh_hidden()
+
+    @Slot(int, int, int)
+    def _on_section_resized(self, logical: int, _old: int, new: int) -> None:
+        if self._applying_layout or new <= 0:
+            return
+        if not (0 <= logical < len(DEFAULT_ORDER)):
+            return
+        key = DEFAULT_ORDER[logical]
+        if is_fixed_width(key):  # Mark 固定宽，不记
+            return
+        self._column_layout = self._column_layout.with_width(key, new)
+        self.column_layout_changed.emit(self._column_layout)
+
+    @Slot(QPoint)
+    def _on_header_menu(self, pos: QPoint) -> None:
+        # tr 走 QCoreApplication.translate 钉死 context：本方法在 mixin 里，self 运行时是
+        # FlowDataTable/FlowConnTree，self.tr 的 runtime context 与 lupdate 静态提取的
+        # mixin context 对不上会静默退回中文（§7）。用字面 context 让提取与查表一致。
+        menu = RoundMenu(parent=self)
+        settings_action = BaseAction(
+            FluentIcon.SETTING,
+            QCoreApplication.translate("FlowColumnMenu", "列设置…"),
+            menu,
+        )
+        reset_action = BaseAction(
+            FluentIcon.CANCEL,
+            QCoreApplication.translate("FlowColumnMenu", "恢复默认列"),
+            menu,
+        )
+        settings_action.triggered.connect(self._open_column_dialog)
+        reset_action.triggered.connect(self._reset_columns)
+        menu.addAction(settings_action)
+        menu.addAction(reset_action)
+        menu.exec(self._column_header().mapToGlobal(pos))
+
+    def _open_column_dialog(self) -> None:
+        dialog = ColumnSettingsDialog(self._column_layout, self)
+        if dialog.exec():
+            self._commit_column_layout(dialog.result_layout())
+
+    def _reset_columns(self) -> None:
+        self._commit_column_layout(default_layout())
+
+    def _commit_column_layout(self, layout: ColumnLayout) -> None:
+        """应用到本视图并广播（FlowViewerPane 落盘 + 同步另一视图）。"""
+        self.apply_column_layout(layout)
+        self.column_layout_changed.emit(layout)
+
+
+def _visual_caps(header: QHeaderView | None, logical_col: int) -> tuple[bool, bool]:
+    """(是否视觉首个可见列, 是否视觉末个可见列)。
+
+    高亮圆角按当前**视觉**首/末可见列铺（隐藏列不计），重排或末列隐藏后不画错
+    （§4.2）。header 为 None（脱离视图绘制，测试外几乎不发生）时退化到逻辑判断。
+    """
+    if header is None:
+        return (logical_col == 0, False)
+    visibles = [
+        v
+        for v in range(header.count())
+        if not header.isSectionHidden(header.logicalIndex(v))
+    ]
+    if not visibles:
+        return (False, False)
+    visual = header.visualIndex(logical_col)
+    return (visual == visibles[0], visual == visibles[-1])
 
 
 class HighlightRowDelegate(TableItemDelegate):
@@ -105,22 +286,32 @@ class HighlightRowDelegate(TableItemDelegate):
         # 让高亮底与选中/hover 的胶囊形状严丝合缝（adjusted 返回新矩形，不动 option）。
         rect = option.rect.adjusted(0, self.margin, 0, -self.margin)
         radius = 5
-        last = index.model().columnCount(index.parent()) - 1
-        if index.column() == 0:
+        header = (
+            option.widget.horizontalHeader() if option.widget is not None else None
+        )
+        is_first, is_last = _visual_caps(header, index.column())
+        if is_first:
             painter.drawRoundedRect(rect.adjusted(4, 0, radius + 1, 0), radius, radius)
-        elif index.column() == last:
+        elif is_last:
             painter.drawRoundedRect(rect.adjusted(-radius - 1, 0, -4, 0), radius, radius)
         else:
             painter.drawRect(rect.adjusted(-1, 0, 1, 0))
         painter.restore()
 
 
-class FlowDataTable(TableView):
+# qfw TableBase 收窄了 QAbstractItemView 的 setCurrentIndex / setItemDelegate 签名
+# （库侧 stub 既有事实）；多继承把这对 QAbstractItemView 内部的冲突暴露到本类，
+# 与本改动无关，定向忽略。
+class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method-override]
     """Flow 数据表格 - 显示网络请求数据。"""
 
     row_double_clicked = Signal(dict)  # 双击行信号
     row_selected = Signal(dict)  # 选中行信号
     stats_updated = Signal(int, int, int)  # 统计更新信号：总条数、显示条数、选中条数
+    column_layout_changed = Signal(object)  # 列布局变更（FlowViewerPane 落盘 + 同步树）
+
+    def _column_header(self) -> QHeaderView:
+        return self.horizontalHeader()
 
     def __init__(
         self,
@@ -164,16 +355,15 @@ class FlowDataTable(TableView):
         self.scrollDelagate.verticalSmoothScroll.setDynamicEngineEnabled(False)
 
         self.verticalHeader().hide()
-        widths = [80, 64, 80, 420, 65, 100, 80, 80]
         h_header = self.horizontalHeader()
         h_header.setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         h_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         h_header.setMinimumSectionSize(44)
-        for i, w in enumerate(widths):
-            self.setColumnWidth(i, w)
-        h_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        # 列宽 / Mark 固定宽 / 顺序 / 显隐全由列布局收敛（消除写死的 widths 数组与
+        # setSectionResizeMode(1, Fixed)）；持久布局的读取与应用在 FlowViewerPane。
+        self._init_columns(default_layout())
         h_header.setFixedHeight(36)
         self.verticalHeader().setDefaultSectionSize(34)
         self.setMinimumWidth(360)
@@ -364,11 +554,6 @@ class FlowDataTable(TableView):
         super().resizeEvent(e)
         self._apply_responsive_columns(e.size().width())
 
-    def _apply_responsive_columns(self, width: int) -> None:
-        narrow = width < 900
-        self.setColumnHidden(4, narrow)
-        self.setColumnHidden(5, narrow)
-
 
 class HighlightTreeDelegate(TreeItemDelegate):
     """连接树版的整行命中高亮委托（平铺侧 `HighlightRowDelegate` 的树孪生）。
@@ -424,18 +609,17 @@ class HighlightTreeDelegate(TreeItemDelegate):
         painter.setBrush(self._DARK if isDarkTheme() else self._LIGHT)
         # 复刻 qfw TreeItemDelegate._drawBackground 的圆角规则（含 2px 行距 margin）。
         radius = 4.0
-        column = index.column()
-        model = index.model()
-        last = model.columnCount() - 1 if model is not None else column
+        header = option.widget.header() if option.widget is not None else None
+        is_first, is_last = _visual_caps(header, index.column())
         rect = QRectF(option.rect)
         rect.setTop(option.rect.y() + 2)
         rect.setHeight(option.rect.height() - 4)
-        if column == 0:
+        if is_first:
             rect.setX(4)
         path = QPainterPath()
-        if column == 0 and column == last:
+        if is_first and is_last:
             path.addRoundedRect(rect, radius, radius)
-        elif column == 0:
+        elif is_first:
             path.moveTo(rect.right(), rect.top())
             path.lineTo(rect.right(), rect.bottom())
             path.lineTo(rect.x() + radius, rect.bottom())
@@ -443,7 +627,7 @@ class HighlightTreeDelegate(TreeItemDelegate):
             path.lineTo(rect.x(), rect.top() + radius)
             path.arcTo(rect.x(), rect.top(), 2 * radius, 2 * radius, 180, -90)
             path.closeSubpath()
-        elif column == last:
+        elif is_last:
             path.moveTo(rect.x(), rect.top())
             path.lineTo(rect.right() - radius, rect.top())
             path.arcTo(rect.right() - 2 * radius, rect.top(), 2 * radius, 2 * radius, 90, -90)
@@ -457,7 +641,7 @@ class HighlightTreeDelegate(TreeItemDelegate):
         painter.restore()
 
 
-class FlowConnTree(TreeView):
+class FlowConnTree(_ColumnLayoutMixin, TreeView):
     """按客户端连接分组的树视图（平铺 `FlowDataTable` 的树孪生）。
 
     与平铺表格并列，公共 API（set_source / on_flow_* / set_highlight_ids /
@@ -469,6 +653,10 @@ class FlowConnTree(TreeView):
     row_double_clicked = Signal(dict)
     row_selected = Signal(dict)
     stats_updated = Signal(int, int, int)  # 总条数、显示条数（子流）、选中条数
+    column_layout_changed = Signal(object)  # 列布局变更（FlowViewerPane 落盘 + 同步表格）
+
+    def _column_header(self) -> QHeaderView:
+        return self.header()
 
     def __init__(
         self,
@@ -500,16 +688,15 @@ class FlowConnTree(TreeView):
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.scrollDelagate.verticalSmoothScroll.setDynamicEngineEnabled(False)
 
-        widths = [80, 64, 80, 420, 65, 100, 80, 80]
         h_header = self.header()
         h_header.setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         h_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         h_header.setMinimumSectionSize(44)
-        for i, w in enumerate(widths):
-            self.setColumnWidth(i, w)
-        h_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        # 列宽 / Mark 固定宽 / 顺序 / 显隐全由列布局收敛（与平铺表格共用同一份布局，
+        # 持久布局的读取与应用在 FlowViewerPane）。
+        self._init_columns(default_layout())
         h_header.setFixedHeight(36)
         self.setMinimumWidth(360)
         # 用户点列头才切聚合排序（默认锁首见序，见 FlowConnProxyModel）。
@@ -657,11 +844,6 @@ class FlowConnTree(TreeView):
         super().resizeEvent(e)
         self._apply_responsive_columns(e.size().width())
 
-    def _apply_responsive_columns(self, width: int) -> None:
-        narrow = width < 900
-        self.setColumnHidden(4, narrow)
-        self.setColumnHidden(5, narrow)
-
 
 class FlowViewerPane(OrientationSplitter):
     """Shared Flow table/detail viewer with consistent interaction semantics."""
@@ -720,7 +902,30 @@ class FlowViewerPane(OrientationSplitter):
         self.panel.collapseRequested.connect(self.collapse_panel)
         self.table.stats_updated.connect(self._on_stats_updated)
         self.tree.stats_updated.connect(self._on_stats_updated)
+
+        # 列布局：pane 是唯一读配置/落盘/同步两视图的枢纽（§4.2）。启动读一次持久布局
+        # 应用到两套视图；任一视图的变更（列宽拖动 / 列设置对话框 / 恢复默认）回到 pane，
+        # 落盘后再 fan-out 到另一视图，避免两套状态漂移。
+        self._column_layout = load_layout()
+        self.table.apply_column_layout(self._column_layout)
+        self.tree.apply_column_layout(self._column_layout)
+        self.table.column_layout_changed.connect(self._on_column_layout_changed)
+        self.tree.column_layout_changed.connect(self._on_column_layout_changed)
+
         self._refresh_empty_state()
+
+    @Slot(object)
+    def _on_column_layout_changed(self, layout: ColumnLayout) -> None:
+        """任一视图广播列布局变更：落盘 + 同步到另一视图。
+
+        发起视图已在 `_commit_column_layout` / `_on_section_resized` 里应用过自身，
+        这里只需把另一视图对齐（`apply_column_layout` 走 `_applying_layout` 闸门，
+        不会反弹回本槽造成回环）。
+        """
+        self._column_layout = layout
+        save_layout(layout)
+        other = self.tree if self.sender() is self.table else self.table
+        other.apply_column_layout(layout)
 
     def _current_view(self):
         """当前模式对应的视图（平铺表格 / 连接树）。"""
