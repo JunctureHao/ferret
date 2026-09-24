@@ -150,8 +150,9 @@ class MultiFilterManager(QWidget):
         root_layout.setContentsMargins(12, 8, 12, 8)
         root_layout.setSpacing(8)
 
-        # ── 表达式编辑器 + 错误行 ──
-        root_layout.addWidget(self.expression_input)
+        # 表达式编辑器（唯一事实源）由宿主领走常驻显示（抓包命令栏 host_search_edit）：
+        # 这条高级面板只留错误行 + 辅助控件条。编辑器仍归本类所有、逻辑不动，
+        # `expression_input` 属性与所有信号 / 取值接口保持不变。
         root_layout.addWidget(self.error_label)
 
         # ── 添加筛选 + 帮助（左） · 收起（右） ──
@@ -254,9 +255,14 @@ class MultiFilterManager(QWidget):
         return 1 if self.has_active_filter() else 0
 
     def set_raw_error(self, message: str) -> None:
-        """置/清表达式错误态。错误消息是 parse 的原文（任意英文），直显不译。"""
+        """置/清表达式错误态。错误消息是 parse 的原文（任意英文），直显不译。
+
+        编辑器已上移到命令栏常驻显示、错误行留在可收起的高级面板里，所以错误同时
+        挂到编辑器 tooltip：面板收起时用户仍能就地看到 parse 报错。
+        """
         self.error_label.setText(message)
         self.error_label.setVisible(bool(message))
+        self.expression_input.setToolTip(message)
 
     def showEvent(self, event: QShowEvent) -> None:
         """面板展开时自动聚焦表达式编辑器。"""

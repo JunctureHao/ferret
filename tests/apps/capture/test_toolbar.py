@@ -4,6 +4,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QLabel
+from qfluentwidgets import PushButton
 
 from ferret.apps.capture.controllers import CaptureState
 from ferret.apps.capture.views import CaptureCommandBar, CaptureUiState
@@ -40,21 +41,17 @@ class CaptureCommandBarTests(unittest.TestCase):
 
     def test_lifecycle_states_update_text_and_control(self) -> None:
         self.bar.set_state(self.state(), False)
-        self.assertEqual(self.bar.state_label.text(), "未捕获系统流量")
         self.assertTrue(self.bar.control_btn.isEnabled())
         self.assertEqual(self.bar.control_btn.toolTip(), "开始抓包")
 
         self.bar.set_state(self.state(capture_state=CaptureState.STARTING), False)
-        self.assertEqual(self.bar.state_label.text(), "启动中")
         self.assertFalse(self.bar.control_btn.isEnabled())
 
         self.bar.set_state(self.state(capture_state=CaptureState.RUNNING), False)
-        self.assertEqual(self.bar.state_label.text(), "正在捕获")
         self.assertTrue(self.bar.control_btn.isEnabled())
         self.assertEqual(self.bar.control_btn.toolTip(), "停止抓包")
 
         self.bar.set_state(self.state(capture_state=CaptureState.FAILED), False)
-        self.assertEqual(self.bar.state_label.text(), "启动失败")
         self.assertTrue(self.bar.control_btn.isEnabled())
 
     def test_counts_and_clear_state_are_distinct(self) -> None:
@@ -87,6 +84,30 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.assertLessEqual(
             self.bar.captures_delete_btn.geometry().right(), self.bar.width()
         )
+
+    def test_control_button_is_a_labelled_push_button(self) -> None:
+        """主控开关是带文字的引导 PushButton，文案/可用态随抓包态切换。"""
+        self.assertIsInstance(self.bar.control_btn, PushButton)
+
+        self.bar.set_state(self.state(), False)
+        self.assertEqual(self.bar.control_btn.text(), "开始抓包")
+        self.assertTrue(self.bar.control_btn.isEnabled())
+
+        self.bar.set_state(self.state(capture_state=CaptureState.STARTING), False)
+        self.assertEqual(self.bar.control_btn.text(), "启动中")
+        self.assertFalse(self.bar.control_btn.isEnabled())
+
+        self.bar.set_state(self.state(capture_state=CaptureState.RUNNING), False)
+        self.assertEqual(self.bar.control_btn.text(), "停止抓包")
+        self.assertTrue(self.bar.control_btn.isEnabled())
+
+        self.bar.set_state(self.state(capture_state=CaptureState.STOPPING), False)
+        self.assertEqual(self.bar.control_btn.text(), "停止中")
+        self.assertFalse(self.bar.control_btn.isEnabled())
+
+        self.bar.set_state(self.state(capture_state=CaptureState.FAILED), False)
+        self.assertEqual(self.bar.control_btn.text(), "重试抓包")
+        self.assertTrue(self.bar.control_btn.isEnabled())
 
     def test_endpoint_uses_application_font(self) -> None:
         endpoint_font = self.bar.endpoint_btn.font()
@@ -127,7 +148,8 @@ class CaptureCommandBarTests(unittest.TestCase):
     def test_running_session_shows_the_channel_summary(self) -> None:
         """抓包会话开着时，端点位置改显通道并集 —— 那才是当下该关注的状态。"""
         self.bar.set_state(
-            self.state(capture_state=CaptureState.RUNNING, channels_summary="Sys"), False
+            self.state(capture_state=CaptureState.RUNNING, channels_summary="Sys"),
+            False,
         )
         self.assertEqual(self.bar.endpoint_btn.text(), "Sys")
 

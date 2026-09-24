@@ -35,10 +35,10 @@ from qfluentwidgets import (
     ListWidget,
     MessageBoxBase,
     PasswordLineEdit,
+    PushButton,
     RoundMenu,
     SmoothMode,
     SpinBox,
-    StrongBodyLabel,
     SubtitleLabel,
     ToolTipFilter,
     ToolTipPosition,
@@ -132,6 +132,8 @@ class CapturesInterface(QWidget):
         self.content.set_source(_CaptureFlowSource(self.controller))
         # 分组模式按钮进命令栏统一按钮区（按钮实体归 content/pane 所有）。
         self.command_bar.host_grouping_button(self.content.mode_button)
+        # 过滤面板的表达式编辑器上移到命令栏中段常驻显示（唯一事实源不变，只换摆放）。
+        self.command_bar.host_search_edit(self.filter_panel.expression_input)
         # 搜索高亮直播重算的 debounce：抓包突发时把连串 flow 信号合并成一次重算
         # （命中集会随新流量/响应到达而过时，见 __schedule_highlight_refresh）。
         self._hl_debounce = QTimer(self)
@@ -201,9 +203,9 @@ class CapturesInterface(QWidget):
         QShortcut(QKeySequence.StandardKey.Find, self).activated.connect(
             self.__show_and_focus_filter
         )
-        QShortcut(
-            QKeySequence(Qt.Key.Key_Return), self.content
-        ).activated.connect(self.content.open_selected)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self.content).activated.connect(
+            self.content.open_selected
+        )
         QShortcut(QKeySequence(Qt.Key.Key_Enter), self.content).activated.connect(
             self.content.open_selected
         )
@@ -222,20 +224,25 @@ class CapturesInterface(QWidget):
         QShortcut(QKeySequence(Qt.Key.Key_Space), self).activated.connect(
             self.__toggle_capture_from_shortcut
         )
+        # Tab 序跟随命令栏新视觉顺序：主按钮 → 搜索框 → 右侧图标簇 → 表格。
+        QWidget.setTabOrder(
+            self.command_bar.control_btn, self.command_bar.proxy_setting_btn
+        )
+        QWidget.setTabOrder(
+            self.command_bar.proxy_setting_btn, self.filter_panel.expression_input
+        )
+        QWidget.setTabOrder(
+            self.filter_panel.expression_input, self.command_bar.search_btn
+        )
         QWidget.setTabOrder(self.command_bar.search_btn, self.command_bar.open_btn)
-        QWidget.setTabOrder(self.command_bar.open_btn, self.command_bar.environment_btn)
         QWidget.setTabOrder(
-            self.command_bar.environment_btn, self.command_bar.proxy_setting_btn
+            self.command_bar.open_btn, self.command_bar.locate_selection_btn
         )
         QWidget.setTabOrder(
-            self.command_bar.proxy_setting_btn,
-            self.command_bar.locate_selection_btn,
+            self.command_bar.locate_selection_btn, self.command_bar.environment_btn
         )
         QWidget.setTabOrder(
-            self.command_bar.locate_selection_btn, self.command_bar.control_btn
-        )
-        QWidget.setTabOrder(
-            self.command_bar.control_btn, self.command_bar.captures_delete_btn
+            self.command_bar.environment_btn, self.command_bar.captures_delete_btn
         )
         QWidget.setTabOrder(self.command_bar.captures_delete_btn, self.content.table)
 
@@ -570,9 +577,8 @@ class CapturesInterface(QWidget):
         self._refresh_command_bar()
 
     def __show_and_focus_filter(self) -> None:
-        self.filter_panel.show()
+        # 搜索框已常驻命令栏，Ctrl+F 直接聚焦它即可（高级选项另由 search_btn 展开）。
         self.filter_panel.expression_input.setFocus()
-        self._refresh_command_bar()
 
     def __handle_escape(self) -> None:
         if self.content.is_panel_expanded():
@@ -761,6 +767,7 @@ class CaptureCommandBar(QWidget):
         super().__init__(parent)
         self._state: CaptureUiState | None = None
         self._filter_panel_visible = False
+        self._search_edit: QWidget | None = None
 
         self.__init_widget()
         self.__init_layout()
@@ -768,13 +775,10 @@ class CaptureCommandBar(QWidget):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.setFixedHeight(44)
+        self.setFixedHeight(46)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        self.state_dot = BodyLabel("●", self)
-        self.state_dot.setFixedWidth(12)
-        self.state_label = StrongBodyLabel(self.tr("未捕获系统流量"), self)
-
+        # 抓包态由主按钮文案与中间空状态面板承载，命令栏不再另设状态圆点+文字。
         self.endpoint_label = BodyLabel(self)
         self.endpoint_label.setFixedHeight(28)
         self.endpoint_label.setAccessibleName(self.tr("代理监听地址"))
@@ -791,10 +795,10 @@ class CaptureCommandBar(QWidget):
 
         self.stats_label = CaptionLabel(self.tr("{} 条").format(0), self)
 
-        self.search_btn = TransparentToolButton(FluentIcon.SEARCH, self)
+        self.search_btn = TransparentToolButton(FluentIcon.FILTER, self)
         self.search_btn.setCheckable(True)
-        self.search_btn.setToolTip(self.tr("高级搜索") + " (Ctrl+F)")
-        self.search_btn.setAccessibleName(self.tr("高级搜索"))
+        self.search_btn.setToolTip(self.tr("高级筛选") + " (Ctrl+F)")
+        self.search_btn.setAccessibleName(self.tr("高级筛选"))
         self.open_btn = TransparentToolButton(FluentIcon.FOLDER, self)
         self.open_btn.setToolTip(self.tr("加载 Flow 到当前列表"))
         self.open_btn.setAccessibleName(self.tr("加载 Flow 到当前列表"))
@@ -814,9 +818,12 @@ class CaptureCommandBar(QWidget):
         self.locate_selection_btn.setToolTip(self.tr("定位选中"))
         self.locate_selection_btn.setAccessibleName(self.tr("定位选中"))
 
-        self.control_btn = TransparentToolButton(FluentIcon.PLAY, self)
-        self.control_btn.setToolTip(self.tr("开始捕获系统流量"))
-        self.control_btn.setAccessibleName(self.tr("开始捕获系统流量"))
+        # 主控开关：占据命令栏左端的引导位（对齐规则页「＋ 新增规则」），带文字。
+        # 文案 / 图标 / enabled 随抓包态在 set_state 里切换。
+        self.control_btn = PushButton(FluentIcon.PLAY, self.tr("开始抓包"), self)
+        self.control_btn.setFixedHeight(32)
+        self.control_btn.setToolTip(self.tr("开始抓包"))
+        self.control_btn.setAccessibleName(self.tr("开始抓包"))
 
         self.captures_delete_btn = TransparentToolButton(FluentIcon.DELETE, self)
         self.captures_delete_btn.setToolTip(self.tr("清空当前流量"))
@@ -841,7 +848,6 @@ class CaptureCommandBar(QWidget):
             self.proxy_setting_btn,
             self.environment_btn,
             self.locate_selection_btn,
-            self.control_btn,
             self.captures_delete_btn,
             self.captures_delete_more_btn,
         ):
@@ -855,28 +861,45 @@ class CaptureCommandBar(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(6)
-        layout.addWidget(self.state_dot)
-        layout.addWidget(self.state_label)
+        # ① 控制对：主按钮 + 端口齿轮，spacing=2 贴成一组（端口挨着开始抓包）。齿轮改的
+        # 是监听端点，属抓包配置而非列表操作，故收在主按钮一侧、不进右侧动作簇。
+        # very_compact 时齿轮随端点一起收进 environment_btn 溢出菜单。
+        control_pair = QHBoxLayout()
+        control_pair.setContentsMargins(0, 0, 0, 0)
+        control_pair.setSpacing(2)
+        control_pair.addWidget(self.control_btn)
+        control_pair.addWidget(self.proxy_setting_btn)
+        layout.addLayout(control_pair)
+        # ② 端点簇：监听端点 + 局域网暴露标签，spacing=2 贴紧成一组。与控制对之间只靠
+        # 主布局默认 6px 间距分隔（不再叠加 addSpacing，避免端口→端点裂出一段空槽）。
+        status_group = QHBoxLayout()
+        status_group.setContentsMargins(0, 0, 0, 0)
+        status_group.setSpacing(2)
+        status_group.addWidget(self.endpoint_btn)
+        status_group.addWidget(self.exposure_label)
+        layout.addLayout(status_group)
+        layout.addSpacing(8)
+        # ③ 内联搜索框宿主：stretch 撑开两端；表达式编辑器由 host_search_edit 领入。
+        # 未领入时（如命令栏单测）这个 stretch 子布局即充当中段弹性空白。
+        self._search_host = QHBoxLayout()
+        self._search_host.setContentsMargins(0, 0, 0, 0)
+        self._search_host.setSpacing(0)
+        layout.addLayout(self._search_host, 1)
         layout.addSpacing(6)
-        layout.addWidget(self.endpoint_btn)
-        layout.addWidget(self.exposure_label)
-        layout.addSpacing(4)
+        # ④ 计数
         layout.addWidget(self.stats_label)
-        layout.addSpacing(6)
-        layout.addStretch(1)
-        # 视图分组模式切换按钮由 FlowViewerPane 创建（那边是唯一真相：翻转 / 图标
-        # 文案 / 显隐），命令栏只把它领进这条统一按钮栏显示。记下插入位 = stretch 之后、
-        # 其余动作按钮之前，让它成为右侧动作簇的第一枚。
-        self._command_layout = layout
-        self._grouping_slot = layout.count()
+        layout.addSpacing(8)
+        # ⑤ 右侧图标动作簇：分组模式（pane 领入）+ 高级筛选 + 加载 + 定位 + 清空
+        self._grouping_host = QHBoxLayout()
+        self._grouping_host.setContentsMargins(0, 0, 0, 0)
+        self._grouping_host.setSpacing(0)
+        layout.addLayout(self._grouping_host)
         layout.addWidget(self.search_btn)
         layout.addWidget(self.open_btn)
         layout.addSpacing(4)
-        layout.addWidget(self.proxy_setting_btn)
-        layout.addWidget(self.environment_btn)
-        layout.addSpacing(4)
         layout.addWidget(self.locate_selection_btn)
-        layout.addWidget(self.control_btn)
+        layout.addSpacing(4)
+        layout.addWidget(self.environment_btn)
         layout.addWidget(self.separator)
         # 拆分按钮两枚紧挨（spacing=0），视觉上一枚。
         delete_pair = QHBoxLayout()
@@ -898,12 +921,23 @@ class CaptureCommandBar(QWidget):
         self.captures_delete_more_btn.clicked.connect(self.__show_delete_menu)
 
     def host_grouping_button(self, button: QWidget) -> None:
-        """把 FlowViewerPane 的分组模式按钮领进命令栏统一按钮区显示。
+        """把 FlowViewerPane 的分组模式按钮领进命令栏右侧动作簇首位显示。
 
-        按钮实体归 pane 所有（翻转 / 图标文案 / 显隐都在那边），这里只负责把它插进
-        本栏布局的既定槽位；``insertWidget`` 会顺带把它 reparent 到命令栏。
+        按钮实体归 pane 所有（翻转 / 图标文案 / 显隐都在那边），这里只把它 addWidget
+        进右侧簇的分组子槽；``addWidget`` 会顺带把它 reparent 到命令栏。
         """
-        self._command_layout.insertWidget(self._grouping_slot, button)
+        self._grouping_host.addWidget(button)
+
+    def host_search_edit(self, edit: QWidget) -> None:
+        """把过滤面板的表达式编辑器领进命令栏中段常驻显示（stretch）。
+
+        编辑器实体归 CaptureFilterPanel / MultiFilterManager 所有（flowfilter 表达式的
+        唯一事实源），这里只把它 reparent 进本栏中段弹性槽；高级面板收起后表达式框仍在。
+        最小宽度下调到 160，让窄窗时它先让位收缩、而不是把动作按钮挤出栏外。
+        """
+        edit.setMinimumWidth(160)
+        self._search_edit = edit
+        self._search_host.addWidget(edit, 1)
 
     @Slot()
     def __emit_capture_toggle(self) -> None:
@@ -945,51 +979,44 @@ class CaptureCommandBar(QWidget):
         self._state = state
         self._filter_panel_visible = filter_panel_visible
 
-        # 表是每次调用重建的局部变量，所以就地 tr() 没有「求值早于翻译器」的问题；
-        # 反过来说，原先在使用点写 `self.tr(label)`（label 是变量）lupdate 一条都
-        # 提不出来 —— 它只认字面量实参。
+        # 抓包态由主按钮文案（开始抓包/停止抓包/启动中/停止中/重试抓包）与中间空状态
+        # 面板承载，命令栏不再另设状态圆点+文字（曾经的次级指示与按钮语义重复，且被
+        # 弹性搜索框挤没）。表每次调用重建，就地 tr() 无「求值早于翻译器」问题。
         state_ui = {
             CaptureState.STOPPED: (
-                self.tr("未捕获系统流量"),
-                "#8a8a8a",
                 FluentIcon.PLAY,
+                self.tr("开始抓包"),
                 self.tr("开始抓包"),
                 True,
             ),
             CaptureState.STARTING: (
-                self.tr("启动中"),
-                "#d99a00",
                 FluentIcon.PLAY,
+                self.tr("启动中"),
                 self.tr("正在开启抓包会话"),
                 False,
             ),
             CaptureState.RUNNING: (
-                self.tr("正在捕获"),
-                "#2e9b4d",
                 FluentIcon.PAUSE,
+                self.tr("停止抓包"),
                 self.tr("停止抓包"),
                 True,
             ),
             CaptureState.STOPPING: (
-                self.tr("停止中"),
-                "#d99a00",
                 FluentIcon.PAUSE,
+                self.tr("停止中"),
                 self.tr("正在停止抓包会话"),
                 False,
             ),
             CaptureState.FAILED: (
-                self.tr("启动失败"),
-                "#d13438",
                 FluentIcon.PLAY,
+                self.tr("重试抓包"),
                 self.tr("重试抓包"),
                 True,
             ),
         }
-        label, color, icon, tooltip, enabled = state_ui[state.capture_state]
-        self.state_label.setText(label)
-        self.state_dot.setStyleSheet(f"color: {color};")
-        self.state_dot.setAccessibleName(label)
+        icon, button_text, tooltip, enabled = state_ui[state.capture_state]
         self.control_btn.setIcon(icon)
+        self.control_btn.setText(button_text)
         self.control_btn.setEnabled(enabled)
         self.control_btn.setToolTip(tooltip)
         self.control_btn.setAccessibleName(tooltip)
