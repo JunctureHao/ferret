@@ -129,11 +129,13 @@ from ferret.core.mitm.rewrite import (
 )
 from ferret.core.mitm.runtime import (
     ANTICACHE_OPTIONS,
+    PROTOCOL_OPTIONS,
     STICKY_SESSION_OPTIONS,
     MitmRuntime,
     MitmRuntimeState,
     anticache_option_updates,
     client_certs_option_updates,
+    protocol_option_updates,
     sticky_session_option_updates,
 )
 from ferret.core.mitm.scripts import (
@@ -189,6 +191,7 @@ __all__ = [
     "MARKER_DEFAULT",
     "MAX_BODY_CUT_SIZE",
     "MIN_BODY_CUT_SIZE",
+    "PROTOCOL_OPTIONS",
     "REPLACE_KINDS",
     "REPLACE_RESPONSE_DEFAULT_STATUS",
     "REWRITE_ANSWERED_KEY",
@@ -289,6 +292,7 @@ __all__ = [
     "opcode_name",
     "parse_filter",
     "parse_sse",
+    "protocol_option_updates",
     "qr_matrix",
     "quote_value",
     "read_replacement",

@@ -272,6 +272,30 @@ class SettingsInterface(ScrollArea):
             configItem=CONFIG.anticache_plaintext,
             parent=self.main_panel_group,
         )
+        # 协议层两开关（.plans/2-protocol-switches.md）：同为「代理行为偏好」，
+        # 排在无缓存·明文之后。默认开（原生出厂姿态）；关掉是调试降级手段，
+        # 不改「如实转发」语义。h2c（明文升级）恒被剥离、与 http2 开关无关，
+        # alt-svc 已缓存的客户端关掉 h3 后可能先试一次再回落 —— 文案都写明。
+        self.http2_card = SwitchSettingCard(
+            FluentIcon.CONNECT,
+            self.tr("HTTP/2 支持"),
+            self.tr(
+                "关闭后 TLS 连接一律降级为 HTTP/1.1，报文按行可读；"
+                "明文 h2c 升级本就不支持、恒被剥离"
+            ),
+            configItem=CONFIG.http2_enabled,
+            parent=self.main_panel_group,
+        )
+        self.http3_card = SwitchSettingCard(
+            FluentIcon.CLOUD,
+            self.tr("HTTP/3 (QUIC) 支持"),
+            self.tr(
+                "关闭后客户端回落 HTTP/2 (TCP)，解决 QUIC/UDP 流量抓不到的问题；"
+                "已缓存的 alt-svc 可能先试一次再回落"
+            ),
+            configItem=CONFIG.http3_enabled,
+            parent=self.main_panel_group,
+        )
         # DNS 解析（.plans/dns-options.md）：同为「代理行为偏好」，故在主面板组尾。
         # 卡 1 是「查看 + 编辑」入口，content 动态反映当前状态（见
         # _refresh_dns_servers_content）；卡 2 绑 configItem 自动落盘。
@@ -347,6 +371,8 @@ class SettingsInterface(ScrollArea):
         self.main_panel_group.addSettingCard(self.layout_card)
         self.main_panel_group.addSettingCard(self.sticky_session_card)
         self.main_panel_group.addSettingCard(self.anticache_plaintext_card)
+        self.main_panel_group.addSettingCard(self.http2_card)
+        self.main_panel_group.addSettingCard(self.http3_card)
         self.main_panel_group.addSettingCard(self.dns_servers_card)
         self.main_panel_group.addSettingCard(self.dns_use_hosts_card)
 
@@ -372,6 +398,9 @@ class SettingsInterface(ScrollArea):
         CONFIG.anticache_plaintext.valueChanged.connect(
             self.__on_anticache_plaintext_changed
         )
+        # 协议层两开关：任一变动都整体重推两项（快照原子，与 body-cut 同一条路）。
+        CONFIG.http2_enabled.valueChanged.connect(self.__on_protocol_changed)
+        CONFIG.http3_enabled.valueChanged.connect(self.__on_protocol_changed)
         # DNS：hosts 开关照 sticky 模式（valueChanged 热更，失败静默）；NS 列表
         # 走对话框提交链（校验通过才落盘，见 __on_dns_servers_clicked）。
         CONFIG.dns_use_hosts_file.valueChanged.connect(self.__on_dns_use_hosts_changed)
@@ -403,6 +432,23 @@ class SettingsInterface(ScrollArea):
             return
         try:
             self._mitm.set_anticache_plaintext(enabled)
+        except (ValueError, RuntimeError, TimeoutError):
+            pass
+
+    @Slot(bool)
+    def __on_protocol_changed(self, _enabled: bool) -> None:
+        """把协议层开关热更进内核；失败静默（语义同固定会话那条）。
+
+        两个开关各发各的 valueChanged，这里整体重推两项 —— 快照是原子的，
+        分两条通道推只会多一次跨线程往返，还可能留下「h2 新的、h3 旧的」。
+        """
+        if self._mitm is None:
+            return
+        try:
+            self._mitm.set_protocol_options(
+                http2=bool(CONFIG.get(CONFIG.http2_enabled)),
+                http3=bool(CONFIG.get(CONFIG.http3_enabled)),
+            )
         except (ValueError, RuntimeError, TimeoutError):
             pass
 

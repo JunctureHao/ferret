@@ -420,6 +420,25 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # 协议层两开关（.plans/2-protocol-switches.md）：原生 http2 / http3 布尔选项。
+    # 默认**开**（对齐原生出厂）：全支持是正常姿态；关掉是调试降级手段（h2 →
+    # HTTP/1.1 行式可读、h3 → 客户端回落 TCP 解决 QUIC/UDP 抓不到），不是「如实
+    # 转发」问题，故默认值方向与 sticky / anticache 相反。开关方向不反转（呈现
+    # 语义 = 落盘语义 = 「启用」），与 dns_use_hosts_file 同款理由。
+    http2_enabled = ConfigItem(
+        group="Proxy",
+        name="Http2Enabled",
+        default=True,
+        validator=BoolValidator(),
+    )
+
+    http3_enabled = ConfigItem(
+        group="Proxy",
+        name="Http3Enabled",
+        default=True,
+        validator=BoolValidator(),
+    )
+
     # 断点规则，存 list[dict]（见 core/mitm/intercept.py 的 InterceptRule.to_dict）。
     # 和 block_list 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。

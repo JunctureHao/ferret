@@ -101,6 +101,14 @@ class FerretMaster(Master):
             # 位置对齐原生 default_addons()（core → block → strip_dns_https_records）：
             # Block 只挂 client_connected，必须在任何流量成形之前决定放不放这条连接。
             Block(),
+            # 下面两个是原生「兼容性垫片」，刻意无 UI 旋钮（.plans/2-protocol-switches.md
+            # §0 的盘点结论，勿再当缺口提出）：
+            # - StripDnsHttpsRecords 受 strip_ech 选项管（原生默认 True）：抹掉 DNS
+            #   HTTPS 记录里的 ECH 配置是内核签出匹配证书的前提，关掉只会让 ECH 域名
+            #   拦截失败；且只在 dns_response 生效，regular 下客户端自解 DNS、全程空转。
+            # - DisableH2C 不注册任何 option、恒开：mitmproxy 只认 TLS 上的 HTTP/2，
+            #   明文 h2c 升级必须剥头、先验知识前奏必须杀，关掉只会让这类流坏掉。
+            #   （http2 选项关的是 TLS 上的 h2 协商，与此正交，开关在设置页。）
             StripDnsHttpsRecords(),
             AntiCache(),
             AntiComp(),

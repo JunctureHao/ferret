@@ -82,6 +82,23 @@ def anticache_option_updates(enabled: bool) -> dict[str, bool]:
     return {"anticache": enabled, "anticomp": enabled}
 
 
+# 协议层两开关（.plans/2-protocol-switches.md）：原生 ``http2`` / ``http3`` 布尔
+# 选项（出厂默认 True）。与 sticky / anticache 那批「addon.load 才注册」的选项不同，
+# 它们在构造 ``Options`` 时就存在（mitmproxy/options.py 顶部注册）；仍统一走 Master
+# 建好后的播种器下发，与其他子项同一节奏、少一条特例。全局偏好、不随通道回滚
+# （不进 _CHANNEL_INTENTS）：关掉只影响协议协商层，不改变任何通道的监听与转发。
+# 与恒开的 DisableH2C 垫片正交：http2=False 只关 TLS 上的 h2 协商，明文 h2c 升级
+# 本来就（无条件）被剥离。http3=False 时原生还会顺带抹隧道内 DNS HTTPS 记录里的
+# h3 ALPN（StripDnsHttpsRecords 既有行为），但 HTTP 响应里的 alt-svc 头不摘 ——
+# 已缓存的客户端可能先试一次 QUIC、QUIC 层没建失败后回落 TCP，预期行为。
+PROTOCOL_OPTIONS: tuple[str, ...] = ("http2", "http3")
+
+
+def protocol_option_updates(http2: bool, http3: bool) -> dict[str, bool]:
+    """Translate the protocol switches into the ``options.update`` kwargs."""
+    return {"http2": http2, "http3": http3}
+
+
 # DNS 解析（.plans/dns-options.md）：原生 DnsResolver addon 的两个选项。仅对隧道内
 # DNS 生效（WireGuard 通道的 10.0.0.53）；不产生 DNSFlow 就没有代码路径碰到它，
 # 全局偏好、不随通道回滚（不进 _CHANNEL_INTENTS）。
@@ -340,6 +357,7 @@ class _MitmThread(QThread):
         self._apply_intercept_rules(master)
         self._apply_sticky_session(master)
         self._apply_anticache_plaintext(master)
+        self._apply_protocol_options(master)
         self._apply_upstream_auth(master)
         self._apply_proxyauth(master)
         self._apply_dns_options(master)
@@ -461,6 +479,22 @@ class _MitmThread(QThread):
             )
         except (ValueError, OptionsError) as exc:
             log.warning("无缓存·明文开关无法应用，已忽略: %s", exc)
+
+    def _apply_protocol_options(self, master: FerretMaster) -> None:
+        """Seed the protocol switches before serving traffic (on the mitm loop).
+
+        ``http2`` / ``http3`` 是 Options 构造期就注册的核心选项，本可在构造时传；
+        仍走播种器统一节奏（见 `_apply_sticky_session` 那批的约束注释）。播错只记
+        日志不炸启动 —— bool 选项没有坏值路径，这里纯粹是防御。
+        """
+        try:
+            master.options.update(
+                **protocol_option_updates(
+                    self.runtime.http2_enabled, self.runtime.http3_enabled
+                )
+            )
+        except (ValueError, OptionsError) as exc:
+            log.warning("协议层开关无法应用，已忽略: %s", exc)
 
     def _apply_upstream_auth(self, master: FerretMaster) -> None:
         """Seed the upstream proxy credential before serving traffic (on the mitm loop).
@@ -703,6 +737,8 @@ class MitmRuntime(QObject):
         proxyauth_password: str = "",
         sticky_session_enabled: bool = False,
         anticache_plaintext: bool = False,
+        http2_enabled: bool = True,
+        http3_enabled: bool = True,
         dns_name_servers: list[str] | None = None,
         dns_use_hosts_file: bool = True,
         ssl_insecure: bool = False,
@@ -811,6 +847,13 @@ class MitmRuntime(QObject):
         # Accept-Encoding=identity），抓到的就不是客户端原件。种子与开关位置同
         # 固定会话（core/runtime.py::_build_mitm_runtime、apps/preferences）。
         self.anticache_plaintext = anticache_plaintext
+        # 协议层两开关（.plans/2-protocol-switches.md）：默认**开**（原生出厂姿态
+        # 就是全支持）；关掉是调试降级手段（h2 → HTTP/1.1、h3 → 回落 TCP），改变
+        # 的是报文形态而不是「如实转发」，故默认值与 sticky / anticache 相反。
+        # 真实值由 CONFIG 种子决定（core/runtime.py::_build_mitm_runtime），开关
+        # 在设置页（apps/settings）。
+        self.http2_enabled = http2_enabled
+        self.http3_enabled = http3_enabled
         # DNS 解析两意图值（.plans/dns-options.md）：全局偏好、不随通道回滚，
         # 故不进 _CHANNEL_INTENTS。类默认对齐原生出厂（[] = 系统 DNS、
         # True = 查 hosts），真实值由 CONFIG 种子决定（core/runtime.py）。
@@ -1464,6 +1507,42 @@ class MitmRuntime(QObject):
             # bool 选项传错类型 optmanager 抛 TypeError（未知键抛 KeyError），不经
             # OptionsError —— 编程错误原样抛出，但内存副本必须先回滚。
             self.anticache_plaintext = previous
+            raise
+
+    def apply_protocol_options(
+        self,
+        *,
+        http2: bool | None = None,
+        http3: bool | None = None,
+    ) -> None:
+        """Store the protocol switches and push them to a running Master.
+
+        与 `apply_anticache_plaintext` 同构（同为 bool 选项，错误模型照它）：两个
+        参数都是 **None = 不改动该项**，内核没跑只对齐内存副本（下次启动
+        `_apply_protocol_options` 会读到），下发失败回滚内存副本后原样抛，绝不
+        留下「界面显示已生效、内核其实没收到」的状态。
+        """
+        wanted_http2 = self.http2_enabled if http2 is None else http2
+        wanted_http3 = self.http3_enabled if http3 is None else http3
+        previous = (self.http2_enabled, self.http3_enabled)
+        self.http2_enabled = wanted_http2
+        self.http3_enabled = wanted_http3
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(
+                lambda: master.options.update(
+                    **protocol_option_updates(wanted_http2, wanted_http3)
+                )
+            )
+        except OptionsError as exc:
+            # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
+            self.http2_enabled, self.http3_enabled = previous
+            raise ValueError(str(exc)) from exc
+        except Exception:
+            # 同上：bool 传错类型是 TypeError，不经 OptionsError，先回滚再原样抛。
+            self.http2_enabled, self.http3_enabled = previous
             raise
 
     def apply_dns_options(

@@ -4131,64 +4131,64 @@
         <translation>The WireGuard key file is corrupt; delete {} and try again</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="656"/>
+        <location filename="../../core/mitm/facade.py" line="691"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="707"/>
+        <location filename="../../core/mitm/facade.py" line="742"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="817"/>
-        <location filename="../../core/mitm/facade.py" line="996"/>
+        <location filename="../../core/mitm/facade.py" line="852"/>
+        <location filename="../../core/mitm/facade.py" line="1031"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1003"/>
+        <location filename="../../core/mitm/facade.py" line="1038"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1008"/>
-        <location filename="../../core/mitm/facade.py" line="1077"/>
+        <location filename="../../core/mitm/facade.py" line="1043"/>
+        <location filename="../../core/mitm/facade.py" line="1112"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1026"/>
+        <location filename="../../core/mitm/facade.py" line="1061"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1049"/>
+        <location filename="../../core/mitm/facade.py" line="1084"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1051"/>
+        <location filename="../../core/mitm/facade.py" line="1086"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1055"/>
+        <location filename="../../core/mitm/facade.py" line="1090"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1091"/>
+        <location filename="../../core/mitm/facade.py" line="1126"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1194"/>
+        <location filename="../../core/mitm/facade.py" line="1229"/>
         <source>无法读取 Flow 文件：{}</source>
         <translation>Cannot read flow file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1253"/>
+        <location filename="../../core/mitm/facade.py" line="1288"/>
         <source>无法写入文件：{}</source>
         <translation>Cannot write file: {}</translation>
     </message>
@@ -4196,27 +4196,27 @@
 <context>
     <name>MitmRuntime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="246"/>
+        <location filename="../../core/mitm/runtime.py" line="263"/>
         <source>代理端口监听失败</source>
         <translation>The proxy could not start listening on its port</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="633"/>
+        <location filename="../../core/mitm/runtime.py" line="667"/>
         <source>端口 {} 已被占用</source>
         <translation>Port {} is already in use</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1193"/>
+        <location filename="../../core/mitm/runtime.py" line="1236"/>
         <source>mitmproxy 内核停止超时，无法重启</source>
         <translation>The mitmproxy core did not stop in time, so it cannot restart</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1795"/>
+        <location filename="../../core/mitm/runtime.py" line="1874"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1816"/>
+        <location filename="../../core/mitm/runtime.py" line="1895"/>
         <source>mitmproxy 任务执行超时</source>
         <translation>The mitmproxy task timed out</translation>
     </message>
@@ -6463,57 +6463,77 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
     </message>
     <message>
         <location filename="../../apps/settings/views.py" line="281"/>
+        <source>HTTP/2 支持</source>
+        <translation>HTTP/2 support</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="283"/>
+        <source>关闭后 TLS 连接一律降级为 HTTP/1.1，报文按行可读；明文 h2c 升级本就不支持、恒被剥离</source>
+        <translation>Downgrades all TLS connections to HTTP/1.1 for line-readable messages; cleartext h2c upgrades are unsupported and always stripped</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="291"/>
+        <source>HTTP/3 (QUIC) 支持</source>
+        <translation>HTTP/3 (QUIC) support</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="293"/>
+        <source>关闭后客户端回落 HTTP/2 (TCP)，解决 QUIC/UDP 流量抓不到的问题；已缓存的 alt-svc 可能先试一次再回落</source>
+        <translation>Clients fall back to HTTP/2 (TCP) so QUIC/UDP traffic that cannot be captured becomes visible; a cached alt-svc may be tried once before falling back</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="305"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="283"/>
+        <location filename="../../apps/settings/views.py" line="307"/>
         <source>自定义 DNS 服务器</source>
         <translation>Custom DNS servers</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="284"/>
-        <location filename="../../apps/settings/views.py" line="424"/>
+        <location filename="../../apps/settings/views.py" line="308"/>
+        <location filename="../../apps/settings/views.py" line="470"/>
         <source>仅对 WireGuard 隧道内的域名解析生效；留空使用系统 DNS</source>
         <translation>Only applies to name resolution inside the WireGuard tunnel; leave empty to use the system DNS</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="289"/>
+        <location filename="../../apps/settings/views.py" line="313"/>
         <source>解析时查询 hosts 文件</source>
         <translation>Consult the hosts file during resolution</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="291"/>
+        <location filename="../../apps/settings/views.py" line="315"/>
         <source>隧道内 DNS 应答先查本机 hosts，写一条即可把域名指向测试机（需管理员编辑系统 hosts 文件，且会影响本机自身解析）</source>
         <translation>Answers for the tunnel&apos;s DNS queries consult the local hosts file first; a single entry points a domain at your test machine (editing the system hosts file requires admin rights and affects this machine&apos;s own resolution)</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="303"/>
+        <location filename="../../apps/settings/views.py" line="327"/>
         <source>性能</source>
         <translation>Performance</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="307"/>
+        <location filename="../../apps/settings/views.py" line="331"/>
         <source>大正文截断</source>
         <translation>Large body truncation</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="309"/>
+        <location filename="../../apps/settings/views.py" line="333"/>
         <source>超过阈值的响应正文只保留前 N 字节，节省内存；转发给客户端的数据不受影响；截断后搜索只匹配保留部分</source>
         <translation>Responses larger than the threshold keep only their first N bytes to save memory; data forwarded to the client is unaffected; after truncation, search only matches the retained portion</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="420"/>
+        <location filename="../../apps/settings/views.py" line="466"/>
         <source>已设 {} 台：仅隧道内生效</source>
         <translation>{} configured: effective in tunnel only</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="448"/>
+        <location filename="../../apps/settings/views.py" line="494"/>
         <source>DNS 设置未生效</source>
         <translation>DNS settings not applied</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="476"/>
+        <location filename="../../apps/settings/views.py" line="522"/>
         <source>配置将在重启后生效</source>
         <translation>Configuration takes effect after restart</translation>
     </message>
@@ -6664,7 +6684,7 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>runtime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="115"/>
+        <location filename="../../core/mitm/runtime.py" line="132"/>
         <source>“{}”不是合法的 IP 地址</source>
         <translation>&quot;{}&quot; is not a valid IP address</translation>
     </message>

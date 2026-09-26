@@ -406,6 +406,41 @@ class MitmFacade:
         """Flip/retune the body cut; applied immediately when the kernel runs."""
         self.runtime.apply_body_cut(enabled, size)
 
+    # —— 协议层（.plans/2-protocol-switches.md）——
+
+    @property
+    def http2_enabled(self) -> bool:
+        """是否支持 HTTP/2（内存副本，原生默认开）。
+
+        关掉是调试降级手段：TLS 连接一律走 HTTP/1.1，报文按行可读。与恒开的
+        DisableH2C 垫片正交 —— 明文 h2c 升级本就（无条件）被剥离，与本开关无关。
+        """
+        return self.runtime.http2_enabled
+
+    @property
+    def http3_enabled(self) -> bool:
+        """是否支持 QUIC / HTTP/3（内存副本，原生默认开）。
+
+        关掉后原生不建 QUIC 层、并顺带抹隧道内 DNS HTTPS 记录里的 h3 ALPN，
+        客户端回落 HTTP/2 (TCP)；HTTP 响应里的 alt-svc 头不摘，已缓存的客户端
+        可能先试一次再回落 —— 预期行为。
+        """
+        return self.runtime.http3_enabled
+
+    def set_protocol_options(
+        self,
+        *,
+        http2: bool | None = None,
+        http3: bool | None = None,
+    ) -> None:
+        """Update the protocol switches; applied immediately when the kernel runs.
+
+        两个参数都是 **None = 不改动该项**。内核没跑只对齐内存副本，下发失败回滚
+        后抛 ``ValueError`` / 原生异常（bool 无坏值路径，照 ``apply_anticache_plaintext``
+        的错误模型），调用方自行决定是否落盘。
+        """
+        self.runtime.apply_protocol_options(http2=http2, http3=http3)
+
     # —— DNS 解析 ——
 
     @property
