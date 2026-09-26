@@ -30,6 +30,7 @@ from ferret.core.mitm import (
     WsClose,
 )
 from ferret.core.mitm.addons import GatewayState
+from ferret.core.mitm.cut import FerretCutAddon
 from ferret.core.mitm.intercept import InterceptState
 
 
@@ -141,6 +142,8 @@ class _FakeMaster:
         self.gateway = GatewayState()
         self.intercept_state = InterceptState()
         self.sse = FerretSseAddon()
+        # 删除生命周期会调 `cut.forget`（db139e8 起挂的账），与 sse 同理给真 addon。
+        self.cut = FerretCutAddon(should_intercept=lambda flow: False)
 
 
 class _InlineRuntime:
