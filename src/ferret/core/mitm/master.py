@@ -28,6 +28,7 @@ from ferret.core.mitm.bindings import (
     Proxyserver,
     ReadFile,
     Save,
+    ServerPlayback,
     StickyAuth,
     StickyCookie,
     StripDnsHttpsRecords,
@@ -68,6 +69,12 @@ class FerretMaster(Master):
         self.rewrite = FerretRewriteAddon()
         # 用户脚本扩展（plans/scripts.md §3.2）：常驻无开关，空列表即全空转。
         self.scripts = FerretScriptAddon()
+        # mock 响应池（.plans/0-server-playback.md）：原生 ServerPlayback，request
+        # 钩子按请求哈希命中已录响应直接顶回、不拨上游；空表零副作用，「开关」就是
+        # flowmap 有没有货。池内容与旋钮由 runtime 播种 / facade 热更，装载只走
+        # 方法调用（add_flows / load_flows），`server_replay` 选项那条带单向闸的
+        # 文件通道不用。
+        self.server_playback = ServerPlayback()
         # 固定会话（StickyCookie / StickyAuth）：默认关，开关在设置页。排在重写类
         # 之后 —— 代理补回的 Cookie / Authorization 要压过用户对同名头的重写规则，
         # 否则「会话不丢」这条承诺会被自己的重写页拆台；排在 View 之前 —— 流量表
@@ -137,6 +144,19 @@ class FerretMaster(Master):
             # 排在重写之后：脚本拿到的是重写**后**的报文，与 View/断点所见一致
             # （钉死语义，见 plans/scripts.md §3.2）。
             self.scripts,
+            # mock 响应池（.plans/0-server-playback.md D3）链位四条理由：
+            # 1) 必须在网关**之后** —— 绕行/仅允许命中时 AddonHalt 截断派发，用户
+            #    明确不管的流量不该被 mock（与下面 scripts / intercept 同一语义）。
+            #    这也是它不能照抄原生链位（next_layer 之后、modify* 之前）的原因。
+            # 2) 在 scripts **之后**（原生相邻序 script → serverplayback）：脚本
+            #    请求钩子先改报文，mock 按改后请求匹配；mock 出的响应照常过脚本
+            #    响应钩子与响应期重写规则（rewrite 在网关之前）——可叠加。
+            # 3) 在 intercept **之前**：两者同名 `request` 钩子且整条链派发完才
+            #    wait_for_resume，断点拦住的流已带上 mock 响应 ——「断点所见 =
+            #    最终结果」，与「断点所见与 View 一致」的既有哲学同构。
+            # 4) 它不看 flow.response 就直接覆盖（原生如此）：同时被网关屏蔽(出)
+            #    又命中 mock 的流量，mock 会顶掉屏蔽响应 —— 接受「mock 优先」语义。
+            self.server_playback,
             # 必须在网关**之后**：绕行/仅允许命中时 GatewayL7Addon 抛 AddonHalt
             # 截断派发，断点因此收不到这条流量 —— 用户明确说了不管的流量，不该
             # 被断点拦下来。位置对齐原生 console master（intercept → view）。

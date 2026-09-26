@@ -346,6 +346,7 @@ class _MitmThread(QThread):
         self._apply_ssl_options(master)
         self._apply_client_certs(master)
         self._apply_body_cut(master)
+        self._apply_serverplayback(master)
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
@@ -576,6 +577,23 @@ class _MitmThread(QThread):
             max_size=self.runtime.body_cut_size,
         )
 
+    def _apply_serverplayback(self, master: FerretMaster) -> None:
+        """Seed the mock pool and knobs before serving traffic (on the mitm loop).
+
+        与 `_apply_body_cut` 同位次：总开关开着且池非空才 `load_flows`（整表替换
+        语义，重启即回到池的完整快照）；旋钮经 options.update 下发，坏值在此只会
+        抛 OptionsError —— 能到这里的手改坏值已先被 OptionsConfigItem correct
+        成默认（core/settings.py::mock_extra），真抛了就与网关同姿态降级忽略。
+        """
+        try:
+            knobs = dict(self.runtime.mock_knobs)
+            if knobs:
+                master.options.update(**knobs)
+        except OptionsError as exc:
+            self._log_warning("mock 旋钮无法应用，已忽略: %s", exc)
+        if self.runtime.mock_enabled and self.runtime.mock_pool:
+            master.server_playback.load_flows(list(self.runtime.mock_pool))
+
     @staticmethod
     def _log_warning(message: str, *args: object) -> None:
         """提示性日志失败不值得连坐启动（同 `_apply_dns_options` 的兜底姿态）。
@@ -775,6 +793,15 @@ class MitmRuntime(QObject):
         # 还没打开界面、流量就先卡住了。开关由界面显式打开（见 core/settings.py 的
         # intercept_enabled）。
         self.intercept_enabled = False
+        # mock 响应池（.plans/0-server-playback.md）：池内 flow 副本 + 旋钮 +
+        # 总开关。三者的真实初值都由控制器层从 CONFIG / 池托管文件播种（与
+        # rewrite/gateway 规则同一姿态，构造器不读 CONFIG）；池内 flow 只在
+        # mitm 线程上做拷贝与变更（facade 的 mock 方法组），内核没跑时它们是
+        # 死对象，读取/增删与 sessions 加载 .flow 同一安全等级。
+        self.mock_pool: list[HTTPFlow] = []
+        self.mock_enabled = False
+        # 键 = 原生选项名（server_replay_*），值即下传值；空 dict = 全按原生出厂。
+        self.mock_knobs: dict[str, Any] = {}
         # 固定会话默认**关**：开启会改写实时抓取所见的请求头（代理侧补
         # Cookie / Authorization），与「抓包应如实转发原件」冲突。类默认关、真实
         # 应用由 CONFIG 种子决定（core/runtime.py::_build_mitm_runtime），开关
@@ -1351,6 +1378,44 @@ class MitmRuntime(QObject):
         except OptionsError as exc:
             # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
             self.intercept_rules, self.intercept_enabled = previous
+            raise ValueError(str(exc)) from exc
+
+    def apply_mock_enabled(self, enabled: bool) -> None:
+        """Store the mock master switch and push it to a running Master.
+
+        「开关」就是原生 addon 的 flowmap 有没有货（.plans/0-server-playback.md
+        D4）：开 = 全量池重新 `load_flows`，关 = `clear()`，不在 core 里另设 armed
+        标志。内核没跑只对齐内存副本（下次启动 `_apply_serverplayback` 播种）。
+        """
+        self.mock_enabled = enabled
+        master = self._master
+        if not self.is_running or master is None:
+            return
+
+        def push() -> None:
+            if enabled and self.mock_pool:
+                master.server_playback.load_flows(list(self.mock_pool))
+            else:
+                master.server_playback.clear()
+
+        self.call(push)
+
+    def apply_mock_knobs(self, knobs: dict[str, Any]) -> None:
+        """Merge mock knob updates and push them to a running Master.
+
+        键 = 原生 ``server_replay_*`` 选项名。坏值由 ``options.update`` 的 choices
+        校验拦下（``OptionsError`` → 转 ValueError，apps/ 不认识 mitmproxy 异常），
+        整批回滚；哈希类选项变更时原生 configure 自动重算，这里不用管。
+        """
+        previous = dict(self.mock_knobs)
+        self.mock_knobs = {**self.mock_knobs, **knobs}
+        master = self._master
+        if not self.is_running or master is None:
+            return
+        try:
+            self.call(lambda: master.options.update(**knobs))
+        except OptionsError as exc:
+            self.mock_knobs = previous
             raise ValueError(str(exc)) from exc
 
     def apply_sticky_session(self, enabled: bool | None = None) -> None:

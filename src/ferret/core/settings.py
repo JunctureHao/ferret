@@ -438,6 +438,64 @@ class Config(QConfig):
         validator=BoolValidator(),
     )
 
+    # mock 响应池（.plans/0-server-playback.md）：原生 ServerPlayback 的旋钮。
+    # 池内容不落 config.json（见 core/mitm/facade.py 的 mock 池托管文件），这里只
+    # 存开关与匹配行为。默认全按「GUI mock 语义」取值，与原生出厂值两处刻意不同：
+    # reuse=True（原生默认 False 是消耗式，池耗尽后未命中策略跟着失效、流量静默
+    # 直连，GUI 用户不可感知）；extra="forward" 保持原生默认。
+    mock_enabled = ConfigItem(
+        group="Mock",
+        name="Enabled",
+        default=False,
+        validator=BoolValidator(),
+    )
+
+    # 未命中策略（原生 server_replay_extra 的 choices，多一个不许少一个不行 ——
+    # OptionsConfigItem 手改坏值会 correct 回默认）。
+    mock_extra = OptionsConfigItem(
+        group="Mock",
+        name="Extra",
+        default="forward",
+        validator=OptionsValidator(["forward", "kill", "204", "400", "404", "500"]),
+    )
+
+    mock_reuse = ConfigItem(
+        group="Mock",
+        name="Reuse",
+        default=True,
+        validator=BoolValidator(),
+    )
+
+    # 命中后刷新日期/Expires/Last-Modified 头与 Cookie 过期（原生默认 True）。
+    mock_refresh = ConfigItem(
+        group="Mock",
+        name="Refresh",
+        default=True,
+        validator=BoolValidator(),
+    )
+
+    # —— 高级匹配（原生哈希粒度选项；变更时原生 configure 自动重算哈希）——
+    mock_ignore_host = ConfigItem(
+        group="Mock",
+        name="IgnoreHost",
+        default=False,
+        validator=BoolValidator(),
+    )
+
+    # 两个列表项与 block_list 同一个坑：QConfig.set 开头 `if item.value == value:
+    # return`，原地 mutate 再 set 会静默不落盘 —— 写回必须传新 list。
+    mock_ignore_params = ConfigItem(
+        group="Mock",
+        name="IgnoreParams",
+        default=[],
+    )
+
+    mock_use_headers = ConfigItem(
+        group="Mock",
+        name="UseHeaders",
+        default=[],
+    )
+
     # 大正文边收边截（.plans/1-cut-flow-size.md）：超阈值的响应正文只在内核存
     # 前 N 字节，转发侧永远完整；截断后 `~b` 只搜前缀、导出缺完整正文（导出前有
     # 确认弹窗）。默认**关**：它改变存储语义，不该在用户没开之前替他决定。
@@ -508,6 +566,15 @@ def get_scripts_dir() -> Path:
     directory = get_config_dir() / "scripts"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def get_mock_pool_file() -> Path:
+    """mock 响应池的托管 .flow 文件（.plans/0-server-playback.md §3.3）。
+
+    池不落 config.json：单条流是完整报文，塞进 JSON 既大又得自己序列化；直接用
+    原生 FlowFile（`core/mitm/io.py`）存 .flow，导入/导出与内核读同一条格式。
+    """
+    return get_config_dir() / "mock_pool.flow"
 
 
 CONFIG = Config()

@@ -132,6 +132,7 @@ from mitmproxy.addons.proxyserver import Proxyserver
 from mitmproxy.addons.readfile import ReadFile
 from mitmproxy.addons.save import Save
 from mitmproxy.addons.savehar import SaveHar
+from mitmproxy.addons.serverplayback import ServerPlayback
 from mitmproxy.addons.stickyauth import StickyAuth
 from mitmproxy.addons.stickycookie import StickyCookie
 from mitmproxy.addons.strip_dns_https_records import StripDnsHttpsRecords
@@ -223,6 +224,7 @@ __all__ = [
     "Response",
     "Save",
     "SaveHar",
+    "ServerPlayback",
     "StickyAuth",
     "StickyCookie",
     "StripDnsHttpsRecords",

@@ -53,6 +53,8 @@
 
 - 反向代理模式：`mode_specs.ReverseMode` + `proxyserver.configure` 走原生 spec 通道，**不要**自实现 TCP/HTTP 转发；alt-svc 重写挂原生 `UpdateAltSvc`（仅 reverse 通道有效，master.py 挂载）。
 
+- mock 响应池：原生 `ServerPlayback`（.plans/1-server-playback.md），链位网关后、脚本与断点之间；装载只走 `add_flows` / `load_flows` 方法调用，**不碰** `server_replay` 选项文件通道（`configured` 单向闸）；池权威副本在 `runtime.mock_pool`，条目身份 = 来源流量 id（副本须在 mitm 线程上做、id 补回同 `_snapshot`）。
+
 ## 3. 桥接红线（违反会崩溃/数据错乱）
 
 mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有三条：
@@ -117,7 +119,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - 实际装载的 addon 以 `core/mitm/master.py` 为准，本文件不维护清单。
 
-- 尚未实现（实现后更新本行）：serverplayback
+- 尚未实现（实现后更新本行）：——（serverplayback 已实现，见 §2 与 .plans/1-server-playback.md）
 
 ## 7. i18n（中文源 + `en_GB.qm`）
 

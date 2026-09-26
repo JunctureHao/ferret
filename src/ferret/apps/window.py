@@ -28,6 +28,8 @@ from ferret.apps.gateway.views import GatewayInterface
 from ferret.apps.intercept.controllers import InterceptController
 from ferret.apps.intercept.views import InterceptInterface
 from ferret.apps.intercept.window import InterceptWindow
+from ferret.apps.mock.controllers import MockController
+from ferret.apps.mock.views import MockInterface
 from ferret.apps.rewrite.controllers import RewriteController
 from ferret.apps.rewrite.views import RewriteInterface
 from ferret.apps.scripts.controllers import ScriptsController
@@ -65,6 +67,10 @@ class MainWindow(FluentWindow):
         self.rewrite_controller = RewriteController(self, mitm=self.runtime.mitm)
         self.rewrite_interface = RewriteInterface(
             controller=self.rewrite_controller, parent=self
+        )
+        self.mock_controller = MockController(self, mitm=self.runtime.mitm)
+        self.mock_interface = MockInterface(
+            controller=self.mock_controller, parent=self
         )
         self.intercept_controller = InterceptController(self, mitm=self.runtime.mitm)
         self.intercept_interface = InterceptInterface(
@@ -124,6 +130,8 @@ class MainWindow(FluentWindow):
             self.rewrite_interface, FluentIcon.PENCIL_INK, self.tr("重写")
         )
 
+        self.addSubInterface(self.mock_interface, FluentIcon.ROBOT, self.tr("Mock"))
+
         self.addSubInterface(self.intercept_interface, BaseIcon.BUG, self.tr("断点"))
 
         self.addSubInterface(self.scripts_interface, FluentIcon.CODE, self.tr("脚本"))
@@ -160,6 +168,11 @@ class MainWindow(FluentWindow):
         # （facade.request_edit），prefill 与切页都在主线程。
         self.captures_interface.edit_in_compose_requested.connect(
             self.__edit_in_compose
+        )
+        # 同上：apps/capture 不必认识 apps/mock。加入池的动作在 mitm 线程做副本
+        # （facade.add_mock_flows），id 列表冒泡进来直接落控制器。
+        self.captures_interface.add_to_mock_requested.connect(
+            self.mock_controller.add_from_selection
         )
         # 同上：断点页和断点窗口互不认识，两个方向都从这里接。
         self.intercept_interface.queue_requested.connect(self.intercept_window.pop_up)

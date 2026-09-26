@@ -8,7 +8,15 @@ from typing import Any
 
 from PySide6.QtCore import QCoreApplication
 
-from ferret.core.mitm.bindings import HTTPFlow, View, emoji
+from ferret.core.log import get_logger
+from ferret.core.mitm.bindings import (
+    FlowReadException,
+    HTTPFlow,
+    OptionsError,
+    View,
+    emoji,
+    human,
+)
 from ferret.core.mitm.compose import COMPOSE_METADATA_KEY, build_compose_flow
 from ferret.core.mitm.detail import build_flow_detail
 from ferret.core.mitm.export import FlowExporter
@@ -41,7 +49,7 @@ from ferret.core.network import LOOPBACK_HOST, detect_lan_address
 # 改个名，免得和下面同名的 MitmFacade.is_lan_exposed 属性看混。
 # ruff 默认 combine-as-imports = false，`as` 导入只能单独成句。
 from ferret.core.network import is_lan_exposed as host_is_lan_exposed
-from ferret.core.settings import get_certs_dir, get_sessions_dir
+from ferret.core.settings import get_certs_dir, get_mock_pool_file, get_sessions_dir
 
 
 # 同一句在下面出现两次，写成函数而不是常量：模块级求值赶在翻译器安装之前
@@ -54,6 +62,8 @@ def _not_running() -> str:
 # （`mitmproxy/addons/core.py`），所以存进 `.flow` 文件之后 mitmproxy console / web
 # 那边也认得，渲染成一个实心圆点；换成自造的字符串只会在别处显示成兜底符号。
 MARKER_DEFAULT = ":default:"
+
+log = get_logger("mock")
 
 
 def _snapshot(flow: HTTPFlow) -> HTTPFlow:
@@ -75,6 +85,20 @@ class MitmFacade:
     def __init__(self, runtime: MitmRuntime) -> None:
         self.runtime = runtime
         self._recording_path: Path | None = None
+        # mock 池的托管文件在应用启动时读回（.plans/0-server-playback.md §3.3）：
+        # 反序列化出来的是死对象，与 sessions 加载 .flow 同一安全等级，不需要等
+        # 内核起来。文件缺省/损坏都从空池起步（read_valid_prefix 容忍尾部截断），
+        # 下一次池变更会把好内容写回去。
+        pool_path = get_mock_pool_file()
+        self.runtime.mock_pool = (
+            [
+                flow
+                for flow in FlowFile.read_valid_prefix(pool_path)
+                if isinstance(flow, HTTPFlow) and flow.response is not None
+            ]
+            if pool_path.exists()
+            else []
+        )
 
     @property
     def view(self) -> View:
@@ -1081,6 +1105,201 @@ class MitmFacade:
                     master.options.update(save_stream_file=recording)
 
         return int(self.runtime.call(load, timeout=30.0))
+
+    # —— mock 响应池（原生 ServerPlayback，.plans/0-server-playback.md）——
+    # 池的权威副本在 `runtime.mock_pool`，addon 的 flowmap 由本方法组负责同步
+    # （增量变更 add_flows、删减/开关 load_flows 整表重建）。所有**变更**都要求
+    # 内核在跑（副本必须在 mitm 线程上做）；删减/清空在内核没跑时也对池内死对象
+    # 就地执行 —— 与 sessions 加载 .flow 同一安全等级。
+
+    def _persist_mock_pool(self) -> None:
+        """池写回托管 .flow 文件（mitm 线程或内核停止时的调用线程）。
+
+        失败只记日志不连坐操作：内存与内核都已变更，落盘失败留给下一次池变更重试，
+        报给界面反而要面对「操作到底成没成」的说不清。
+        """
+        try:
+            FlowFile.write(get_mock_pool_file(), self.runtime.mock_pool)
+        except OSError as exc:
+            log.warning("mock 池落盘失败: %s", exc)
+
+    def add_mock_flows(self, flow_ids: list[str]) -> int:
+        """把流量列表选中的流做成副本加入 mock 池，返回实收条数。
+
+        只有带响应的 HTTPFlow 有资格进池（原生 `next_flow` 会跳过无响应源流）；
+        同一条流重复加入按已存在跳过。副本在 mitm 线程上做（桥接红线），并照
+        `_snapshot` 的手法把 `copy()` 换掉的 id 补回 —— 池条目的身份就是来源
+        流量行的 id，界面按它删除。池条目不进 View，不会有 id 撞车问题。
+        """
+        if not flow_ids:
+            return 0
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
+            raise RuntimeError(_not_running())
+        runtime = self.runtime
+
+        def add() -> int:
+            seen = {flow.id for flow in runtime.mock_pool}
+            added: list[HTTPFlow] = []
+            for flow_id in flow_ids:
+                flow = self.view.get_by_id(flow_id)
+                if not isinstance(flow, HTTPFlow) or flow.response is None:
+                    continue
+                if flow.id in seen:
+                    continue
+                seen.add(flow.id)
+                copy = flow.copy()
+                copy.id = flow.id
+                added.append(copy)
+            if not added:
+                return 0
+            runtime.mock_pool.extend(added)
+            if runtime.mock_enabled:
+                master.server_playback.add_flows(added)
+            self._persist_mock_pool()
+            return len(added)
+
+        return int(self.runtime.call(add, timeout=10.0))
+
+    def add_mock_file(self, path: Path | str) -> int:
+        """从 .flow 文件导入 mock 源（过滤/去重规则同 `add_mock_flows`）。"""
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
+            raise RuntimeError(_not_running())
+        runtime = self.runtime
+
+        def add() -> int:
+            flows = FlowFile.read(path)
+            seen = {flow.id for flow in runtime.mock_pool}
+            added: list[HTTPFlow] = []
+            for flow in flows:
+                if not isinstance(flow, HTTPFlow) or flow.response is None:
+                    continue
+                if flow.id in seen:
+                    continue
+                seen.add(flow.id)
+                added.append(flow)
+            if not added:
+                return 0
+            runtime.mock_pool.extend(added)
+            if runtime.mock_enabled:
+                master.server_playback.add_flows(added)
+            self._persist_mock_pool()
+            return len(added)
+
+        try:
+            return int(self.runtime.call(add, timeout=30.0))
+        except FlowReadException as exc:
+            raise ValueError(
+                QCoreApplication.translate("MitmFacade", "无法读取 Flow 文件：{}").format(
+                    exc
+                )
+            ) from exc
+
+    def remove_mock_flows(self, entry_ids: list[str]) -> int:
+        """按池条目 id（= 来源流量 id）删除，返回删除数。
+
+        原生没有逐条移除，走 `load_flows` 整表重建（重算哈希，开销与池大小线性，
+        池是几十条的量级，无所谓）。
+        """
+        runtime = self.runtime
+        doomed = set(entry_ids)
+
+        def remove() -> int:
+            kept = [flow for flow in runtime.mock_pool if flow.id not in doomed]
+            removed = len(runtime.mock_pool) - len(kept)
+            if not removed:
+                return 0
+            runtime.mock_pool = kept
+            master = runtime.master
+            if runtime.is_running and master is not None and runtime.mock_enabled:
+                master.server_playback.load_flows(list(kept))
+            self._persist_mock_pool()
+            return removed
+
+        if runtime.is_running:
+            return int(runtime.call(remove))
+        return remove()
+
+    def clear_mock(self) -> None:
+        """清空 mock 池。总开关开着时这就是「关闭」的原生语义（flowmap 变空）。"""
+        runtime = self.runtime
+
+        def clear() -> None:
+            runtime.mock_pool = []
+            master = runtime.master
+            if runtime.is_running and master is not None:
+                master.server_playback.clear()
+            self._persist_mock_pool()
+
+        if runtime.is_running:
+            runtime.call(clear)
+        else:
+            clear()
+
+    def export_mock_pool(self, path: Path | str) -> int:
+        """把整个池导出为 .flow 文件（用户手动留档的出口），返回条数。"""
+        runtime = self.runtime
+
+        def export() -> int:
+            return FlowFile.write(path, runtime.mock_pool)
+
+        try:
+            if runtime.is_running:
+                return int(runtime.call(export))
+            return export()
+        except OSError as exc:
+            raise RuntimeError(
+                QCoreApplication.translate("MitmFacade", "无法写入文件：{}").format(exc)
+            ) from exc
+
+    def set_mock_enabled(self, enabled: bool) -> None:
+        """总开关。存内存副本 + 推给运行中的内核（开=整表装载，关=clear）。"""
+        self.runtime.apply_mock_enabled(enabled)
+
+    def set_mock_knobs(self, knobs: dict[str, Any]) -> None:
+        """更新 mock 旋钮（键 = 原生 server_replay_* 选项名）。坏值抛 ValueError。"""
+        try:
+            self.runtime.apply_mock_knobs(knobs)
+        except OptionsError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def mock_snapshot(self) -> dict[str, Any]:
+        """响应池的纯数据快照（方法/URL/状态/大小），Qt 侧不碰池内 flow。
+
+        总在 mitm 线程上读（池内 flow 在内核跑着时是活对象）；内核没跑时池里是
+        死对象，就地读（同 `get_flow` 的两路姿态）。
+        """
+        runtime = self.runtime
+
+        def build() -> dict[str, Any]:
+            entries = []
+            for flow in runtime.mock_pool:
+                response = flow.response
+                content = (
+                    response.get_content(strict=False)
+                    if response is not None
+                    else b""
+                )
+                entries.append(
+                    {
+                        "id": flow.id,
+                        "method": flow.request.method,
+                        "url": flow.request.pretty_url,
+                        "status": response.status_code if response else 0,
+                        # get_content(strict=False) 畸形编码回 None（AGENTS §2）。
+                        "size": human.pretty_size(len(content or b"")),
+                    }
+                )
+            return {
+                "enabled": runtime.mock_enabled,
+                "count": len(entries),
+                "entries": entries,
+            }
+
+        if runtime.is_running:
+            return dict(runtime.call(build))
+        return build()
 
     def clear_flows(self) -> None:
         def clear() -> None:

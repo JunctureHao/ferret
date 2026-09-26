@@ -408,19 +408,20 @@ class FerretMasterGatewayWiringTests(unittest.TestCase):
             self.names.index(NextLayer.__name__),
         )
 
-    def test_l7_addon_runs_immediately_before_the_script_and_breakpoint_planes(
+    def test_l7_addon_runs_immediately_before_the_mock_script_and_breakpoint_planes(
         self,
     ) -> None:
         """AddonHalt 只截断当前派发，所以网关之后的 addon 一条都收不到。
 
-        用户脚本与断点必须紧跟在它后面：绕行/仅允许命中时这条流量根本到不了这两
-        层，用户明确说了不管的流量既不该被脚本改、也不该被断点拦下来
-        （plans/scripts.md §3.2 把脚本的槽位钉在这里）。
+        用户脚本 / mock 响应池 / 断点必须紧跟在它后面：绕行/仅允许命中时这条流量
+        根本到不了这三层，用户明确说了不管的流量既不该被脚本改、也不该被 mock 顶
+        回、更不该被断点拦下来（plans/scripts.md §3.2 与
+        .plans/0-server-playback.md D3 把这三个槽位钉在这里）。
         """
         start = self.names.index(GatewayL7Addon.__name__)
         self.assertEqual(
-            self.names[start + 1 : start + 3],
-            ["FerretScriptAddon", "FerretIntercept"],
+            self.names[start + 1 : start + 4],
+            ["FerretScriptAddon", "ServerPlayback", "FerretIntercept"],
         )
 
     def test_the_breakpoint_plane_runs_immediately_before_the_view(self) -> None:

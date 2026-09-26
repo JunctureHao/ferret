@@ -93,6 +93,9 @@ class CapturesInterface(QWidget):
     block_host_requested = Signal(str)
     # 右键「在 Compose 中编辑」向外转发（携带 flow id），由 MainWindow 提取并灌表单
     edit_in_compose_requested = Signal(str)
+    # 右键「加入 Mock 响应」向外转发（携带 flow id 列表），由 MainWindow 接到
+    # MockController（.plans/0-server-playback.md §4.1）
+    add_to_mock_requested = Signal(list)
 
     def __init__(
         self,
@@ -173,6 +176,8 @@ class CapturesInterface(QWidget):
             menu.block_host_requested.connect(self.block_host_requested)
             # 右键"在 Compose 中编辑"信号 → 冒泡给 MainWindow
             menu.edit_in_compose_requested.connect(self.edit_in_compose_requested)
+            # 右键"加入 Mock 响应"信号 → 冒泡给 MainWindow
+            menu.add_to_mock_requested.connect(self.add_to_mock_requested)
 
         # Controller 状态信号 → UI 更新
         self.controller.capture_state_changed.connect(self.__on_capture_state_changed)

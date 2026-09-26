@@ -59,6 +59,9 @@ class FlowViewCapabilities:
     # 「在 Compose 中编辑」走 `MitmFacade.request_edit` 在 mitm 线程上提取活 flow，
     # 会话页（死对象）一期不做，与上面同一套开关哲学。
     can_edit_compose: bool = False
+    # 「加入 Mock 响应」把选中流拷进 mock 池（facade 在 mitm 线程做副本），只对
+    # 活 flow 有意义；会话页与捕获页同一套开关哲学，默认关、捕获页开。
+    can_mock: bool = False
 
 
 CAPTURE_CAPABILITIES = FlowViewCapabilities(
@@ -72,6 +75,7 @@ CAPTURE_CAPABILITIES = FlowViewCapabilities(
     can_mark=True,
     can_kill=True,
     can_edit_compose=True,
+    can_mock=True,
 )
 
 READONLY_CAPABILITIES = FlowViewCapabilities(

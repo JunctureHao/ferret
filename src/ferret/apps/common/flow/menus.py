@@ -45,6 +45,9 @@ class FlowContextMenu(RoundMenu):
     # 「在 Compose 中编辑」请求信号（携带 flow id）。载荷是 id 不是 flow：
     # handler 只拿 id 去 facade 提取，活 flow 引用不进 Qt 槽。
     edit_in_compose_requested = Signal(str)
+    # 「加入 Mock 响应」请求信号（携带 flow id 列表）。同样只带 id：副本由
+    # facade 在 mitm 线程上做（.plans/0-server-playback.md §3.2）。
+    add_to_mock_requested = Signal(list)
     comment_requested = Signal()
 
     def __init__(
@@ -86,12 +89,24 @@ class FlowContextMenu(RoundMenu):
         self.delete_action.setText(
             self.tr("删除") if count <= 1 else self.tr("删除 {} 条").format(count)
         )
-        # 多选禁用（「编辑并重发」语义不明）、CONNECT 禁用（隧道请求没有可编辑的
+        # 多选禁用（「编辑并重放」语义不明）、CONNECT 禁用（隧道请求没有可编辑的
         # 报文形态）。判据都来自既有入参，不新读活 flow。
         self.edit_in_compose_action.setEnabled(
             len(self.flows) == 1 and self.row_data.get("Method") != "CONNECT"
         )
         self.export_menu.refresh_selection_labels()
+        # 「加入 Mock 响应」要求选区每一条都带响应（无响应源流回不了任何东西，
+        # 原生 next_flow 会跳过它们）；单选文案不带条数，多选带。
+        if self.capabilities.can_mock:
+            mockable = bool(self.flows) and all(
+                flow.response is not None for flow in self.flows
+            )
+            self.add_to_mock_action.setEnabled(mockable)
+            self.add_to_mock_action.setText(
+                self.tr("加入 Mock 响应")
+                if count <= 1
+                else self.tr("加入 Mock 响应 ({} 条)").format(count)
+            )
         # 杀死只接单行：多选批量断连语义太重，一期不做（plan: .plans/0-kill-flow.md）。
         if self.capabilities.can_kill:
             self.kill_action.setEnabled(count == 1)
@@ -119,6 +134,8 @@ class FlowContextMenu(RoundMenu):
             action.setEnabled(not is_connection)
         if is_connection:
             self.edit_in_compose_action.setEnabled(False)
+            if self.capabilities.can_mock:
+                self.add_to_mock_action.setEnabled(False)
             if self.capabilities.can_kill:
                 self.kill_action.setEnabled(False)
         if self.capabilities.can_mark:
@@ -134,6 +151,9 @@ class FlowContextMenu(RoundMenu):
         )
         self.replay_from_file_action = BaseAction(
             parent=self, icon=FluentIcon.FOLDER, text=self.tr("从文件回放…")
+        )
+        self.add_to_mock_action = BaseAction(
+            parent=self, icon=FluentIcon.ROBOT, text=self.tr("加入 Mock 响应")
         )
         self.delete_action = BaseAction(
             parent=self,
@@ -166,6 +186,8 @@ class FlowContextMenu(RoundMenu):
         if self.capabilities.can_replay:
             self.addAction(self.client_replay_action)
             self.addAction(self.replay_from_file_action)
+        if self.capabilities.can_mock:
+            self.addAction(self.add_to_mock_action)
         if self.capabilities.can_edit_compose:
             self.addAction(self.edit_in_compose_action)
         self.addMenu(self.export_menu)
@@ -187,6 +209,7 @@ class FlowContextMenu(RoundMenu):
             self.__on_edit_in_compose_triggered
         )
         self.replay_from_file_action.triggered.connect(self.replay_file_requested.emit)
+        self.add_to_mock_action.triggered.connect(self.__on_add_to_mock_triggered)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.kill_action.triggered.connect(self.__on_kill_triggered)
         self.block_host_action.triggered.connect(self.__on_block_host_triggered)
@@ -343,6 +366,13 @@ class FlowContextMenu(RoundMenu):
             show_success(
                 self.tr("成功"), self.tr("URL 已复制到剪贴板"), self.main_window
             )
+
+    @Slot()
+    def __on_add_to_mock_triggered(self):
+        """发出「加入 Mock 响应」请求，载荷是选区内带响应流的 id 列表。"""
+        flow_ids = [flow.id for flow in self.flows if flow.response is not None]
+        if flow_ids:
+            self.add_to_mock_requested.emit(flow_ids)
 
     @Slot()
     def __on_client_replay_triggered(self):
