@@ -4,14 +4,17 @@
 所以整套用例既不生成证书也不碰系统信任库。
 """
 
+from __future__ import annotations
+
 import os
 import unittest
 from typing import cast
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt, QThread
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, Qt
+from PySide6.QtWidgets import QApplication, QLabel
 
 from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import STATE_ICONS, CertificateInterface
@@ -25,6 +28,7 @@ from ferret.core.mitm import (
 )
 from tests.apps.certificate.test_controllers import FakeService
 from tests.apps.certificate.test_models import make_info
+from tests.core.mitm._qt import wait_until
 
 app = QApplication.instance() or QApplication([])
 
@@ -50,11 +54,21 @@ class CertificateInterfaceTests(unittest.TestCase):
         return values
 
     def drain(self, timeout_ms: int = 5000) -> None:
-        waited = 0
-        while self.controller.busy and waited < timeout_ms:
-            app.processEvents()
-            QThread.msleep(5)
-            waited += 5
+        self.assertTrue(
+            wait_until(lambda: not self.controller.busy, timeout_ms=timeout_ms)
+        )
+        app.processEvents()
+
+    def expand_details(self) -> None:
+        self.page.detail_card.setExpand(True)
+        self.assertTrue(
+            wait_until(
+                lambda: (
+                    self.page.detail_card.expandAni.state()
+                    == QAbstractAnimation.State.Stopped
+                )
+            )
+        )
         app.processEvents()
 
     def show(self, trust: TrustState, *, info: object | None = None) -> None:
@@ -70,12 +84,31 @@ class CertificateInterfaceTests(unittest.TestCase):
         for trust in TrustState:
             self.assertIn(trust, STATE_ICONS)
 
-    def test_export_group_offers_one_card_per_format(self) -> None:
-        self.assertEqual(len(self.page.export_cards), len(EXPORT_FORMATS))
-        self.assertEqual(
-            len(self.page.export_group.findChildren(QPushButton)),
-            len(EXPORT_FORMATS),
-        )
+    def test_export_selection_shows_the_hint_and_exports_the_chosen_format(
+        self,
+    ) -> None:
+        card = self.page.export_card
+        self.assertEqual(len(card.format_actions), len(EXPORT_FORMATS))
+        with (
+            patch(
+                "ferret.apps.certificate.views.QFileDialog.getSaveFileName",
+                return_value=("C:/chosen-cert", ""),
+            ),
+            patch.object(self.controller, "export") as export,
+        ):
+            card.button.button.click()
+            export.assert_called_once_with(EXPORT_FORMATS[0].key, "C:/chosen-cert")
+            for action, fmt in zip(card.format_actions, EXPORT_FORMATS, strict=True):
+                export.reset_mock()
+                action.trigger()
+                self.assertEqual(
+                    card.contentLabel.text(),
+                    QCoreApplication.translate("CertExportFormat", fmt.hint),
+                )
+                export.assert_called_once_with(fmt.key, "C:/chosen-cert")
+                export.reset_mock()
+                card.button.button.click()
+                export.assert_called_once_with(fmt.key, "C:/chosen-cert")
 
     def test_missing_state_hides_details_and_offers_install(self) -> None:
         self.show(TrustState.MISSING)
@@ -87,6 +120,7 @@ class CertificateInterfaceTests(unittest.TestCase):
     def test_trusted_state_fills_the_detail_grid(self) -> None:
         self.show(TrustState.TRUSTED, info=make_info())
         self.assertTrue(self.page.detail_card.isVisibleTo(self.page))
+        self.assertFalse(self.page.detail_card.isExpand)
         self.assertEqual(self.page.detail_grid.rowCount(), 10)
         self.assertFalse(self.page.install_btn.isEnabled())
         self.assertTrue(self.page.uninstall_btn.isEnabled())
@@ -115,6 +149,15 @@ class CertificateInterfaceTests(unittest.TestCase):
         self.assertFalse(self.page.install_btn.isEnabled())
         self.assertFalse(self.page.refresh_btn.isEnabled())
         self.assertFalse(self.page.regenerate_btn.isEnabled())
+        self.assertFalse(self.page.export_card.button.isEnabled())
+        self.assertFalse(self.page.export_card.button.dropButton.isEnabled())
+        self.assertTrue(
+            all(
+                not action.isEnabled()
+                for action in self.page.export_card.format_actions
+            )
+        )
+        self.assertTrue(self.page.status_title.isEnabled())
 
     def test_leaving_busy_respects_the_current_state(self) -> None:
         self.show(TrustState.TRUSTED, info=make_info())
@@ -146,14 +189,14 @@ class CertificateInterfaceTests(unittest.TestCase):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
         )
 
-    def test_action_buttons_share_one_width(self) -> None:
-        """PrimaryPushSettingCard 的按钮天生比 PushSettingCard 窄 48px，必须显式拉平。"""
+    def test_setting_row_buttons_share_one_width(self) -> None:
+        """设置行右侧操作对齐；主卡内的安装按钮独立按内容定宽。"""
         buttons = [
-            self.page.install_btn,
             self.page.uninstall_btn,
             self.page.regenerate_btn,
             self.page.open_dir_btn,
-            *[card.button for card in self.page.export_cards],
+            self.page.trusted_ca_card.button,
+            self.page.client_certs_card.button,
         ]
         self.assertEqual(len({button.minimumWidth() for button in buttons}), 1)
         self.page.show()
@@ -182,6 +225,8 @@ class CertificateInterfaceTests(unittest.TestCase):
                 self.page.refresh_btn,
                 self.page.regenerate_btn,
                 self.page.open_dir_btn,
+                self.page.export_card.button,
+                self.page.export_card.button.dropButton,
             ):
                 right = button.mapTo(self.page.viewport(), button.rect().topRight())
                 with self.subTest(width=width, button=button.text()):
@@ -189,15 +234,16 @@ class CertificateInterfaceTests(unittest.TestCase):
         self.page.hide()
 
     def test_dynamic_cards_grow_to_fit_their_content(self) -> None:
-        """ExpandLayout 从不改子控件高度，两张动态卡片必须自己算高。"""
+        """展开后的网格和设置行换行都不能被固定卡片高度裁掉。"""
         self.show(TrustState.TRUSTED, info=make_info())
         self.page.resize(700, 700)
         self.page.show()
-        app.processEvents()
+        self.drain()
+        self.expand_details()
         grid = self.page.detail_grid
+        details = self.page.detail_card.details
         self.assertGreaterEqual(
-            self.page.detail_card.height(),
-            grid.heightForWidth(self.page.detail_card.width()),
+            details.height(), grid.totalHeightForWidth(details.width())
         )
         for row in range(grid.rowCount()):
             item = grid.itemAtPosition(row, 1)
@@ -207,6 +253,38 @@ class CertificateInterfaceTests(unittest.TestCase):
                     self.assertGreaterEqual(
                         label.height(), label.heightForWidth(label.width())
                     )
+        for width in (760, 560):
+            self.page.resize(width, 700)
+            app.processEvents()
+            for card in (
+                self.page.export_card,
+                self.page.regenerate_card,
+                self.page.client_certs_card,
+                self.page.ssl_insecure_card,
+            ):
+                for label in (card.titleLabel, card.contentLabel):
+                    with self.subTest(width=width, text=label.text()):
+                        self.assertGreaterEqual(
+                            label.height(), label.heightForWidth(label.width())
+                        )
+                        self.assertLessEqual(label.geometry().bottom(), card.height())
+        self.page.hide()
+
+    def test_refresh_keeps_details_expanded_and_collapse_moves_following_groups(
+        self,
+    ) -> None:
+        self.show(TrustState.TRUSTED, info=make_info())
+        self.page.resize(760, 700)
+        self.page.show()
+        self.drain()
+        collapsed_y = self.page.trust_group.y()
+        self.expand_details()
+        self.show(TrustState.TRUSTED, info=make_info(serial_hex="ffff"))
+        self.assertTrue(self.page.detail_card.isExpand)
+        self.assertIn("ffff", self.detail_values())
+        self.assertGreater(self.page.trust_group.y(), collapsed_y)
+        self.page.detail_card.card.expandButton.click()
+        self.assertTrue(wait_until(lambda: self.page.trust_group.y() == collapsed_y))
         self.page.hide()
 
     def test_showing_the_page_triggers_a_detection(self) -> None:

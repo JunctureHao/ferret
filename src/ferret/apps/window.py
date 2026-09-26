@@ -144,6 +144,7 @@ class MainWindow(FluentWindow):
             self.certificate_interface,
             FluentIcon.CERTIFICATE,
             self.tr("证书"),
+            NavigationItemPosition.BOTTOM,
         )
 
         self.addSubInterface(

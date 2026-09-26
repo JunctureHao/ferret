@@ -490,6 +490,38 @@
     </message>
 </context>
 <context>
+    <name>CertificateDetailCard</name>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="304"/>
+        <source>证书详情</source>
+        <translation>Certificate details</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="307"/>
+        <source>展开或收起证书详情</source>
+        <translation>Expand or collapse certificate details</translation>
+    </message>
+</context>
+<context>
+    <name>CertificateExportCard</name>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="249"/>
+        <source>导出证书</source>
+        <translation>Export certificate</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="253"/>
+        <location filename="../../apps/certificate/views.py" line="254"/>
+        <source>选择格式并导出</source>
+        <translation>Choose a format and export</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="282"/>
+        <source>导出 {}</source>
+        <translation>Export {}</translation>
+    </message>
+</context>
+<context>
     <name>CertificateInfo</name>
     <message>
         <location filename="../../apps/certificate/models.py" line="116"/>
@@ -575,226 +607,209 @@
 <context>
     <name>CertificateInterface</name>
     <message>
-        <location filename="../../apps/certificate/views.py" line="247"/>
-        <location filename="../../apps/certificate/views.py" line="490"/>
+        <location filename="../../apps/certificate/views.py" line="378"/>
+        <location filename="../../apps/certificate/views.py" line="603"/>
         <source>证书</source>
         <translation>Certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="249"/>
-        <source>安装状态</source>
-        <translation>Install state</translation>
-    </message>
-    <message>
-        <location filename="../../apps/certificate/views.py" line="250"/>
-        <source>证书详情</source>
-        <translation>Certificate details</translation>
-    </message>
-    <message>
-        <location filename="../../apps/certificate/views.py" line="251"/>
-        <location filename="../../apps/certificate/views.py" line="658"/>
+        <location filename="../../apps/certificate/views.py" line="771"/>
         <source>导出证书</source>
         <translation>Export certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="252"/>
+        <location filename="../../apps/certificate/views.py" line="383"/>
         <source>上游信任</source>
         <translation>Upstream trust</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="253"/>
+        <location filename="../../apps/certificate/views.py" line="384"/>
         <source>客户端证书</source>
         <translation>Client certificates</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="254"/>
+        <location filename="../../apps/certificate/views.py" line="385"/>
         <source>维护</source>
         <translation>Maintenance</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="267"/>
-        <location filename="../../apps/certificate/views.py" line="461"/>
+        <location filename="../../apps/certificate/views.py" line="566"/>
         <source>安装证书</source>
         <translation>Install certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="269"/>
-        <source>安装到系统信任库</source>
-        <translation>Install into the system trust store</translation>
-    </message>
-    <message>
-        <location filename="../../apps/certificate/views.py" line="270"/>
-        <source>写入当前用户的「受信任的根证书颁发机构」，无需管理员权限。</source>
-        <translation>Writes to the current user&apos;s Trusted Root Certification Authorities, no administrator rights needed.</translation>
-    </message>
-    <message>
-        <location filename="../../apps/certificate/views.py" line="274"/>
+        <location filename="../../apps/certificate/views.py" line="398"/>
         <source>卸载</source>
         <translation>Uninstall</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="276"/>
+        <location filename="../../apps/certificate/views.py" line="400"/>
         <source>从系统信任库移除</source>
         <translation>Remove from the system trust store</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="277"/>
+        <location filename="../../apps/certificate/views.py" line="401"/>
         <source>连历次重新生成留下的同名旧证书一并清理。</source>
         <translation>Also clears the same-named older certificates left behind by earlier regenerations.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="287"/>
-        <source>导出</source>
-        <translation>Export</translation>
-    </message>
-    <message>
-        <location filename="../../apps/certificate/views.py" line="301"/>
-        <location filename="../../apps/certificate/views.py" line="328"/>
+        <location filename="../../apps/certificate/views.py" line="413"/>
+        <location filename="../../apps/certificate/views.py" line="440"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="303"/>
+        <location filename="../../apps/certificate/views.py" line="415"/>
         <source>信任额外的 CA 证书</source>
         <translation>Trust additional CA certificates</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="309"/>
+        <location filename="../../apps/certificate/views.py" line="421"/>
         <source>不校验上游服务器证书</source>
         <translation>Do not verify upstream server certificates</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="310"/>
+        <location filename="../../apps/certificate/views.py" line="422"/>
         <source>仅测试环境用；此时无法发现上游被中间人</source>
         <translation>For test environments only; man-in-the-middle upstreams go undetected</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="317"/>
+        <location filename="../../apps/certificate/views.py" line="429"/>
         <source>调试证书锁定（pinning）的 App 时开</source>
         <translation>Enable when debugging apps with certificate pinning</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="583"/>
+        <location filename="../../apps/certificate/views.py" line="573"/>
+        <source>{} · 有效期至 {}</source>
+        <translation>{} · Valid until {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="696"/>
         <source>未设置 · 服务器要求双向认证时握手会失败</source>
         <translation>Not set · the handshake fails when the server requires mutual authentication</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="586"/>
+        <location filename="../../apps/certificate/views.py" line="699"/>
         <source>⚠ 路径已不存在，功能未生效</source>
         <translation>⚠ The path no longer exists; the feature is inactive</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="594"/>
+        <location filename="../../apps/certificate/views.py" line="707"/>
         <source>⚠ 全局出示，且已关闭上游校验：任何中间人都能拿到这张证书</source>
         <translation>⚠ Presented globally with upstream verification disabled: any man-in-the-middle can obtain this certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="597"/>
+        <location filename="../../apps/certificate/views.py" line="710"/>
         <source>⚠ 文件不可用：{}</source>
         <translation>⚠ File unusable: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="599"/>
+        <location filename="../../apps/certificate/views.py" line="712"/>
         <source>⚠ 全局出示 · 这张证书已过期</source>
         <translation>⚠ Presented globally · this certificate has expired</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="601"/>
+        <location filename="../../apps/certificate/views.py" line="714"/>
         <source>全局出示 · 同一张证书发给所有要求客户端证书的服务器</source>
         <translation>Presented globally · the same certificate is sent to every server that requests a client certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="603"/>
+        <location filename="../../apps/certificate/views.py" line="716"/>
         <source>⚠ 目录里没有 &lt;主机名&gt;.pem，不会出示任何证书</source>
         <translation>⚠ No &lt;hostname&gt;.pem in the folder; no certificate will be presented</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="606"/>
+        <location filename="../../apps/certificate/views.py" line="719"/>
         <source>按主机匹配 · {} 张主机证书；⚠ 另有 {} 个文件不可用</source>
         <translation>Matched by hostname · {} host certificates; ⚠ {} more file(s) unusable</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="611"/>
+        <location filename="../../apps/certificate/views.py" line="724"/>
         <source>按主机匹配 · {} 张主机证书；⚠ 其中 {} 张已过期</source>
         <translation>Matched by hostname · {} host certificates; ⚠ {} of them expired</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="616"/>
+        <location filename="../../apps/certificate/views.py" line="729"/>
         <source>按主机匹配 · 目录下 {} 张主机证书</source>
         <translation>Matched by hostname · {} host certificate(s) in the folder</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="639"/>
+        <location filename="../../apps/certificate/views.py" line="752"/>
         <source>客户端证书未生效</source>
         <translation>Client certificate not applied</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="316"/>
+        <location filename="../../apps/certificate/views.py" line="428"/>
         <source>向客户端拼接上游真实证书链</source>
         <translation>Append the real upstream certificate chain to clients</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="330"/>
+        <location filename="../../apps/certificate/views.py" line="381"/>
+        <source>本机 CA 证书</source>
+        <translation>Local CA certificate</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="442"/>
         <source>向服务器出示的客户端证书</source>
         <translation>Client certificate presented to servers</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="337"/>
+        <location filename="../../apps/certificate/views.py" line="449"/>
         <source>重新生成</source>
         <translation>Regenerate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="339"/>
+        <location filename="../../apps/certificate/views.py" line="451"/>
         <source>重新生成 CA 证书</source>
         <translation>Regenerate the CA certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="340"/>
+        <location filename="../../apps/certificate/views.py" line="452"/>
         <source>生成新的私钥与证书，所有已导入旧证书的设备都要重新导入。</source>
         <translation>Generates a new private key and certificate. Every device that imported the old one has to import it again.</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="344"/>
+        <location filename="../../apps/certificate/views.py" line="456"/>
         <source>打开目录</source>
         <translation>Open folder</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="346"/>
+        <location filename="../../apps/certificate/views.py" line="458"/>
         <source>证书目录</source>
         <translation>Certificate folder</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="461"/>
+        <location filename="../../apps/certificate/views.py" line="566"/>
         <source>重新安装</source>
         <translation>Reinstall</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="509"/>
+        <location filename="../../apps/certificate/views.py" line="622"/>
         <source>未设置 · 仅校验公共根证书（certifi）</source>
         <translation>Not set · only public root certificates are verified (certifi)</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="511"/>
+        <location filename="../../apps/certificate/views.py" line="624"/>
         <source>⚠ {} 个文件已失效，已回退公共根证书</source>
         <translation>⚠ {} file(s) are invalid, fell back to public root certificates</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="517"/>
+        <location filename="../../apps/certificate/views.py" line="630"/>
         <source>已信任 {} 个文件 · 已因「不校验上游」而失效</source>
         <translation>{} file(s) trusted · disabled because &quot;do not verify upstream&quot; is on</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="522"/>
+        <location filename="../../apps/certificate/views.py" line="635"/>
         <source>已信任 {} 个文件 · 共 {} 张根证书；⚠ 另有 {} 个文件已失效</source>
         <translation>{} file(s) trusted · {} root certificate(s) in total; ⚠ {} more file(s) are invalid</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="525"/>
+        <location filename="../../apps/certificate/views.py" line="638"/>
         <source>已信任 {} 个文件 · 共 {} 张根证书</source>
         <translation>{} file(s) trusted · {} root certificate(s) in total</translation>
     </message>
     <message>
-        <location filename="../../apps/certificate/views.py" line="566"/>
+        <location filename="../../apps/certificate/views.py" line="679"/>
         <source>上游信任设置未生效</source>
         <translation>Upstream trust settings not applied</translation>
     </message>
@@ -978,9 +993,20 @@
 <context>
     <name>CertificateStatusCard</name>
     <message>
-        <location filename="../../apps/certificate/views.py" line="148"/>
+        <location filename="../../apps/certificate/views.py" line="191"/>
+        <location filename="../../apps/certificate/views.py" line="192"/>
         <source>重新检测</source>
         <translation>Re-check</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="195"/>
+        <source>安装证书</source>
+        <translation>Install certificate</translation>
+    </message>
+    <message>
+        <location filename="../../apps/certificate/views.py" line="198"/>
+        <source>仅为当前用户安装，无需管理员权限</source>
+        <translation>Installs for the current user. No administrator rights needed.</translation>
     </message>
 </context>
 <context>
@@ -3951,17 +3977,17 @@
         <translation>Certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="152"/>
+        <location filename="../../apps/window.py" line="153"/>
         <source>设置</source>
         <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="191"/>
+        <location filename="../../apps/window.py" line="192"/>
         <source>断点拦下 {} 条流量，等待处理</source>
         <translation>Intercepted {} flow(s), waiting to be handled</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="206"/>
+        <location filename="../../apps/window.py" line="207"/>
         <source>在 Compose 中编辑失败</source>
         <translation>Edit in Compose failed</translation>
     </message>
@@ -4271,195 +4297,195 @@
 <context>
     <name>MockInterface</name>
     <message>
-        <location filename="../../apps/mock/views.py" line="114"/>
-        <location filename="../../apps/mock/views.py" line="163"/>
+        <location filename="../../apps/mock/views.py" line="115"/>
+        <location filename="../../apps/mock/views.py" line="164"/>
         <source>从 Flow 文件导入</source>
         <translation>Import from Flow file</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="117"/>
+        <location filename="../../apps/mock/views.py" line="118"/>
         <source>搜索响应池</source>
         <translation>Search the pool</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="121"/>
-        <location filename="../../apps/mock/views.py" line="352"/>
+        <location filename="../../apps/mock/views.py" line="122"/>
+        <location filename="../../apps/mock/views.py" line="375"/>
         <source>{} 条</source>
         <translation>{} flow(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="126"/>
+        <location filename="../../apps/mock/views.py" line="127"/>
         <source>删除选中项</source>
         <translation>Delete selected</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="132"/>
+        <location filename="../../apps/mock/views.py" line="133"/>
         <source>更多操作</source>
         <translation>More actions</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="135"/>
+        <location filename="../../apps/mock/views.py" line="136"/>
         <source>已启用</source>
         <translation>On</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="136"/>
+        <location filename="../../apps/mock/views.py" line="137"/>
         <source>已停用</source>
         <translation>Off</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="138"/>
+        <location filename="../../apps/mock/views.py" line="139"/>
         <source>关闭后所有请求照常直连；开启即用池里的响应顶上</source>
         <translation>When off, all requests pass through; when on, matching requests are answered from the pool</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="155"/>
+        <location filename="../../apps/mock/views.py" line="156"/>
         <source>Mock 响应池是空的</source>
         <translation>The Mock response pool is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="158"/>
+        <location filename="../../apps/mock/views.py" line="159"/>
         <source>在捕获页右键流量选择「加入 Mock 响应」，或从 Flow 文件导入；开启总开关后，匹配到的请求将直接用录好的响应顶回</source>
         <translation>Right-click a capture and choose &quot;Add to Mock&quot;, or import from a Flow file. With the master switch on, matching requests are answered with the recorded responses</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="187"/>
+        <location filename="../../apps/mock/views.py" line="188"/>
         <source>匹配设置</source>
         <translation>Matching settings</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="203"/>
+        <location filename="../../apps/mock/views.py" line="214"/>
         <source>未命中策略</source>
         <translation>Unmatched strategy</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="204"/>
+        <location filename="../../apps/mock/views.py" line="215"/>
         <source>请求没匹配到任何 Mock 响应时的处理</source>
         <translation>What to do when a request matches no Mock response</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="210"/>
+        <location filename="../../apps/mock/views.py" line="221"/>
         <source>可重复使用</source>
         <translation>Reusable responses</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="211"/>
+        <location filename="../../apps/mock/views.py" line="222"/>
         <source>关闭后每条 Mock 响应只回一次，池耗尽后未命中策略生效</source>
         <translation>When off, each Mock response is served once; once the pool drains, the unmatched strategy applies</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="217"/>
+        <location filename="../../apps/mock/views.py" line="228"/>
         <source>刷新日期头</source>
         <translation>Refresh date headers</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="218"/>
+        <location filename="../../apps/mock/views.py" line="229"/>
         <source>命中后更新 Date/Expires/Last-Modified 与 Cookie 过期时间</source>
         <translation>Update Date/Expires/Last-Modified and cookie expiry on served responses</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="224"/>
-        <location filename="../../apps/mock/views.py" line="314"/>
+        <location filename="../../apps/mock/views.py" line="235"/>
+        <location filename="../../apps/mock/views.py" line="329"/>
         <source>忽略主机</source>
         <translation>Ignore host</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="225"/>
+        <location filename="../../apps/mock/views.py" line="236"/>
         <source>匹配时不比对请求的主机名</source>
         <translation>Do not compare the request host when matching</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="230"/>
-        <location filename="../../apps/mock/views.py" line="236"/>
+        <location filename="../../apps/mock/views.py" line="241"/>
+        <location filename="../../apps/mock/views.py" line="247"/>
         <source>配置…</source>
         <translation>Configure…</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="232"/>
-        <location filename="../../apps/mock/views.py" line="417"/>
+        <location filename="../../apps/mock/views.py" line="243"/>
+        <location filename="../../apps/mock/views.py" line="440"/>
         <source>忽略 Query 参数</source>
         <translation>Ignored query params</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="238"/>
-        <location filename="../../apps/mock/views.py" line="425"/>
+        <location filename="../../apps/mock/views.py" line="249"/>
+        <location filename="../../apps/mock/views.py" line="448"/>
         <source>匹配指定请求头</source>
         <translation>Match specific headers</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="311"/>
+        <location filename="../../apps/mock/views.py" line="326"/>
         <source>可重复</source>
         <translation>Reusable</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="311"/>
+        <location filename="../../apps/mock/views.py" line="326"/>
         <source>单次消耗</source>
         <translation>Single use</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="318"/>
+        <location filename="../../apps/mock/views.py" line="333"/>
         <source>忽略参数 {} 项</source>
         <translation>{} params ignored</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="322"/>
+        <location filename="../../apps/mock/views.py" line="337"/>
         <source>比对请求头 {} 项</source>
         <translation>{} headers matched</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="329"/>
-        <location filename="../../apps/mock/views.py" line="332"/>
+        <location filename="../../apps/mock/views.py" line="344"/>
+        <location filename="../../apps/mock/views.py" line="347"/>
         <source>未配置</source>
         <translation>Not configured</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="363"/>
+        <location filename="../../apps/mock/views.py" line="386"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="374"/>
+        <location filename="../../apps/mock/views.py" line="397"/>
         <source>选择 Flow 文件导入</source>
         <translation>Select a Flow file to import</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="376"/>
-        <location filename="../../apps/mock/views.py" line="408"/>
+        <location filename="../../apps/mock/views.py" line="399"/>
+        <location filename="../../apps/mock/views.py" line="431"/>
         <source>Flow 文件 (*.flow)</source>
         <translation>Flow files (*.flow)</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="391"/>
+        <location filename="../../apps/mock/views.py" line="414"/>
         <source>导出池为 Flow 文件…</source>
         <translation>Export pool as Flow file…</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="394"/>
+        <location filename="../../apps/mock/views.py" line="417"/>
         <source>清空全部</source>
         <translation>Clear all</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="406"/>
+        <location filename="../../apps/mock/views.py" line="429"/>
         <source>导出 Mock 响应池</source>
         <translation>Export Mock pool</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="418"/>
+        <location filename="../../apps/mock/views.py" line="441"/>
         <source>每行一个参数名，匹配时不比对这些参数的取值</source>
         <translation>One param name per line; their values are ignored when matching</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="426"/>
+        <location filename="../../apps/mock/views.py" line="449"/>
         <source>每行一个请求头名，匹配时额外比对这些头的取值</source>
         <translation>One header name per line; their values are additionally compared when matching</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="446"/>
+        <location filename="../../apps/mock/views.py" line="469"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="448"/>
+        <location filename="../../apps/mock/views.py" line="471"/>
         <source>删除 {} 条</source>
         <translation>Delete {} flow(s)</translation>
     </message>
@@ -4490,32 +4516,32 @@
 <context>
     <name>MockView</name>
     <message>
-        <location filename="../../apps/mock/views.py" line="49"/>
+        <location filename="../../apps/mock/views.py" line="50"/>
         <source>直连放行</source>
         <translation>Pass through</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="50"/>
+        <location filename="../../apps/mock/views.py" line="51"/>
         <source>断开连接</source>
         <translation>Kill connection</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="51"/>
+        <location filename="../../apps/mock/views.py" line="52"/>
         <source>返回 204</source>
         <translation>Return 204</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="52"/>
+        <location filename="../../apps/mock/views.py" line="53"/>
         <source>返回 400</source>
         <translation>Return 400</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="53"/>
+        <location filename="../../apps/mock/views.py" line="54"/>
         <source>返回 404</source>
         <translation>Return 404</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="54"/>
+        <location filename="../../apps/mock/views.py" line="55"/>
         <source>返回 500</source>
         <translation>Return 500</translation>
     </message>
@@ -4726,13 +4752,13 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>PinButton</name>
     <message>
-        <location filename="../../apps/window.py" line="297"/>
-        <location filename="../../apps/window.py" line="323"/>
+        <location filename="../../apps/window.py" line="298"/>
+        <location filename="../../apps/window.py" line="324"/>
         <source>置顶</source>
         <translation>Pin window</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="320"/>
+        <location filename="../../apps/window.py" line="321"/>
         <source>取消置顶</source>
         <translation>Unpin window</translation>
     </message>
@@ -6503,7 +6529,7 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>SystemTray</name>
     <message>
-        <location filename="../../apps/window.py" line="268"/>
+        <location filename="../../apps/window.py" line="269"/>
         <source>退出</source>
         <translation>Quit</translation>
     </message>

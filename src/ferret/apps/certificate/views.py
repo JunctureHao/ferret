@@ -1,13 +1,13 @@
-"""证书页：状态 / 详情 / 导出 / 上游信任 / 客户端证书 / 维护六组卡片。
+"""证书页：本机 CA 概览与常用操作在前，上游 TLS 与维护在后。
 
-版式照抄 `apps/settings/views.py`——同一套 ScrollArea 骨架、悬浮标题、36px 边距、
-SettingCard 家族的卡片，两页看着才像同一个软件里的两页。有三处细节非照抄不可：
+安装放在状态主卡内，分割按钮选择格式并导出，技术详情默认折叠；卸载留在维护区。
+沿用设置页的 ScrollArea 骨架、悬浮标题、36px 边距与 SettingCard。布局有三处约束：
 
 - `enableTransparentBackground()` **必须在 `setWidget()` 之后**调。它内部是
   `if self.widget(): self.widget().setStyleSheet(...)`，提前调等于没调，
   深色主题下内层 QWidget 会留着浅色底。
 - 卡片装在 `ExpandLayout` 里，而它只按 `w.height()` 摆位、从不改高度，
-  所以高度随内容变的卡片得自己 `setFixedHeight`（两个 `_sync_height`）。
+  所以换行和展开时必须同步卡片及分组高度。
 - 长文本标签一律 `_shrinkable`：QLabel 拿整段文字的宽度当最小宽度，横向滚动条
   又是关掉的，一个 SHA-256 指纹就能把整页顶到 1500px 宽、把右侧按钮挤出视口。
 
@@ -15,32 +15,43 @@ SettingCard 家族的卡片，两页看着才像同一个软件里的两页。�
 所以切到本页、点安装、重新生成都不会卡住 UI。
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, Qt, QUrl, Slot
+from PySide6.QtCore import QCoreApplication, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     CaptionLabel,
     ExpandLayout,
+    ExpandSettingCard,
     FluentIcon,
+    IconWidget,
     IndeterminateProgressRing,
-    PrimaryPushSettingCard,
+    InfoBarIcon,
+    PrimaryPushButton,
     PushSettingCard,
+    RoundMenu,
     ScrollArea,
     SettingCard,
     SettingCardGroup,
     SimpleCardWidget,
     SmoothMode,
+    SplitPushButton,
+    SubtitleLabel,
     SwitchSettingCard,
     TitleLabel,
     TransparentToolButton,
@@ -52,7 +63,7 @@ from ferret.apps.certificate.dialogs import (
     RegenerateCertDialog,
     TrustedCaDialog,
 )
-from ferret.apps.certificate.models import CertificateState, info_rows
+from ferret.apps.certificate.models import CertificateState, format_time, info_rows
 from ferret.apps.common.info_bar import show_error, show_success, show_warning
 from ferret.core.mitm import (
     EXPORT_FORMATS,
@@ -67,12 +78,12 @@ from ferret.core.settings import CONFIG
 # 两种主题下都读得清，故不做主题分叉。空串 = 交回 qss 管（普通档）。
 _WARN_STYLE = "color: #c07000;"
 
-STATE_ICONS: dict[TrustState, FluentIcon] = {
-    TrustState.MISSING: FluentIcon.INFO,
-    TrustState.ABSENT: FluentIcon.CANCEL_MEDIUM,
-    TrustState.TRUSTED: FluentIcon.ACCEPT_MEDIUM,
-    TrustState.STALE: FluentIcon.UPDATE,
-    TrustState.UNAVAILABLE: FluentIcon.HELP,
+STATE_ICONS: dict[TrustState, InfoBarIcon] = {
+    TrustState.MISSING: InfoBarIcon.INFORMATION,
+    TrustState.ABSENT: InfoBarIcon.INFORMATION,
+    TrustState.TRUSTED: InfoBarIcon.SUCCESS,
+    TrustState.STALE: InfoBarIcon.WARNING,
+    TrustState.UNAVAILABLE: InfoBarIcon.WARNING,
 }
 
 
@@ -87,17 +98,7 @@ def _shrinkable(label: QLabel) -> QLabel:
 
 
 def _unify_button_widths(buttons: Sequence[QPushButton]) -> None:
-    """把一页里的动作按钮拉成同一个宽度。
-
-    不拉平的话同页按钮宽度是乱的，两处叠加所致（均已实测）：
-    QPushButton 的 sizeHint 随字数走（每个汉字 +14px，「卸载」54 / 「安装证书」82），
-    而 `PrimaryPushSettingCard` 又把按钮 objectName 设成 `primaryButton`，
-    命中 setting_card.qss 里另一套规则，同样文字比 `PushSettingCard` 的按钮窄 48px
-    （「安装证书」82 : 130）——所以「安装证书」比字更少的「卸载」还窄。
-
-    取最大 sizeHint 当下限而不是 setFixedWidth：按钮列的左右两边都能对齐，
-    以后文字变长也只是整列一起变宽，不会截字。
-    """
+    """设置行右侧按钮对齐；主卡的主操作独立按内容定宽。"""
     width = max(button.sizeHint().width() for button in buttons)
     for button in buttons:
         button.setMinimumWidth(width)
@@ -113,31 +114,73 @@ def _resize_card(card: QWidget, height: int) -> None:
     if card.height() == height:
         return
     card.setFixedHeight(height)
+    if layout := card.layout():
+        layout.setGeometry(card.rect())
     group = card.parent()
     if isinstance(group, SettingCardGroup):
         group.adjustSize()
 
 
-class CertificateStatusCard(SettingCard):
-    """安装状态卡：图标 + 状态标题 + 说明 + 重新检测按钮。
+def _prepare_setting_card(card: SettingCard) -> None:
+    """放开文字列的宽高约束，让长译文和警示完整换行。"""
+    for label in (card.titleLabel, card.contentLabel):
+        _shrinkable(label).setWordWrap(True)
+        card.vBoxLayout.setAlignment(label, Qt.AlignmentFlag(0))
+    card.vBoxLayout.setAlignment(Qt.AlignmentFlag(0))
+    card.hBoxLayout.setAlignment(Qt.AlignmentFlag(0))
+    card.hBoxLayout.setContentsMargins(16, 12, 0, 12)
+    for index in range(card.hBoxLayout.count()):
+        card.hBoxLayout.setStretch(index, 0)
+    card.hBoxLayout.setStretchFactor(card.vBoxLayout, 1)
+    card.vBoxLayout.setSpacing(4)
 
-    骨架直接用 SettingCard，和设置页的卡片同宽同高同边距；只把说明文字放开换行，
-    因为五种状态里最长的一句有四十多个字，一行放不下。
-    """
+
+def _fit_setting_card(card: SettingCard) -> None:
+    card.hBoxLayout.invalidate()
+    height = card.hBoxLayout.totalHeightForWidth(card.width())
+    _resize_card(card, max(76, height))
+
+
+class CertificateActionCard(PushSettingCard):
+    """带动作按钮的可换行设置行。"""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        _prepare_setting_card(self)
+
+    def setContent(self, content: str) -> None:
+        super().setContent(content)
+        _fit_setting_card(self)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        _fit_setting_card(self)
+
+
+class CertificateSwitchCard(SwitchSettingCard):
+    """带开关的可换行设置行。"""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        _prepare_setting_card(self)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        _fit_setting_card(self)
+
+
+class CertificateStatusCard(SimpleCardWidget):
+    """本机 CA 主卡：状态和下一步操作放在一起，刷新作为次要操作。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(FluentIcon.CERTIFICATE, "", " ", parent)
-        self.contentLabel.setWordWrap(True)
-        _shrinkable(self.titleLabel)
-        _shrinkable(self.contentLabel)
-        # 换行文字要真正用上整行宽度，得拆掉 SettingCard 的两处默认约定：
-        # 1) 末尾那个 addStretch(1)（此刻正是最后一项）会和文字列平分富余宽度，
-        #    因子清零后富余宽度全归文字列；
-        # 2) contentLabel 是带 AlignLeft 加进去的，带水平对齐的项不会被拉开，
-        #    只拿 sizeHint——而 wordWrap 的 sizeHint 是个又窄又高的启发值。
-        self.hBoxLayout.setStretch(self.hBoxLayout.count() - 1, 0)
-        self.hBoxLayout.setStretchFactor(self.vBoxLayout, 1)
-        self.vBoxLayout.setAlignment(self.contentLabel, Qt.AlignmentFlag(0))
+        super().__init__(parent)
+        self.setBorderRadius(6)
+        self.iconLabel = IconWidget(FluentIcon.CERTIFICATE, self)
+        self.iconLabel.setFixedSize(40, 40)
+        self.titleLabel = SubtitleLabel(self)
+        self.contentLabel = BodyLabel(self)
+        for label in (self.titleLabel, self.contentLabel):
+            _shrinkable(label).setWordWrap(True)
 
         self.busy_ring = IndeterminateProgressRing(self, start=False)
         self.busy_ring.setFixedSize(18, 18)
@@ -146,16 +189,42 @@ class CertificateStatusCard(SettingCard):
 
         self.refresh_btn = TransparentToolButton(FluentIcon.SYNC, self)
         self.refresh_btn.setToolTip(self.tr("重新检测"))
+        self.refresh_btn.setAccessibleName(self.tr("重新检测"))
+        self.refresh_btn.setFixedSize(32, 32)
+        self.install_btn = PrimaryPushButton(
+            FluentIcon.ADD_TO, self.tr("安装证书"), self
+        )
+        self.install_hint = CaptionLabel(
+            self.tr("仅为当前用户安装，无需管理员权限"), self
+        )
+        _shrinkable(self.install_hint).setWordWrap(True)
 
-        self.hBoxLayout.addWidget(self.busy_ring, 0, Qt.AlignmentFlag.AlignRight)
-        self.hBoxLayout.addSpacing(12)
-        self.hBoxLayout.addWidget(self.refresh_btn, 0, Qt.AlignmentFlag.AlignRight)
-        self.hBoxLayout.addSpacing(16)
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(24, 24, 24, 24)
+        self.grid.setHorizontalSpacing(20)
+        self.grid.setVerticalSpacing(16)
+        self.grid.setColumnStretch(1, 1)
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(6)
+        text_layout.addWidget(self.titleLabel)
+        text_layout.addWidget(self.contentLabel)
+        tools_layout = QHBoxLayout()
+        tools_layout.setSpacing(8)
+        tools_layout.addWidget(self.busy_ring)
+        tools_layout.addWidget(self.refresh_btn)
+        actions_layout = QVBoxLayout()
+        actions_layout.setSpacing(8)
+        actions_layout.addWidget(self.install_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        actions_layout.addWidget(self.install_hint)
+        self.grid.addWidget(self.iconLabel, 0, 0, Qt.AlignmentFlag.AlignTop)
+        self.grid.addLayout(text_layout, 0, 1)
+        self.grid.addLayout(tools_layout, 0, 2, Qt.AlignmentFlag.AlignTop)
+        self.grid.addLayout(actions_layout, 1, 1, 1, 2)
 
-    def set_status(self, icon: FluentIcon, title: str, detail: str) -> None:
+    def set_status(self, icon: InfoBarIcon, title: str, detail: str) -> None:
         self.iconLabel.setIcon(icon)
-        self.setTitle(title)
-        self.setContent(detail)
+        self.titleLabel.setText(title)
+        self.contentLabel.setText(detail)
         self._sync_height()
 
     def set_busy(self, busy: bool) -> None:
@@ -167,30 +236,83 @@ class CertificateStatusCard(SettingCard):
         self._sync_height()
 
     def _sync_height(self) -> None:
-        # 说明文字换行时按「多出几行」加高：一行的常见情形仍是 70px，
-        # 和 install/uninstall 卡片齐平，不会看出这张是特制的。
-        self.hBoxLayout.activate()  # 先定下 contentLabel 的实际可用宽度
-        line = self.contentLabel.fontMetrics().height()
-        width = self.contentLabel.width()
-        wrapped = self.contentLabel.heightForWidth(width) if width > 1 else line
-        _resize_card(self, 70 + max(0, wrapped - line))
+        minimum = 120 if self.install_btn.isHidden() else 176
+        _resize_card(self, max(minimum, self.grid.totalHeightForWidth(self.width())))
 
 
-class CertificateDetailCard(SimpleCardWidget):
-    """证书详情卡：字段名 / 值两列。
+class CertificateExportCard(SettingCard):
+    """主按钮导出当前格式；菜单选择另一格式后直接导出，并记作下次默认值。"""
 
-    用 SimpleCardWidget 而不是 SettingCard——两者的底色、描边、圆角画法一模一样
-    （见各自的 `paintEvent`），但详情是十行动态内容，套不进 SettingCard
-    「图标 + 标题 + 右侧控件」的固定骨架。
-    """
+    export_requested = Signal(object)  # CertExportFormat
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setBorderRadius(6)
-        self.grid = QGridLayout(self)
-        self.grid.setContentsMargins(16, 16, 16, 16)
+        super().__init__(FluentIcon.SHARE, self.tr("导出证书"), " ", parent)
+        _prepare_setting_card(self)
+        self.selected_format = EXPORT_FORMATS[0]
+        self.button = SplitPushButton(self)
+        self.button.dropButton.setToolTip(self.tr("选择格式并导出"))
+        self.button.dropButton.setAccessibleName(self.tr("选择格式并导出"))
+        self.format_menu = RoundMenu(parent=self.button)
+        self.format_actions: list[Action] = []
+        for fmt in EXPORT_FORMATS:
+            action = Action(
+                FluentIcon.DOCUMENT,
+                QCoreApplication.translate("CertExportFormat", fmt.label),
+                self.format_menu,
+            )
+            action.setToolTip(QCoreApplication.translate("CertExportFormat", fmt.hint))
+            action.triggered.connect(partial(self._select_and_export, fmt))
+            self.format_actions.append(action)
+            self.format_menu.addAction(action)
+        self.button.setFlyout(self.format_menu)
+        self.button.clicked.connect(self._export_current)
+        self.hBoxLayout.addWidget(self.button)
+        self.hBoxLayout.addSpacing(16)
+        self._update_format()
+
+    def _export_current(self) -> None:
+        self.export_requested.emit(self.selected_format)
+
+    def _select_and_export(self, fmt: CertExportFormat) -> None:
+        self.selected_format = fmt
+        self._update_format()
+        self._export_current()
+
+    def _update_format(self) -> None:
+        self.button.setText(self.tr("导出 {}").format(self.selected_format.key.upper()))
+        self.setContent(
+            QCoreApplication.translate("CertExportFormat", self.selected_format.hint)
+        )
+        _fit_setting_card(self)
+
+    def set_busy(self, busy: bool) -> None:
+        self.setEnabled(not busy)
+        for action in self.format_actions:
+            action.setEnabled(not busy)
+        if busy:
+            self.format_menu.close()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        _fit_setting_card(self)
+
+
+class CertificateDetailCard(ExpandSettingCard):
+    """默认收起的证书属性；展开后仍可选择复制指纹、序列号和路径。"""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(FluentIcon.DOCUMENT, self.tr("证书详情"), " ", parent)
+        _shrinkable(self.card.titleLabel)
+        _shrinkable(self.card.contentLabel)
+        self.card.expandButton.setAccessibleName(self.tr("展开或收起证书详情"))
+        self.card.expandButton.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.details = QWidget(self.view)
+        self.viewLayout.setContentsMargins(24, 16, 24, 20)
+        self.viewLayout.addWidget(self.details)
+        self.grid = QGridLayout(self.details)
+        self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setHorizontalSpacing(24)
-        self.grid.setVerticalSpacing(10)
+        self.grid.setVerticalSpacing(12)
         self.grid.setColumnStretch(1, 1)
 
     def set_rows(self, rows: list[tuple[str, str]]) -> None:
@@ -202,8 +324,8 @@ class CertificateDetailCard(SimpleCardWidget):
                 widget.setParent(None)
                 widget.deleteLater()
         for row, (label, value) in enumerate(rows):
-            name = CaptionLabel(label, self)
-            content = BodyLabel(value, self)
+            name = CaptionLabel(label, self.details)
+            content = BodyLabel(value, self.details)
             content.setWordWrap(True)
             # 指纹和序列号常要拿去跟系统里的证书对照，允许直接选中复制。
             content.setTextInteractionFlags(
@@ -218,15 +340,24 @@ class CertificateDetailCard(SimpleCardWidget):
             content.show()
         self._sync_height()
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._sync_height()
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        # 高度变化来自展开动画；只有宽度变化才需要重新计算网格换行。
+        if e.size().width() != e.oldSize().width():
+            self._sync_height()
 
     def _sync_height(self) -> None:
-        height = self.grid.heightForWidth(self.width())
+        if not hasattr(self, "details"):
+            return  # 基类构造时会先设置折叠高度。
+        margins = self.viewLayout.contentsMargins()
+        width = max(1, self.width() - margins.left() - margins.right())
+        height = self.grid.totalHeightForWidth(width)
         if height <= 0:  # 没有能换行的子控件时 heightForWidth 返回 -1
             height = self.grid.sizeHint().height()
-        _resize_card(self, max(height, 1))
+        self.details.setFixedHeight(max(height, 1))
+        self._adjustViewSize()
+        if isinstance(group := self.parent(), SettingCardGroup):
+            group.adjustSize()
 
 
 class CertificateInterface(ScrollArea):
@@ -246,9 +377,9 @@ class CertificateInterface(ScrollArea):
         self.expand_layout = ExpandLayout(self.scroll_widget)
         self.certificate_label = TitleLabel(self.tr("证书"), self)
 
-        self.status_group = SettingCardGroup(self.tr("安装状态"), self.scroll_widget)
-        self.detail_group = SettingCardGroup(self.tr("证书详情"), self.scroll_widget)
-        self.export_group = SettingCardGroup(self.tr("导出证书"), self.scroll_widget)
+        self.status_group = SettingCardGroup(
+            self.tr("本机 CA 证书"), self.scroll_widget
+        )
         self.trust_group = SettingCardGroup(self.tr("上游信任"), self.scroll_widget)
         self.mtls_group = SettingCardGroup(self.tr("客户端证书"), self.scroll_widget)
         self.maintain_group = SettingCardGroup(self.tr("维护"), self.scroll_widget)
@@ -263,55 +394,36 @@ class CertificateInterface(ScrollArea):
 
     def __init_cards(self) -> None:
         self.status_card = CertificateStatusCard(self.status_group)
-        self.install_card = PrimaryPushSettingCard(
-            self.tr("安装证书"),
-            FluentIcon.ADD_TO,
-            self.tr("安装到系统信任库"),
-            self.tr("写入当前用户的「受信任的根证书颁发机构」，无需管理员权限。"),
-            self.status_group,
-        )
-        self.uninstall_card = PushSettingCard(
+        self.uninstall_card = CertificateActionCard(
             self.tr("卸载"),
             FluentIcon.DELETE,
             self.tr("从系统信任库移除"),
             self.tr("连历次重新生成留下的同名旧证书一并清理。"),
-            self.status_group,
+            self.maintain_group,
         )
 
-        self.detail_card = CertificateDetailCard(self.detail_group)
-
-        # `EXPORT_FORMATS` 是模块级常量，里面存的是标记而不是成品文案 ——
-        # 求值必须推到这里（详见 `core/mitm/certificate.py`）。
-        self.export_cards: list[PushSettingCard] = [
-            PushSettingCard(
-                self.tr("导出"),
-                FluentIcon.DOCUMENT,
-                QCoreApplication.translate("CertExportFormat", fmt.label),
-                QCoreApplication.translate("CertExportFormat", fmt.hint),
-                self.export_group,
-            )
-            for fmt in EXPORT_FORMATS
-        ]
+        self.detail_card = CertificateDetailCard(self.status_group)
+        self.export_card = CertificateExportCard(self.status_group)
 
         # 上游信任（.plans/upstream-tls.md §5）：本页讲的是「谁信任谁」，
         # 上半页是「让别人信任 Ferret」，这一组是「让 Ferret 信任别人」。
         # 卡 1 是「查看 + 编辑」入口，content 动态反映当前状态（见
         # `_refresh_trusted_ca_content`）；两个开关绑 configItem 自动落盘。
-        self.trusted_ca_card = PushSettingCard(
+        self.trusted_ca_card = CertificateActionCard(
             self.tr("编辑"),
             FluentIcon.FINGERPRINT,
             self.tr("信任额外的 CA 证书"),
             " ",  # 真正的文案由 _refresh_trusted_ca_content 填
             self.trust_group,
         )
-        self.ssl_insecure_card = SwitchSettingCard(
+        self.ssl_insecure_card = CertificateSwitchCard(
             FluentIcon.HIDE,
             self.tr("不校验上游服务器证书"),
             self.tr("仅测试环境用；此时无法发现上游被中间人"),
             configItem=CONFIG.ssl_insecure,
             parent=self.trust_group,
         )
-        self.upstream_chain_card = SwitchSettingCard(
+        self.upstream_chain_card = CertificateSwitchCard(
             FluentIcon.LINK,
             self.tr("向客户端拼接上游真实证书链"),
             self.tr("调试证书锁定（pinning）的 App 时开"),
@@ -324,7 +436,7 @@ class CertificateInterface(ScrollArea):
         # 服务器」，这一组解决反向的「服务器不信 Ferret」。一张卡就够 —— 原生
         # `client_certs` 只有一个路径参数，形态由它指向文件还是目录决定，没有可拆的
         # 独立开关；content 动态反映盘点结果（见 `_refresh_client_certs_content`）。
-        self.client_certs_card = PushSettingCard(
+        self.client_certs_card = CertificateActionCard(
             self.tr("编辑"),
             FluentIcon.CERTIFICATE,
             self.tr("向服务器出示的客户端证书"),
@@ -333,14 +445,14 @@ class CertificateInterface(ScrollArea):
         )
         self._refresh_client_certs_content()
 
-        self.regenerate_card = PushSettingCard(
+        self.regenerate_card = CertificateActionCard(
             self.tr("重新生成"),
             FluentIcon.UPDATE,
             self.tr("重新生成 CA 证书"),
             self.tr("生成新的私钥与证书，所有已导入旧证书的设备都要重新导入。"),
             self.maintain_group,
         )
-        self.open_dir_card = PushSettingCard(
+        self.open_dir_card = CertificateActionCard(
             self.tr("打开目录"),
             FluentIcon.FOLDER,
             self.tr("证书目录"),
@@ -350,26 +462,17 @@ class CertificateInterface(ScrollArea):
         self.open_dir_card.setToolTip(str(self.controller.certs_dir))
 
         action_cards = (
-            self.install_card,
             self.uninstall_card,
             self.trusted_ca_card,
             self.client_certs_card,
             self.regenerate_card,
             self.open_dir_card,
-            *self.export_cards,
         )
-        # 标题和说明的 minimumSizeHint 都会顺着布局一路顶宽，把右侧按钮挤出视口，
-        # 所以两者都放开压缩——挤不下时宁可截字，也不能吃掉按钮。标题也得算进来：
-        # 英文译文比中文源长一截（「安装到系统信任库」98px vs 490px），只压说明
-        # 的话窄视口下按钮照样出界。
-        for card in action_cards:
-            _shrinkable(card.titleLabel)
-            _shrinkable(card.contentLabel)
         # 按钮列上下对齐：各组卡片右侧的按钮共用一个宽度。
         _unify_button_widths([card.button for card in action_cards])
 
         # 老名字保留：外部（含用例）按控件说事，不必知道卡片是怎么拆的。
-        self.install_btn = self.install_card.button
+        self.install_btn = self.status_card.install_btn
         self.uninstall_btn = self.uninstall_card.button
         self.regenerate_btn = self.regenerate_card.button
         self.open_dir_btn = self.open_dir_card.button
@@ -396,23 +499,19 @@ class CertificateInterface(ScrollArea):
 
     def __init_layout(self) -> None:
         self.status_group.addSettingCard(self.status_card)
-        self.status_group.addSettingCard(self.install_card)
-        self.status_group.addSettingCard(self.uninstall_card)
-        self.detail_group.addSettingCard(self.detail_card)
-        for card in self.export_cards:
-            self.export_group.addSettingCard(card)
+        self.status_group.addSettingCard(self.export_card)
+        self.status_group.addSettingCard(self.detail_card)
         self.trust_group.addSettingCard(self.trusted_ca_card)
         self.trust_group.addSettingCard(self.ssl_insecure_card)
         self.trust_group.addSettingCard(self.upstream_chain_card)
         self.mtls_group.addSettingCard(self.client_certs_card)
-        self.maintain_group.addSettingCard(self.regenerate_card)
         self.maintain_group.addSettingCard(self.open_dir_card)
+        self.maintain_group.addSettingCard(self.uninstall_card)
+        self.maintain_group.addSettingCard(self.regenerate_card)
 
         self.expand_layout.setSpacing(28)
         self.expand_layout.setContentsMargins(36, 10, 36, 0)
         self.expand_layout.addWidget(self.status_group)
-        self.expand_layout.addWidget(self.detail_group)
-        self.expand_layout.addWidget(self.export_group)
         self.expand_layout.addWidget(self.trust_group)
         self.expand_layout.addWidget(self.mtls_group)
         self.expand_layout.addWidget(self.maintain_group)
@@ -424,12 +523,11 @@ class CertificateInterface(ScrollArea):
         self.controller.operation_succeeded.connect(self._on_operation_succeeded)
 
         self.refresh_btn.clicked.connect(self.controller.refresh)
-        self.install_card.clicked.connect(self.controller.install)
+        self.install_btn.clicked.connect(self.controller.install)
         self.uninstall_card.clicked.connect(self.controller.uninstall)
         self.regenerate_card.clicked.connect(self._on_regenerate)
         self.open_dir_card.clicked.connect(self._on_open_dir)
-        for fmt, card in zip(EXPORT_FORMATS, self.export_cards, strict=True):
-            card.clicked.connect(partial(self._on_export, fmt))
+        self.export_card.export_requested.connect(self._on_export)
 
         # 两个开关照 sticky / DNS-hosts 先例：接 configItem 的 valueChanged 而不是
         # 卡片的 checkedChanged（配置项是唯一事实源），热更失败静默 —— 值已落盘，
@@ -456,13 +554,29 @@ class CertificateInterface(ScrollArea):
 
     @Slot(object)
     def _on_state_changed(self, state: CertificateState) -> None:
-        self.status_card.set_status(STATE_ICONS[state.trust], state.title, state.detail)
+        icon = STATE_ICONS[state.trust]
+        # 系统仍信任已过期的 CA 时不能画成功标记；说明沿用模型的有效期提示。
+        if state.trust is TrustState.TRUSTED and state.info is not None:
+            if state.info.expired:
+                icon = InfoBarIcon.ERROR
+            elif state.info.days_remaining < 30:
+                icon = InfoBarIcon.WARNING
+        self.status_card.set_status(icon, state.title, state.detail)
         self.install_btn.setText(
             self.tr("重新安装") if state.needs_reinstall else self.tr("安装证书")
         )
-        self.detail_group.setVisible(state.info is not None)
+        self.install_btn.setVisible(state.can_install)
+        self.status_card.install_hint.setVisible(state.can_install)
+        self.detail_card.setVisible(state.info is not None)
         if state.info is not None:
+            self.detail_card.card.setContent(
+                self.tr("{} · 有效期至 {}").format(
+                    state.info.common_name or "-", format_time(state.info.not_after)
+                )
+            )
             self.detail_card.set_rows(info_rows(state.info))
+        self.status_card._sync_height()
+        self.status_group.adjustSize()
         self._update_actions()
 
     @Slot(bool)
@@ -472,14 +586,13 @@ class CertificateInterface(ScrollArea):
         self._update_actions()
 
     def _update_actions(self) -> None:
-        """按状态 + 忙闲整卡启停：连标题一起变灰，比只灰按钮更容易看出来。"""
+        """主卡始终可读，只锁定操作；忙碌时导出菜单也一起锁定。"""
         state = self.controller.state
-        self.install_card.setEnabled(not self._busy and state.can_install)
+        self.install_btn.setEnabled(not self._busy and state.can_install)
         self.uninstall_card.setEnabled(not self._busy and state.can_uninstall)
         self.regenerate_card.setEnabled(not self._busy)
         self.refresh_btn.setEnabled(not self._busy)
-        for card in self.export_cards:
-            card.setEnabled(not self._busy)
+        self.export_card.set_busy(self._busy)
 
     @Slot(str, str)
     def _on_operation_failed(self, title: str, detail: str) -> None:
