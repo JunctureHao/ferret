@@ -759,7 +759,7 @@ SECTIONS: tuple[Section, ...] = (
 
 
 class FieldCard(QWidget):
-    """一个分组一段：组头（标题 + 整组复制 + 折叠，整行可点）+ 两列网格。
+    """一个分组一段：组头（标题 + 整组复制，整行可点折叠）+ 两列网格。
 
     **刻意不用卡片底框**（`HeaderCardWidget` / `SimpleCardWidget` 那套）：概览一屏
     十来个分组，每段再套一圈圆角底色就成了卡片墙，扫读时视线要在框与框之间跳。
@@ -772,8 +772,10 @@ class FieldCard(QWidget):
     自己算。
 
     折叠能力给**每一段**，不只给 `collapsed=True` 的那几段：只有部分能点等于让
-    用户去记哪几段能点。`collapsed` 只决定初始状态。整行（不只箭头）都可点 ——
-    组头是这一段唯一的操作区，命中区域太小等于没有。
+    用户去记哪几段能点。`collapsed` 只决定初始状态。折叠的视觉锚点（箭头按钮）
+    已按需求摘除 —— 每段头上两枚按钮太吵，整行点击是唯一入口，也是唯一提示
+    （组名下直接是下一组，即已收起）。整行可点 —— 组头是这一段唯一的操作区，
+    命中区域太小等于没有。
 
     `set_data` 每次重建网格而不是复用控件池：详情面板只在换选中行时更新，一次几十
     行的重建量级可以忽略，而混着跨列 span 的控件池极易对错格子。
@@ -810,12 +812,6 @@ class FieldCard(QWidget):
         self.copy_button.clicked.connect(self.copy_to_clipboard)
         header_layout.addWidget(self.copy_button)
 
-        self.toggle_button = TransparentToolButton(
-            FluentIcon.CHEVRON_DOWN_MED, self.header
-        )
-        self.toggle_button.clicked.connect(self.toggle)
-        header_layout.addWidget(self.toggle_button)
-
         self.grid = QGridLayout()
         self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setHorizontalSpacing(16)
@@ -842,7 +838,7 @@ class FieldCard(QWidget):
     # —— 折叠 ——
 
     def eventFilter(self, watched, event) -> bool:
-        """组头整行可点：左键按下即折叠，箭头按钮只补一个视觉锚点。"""
+        """组头整行可点：左键按下即折叠。箭头锚点已摘，这是唯一折叠入口。"""
         if (
             watched is self.header
             and event.type() == QEvent.Type.MouseButtonRelease
@@ -860,12 +856,9 @@ class FieldCard(QWidget):
         return self._expanded
 
     def set_expanded(self, expanded: bool) -> None:
-        """展开/收起正文。"""
+        """展开/收起正文。折叠入口只剩整行点击，不再画箭头锚点。"""
         self._expanded = expanded
         self.view.setVisible(expanded)
-        self.toggle_button.setIcon(
-            FluentIcon.CHEVRON_DOWN_MED if expanded else FluentIcon.CHEVRON_RIGHT_MED
-        )
 
     def toggle(self) -> None:
         self.set_expanded(not self.is_expanded())

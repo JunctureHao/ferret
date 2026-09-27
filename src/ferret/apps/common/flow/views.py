@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import (
@@ -13,6 +15,7 @@ from PySide6.QtCore import (
     Slot,
 )
 from PySide6.QtGui import (
+    QActionGroup,
     QBrush,
     QColor,
     QKeySequence,
@@ -30,6 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     CaptionLabel,
     FluentIcon,
@@ -38,6 +42,7 @@ from qfluentwidgets import (
     RoundMenu,
     TableItemDelegate,
     TableView,
+    TransparentDropDownPushButton,
     TreeItemDelegate,
     TreeView,
     getFont,
@@ -286,14 +291,14 @@ class HighlightRowDelegate(TableItemDelegate):
         # 让高亮底与选中/hover 的胶囊形状严丝合缝（adjusted 返回新矩形，不动 option）。
         rect = option.rect.adjusted(0, self.margin, 0, -self.margin)
         radius = 5
-        header = (
-            option.widget.horizontalHeader() if option.widget is not None else None
-        )
+        header = option.widget.horizontalHeader() if option.widget is not None else None
         is_first, is_last = _visual_caps(header, index.column())
         if is_first:
             painter.drawRoundedRect(rect.adjusted(4, 0, radius + 1, 0), radius, radius)
         elif is_last:
-            painter.drawRoundedRect(rect.adjusted(-radius - 1, 0, -4, 0), radius, radius)
+            painter.drawRoundedRect(
+                rect.adjusted(-radius - 1, 0, -4, 0), radius, radius
+            )
         else:
             painter.drawRect(rect.adjusted(-1, 0, 1, 0))
         painter.restore()
@@ -585,7 +590,9 @@ class HighlightTreeDelegate(TreeItemDelegate):
         size.setHeight(34)
         return size
 
-    def initStyleOption(self, option, index: QModelIndex | QPersistentModelIndex) -> None:
+    def initStyleOption(
+        self, option, index: QModelIndex | QPersistentModelIndex
+    ) -> None:
         # qfw TreeItemDelegate.initStyleOption 把 ForegroundRole 当 QBrush 直接调
         # `.color()`；我们的模型（与平铺共用 flow_cell）返回的是 QColor，QColor 没有
         # `.color()` 会崩。平铺侧 TableItemDelegate 先 `QBrush(x)` 再 `.color()` 才没事，
@@ -623,16 +630,27 @@ class HighlightTreeDelegate(TreeItemDelegate):
             path.moveTo(rect.right(), rect.top())
             path.lineTo(rect.right(), rect.bottom())
             path.lineTo(rect.x() + radius, rect.bottom())
-            path.arcTo(rect.x(), rect.bottom() - 2 * radius, 2 * radius, 2 * radius, 270, -90)
+            path.arcTo(
+                rect.x(), rect.bottom() - 2 * radius, 2 * radius, 2 * radius, 270, -90
+            )
             path.lineTo(rect.x(), rect.top() + radius)
             path.arcTo(rect.x(), rect.top(), 2 * radius, 2 * radius, 180, -90)
             path.closeSubpath()
         elif is_last:
             path.moveTo(rect.x(), rect.top())
             path.lineTo(rect.right() - radius, rect.top())
-            path.arcTo(rect.right() - 2 * radius, rect.top(), 2 * radius, 2 * radius, 90, -90)
+            path.arcTo(
+                rect.right() - 2 * radius, rect.top(), 2 * radius, 2 * radius, 90, -90
+            )
             path.lineTo(rect.right(), rect.bottom() - radius)
-            path.arcTo(rect.right() - 2 * radius, rect.bottom() - 2 * radius, 2 * radius, 2 * radius, 0, -90)
+            path.arcTo(
+                rect.right() - 2 * radius,
+                rect.bottom() - 2 * radius,
+                2 * radius,
+                2 * radius,
+                0,
+                -90,
+            )
             path.lineTo(rect.x(), rect.bottom())
             path.closeSubpath()
         else:
@@ -653,7 +671,9 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
     row_double_clicked = Signal(dict)
     row_selected = Signal(dict)
     stats_updated = Signal(int, int, int)  # 总条数、显示条数（子流）、选中条数
-    column_layout_changed = Signal(object)  # 列布局变更（FlowViewerPane 落盘 + 同步表格）
+    column_layout_changed = Signal(
+        object
+    )  # 列布局变更（FlowViewerPane 落盘 + 同步表格）
 
     def _column_header(self) -> QHeaderView:
         return self.header()
@@ -856,11 +876,14 @@ class FlowViewerPane(OrientationSplitter):
         parent: QWidget | None = None,
         controller=None,
         capabilities: FlowViewCapabilities | None = None,
+        *,
+        grouping_menu: bool = False,
     ) -> None:
         super().__init__(parent=parent)
         self.controller = controller
         self._capture_mode = capabilities is None or capabilities.can_delete
         self._grouping_mode = "flat"
+        self._grouping_actions: dict[str, Action] = {}
         self._capture_context = {
             "capture_state": "stopped",
             "endpoint": "",
@@ -869,13 +892,34 @@ class FlowViewerPane(OrientationSplitter):
             "active_filter_count": 0,
         }
         self.table_container = QWidget(self)
-        # 模式切换：单个按钮在平铺 ⇄ 按连接之间翻转，图标 / 文案始终反映**当前**模式，
-        # 点一下切到另一模式。按钮本身不在本面板内布局 —— 交由宿主（抓包命令栏 /
-        # 会话工具栏）用 `layout.addWidget(pane.mode_button)` 领进它们那条统一的按钮栏
-        # 里显示（会顺带 reparent）。本面板只保留唯一真相：创建、翻转、图标文案、显隐。
-        self.mode_button = PushButton(FluentIcon.MENU, self.tr("平铺"), self.table_container)
+        # 模式与菜单勾选始终由 pane 同步。抓包命令栏使用显式选项的下拉菜单，
+        # 会话工具栏沿用单击翻转；按钮由宿主领入自己的工具栏。
+        if grouping_menu:
+            self.mode_button = TransparentDropDownPushButton(
+                FluentIcon.MENU, self.tr("视图"), self.table_container
+            )
+            menu = RoundMenu(self.tr("视图"), self.mode_button)
+            group = QActionGroup(menu)
+            for mode, text, icon in (
+                ("flat", self.tr("平铺"), FluentIcon.MENU),
+                ("conn", self.tr("按连接"), FluentIcon.TILES),
+            ):
+                action = Action(icon, text, menu)
+                action.setCheckable(True)
+                action.setChecked(mode == self._grouping_mode)
+                group.addAction(action)
+                action.triggered.connect(
+                    lambda _checked=False, mode=mode: self.set_grouping_mode(mode)
+                )
+                menu.addAction(action)
+                self._grouping_actions[mode] = action
+            self.mode_button.setMenu(menu)
+        else:
+            self.mode_button = PushButton(
+                FluentIcon.MENU, self.tr("平铺"), self.table_container
+            )
+            self.mode_button.clicked.connect(self._toggle_grouping_mode)
         self.mode_button.setToolTip(self.tr("切换显示模式：平铺 / 按连接"))
-        self.mode_button.clicked.connect(self._toggle_grouping_mode)
 
         self.table_stack = QStackedWidget(self.table_container)
         self.table = FlowDataTable(self.table_container, controller, capabilities)
@@ -949,6 +993,10 @@ class FlowViewerPane(OrientationSplitter):
 
     def _sync_mode_button(self) -> None:
         """让按钮的图标 / 文案反映当前模式。"""
+        if self._grouping_actions:
+            for mode, action in self._grouping_actions.items():
+                action.setChecked(mode == self._grouping_mode)
+            return
         if self._grouping_mode == "conn":
             self.mode_button.setIcon(FluentIcon.TILES)
             self.mode_button.setText(self.tr("按连接"))
@@ -1063,9 +1111,12 @@ class FlowViewerPane(OrientationSplitter):
         state = str(self._capture_context["capture_state"])
         filters = int(self._capture_context["active_filter_count"])
 
+        # 命令菜单空表时保留位置并置灰，避免第一条流量到来时按钮横向跳动。
+        self.mode_button.setVisible(bool(self._grouping_actions) or shown > 0)
+        self.mode_button.setEnabled(shown > 0)
+
         if shown > 0:
             self.table_stack.setCurrentWidget(self._current_view())
-            self.mode_button.setVisible(True)
             # isHidden() 只认「被刻意隐藏」；isVisible() 会把窗口未显示误判进来，
             # 导致显示前每次 stats 更新都白白 collapse 一次。
             if self.panel.isHidden():
@@ -1074,8 +1125,6 @@ class FlowViewerPane(OrientationSplitter):
             return
 
         self.table_stack.setCurrentWidget(self.empty_state)
-        # 空态下藏起模式切换：无流量时切平铺/按连接没有意义。
-        self.mode_button.setVisible(False)
         self.panel.setVisible(False)
         if total > 0:
             self.empty_state.set_text(

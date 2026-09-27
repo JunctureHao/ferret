@@ -26,6 +26,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import qconfig
 
+from ferret.apps.common.search import SearchHost
 from ferret.apps.scripts import controllers, views
 from ferret.apps.scripts.controllers import ScriptsController
 from ferret.apps.scripts.views import ScriptsInterface
@@ -88,7 +89,12 @@ class ScriptsInterfaceTests(unittest.TestCase):
 
         self.runtime = MitmRuntime()
         self.controller = ScriptsController(mitm=MitmFacade(self.runtime))
-        self.view = ScriptsInterface(controller=self.controller)
+        self.search_host = SearchHost()
+        self.addCleanup(self.search_host.deleteLater)
+        self.view = ScriptsInterface(
+            controller=self.controller, search_host=self.search_host
+        )
+        self.search_host.search_requested.connect(self.view.apply_search)
         self.view.resize(900, 700)
         # 真的显示出来：`isVisible()` 对隐藏顶层窗口的子控件恒为假，而只读/可写
         # 那一组按钮的显隐正是这里要验的东西（offscreen 平台下开销可忽略）。
@@ -376,25 +382,29 @@ class ScriptsInterfaceTests(unittest.TestCase):
     def test_filtering_hides_rows_and_disables_dragging(self) -> None:
         self.add_import("alpha.py")
         self.add_import("beta.py")
-        self.view.search_edit.setText("alpha")
+        self.search_host.edit.setText("alpha")
         app.processEvents()
+        self.assertEqual(self.view.current_search_text(), "alpha")
         self.assertEqual(self.view.proxy_model.rowCount(), 1)
         self.assertFalse(self.view.table.dragEnabled())
-        self.view.search_edit.clear()
+        self.search_host.clear_search()
         app.processEvents()
+        self.assertEqual(self.view.current_search_text(), "")
         self.assertEqual(self.view.proxy_model.rowCount(), 2)
         self.assertTrue(self.view.table.dragEnabled())
 
     def test_selecting_a_filtered_out_row_clears_the_filter(self) -> None:
         """新建的脚本要是落在筛选结果之外就等于「消失」了。"""
         self.add_import("alpha.py")
-        self.view.search_edit.setText("alpha")
+        self.search_host.edit.setText("alpha")
         app.processEvents()
         FakeNewScriptDialog.filename = "zeta.py"
         with mock.patch.object(views, "NewScriptDialog", FakeNewScriptDialog):
             self.view.new_btn.click()
             app.processEvents()
-        self.assertEqual(self.view.search_edit.text(), "")
+        self.assertEqual(self.search_host.edit.text(), "")
+        self.assertEqual(self.view.current_search_text(), "")
+        self.assertEqual(self.view.proxy_model.rowCount(), 2)
         entry = self.view.panel.entry
         assert entry is not None
         self.assertEqual(entry.path, str(self.managed / "zeta.py"))

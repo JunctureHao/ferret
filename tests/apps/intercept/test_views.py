@@ -91,17 +91,16 @@ class InterceptInterfaceTests(unittest.TestCase):
                 self.assertFalse(hasattr(self.iface, name))
 
     def test_the_rule_table_and_master_switch_stayed(self) -> None:
-        for name in ("rule_table", "add_btn", "search_edit", "edit_btn", "delete_btn"):
+        for name in ("rule_table", "add_btn", "edit_btn", "delete_btn"):
             with self.subTest(widget=name):
                 self.assertTrue(hasattr(self.iface, name))
         self.assertFalse(self.iface.enable_switch.isChecked())
 
     def test_one_bar_holds_the_switch_the_entry_and_the_rule_actions(self) -> None:
-        """只剩一条工具条：总开关、队列入口和增删改查同排（照网关页的排法）。"""
+        """总开关、队列入口和增删改同排；搜索由标题栏统一承载。"""
         bar = self.iface.add_btn.parentWidget()
         assert bar is not None
         for name in (
-            "search_edit",
             "edit_btn",
             "delete_btn",
             "queue_btn",
@@ -119,7 +118,7 @@ class InterceptInterfaceTests(unittest.TestCase):
             widgets,
             [
                 self.iface.add_btn,
-                self.iface.search_edit,
+                None,  # addStretch
                 self.iface.edit_btn,
                 self.iface.delete_btn,
                 None,  # addSpacing
@@ -128,6 +127,22 @@ class InterceptInterfaceTests(unittest.TestCase):
                 self.iface.enable_switch,
             ],
         )
+
+    def test_search_protocol_filters_rules_and_keeps_text_for_the_global_box(
+        self,
+    ) -> None:
+        self.controller.rules = [
+            InterceptRule(value="alpha.example"),
+            InterceptRule(value="beta.example"),
+        ]
+        self.controller.rules_changed.emit(self.controller.rules)
+        self.iface.apply_search("  ALPHA  ")
+        self.assertEqual(self.iface.current_search_text(), "  ALPHA  ")
+        self.assertEqual(self.iface.rule_proxy.rowCount(), 1)
+        self.assertIs(self.iface.search_focus_target(), self.iface.rule_table)
+        self.iface.apply_search("")
+        self.assertEqual(self.iface.current_search_text(), "")
+        self.assertEqual(self.iface.rule_proxy.rowCount(), 2)
 
     def test_the_page_asks_for_the_queue_on_the_way_up(self) -> None:
         """页面起得比内核晚，起来时可能已经有拦下的流量在等着了。"""

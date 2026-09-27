@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -44,13 +47,14 @@ from qfluentwidgets import (
     ListWidget,
     MessageBoxBase,
     PasswordLineEdit,
-    PushButton,
     RoundMenu,
     SmoothMode,
     SpinBox,
     SubtitleLabel,
     ToolTipFilter,
     ToolTipPosition,
+    TransparentDropDownPushButton,
+    TransparentPushButton,
     TransparentToolButton,
     VerticalSeparator,
     isDarkTheme,
@@ -102,11 +106,11 @@ class CapturesInterface(QWidget):
 
     def __init__(
         self,
-        parent: "MainWindow | None" = None,
+        parent: MainWindow | None = None,
         *,
         mitm: MitmFacade | None = None,
         system_proxy: SystemProxyService | None = None,
-        search_host: "SearchHost | None" = None,
+        search_host: SearchHost | None = None,
     ):
         super().__init__(parent)
         self.setObjectName("CapturesInterface")
@@ -238,24 +242,24 @@ class CapturesInterface(QWidget):
         QShortcut(QKeySequence(Qt.Key.Key_Space), self).activated.connect(
             self.__toggle_capture_from_shortcut
         )
-        # Tab 序跟随命令栏视觉顺序：主按钮 → 右侧图标簇 → 表格（表达式框在
-        # titlebar，属另一棵控件树，不进本页链）。
+        # Tab 序跟随右侧命令栏；隐藏的溢出项由 Qt 自动跳过。
         QWidget.setTabOrder(
             self.command_bar.control_btn, self.command_bar.proxy_setting_btn
         )
         QWidget.setTabOrder(
-            self.command_bar.proxy_setting_btn, self.command_bar.open_btn
+            self.command_bar.proxy_setting_btn, self.content.mode_button
         )
         QWidget.setTabOrder(
-            self.command_bar.open_btn, self.command_bar.locate_selection_btn
+            self.content.mode_button, self.command_bar.captures_delete_btn
         )
         QWidget.setTabOrder(
-            self.command_bar.locate_selection_btn, self.command_bar.environment_btn
+            self.command_bar.captures_delete_btn,
+            self.command_bar.captures_delete_more_btn,
         )
         QWidget.setTabOrder(
-            self.command_bar.environment_btn, self.command_bar.captures_delete_btn
+            self.command_bar.captures_delete_more_btn, self.command_bar.environment_btn
         )
-        QWidget.setTabOrder(self.command_bar.captures_delete_btn, self.content.table)
+        QWidget.setTabOrder(self.command_bar.environment_btn, self.content.table)
 
     @Slot(bool)
     def __on_capture_toggled(self, _is_on: bool):
@@ -720,7 +724,7 @@ class CapturesContentArea(FlowViewerPane):
         parent: CapturesInterface,
         controller: CaptureController,
     ) -> None:
-        super().__init__(parent=parent, controller=controller)
+        super().__init__(parent=parent, controller=controller, grouping_menu=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -742,7 +746,7 @@ class CaptureUiState:
 
 
 class CaptureCommandBar(QWidget):
-    """Compact capture status and command bar."""
+    """任务管理器式命令栏：左侧标题/统计/通道状态，右侧文字操作与溢出菜单。"""
 
     captureToggled = Signal(bool)
     openRequested = Signal()
@@ -754,6 +758,8 @@ class CaptureCommandBar(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._state: CaptureUiState | None = None
+        self._grouping_button: QWidget | None = None
+        self._menu: RoundMenu | None = None
 
         self.__init_widget()
         self.__init_layout()
@@ -761,12 +767,18 @@ class CaptureCommandBar(QWidget):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.setFixedHeight(46)
+        self.setFixedHeight(68)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # 抓包态由主按钮文案与中间空状态面板承载，命令栏不再另设状态圆点+文字。
+        self.title_label = SubtitleLabel(self.tr("抓包"), self)
+        self.stats_label = CaptionLabel(self.tr("{} 条").format(0), self)
+        # 左侧第二行承载通道状态；长摘要只省略显示，完整内容仍在 tooltip 中。
         self.endpoint_label = BodyLabel(self)
-        self.endpoint_label.setFixedHeight(28)
+        self.endpoint_label.setFixedHeight(18)
+        self.endpoint_label.setMinimumWidth(0)
+        self.endpoint_label.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
         self.endpoint_label.setAccessibleName(self.tr("代理监听地址"))
         self.endpoint_label.setFont(self.font())
         # Compatibility alias for callers that read the endpoint text/visibility.
@@ -774,47 +786,34 @@ class CaptureCommandBar(QWidget):
 
         # 放开到局域网是个有安全含义的状态，必须常驻可见，不能只藏在设置对话框里。
         self.exposure_label = CaptionLabel(self.tr("局域网"), self)
-        self.exposure_label.setFixedHeight(28)
+        self.exposure_label.setFixedHeight(18)
         self.exposure_label.setAccessibleName(self.tr("局域网设备可连接"))
         self.exposure_label.setStyleSheet("color: #c07000;")
         self.exposure_label.setVisible(False)
 
-        self.stats_label = CaptionLabel(self.tr("{} 条").format(0), self)
-
-        self.open_btn = TransparentToolButton(FluentIcon.FOLDER, self)
-        self.open_btn.setToolTip(self.tr("加载 Flow 到当前列表"))
-        self.open_btn.setAccessibleName(self.tr("加载 Flow 到当前列表"))
-
-        self.proxy_setting_btn = TransparentToolButton(FluentIcon.GLOBE, self)
-        self.proxy_setting_btn.setToolTip(self.tr("端口设置"))
-        self.proxy_setting_btn.setAccessibleName(self.tr("端口设置"))
+        self.proxy_setting_btn = TransparentPushButton(
+            FluentIcon.GLOBE, self.tr("通道设置"), self
+        )
+        self.proxy_setting_btn.setToolTip(self.tr("通道设置"))
+        self.proxy_setting_btn.setAccessibleName(self.tr("通道设置"))
 
         self.environment_btn = TransparentToolButton(FluentIcon.MORE, self)
-        self.environment_btn.setToolTip(self.tr("环境设置"))
-        self.environment_btn.setAccessibleName(self.tr("环境设置"))
-        self.environment_btn.hide()
+        self.environment_btn.setToolTip(self.tr("更多操作"))
+        self.environment_btn.setAccessibleName(self.tr("更多操作"))
 
-        self.locate_selection_btn = TransparentToolButton(
-            BaseIcon.LOCATION_TARGET, self
+        self.control_btn = TransparentPushButton(
+            FluentIcon.PLAY, self.tr("开始抓包"), self
         )
-        self.locate_selection_btn.setToolTip(self.tr("定位选中"))
-        self.locate_selection_btn.setAccessibleName(self.tr("定位选中"))
-
-        # 主控开关：占据命令栏左端的引导位（对齐规则页「＋ 新增规则」），带文字。
-        # 文案 / 图标 / enabled 随抓包态在 set_state 里切换。
-        self.control_btn = PushButton(FluentIcon.PLAY, self.tr("开始抓包"), self)
-        self.control_btn.setFixedHeight(32)
         self.control_btn.setToolTip(self.tr("开始抓包"))
         self.control_btn.setAccessibleName(self.tr("开始抓包"))
 
-        self.captures_delete_btn = TransparentToolButton(FluentIcon.DELETE, self)
+        self.captures_delete_btn = TransparentPushButton(
+            FluentIcon.DELETE, self.tr("清空"), self
+        )
         self.captures_delete_btn.setToolTip(self.tr("清空当前流量"))
         self.captures_delete_btn.setAccessibleName(self.tr("清空当前流量"))
 
-        # 拆分按钮：主钮 = 清空（肌肉记忆不变），箭头弹出更多删除操作。
-        # 不用 qfw `SplitToolButton`：它是自带填充底色的复合件，塞进清一色
-        # TransparentToolButton 的命令栏风格分裂（选型见
-        # `.plans/0-mark-filter-polish.md` §2.2）。
+        # 文字主钮直接清空，贴紧的箭头提供删除未标记；同用透明 Fluent 样式。
         self.captures_delete_more_btn = TransparentToolButton(
             FluentIcon.CHEVRON_DOWN_MED, self
         )
@@ -825,84 +824,89 @@ class CaptureCommandBar(QWidget):
         self.separator.setFixedHeight(16)
 
         for button in (
-            self.open_btn,
+            self.control_btn,
             self.proxy_setting_btn,
             self.environment_btn,
-            self.locate_selection_btn,
             self.captures_delete_btn,
             self.captures_delete_more_btn,
         ):
-            button.setFixedSize(32, 32)
-            button.setIconSize(QSize(18, 18))
+            button.setFixedHeight(34)
+            button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            button.setIconSize(QSize(16, 16))
             button.installEventFilter(ToolTipFilter(button, 700, ToolTipPosition.TOP))
-        self.captures_delete_more_btn.setFixedSize(24, 32)
+        self.environment_btn.setFixedSize(34, 34)
+        self.captures_delete_more_btn.setFixedSize(24, 34)
         self.captures_delete_more_btn.setIconSize(QSize(12, 12))
 
     def __init_layout(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 6, 12, 6)
-        layout.setSpacing(6)
-        # ① 控制对：主按钮 + 端口齿轮，spacing=2 贴成一组（端口挨着开始抓包）。齿轮改的
-        # 是监听端点，属抓包配置而非列表操作，故收在主按钮一侧、不进右侧动作簇。
-        # very_compact 时齿轮随端点一起收进 environment_btn 溢出菜单。
-        control_pair = QHBoxLayout()
-        control_pair.setContentsMargins(0, 0, 0, 0)
-        control_pair.setSpacing(2)
-        control_pair.addWidget(self.control_btn)
-        control_pair.addWidget(self.proxy_setting_btn)
-        layout.addLayout(control_pair)
-        # ② 端点簇：监听端点 + 局域网暴露标签，spacing=2 贴紧成一组。与控制对之间只靠
-        # 主布局默认 6px 间距分隔（不再叠加 addSpacing，避免端口→端点裂出一段空槽）。
+        outer = QVBoxLayout(self)
+        self._layout = outer
+        outer.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self._row = QHBoxLayout()
+        self._row.setContentsMargins(16, 8, 16, 8)
+        self._row.setSpacing(16)
+        outer.addLayout(self._row, 1)
+        outer.addWidget(HorizontalSeparator(self))
+
+        self._heading = QWidget(self)
+        heading_layout = QVBoxLayout(self._heading)
+        heading_layout.setContentsMargins(0, 0, 0, 0)
+        heading_layout.setSpacing(2)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(10)
+        title_row.addWidget(self.title_label)
+        title_row.addWidget(self.stats_label)
+        title_row.addStretch(1)
+        heading_layout.addLayout(title_row)
         status_group = QHBoxLayout()
         status_group.setContentsMargins(0, 0, 0, 0)
-        status_group.setSpacing(2)
-        status_group.addWidget(self.endpoint_btn)
+        status_group.setSpacing(6)
+        status_group.addWidget(self.endpoint_label)
         status_group.addWidget(self.exposure_label)
-        layout.addLayout(status_group)
-        layout.addSpacing(8)
-        # ③ 中段弹性空白：表达式编辑器已迁往 titlebar 槽位（§5.1/§5.8），
-        # 命令栏回归纯动作条，动作簇吃这段余量。
-        layout.addStretch(1)
-        layout.addSpacing(6)
-        # ④ 计数
-        layout.addWidget(self.stats_label)
-        layout.addSpacing(8)
-        # ⑤ 右侧图标动作簇：分组模式（pane 领入）+ 加载 + 定位 + 清空
-        self._grouping_host = QHBoxLayout()
-        self._grouping_host.setContentsMargins(0, 0, 0, 0)
-        self._grouping_host.setSpacing(0)
-        layout.addLayout(self._grouping_host)
-        layout.addWidget(self.open_btn)
-        layout.addSpacing(4)
-        layout.addWidget(self.locate_selection_btn)
-        layout.addSpacing(4)
-        layout.addWidget(self.environment_btn)
-        layout.addWidget(self.separator)
-        # 拆分按钮两枚紧挨（spacing=0），视觉上一枚。
-        delete_pair = QHBoxLayout()
+        status_group.addStretch(1)
+        heading_layout.addLayout(status_group)
+        self._row.addWidget(self._heading, 1)
+
+        self._commands = QHBoxLayout()
+        self._commands.setSpacing(4)
+        self._commands.addWidget(self.control_btn)
+        self._commands.addWidget(self.proxy_setting_btn)
+        # 用父容器收纳：pane 因数据刷新修改按钮显隐时，不会冲破窄窗的溢出状态。
+        self._grouping_host = QWidget(self)
+        grouping_layout = QHBoxLayout(self._grouping_host)
+        self._grouping_layout = grouping_layout
+        grouping_layout.setContentsMargins(0, 0, 0, 0)
+        self._commands.addWidget(self._grouping_host)
+        self._commands.addWidget(self.separator)
+        self._delete_group = QWidget(self)
+        delete_pair = QHBoxLayout(self._delete_group)
         delete_pair.setContentsMargins(0, 0, 0, 0)
         delete_pair.setSpacing(0)
         delete_pair.addWidget(self.captures_delete_btn)
         delete_pair.addWidget(self.captures_delete_more_btn)
-        layout.addLayout(delete_pair)
+        self._commands.addWidget(self._delete_group)
+        self._commands.addWidget(self.environment_btn)
+        self._row.addLayout(self._commands)
 
     def __connect_signal_to_slot(self):
         """组件内部事件管理"""
         self.control_btn.clicked.connect(self.__emit_capture_toggle)
-        self.open_btn.clicked.connect(self.openRequested.emit)
         self.proxy_setting_btn.clicked.connect(self.portRequested.emit)
-        self.environment_btn.clicked.connect(self.__show_environment_menu)
-        self.locate_selection_btn.clicked.connect(self.locateRequested.emit)
+        self.environment_btn.clicked.connect(self.__show_more_menu)
         self.captures_delete_btn.clicked.connect(self.clearRequested.emit)
         self.captures_delete_more_btn.clicked.connect(self.__show_delete_menu)
 
     def host_grouping_button(self, button: QWidget) -> None:
-        """把 FlowViewerPane 的分组模式按钮领进命令栏右侧动作簇首位显示。
-
-        按钮实体归 pane 所有（翻转 / 图标文案 / 显隐都在那边），这里只把它 addWidget
-        进右侧簇的分组子槽；``addWidget`` 会顺带把它 reparent 到命令栏。
-        """
-        self._grouping_host.addWidget(button)
+        """领入 pane 的视图菜单；pane 仍负责分组状态与菜单勾选。"""
+        self._grouping_button = button
+        button.setFixedHeight(34)
+        button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._grouping_layout.addWidget(button)
+        self._apply_compact_mode(self.width())
 
     @Slot()
     def __emit_capture_toggle(self) -> None:
@@ -913,31 +917,84 @@ class CaptureCommandBar(QWidget):
 
     def _build_delete_menu(self) -> RoundMenu:
         """拆分按钮下拉：只放主钮没有的删除动作（删除未标记流量）。「清空当前流量」
-        是主钮单击的动作，不在下拉里重复。菜单构建与弹出分开，弹出走
-        `__show_delete_menu`（`exec` 阻塞，不适合直接测）。"""
+        是主钮单击的动作，不在下拉里重复。"""
         menu = RoundMenu(parent=self)
         unmarked_action = Action(FluentIcon.DELETE, self.tr("删除未标记流量"), menu)
+        unmarked_action.setEnabled(bool(self._state and self._state.total_count))
         unmarked_action.triggered.connect(self.deleteUnmarkedRequested.emit)
         menu.addAction(unmarked_action)
         return menu
 
     @Slot()
     def __show_delete_menu(self) -> None:
-        menu = self._build_delete_menu()
-        menu.exec(
-            self.captures_delete_more_btn.mapToGlobal(
-                QPoint(0, self.captures_delete_more_btn.height())
-            )
-        )
+        self._show_menu(self._build_delete_menu(), self.captures_delete_more_btn)
+
+    def _build_more_menu(self) -> RoundMenu:
+        """低频动作与当前装不下的命令；所有入口复用原有业务信号。"""
+        menu = RoundMenu(parent=self)
+        open_action = Action(FluentIcon.FOLDER, self.tr("加载 Flow 到当前列表"), menu)
+        open_action.triggered.connect(self.openRequested.emit)
+        menu.addAction(open_action)
+        locate_action = Action(BaseIcon.LOCATION_TARGET, self.tr("定位选中"), menu)
+        locate_action.setEnabled(bool(self._state and self._state.selected_count))
+        locate_action.triggered.connect(self.locateRequested.emit)
+        menu.addAction(locate_action)
+
+        if self.proxy_setting_btn.isHidden():
+            menu.addSeparator()
+            port_action = Action(FluentIcon.GLOBE, self.tr("通道设置"), menu)
+            port_action.triggered.connect(self.portRequested.emit)
+            menu.addAction(port_action)
+        button = self._grouping_button
+        if self._grouping_host.isHidden() and isinstance(
+            button, TransparentDropDownPushButton
+        ):
+            view_menu = RoundMenu(self.tr("视图"), menu)
+            view_menu.setIcon(FluentIcon.MENU)
+            # 克隆展示项并转发到原 QAction，避免把常驻菜单重新挂到溢出菜单上。
+            for original in button.menu().actions():
+                action = Action(original.icon(), original.text(), view_menu)
+                action.setCheckable(original.isCheckable())
+                action.setChecked(original.isChecked())
+                action.setEnabled(button.isEnabled() and original.isEnabled())
+                action.triggered.connect(original.trigger)
+                view_menu.addAction(action)
+            menu.addMenu(view_menu)
+        if self._delete_group.isHidden():
+            menu.addSeparator()
+            clear_action = Action(FluentIcon.DELETE, self.tr("清空当前流量"), menu)
+            clear_action.setEnabled(bool(self._state and self._state.total_count))
+            clear_action.triggered.connect(self.clearRequested.emit)
+            menu.addAction(clear_action)
+            unmarked_action = Action(FluentIcon.DELETE, self.tr("删除未标记流量"), menu)
+            unmarked_action.setEnabled(clear_action.isEnabled())
+            unmarked_action.triggered.connect(self.deleteUnmarkedRequested.emit)
+            menu.addAction(unmarked_action)
+        return menu
 
     @Slot()
-    def __show_environment_menu(self) -> None:
-        menu = RoundMenu(parent=self)
-        port_action = Action(FluentIcon.GLOBE, self.tr("端口设置"), menu)
-        port_action.triggered.connect(self.portRequested.emit)
-        menu.addAction(port_action)
-        menu.exec(
-            self.environment_btn.mapToGlobal(QPoint(0, self.environment_btn.height()))
+    def __show_more_menu(self) -> None:
+        self._show_menu(self._build_more_menu(), self.environment_btn)
+
+    def _show_menu(self, menu: RoundMenu, anchor: QWidget) -> None:
+        # RoundMenu.exec 是非阻塞显示；保留当前菜单，替换时释放旧菜单。
+        if self._menu is not None:
+            self._menu.close()
+            self._menu.deleteLater()
+        self._menu = menu
+        menu.exec(anchor.mapToGlobal(QPoint(0, anchor.height())))
+
+    def _update_endpoint_text(self, available_width: int) -> None:
+        if self._state is None:
+            return
+        display = self._state.channels_summary or self._state.endpoint
+        if self._state.channel_issue:
+            display = f"⚠ {display}"
+        self.endpoint_label.setMaximumWidth(max(0, available_width))
+        self.endpoint_label.setText(
+            self.endpoint_label.fontMetrics().elidedText(
+                display, Qt.TextElideMode.ElideRight, max(0, available_width)
+            )
         )
 
     def set_state(self, state: CaptureUiState) -> None:
@@ -960,13 +1017,13 @@ class CaptureCommandBar(QWidget):
                 False,
             ),
             CaptureState.RUNNING: (
-                FluentIcon.PAUSE,
+                FluentIcon.POWER_BUTTON,
                 self.tr("停止抓包"),
                 self.tr("停止抓包"),
                 True,
             ),
             CaptureState.STOPPING: (
-                FluentIcon.PAUSE,
+                FluentIcon.POWER_BUTTON,
                 self.tr("停止中"),
                 self.tr("正在停止抓包会话"),
                 False,
@@ -985,19 +1042,20 @@ class CaptureCommandBar(QWidget):
         self.control_btn.setToolTip(tooltip)
         self.control_btn.setAccessibleName(tooltip)
 
-        # 抓包会话开着时端点位置显示通道并集；未开启显示本机接入端点。
-        # 通道健康有问题（如 UAC 拒绝）时前缀 ⚠ 并把详情放进提示。
+        # 摘要再长也不抢命令栏宽度；完整通道、接入地址与异常都能从提示读到。
         display = state.channels_summary or state.endpoint
+        tooltip = (
+            self.tr("本机通过 {} 接入；局域网设备也可连接").format(state.endpoint)
+            if state.lan_exposed
+            else self.tr("本机通过 {} 接入").format(state.endpoint)
+        )
+        if state.channels_summary:
+            tooltip = f"{display}\n{tooltip}"
         if state.channel_issue:
-            self.endpoint_btn.setText(f"⚠ {display}")
-            self.endpoint_btn.setToolTip(state.channel_issue)
-        else:
-            self.endpoint_btn.setText(display)
-            self.endpoint_btn.setToolTip(
-                self.tr("本机通过 {} 接入；局域网设备也可连接").format(state.endpoint)
-                if state.lan_exposed
-                else self.tr("本机通过 {} 接入").format(state.endpoint)
-            )
+            tooltip = f"{tooltip}\n{state.channel_issue}"
+        self.endpoint_label.setToolTip(tooltip)
+        self.endpoint_label.setAccessibleDescription(tooltip)
+        self.exposure_label.setVisible(state.lan_exposed)
         if state.shown_count == state.total_count:
             stats_text = self.tr("{} 条").format(state.total_count)
         else:
@@ -1019,39 +1077,63 @@ class CaptureCommandBar(QWidget):
         super().resizeEvent(event)
         self._apply_compact_mode(event.size().width())
 
+    def minimumSizeHint(self) -> QSize:
+        # 当前可见按钮不能反过来锁死最小宽度，否则 resizeEvent 没机会收进菜单。
+        return QSize(0, self.height())
+
     def _apply_compact_mode(self, width: int) -> None:
         if self._state is None:
             return
-        compact = width < 900
-        very_compact = width < 720
-        # 抓包会话开着时端点位置是通道摘要，它比端点地址更值得占宽度，不再压缩。
-        base = self._state.channels_summary or self._state.endpoint
-        if self._state.channel_issue:
-            base = f"⚠ {base}"
-        endpoint = (
-            base
-            if self._state.channels_summary
-            else (f":{base.rsplit(':', 1)[-1]}" if compact else base)
+        # 按实际文字宽度分配（含英文/缩放），不用固定断点猜测。优先收视图、
+        # 通道设置，极窄时再收清空；开始/停止和状态始终留在栏上。
+        title_width = self.title_label.sizeHint().width()
+        status_width = 48 + (
+            self.exposure_label.sizeHint().width() + 6 if self._state.lan_exposed else 0
         )
-        self.endpoint_btn.setText(endpoint)
-        if self._state.shown_count == self._state.total_count:
-            stats = (
-                str(self._state.total_count)
-                if compact
-                else self.tr("{} 条").format(self._state.total_count)
-            )
-        else:
-            if compact:
-                stats = f"{self._state.shown_count}/{self._state.total_count}"
-            else:
-                stats = self.tr("{} / {} 条").format(
-                    self._state.shown_count, self._state.total_count
-                )
-        self.stats_label.setText(stats)
-        self.endpoint_btn.setVisible(not very_compact)
-        self.exposure_label.setVisible(self._state.lan_exposed and not very_compact)
-        self.proxy_setting_btn.setVisible(not very_compact)
-        self.environment_btn.setVisible(very_compact)
+        heading_width = max(
+            title_width + 10 + self.stats_label.sizeHint().width(), status_width
+        )
+        button = self._grouping_button
+        grouping_width = button.sizeHint().width() if button is not None else 0
+        clear_width = (
+            self.captures_delete_btn.sizeHint().width()
+            + self.captures_delete_more_btn.width()
+        )
+        show_view = button is not None
+        show_settings = True
+        show_clear = True
+
+        def command_width() -> int:
+            widths = [self.control_btn.sizeHint().width(), self.environment_btn.width()]
+            if show_settings:
+                widths.append(self.proxy_setting_btn.sizeHint().width())
+            if show_view:
+                widths.append(grouping_width)
+            if show_clear:
+                widths.extend([self.separator.sizeHint().width(), clear_width])
+            return sum(widths) + self._commands.spacing() * (len(widths) - 1)
+
+        budget = width - 48 - heading_width
+        if command_width() > budget:
+            show_view = False
+        if command_width() > budget:
+            show_settings = False
+        if command_width() > budget:
+            show_clear = False
+        show_stats = command_width() <= budget
+        if not show_stats:
+            heading_width = max(title_width, status_width)
+        self.stats_label.setVisible(show_stats)
+        self._heading.setMinimumWidth(heading_width)
+        self.proxy_setting_btn.setVisible(show_settings)
+        self._grouping_host.setVisible(show_view)
+        self._delete_group.setVisible(show_clear)
+        self.separator.setVisible(show_clear)
+        exposure_width = (
+            self.exposure_label.sizeHint().width() + 6 if self._state.lan_exposed else 0
+        )
+        self._update_endpoint_text(width - 48 - command_width() - exposure_width)
+        self._layout.activate()
 
     def update_stats(self, total: int, shown: int, selected: int) -> None:
         """Compatibility helper retained for external callers."""

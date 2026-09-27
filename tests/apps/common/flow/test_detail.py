@@ -24,7 +24,6 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication, QWidget
 from qfluentwidgets import InfoLevel
 
-from ferret.apps.common import dialog
 from ferret.apps.common.edit import Language
 from ferret.apps.common.flow import detail
 from ferret.apps.common.flow.detail import (
@@ -33,10 +32,7 @@ from ferret.apps.common.flow.detail import (
     _body_lang,
     status_level,
 )
-from ferret.apps.common.flow.protocols import (
-    CAPTURE_CAPABILITIES,
-    READONLY_CAPABILITIES,
-)
+from ferret.apps.common.flow.protocols import CAPTURE_CAPABILITIES
 from ferret.core.mitm import (
     WsClose,
     WsFrame,
@@ -212,38 +208,23 @@ class FlowDataPanelTests(unittest.TestCase):
             button.click()
         self.assertEqual(len(seen), 3)
 
-    def test_the_more_menu_is_gated_by_capabilities(self) -> None:
-        """会话页是只读的：重放/备注弹窗一律不出现，复制两样保留。"""
-        readonly = FlowDataPanel(self.host, None, READONLY_CAPABILITIES)
-        readonly_names = [a.text() for a in readonly._more_actions()]
-        self.assertNotIn("重发", readonly_names)
-        self.assertNotIn("备注", readonly_names)
-        self.assertIn("复制 URL", readonly_names)
-
-        names = [a.text() for a in self.panel._more_actions()]
-        for expected in ("重发", "备注"):
-            self.assertIn(expected, names)
+    def test_the_more_menu_is_gone_entirely(self) -> None:
+        """「…」菜单（复制 URL / 重发 / 备注）已撤：常驻入口归表格右键，
+        面板备注走内联编辑页 —— 面板这侧不再背第二个写入端。"""
+        for name in (
+            "more_button",
+            "copy_url_action",
+            "replay_action",
+            "comment_action",
+        ):
+            with self.subTest(widget=name):
+                self.assertFalse(hasattr(self.panel, name))
 
     def test_the_more_menu_has_no_mark_switch_anymore(self) -> None:
         """标记从「开 / 关」变成了一整本 emoji（`.plans/flow-mark.md` D1），
         入口只在表格右键：面板这侧留一个开关就等于留一个只能写 `:default:` 的
         窄门，两处语义对不上。`can_mark` 门控本身不删 —— 表格那侧还在用。"""
         self.assertFalse(hasattr(self.panel, "mark_action"))
-        for names in (
-            [a.text() for a in self.panel._more_actions()],
-            [
-                a.text()
-                for a in FlowDataPanel(
-                    self.host, None, READONLY_CAPABILITIES
-                )._more_actions()
-            ],
-        ):
-            with self.subTest(names=names):
-                self.assertNotIn("标记", names)
-
-    def test_the_copy_action_goes_dead_when_there_is_nothing_to_copy(self) -> None:
-        self.panel.set_data(build_flow_detail(tflow.tflow()))
-        self.assertTrue(self.panel.copy_url_action.isEnabled())
 
     def test_the_query_and_cookies_tabs_carry_counts(self) -> None:
         """与 请求头(N) 同一语言：条数直接挂在标签上，不用回概览看。"""
@@ -723,48 +704,21 @@ class CommentWriteBackTests(unittest.TestCase):
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
         self.assertEqual(self.controller.calls, [])
 
-    def test_the_comment_action_goes_dead_without_a_flow_to_write_to(self) -> None:
+    def test_the_inline_editor_locks_without_a_flow_to_write_to(self) -> None:
+        """没有可写的 flow（只读页 / 死对象）时编辑页整体锁死，而不是点了保存才报错。"""
         panel = FlowDataPanel(self.host, None, CAPTURE_CAPABILITIES)
         panel.set_data(build_flow_detail(self.flow))
-        self.assertFalse(panel.comment_action.isEnabled())
+        self.assertTrue(panel.comment_pane.edit.is_read_only())
 
-        self.assertTrue(self.panel.comment_action.isEnabled())
-
-    def test_the_comment_dialog_is_the_one_the_context_menu_uses(self) -> None:
-        """同一件事在两处长成两个样子本身就是毛病。"""
-        with patch.object(detail, "CommentDialog") as factory:
-            factory.return_value.exec.return_value = True
-            factory.return_value.comment.return_value = "登录接口"
-            self.panel.comment_action.trigger()
-
-        self.assertIs(detail.CommentDialog, dialog.CommentDialog)
-        self.assertEqual(factory.call_args.args[0], "")
-        self.assertEqual(self.controller.calls, [("comment", self.flow.id, "登录接口")])
-
-    def test_the_dialog_opens_on_the_note_that_is_already_there(self) -> None:
-        self.flow.comment = "旧备注"
-        self.panel.set_data(build_flow_detail(self.flow))
-        with patch.object(detail, "CommentDialog") as factory:
-            factory.return_value.exec.return_value = False
-            self.panel.comment_action.trigger()
-
-        self.assertEqual(factory.call_args.args[0], "旧备注")
-
-    def test_cancelling_writes_nothing(self) -> None:
-        with patch.object(detail, "CommentDialog") as factory:
-            factory.return_value.exec.return_value = False
-            self.panel.comment_action.trigger()
-
-        self.assertEqual(self.controller.calls, [])
+        self.assertFalse(self.panel.comment_pane.edit.is_read_only())
 
     def test_clearing_the_box_and_saving_deletes_the_note(self) -> None:
         """空串是一个有意的取值，不是「没填」。"""
         self.flow.comment = "旧备注"
         self.panel.set_data(build_flow_detail(self.flow))
-        with patch.object(detail, "CommentDialog") as factory:
-            factory.return_value.exec.return_value = True
-            factory.return_value.comment.return_value = ""
-            self.panel.comment_action.trigger()
+        self.panel.comment_pane.edit.code_widget.setPlainText("")
+        self.panel.comment_pane.save_button.click()
+        self.app.processEvents()
 
         self.assertEqual(self.controller.calls, [("comment", self.flow.id, "")])
 
@@ -787,11 +741,10 @@ class CommentWriteBackTests(unittest.TestCase):
         with (
             patch.object(self.panel.overview, "set_data") as overview,
             patch.object(self.panel.messages, "set_data") as messages,
-            patch.object(detail, "CommentDialog") as factory,
         ):
-            factory.return_value.exec.return_value = True
-            factory.return_value.comment.return_value = "看这条"
-            self.panel.comment_action.trigger()
+            self.panel.comment_pane.edit.code_widget.setPlainText("看这条")
+            self.panel.comment_pane.save_button.click()
+            self.app.processEvents()
 
         overview.assert_called_once()
         messages.assert_not_called()
@@ -804,10 +757,9 @@ class CommentWriteBackTests(unittest.TestCase):
             CAPTURE_CAPABILITIES,
         )
         panel.set_data(build_flow_detail(self.flow))
-        with patch.object(detail, "CommentDialog") as factory:
-            factory.return_value.exec.return_value = True
-            factory.return_value.comment.return_value = "写不进去"
-            panel.comment_action.trigger()
+        panel.comment_pane.edit.code_widget.setPlainText("写不进去")
+        panel.comment_pane.save_button.click()
+        self.app.processEvents()
 
         self.assertEqual(panel.datas.get("comment"), "")
 

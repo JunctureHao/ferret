@@ -38,7 +38,6 @@ from qfluentwidgets import (
     FluentIcon,
     InfoBadge,
     InfoLevel,
-    RoundMenu,
     SimpleCardWidget,
     SubtitleLabel,
     ToolTipFilter,
@@ -47,7 +46,6 @@ from qfluentwidgets import (
     TreeWidget,
 )
 
-from ferret.apps.common.dialog import CommentDialog
 from ferret.apps.common.edit import (
     ItemDualPanel,
     JsonDualPanel,
@@ -65,7 +63,6 @@ from ferret.apps.common.flow.protocols import (
     FlowViewCapabilities,
 )
 from ferret.apps.common.flow.timing import TimingPane
-from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
@@ -329,7 +326,7 @@ class CommentPane(QWidget):
     """备注内联编辑页：直接编辑，脏了才亮保存。
 
     改造前备注只有一个弹窗入口（CommandBar 的 Comment 按钮）；现在这页常驻
-    左栏，弹窗入口保留在「更多」菜单里 —— 两处共用一套写回（面板接到
+    左栏，弹窗入口在表格右键菜单 —— 两处共用一套写回（面板接到
     `commentSaved` 后走同一个 `set_flow_comment`）。
     """
 
@@ -478,15 +475,8 @@ class ResponsePane(TabPanel):
             self.addTab("Raw", self.raw_edit, self.tr("原始"))
         self.addTab("Headers", self.header_card, self.tr("响应头"))
         self.addTab("Body", self.body_pane, self.tr("响应体"))
-
-        # contentview 的视图名（JSON / gRPC / Multipart Form …）。改造前是把它
-        # 拼进 Body 标签的文字里再 `adjustSize()`，标签宽度跟着每条流量跳；挪成
-        # 右侧一枚徽标之后标签栏宽度稳定，视图名也不再和标签文案抢位置。
-        # 徽标插在弹簧之后、动作区之前，所以永远贴着右侧动作区。
-        self.body_view_badge = InfoBadge(self)
-        self.body_view_badge.setLevel(InfoLevel.INFOAMTION)
-        self.body_view_badge.hide()
-        self.tab_layout.insertWidget(2, self.body_view_badge)
+        # body 视图名（JSON / gRPC…）不再展示成标签行徽标（用户反馈摘除）：
+        # 视图类型看 body 语法高亮即可，标签栏保持只有标签与动作区。
 
         self.close_button.hide()
 
@@ -496,7 +486,6 @@ class ResponsePane(TabPanel):
         headers = data.get("Response Headers", {})
         self.header_card.set_items(headers)
         self.body_pane.set_data(data, self.PREFIX)
-        self._set_body_view(data.get("Response Body View", ""))
         _fill_raw(
             self.raw_edit,
             data,
@@ -508,12 +497,6 @@ class ResponsePane(TabPanel):
         self.setTabText(
             "Headers", self.tr("响应头 ({count})").format(count=len(headers))
         )
-
-    def _set_body_view(self, view: str) -> None:
-        """Body 标签行右侧那枚视图名徽标；没有视图名就不显示。"""
-        self.body_view_badge.setText(str(view))
-        self.body_view_badge.setVisible(bool(view))
-        self.body_view_badge.adjustSize()
 
 
 class FlowDataPanel(QWidget):
@@ -591,15 +574,11 @@ class FlowDataPanel(QWidget):
         self.req_tabs.addTab("Cookies", self.cookie_card, self.tr("Cookie"))
         self.req_tabs.addTab("Comment", self.comment_pane, self.tr("备注"))
 
-        # 请求体视图名徽标 + 「…」动作菜单，插在弹簧之后、动作区之前，
-        # 与右栏的徽标/× 同一条边。
+        # 请求体视图名徽标，插在弹簧之后、动作区之前，与右栏的徽标/× 同一条边。
         self.req_body_badge = InfoBadge(self.req_tabs)
         self.req_body_badge.setLevel(InfoLevel.INFOAMTION)
         self.req_body_badge.hide()
         self.req_tabs.tab_layout.insertWidget(2, self.req_body_badge)
-        self.more_button = TransparentToolButton(FluentIcon.MORE, self.req_tabs)
-        self.more_button.setToolTip(self.tr("更多操作"))
-        self.req_tabs.tab_layout.insertWidget(3, self.more_button)
 
         # —— 右栏（响应区）：「消息」由本面板追加 ——
         self.res_pane = ResponsePane(controller=self.controller)
@@ -623,20 +602,9 @@ class FlowDataPanel(QWidget):
         self.message_badge.raise_()
         self.message_badge.hide()
 
-        # 「…」菜单动作。备注弹窗保留（内联编辑页承担日常编辑，两处共用写回）；
-        # 重放得改**活** flow，会话页那批流量是从 `.flow` 文件回来的死对象
-        # （`MitmFacade._mutate` 内核没跑就抛），动作按能力门控。标记入口已挪到
-        # 表格右键（plans/flow-mark.md D1），面板不再背第二个写入端。
-        # cURL/raw/HAR 那套导出是右键菜单 `FlowExportMenu` 的领地，这里不重复。
-        self.copy_url_action = BaseAction(
-            icon=FluentIcon.LINK, text=self.tr("复制 URL"), parent=self
-        )
-        self.replay_action = BaseAction(
-            icon=FluentIcon.SYNC, text=self.tr("重发"), parent=self
-        )
-        self.comment_action = BaseAction(
-            icon=FluentIcon.EDIT, text=self.tr("备注"), parent=self
-        )
+        # 「…」动作菜单已撤（复制 URL / 重发 / 备注）：三者的常驻入口都在表格
+        # 右键菜单（URL 查看、重放、备注弹窗），面板内备注另有内联编辑页承担
+        # 日常编辑，走同一条写回通道。标记同理只在表格右键（plans/flow-mark.md D1）。
 
         self.detail_page = QWidget()
         # inverted=True：全局布局说的是「表格 vs 详情」的排布，内层分栏与它
@@ -710,10 +678,6 @@ class FlowDataPanel(QWidget):
         self.conn_close_button.clicked.connect(self.__collapse_panel)
         self.req_tabs.close_button.clicked.connect(self.__collapse_panel)
         self.res_pane.close_button.clicked.connect(self.__collapse_panel)
-        self.more_button.clicked.connect(self.__on_more)
-        self.copy_url_action.triggered.connect(self.__on_copy_url)
-        self.replay_action.triggered.connect(self.__on_replay)
-        self.comment_action.triggered.connect(self.__on_comment)
         self.comment_pane.commentSaved.connect(self.__on_comment_saved)
         # 分栏方向由 `OrientationSplitter` 自己跟配置走；它先连的槽先跑，
         # 这里读到的是换完之后的方向。
@@ -801,69 +765,7 @@ class FlowDataPanel(QWidget):
         """折叠面板"""
         self.collapseRequested.emit()
 
-    def _more_actions(self) -> list[BaseAction]:
-        """「…」菜单里该出现的动作，按能力门控。独立成方法供测试钉住门控。"""
-        actions = [self.copy_url_action]
-        if self.capabilities.can_replay:
-            actions.append(self.replay_action)
-        if self.capabilities.can_comment:
-            actions.append(self.comment_action)
-        return actions
-
-    @Slot()
-    def __on_more(self) -> None:
-        """「…」动作菜单：复制 / 重放 / 备注弹窗（标记入口在表格右键）。"""
-        menu = RoundMenu(parent=self)
-        for action in self._more_actions():
-            menu.addAction(action)
-        menu.exec(self.more_button.mapToGlobal(QPoint(0, self.more_button.height())))
-
-    @Slot()
-    def __on_copy_url(self) -> None:
-        self.__copy(self.datas.get("URL", ""), "URL")
-
-    def __copy(self, text: str, label: str) -> None:
-        """复制到剪贴板；没内容就说清是「还没有」而不是静默无反应。"""
-        if not text:
-            show_warning(
-                self.tr("没有可复制的内容"),
-                self.tr("%s 还没有准备好") % label,
-                self.window(),
-            )
-            return
-        QApplication.clipboard().setText(str(text))
-        show_success(
-            self.tr("成功"),
-            self.tr("%s 已复制到剪贴板") % label,
-            self.window(),
-        )
-
-    @Slot()
-    def __on_replay(self) -> None:
-        """重放当前这一条。多选重放仍归右键菜单 —— 面板里只有「这一条」。"""
-        flow_id = self.datas.get("id", "")
-        if not self.controller or not flow_id:
-            return
-        try:
-            self.controller.replay_flow(flow_id)
-        except (AttributeError, ValueError, RuntimeError) as exc:
-            show_warning(self.tr("重发失败"), str(exc), self.window())
-
     # —— 备注 ——
-
-    @Slot()
-    def __on_comment(self) -> None:
-        """弹窗编辑备注（「…」菜单入口；内联编辑页是日常入口）。
-
-        复用右键菜单那只 `CommentDialog` 而不是另开一个气泡：同一件事在两处长成
-        两个样子本身就是毛病，何况对话框那一份已经在用了。"""
-        flow_id = self.datas.get("id", "")
-        if not self.controller or not flow_id:
-            return
-        dialog = CommentDialog(str(self.datas.get("comment") or ""), self.window())
-        if not dialog.exec():
-            return
-        self.__write_comment(dialog.comment())
 
     @Slot(str)
     def __on_comment_saved(self, comment: str) -> None:
@@ -1084,11 +986,6 @@ class FlowDataPanel(QWidget):
         self.comment_pane.set_read_only(
             not (self.capabilities.can_comment and editable)
         )
-
-        # 「…」动作的可用性跟着这条流量走。
-        self.copy_url_action.setEnabled(bool(data.get("URL")))
-        self.replay_action.setEnabled(editable)
-        self.comment_action.setEnabled(editable)
 
         self.__sync_response_pane(data)
         self.__sync_close_host()
