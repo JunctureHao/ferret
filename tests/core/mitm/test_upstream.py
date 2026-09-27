@@ -303,7 +303,10 @@ class UpstreamKernelTests(unittest.TestCase):
                     policy=GatewayPolicy.BYPASS,
                     value="example.com",
                 )
-            ]
+            ],
+            # 网关总开关默认关（default-features-off），不打开就只存内存副本、
+            # 两个平面都推空 —— 下面的断言要验的正是「规则已生效」。
+            enabled=True,
         )
         master = runtime._master
         assert master is not None
