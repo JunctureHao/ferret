@@ -24,7 +24,6 @@ from qfluentwidgets import (
     CaptionLabel,
     FluentIcon,
     IndicatorPosition,
-    LineEdit,
     OptionsSettingCard,
     PushButton,
     PushSettingCard,
@@ -67,6 +66,7 @@ class MockInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("MockInterface")
         self.controller = controller
+        self._search_text = ""  # titlebar 框回填源（协议 current_search_text，§4.2）
 
         self.__init_widget()
         self.__init_layout()
@@ -114,11 +114,6 @@ class MockInterface(QWidget):
 
         self.import_btn = PushButton(FluentIcon.ADD, self.tr("从 Flow 文件导入"), bar)
 
-        self.search_edit = LineEdit(bar)
-        self.search_edit.setPlaceholderText(self.tr("搜索响应池"))
-        self.search_edit.setFixedHeight(32)
-        self.search_edit.setClearButtonEnabled(True)
-
         self.count_label = CaptionLabel(self.tr("{} 条").format(0), bar)
 
         self.delete_btn = TransparentToolButton(FluentIcon.DELETE, bar)
@@ -141,7 +136,7 @@ class MockInterface(QWidget):
         self._sync_switch(self.controller.enabled)
 
         layout.addWidget(self.import_btn)
-        layout.addWidget(self.search_edit, 1)
+        layout.addStretch(1)
         layout.addWidget(self.count_label)
         layout.addWidget(self.delete_btn)
         layout.addWidget(self.more_btn)
@@ -281,7 +276,6 @@ class MockInterface(QWidget):
         self.delete_btn.clicked.connect(self._on_delete)
         self.more_btn.clicked.connect(self._on_more_menu)
         self.knob_toggle_btn.clicked.connect(self._on_toggle_knobs)
-        self.search_edit.textChanged.connect(self._on_search_changed)
         self.enable_switch.checkedChanged.connect(self.controller.set_enabled)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
         self.table.selectionModel().selectionChanged.connect(
@@ -296,9 +290,6 @@ class MockInterface(QWidget):
         self.params_card.clicked.connect(self._on_edit_params)
         self.headers_card.clicked.connect(self._on_edit_headers)
 
-        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
-            lambda: self.search_edit.setFocus()
-        )
         QShortcut(QKeySequence(Qt.Key.Key_Delete), self.table).activated.connect(
             self._on_delete
         )
@@ -385,10 +376,21 @@ class MockInterface(QWidget):
     def _on_operation_succeeded(self, message: str) -> None:
         show_success(self.tr("成功"), message, self.window())
 
-    @Slot(str)
-    def _on_search_changed(self, text: str) -> None:
+    # --- titlebar 搜索协议（规格 §4.2）---
+
+    def search_placeholder(self) -> str:
+        return self.tr("搜索响应池")
+
+    def apply_search(self, text: str) -> None:
+        self._search_text = text
         self.proxy_model.set_filter_text(text)
         self._update_action_state()
+
+    def current_search_text(self) -> str:
+        return self._search_text
+
+    def search_focus_target(self) -> QWidget:
+        return self.table
 
     @Slot()
     def _on_import(self) -> None:

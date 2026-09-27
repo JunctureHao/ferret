@@ -15,7 +15,6 @@ from qfluentwidgets import (
     CaptionLabel,
     FluentIcon,
     IndicatorPosition,
-    LineEdit,
     PushButton,
     RoundMenu,
     SwitchButton,
@@ -44,6 +43,7 @@ class GatewayInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("GatewayInterface")
         self.controller = controller
+        self._search_text = ""  # titlebar 框回填源（协议 current_search_text，§4.2）
 
         self.__init_widget()
         self.__init_layout()
@@ -92,11 +92,6 @@ class GatewayInterface(QWidget):
 
         self.add_btn = PushButton(FluentIcon.ADD, self.tr("新增规则"), bar)
 
-        self.search_edit = LineEdit(bar)
-        self.search_edit.setPlaceholderText(self.tr("搜索规则"))
-        self.search_edit.setFixedHeight(32)
-        self.search_edit.setClearButtonEnabled(True)
-
         self.edit_btn = TransparentToolButton(FluentIcon.EDIT, bar)
         self.edit_btn.setFixedSize(32, 32)
         self.edit_btn.setIconSize(QSize(18, 18))
@@ -118,7 +113,7 @@ class GatewayInterface(QWidget):
         self._sync_switch(self.controller.enabled)
 
         layout.addWidget(self.add_btn)
-        layout.addWidget(self.search_edit, 1)
+        layout.addStretch(1)
         layout.addWidget(self.edit_btn)
         layout.addWidget(self.delete_btn)
         layout.addSpacing(6)
@@ -154,7 +149,6 @@ class GatewayInterface(QWidget):
         self.add_btn.clicked.connect(self._on_add)
         self.edit_btn.clicked.connect(self._on_edit)
         self.delete_btn.clicked.connect(self._on_delete)
-        self.search_edit.textChanged.connect(self._on_search_changed)
         self.enable_switch.checkedChanged.connect(self.controller.set_gateway_enabled)
         self.table.doubleClicked.connect(self._on_row_activated)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
@@ -166,9 +160,6 @@ class GatewayInterface(QWidget):
         self.controller.operation_failed.connect(self._on_operation_failed)
         self.controller.operation_succeeded.connect(self._on_operation_succeeded)
 
-        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
-            lambda: self.search_edit.setFocus()
-        )
         QShortcut(QKeySequence(Qt.Key.Key_Delete), self.table).activated.connect(
             self._on_delete
         )
@@ -227,10 +218,21 @@ class GatewayInterface(QWidget):
     def _on_operation_succeeded(self, message: str):
         show_success(self.tr("成功"), message, self.window())
 
-    @Slot(str)
-    def _on_search_changed(self, text: str):
+    # --- titlebar 搜索协议（规格 §4.2）---
+
+    def search_placeholder(self) -> str:
+        return self.tr("搜索规则")
+
+    def apply_search(self, text: str) -> None:
+        self._search_text = text
         self.proxy_model.set_filter_text(text)
         self._update_action_state()
+
+    def current_search_text(self) -> str:
+        return self._search_text
+
+    def search_focus_target(self) -> QWidget:
+        return self.table
 
     @Slot()
     def _on_add(self):

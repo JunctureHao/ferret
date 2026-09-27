@@ -23,7 +23,6 @@ from qfluentwidgets import (
     BodyLabel,
     FluentIcon,
     IndeterminateProgressBar,
-    LineEdit,
     PushButton,
     RoundMenu,
     TableView,
@@ -79,6 +78,20 @@ class SessionsInterface(QWidget):
     def refresh(self):
         self.list_page.refresh()
 
+    # --- titlebar 搜索协议转发（路由检查的是加入 stackedWidget 的本类，§4.2）---
+
+    def search_placeholder(self) -> str:
+        return self.list_page.search_placeholder()
+
+    def apply_search(self, text: str) -> None:
+        self.list_page.apply_search(text)
+
+    def current_search_text(self) -> str:
+        return self.list_page.current_search_text()
+
+    def search_focus_target(self) -> QWidget:
+        return self.list_page.search_focus_target()
+
 
 class SessionListPage(QWidget):
     """会话列表页：工具栏 + 表格/空状态"""
@@ -86,6 +99,7 @@ class SessionListPage(QWidget):
     def __init__(self, controller: SessionController, parent=None):
         super().__init__(parent)
         self.controller = controller
+        self._search_text = ""  # titlebar 框回填源（协议 current_search_text，§4.2）
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -140,11 +154,6 @@ class SessionListPage(QWidget):
         self.refresh_btn.setIconSize(QSize(18, 18))
         self.refresh_btn.setToolTip(self.tr("刷新"))
 
-        self.search_edit = LineEdit(bar)
-        self.search_edit.setPlaceholderText(self.tr("搜索会话"))
-        self.search_edit.setFixedHeight(32)
-        self.search_edit.setClearButtonEnabled(True)
-
         self.rename_btn = TransparentToolButton(FluentIcon.EDIT, bar)
         self.rename_btn.setFixedSize(32, 32)
         self.rename_btn.setIconSize(QSize(18, 18))
@@ -159,7 +168,7 @@ class SessionListPage(QWidget):
 
         layout.addWidget(self.import_btn)
         layout.addWidget(self.refresh_btn)
-        layout.addWidget(self.search_edit, 1)
+        layout.addStretch(1)
         layout.addWidget(self.rename_btn)
         layout.addWidget(self.delete_btn)
         return bar
@@ -188,7 +197,6 @@ class SessionListPage(QWidget):
     def __connect_signal_to_slot(self):
         self.import_btn.clicked.connect(self._on_import)
         self.refresh_btn.clicked.connect(self.refresh)
-        self.search_edit.textChanged.connect(self._on_search_changed)
         self.rename_btn.clicked.connect(self._on_rename)
         self.delete_btn.clicked.connect(self._on_delete)
         self.table.doubleClicked.connect(self._on_row_activated)
@@ -204,9 +212,6 @@ class SessionListPage(QWidget):
 
         self.table.selectionModel().selectionChanged.connect(self._update_action_state)
 
-        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
-            lambda: self.search_edit.setFocus()
-        )
         QShortcut(QKeySequence(Qt.Key.Key_Return), self.table).activated.connect(
             self._open_selected
         )
@@ -242,9 +247,20 @@ class SessionListPage(QWidget):
     def _on_operation_succeeded(self, message: str):
         show_success(self.tr("成功"), message, self)
 
-    @Slot(str)
-    def _on_search_changed(self, text: str):
+    # --- titlebar 搜索协议（规格 §4.2）---
+
+    def search_placeholder(self) -> str:
+        return self.tr("搜索会话")
+
+    def apply_search(self, text: str) -> None:
+        self._search_text = text
         self.proxy_model.set_filter_text(text)
+
+    def current_search_text(self) -> str:
+        return self._search_text
+
+    def search_focus_target(self) -> QWidget:
+        return self.table
 
     @Slot()
     def refresh(self):

@@ -3,8 +3,16 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -18,6 +26,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QSizePolicy,
+    QStackedWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -49,10 +58,11 @@ from qfluentwidgets import (
 from sysproxy import SystemProxyService
 
 from ferret.apps.capture.controllers import CaptureController, CaptureState
-from ferret.apps.common.filter import MultiFilterManager
+from ferret.apps.common.filter import CaptureFilterActions, FlowFilterErrorPanel
 from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
 from ferret.apps.common.info_bar import show_success, show_warning
+from ferret.apps.common.search import SearchHost
 from ferret.core.mitm import HTTPFlow
 from ferret.core.mitm.facade import MitmFacade
 from ferret.core.mitm.modes import (
@@ -78,13 +88,6 @@ _PICKER_ROW_HEIGHT = 33
 _PICKER_MAX_ROWS = 8
 _PICKER_FRAME_HEIGHT = 33
 
-# 过滤面板的底色与边线：对齐 qfw 卡片灰阶（与上面 _CARD_BG_* 同源的实测 dump 值）。
-# 背景用不透明实色避免与下层内容叠色；边线透明度与 qfw LineEdit 边框同档。
-_PANEL_BG_LIGHT = "rgba(243, 243, 243, 1)"
-_PANEL_BG_DARK = "rgba(45, 45, 45, 1)"
-_PANEL_BORDER_LIGHT = "rgba(0, 0, 0, 0.09)"
-_PANEL_BORDER_DARK = "rgba(255, 255, 255, 0.08)"
-
 
 class CapturesInterface(QWidget):
     """抓包主界面 - 包含工具栏、搜索面板和内容区域"""
@@ -103,10 +106,13 @@ class CapturesInterface(QWidget):
         *,
         mitm: MitmFacade | None = None,
         system_proxy: SystemProxyService | None = None,
+        search_host: "SearchHost | None" = None,
     ):
         super().__init__(parent)
         self.setObjectName("CapturesInterface")
         self.controller = CaptureController(self, mitm=mitm, system_proxy=system_proxy)
+        self._search_text = ""  # titlebar 框回填源（协议 current_search_text，§4.2）
+        self._search_host = search_host  # 错误面板「清除表达式」入口（规格 §5.3 v4）
         self._ui_state = CaptureUiState(
             capture_state=CaptureState.STOPPED,
             endpoint=self.controller.local_endpoint,
@@ -126,7 +132,13 @@ class CapturesInterface(QWidget):
     def __init_widget(self):
         """初始化界面组件"""
         self.command_bar = CaptureCommandBar(self)
-        self.filter_panel = CaptureFilterPanel(self)
+        # 捕获页不换全局框（规格 §5.1 v3）：只贡献两个独特动作（帮助 / 高亮）注入
+        # 框内 trailing 位，键入经 200ms debounce 交给本页 flowfilter 引擎；
+        # 错误条常驻命令栏与表格之间（§5.3），仅表达式非法时出现。
+        self.filter_actions = CaptureFilterActions(self)
+        # 语法错误全量替换面板（§5.3 v4）：非法时整体让位 flow table，
+        # 修正/清除表达式后自动恢复。
+        self.error_panel = FlowFilterErrorPanel(self)
         # Compatibility alias for callers and existing tests.
         self.toolbar = self.command_bar
         self.content = CapturesContentArea(self, self.controller)
@@ -135,8 +147,6 @@ class CapturesInterface(QWidget):
         self.content.set_source(_CaptureFlowSource(self.controller))
         # 分组模式按钮进命令栏统一按钮区（按钮实体归 content/pane 所有）。
         self.command_bar.host_grouping_button(self.content.mode_button)
-        # 过滤面板的表达式编辑器上移到命令栏中段常驻显示（唯一事实源不变，只换摆放）。
-        self.command_bar.host_search_edit(self.filter_panel.expression_input)
         # 搜索高亮直播重算的 debounce：抓包突发时把连串 flow 信号合并成一次重算
         # （命中集会随新流量/响应到达而过时，见 __schedule_highlight_refresh）。
         self._hl_debounce = QTimer(self)
@@ -150,13 +160,15 @@ class CapturesInterface(QWidget):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
         self.main_layout.addWidget(self.command_bar)
-        self.main_layout.addWidget(self.filter_panel)
-        self.main_layout.addWidget(self.content, 1)
+        # 内容堆栈：flow table（含详情）/ 语法错误面板 二选一（§5.3 v4）
+        self.content_stack = QStackedWidget(self)
+        self.content_stack.addWidget(self.content)
+        self.content_stack.addWidget(self.error_panel)
+        self.main_layout.addWidget(self.content_stack, 1)
 
     def __connect_signal_to_slot(self):
         """协调层：连接组件业务信号到 Controller"""
         self.command_bar.captureToggled.connect(self.__on_capture_toggled)
-        self.command_bar.filterToggled.connect(self.__toggle_filter_panel)
         self.command_bar.openRequested.connect(self.__on_open_flow_file_requested)
         self.command_bar.portRequested.connect(self.__show_proxy_port_dialog)
         self.command_bar.locateRequested.connect(self.content.on_locate_selection)
@@ -194,20 +206,17 @@ class CapturesInterface(QWidget):
         self.controller.flow_updated.connect(self.__schedule_highlight_refresh)
         self.controller.view_refreshed.connect(self.__schedule_highlight_refresh)
 
-        self.filter_panel.conditionsChanged.connect(self.__on_search_changed)
-        self.filter_panel.panelCloseRequested.connect(self.__hide_filter_panel)
-        # 非法原生表达式的错误回传：置输入框错误态（空串 = 清除）。
-        self.controller.filterExpressionRejected.connect(
-            self.filter_panel.set_raw_error
-        )
+        self.filter_actions.conditionsChanged.connect(self.__on_search_changed)
+        # 非法原生表达式的错误回传：错误条标注（空串 = 清除）。全局框 tooltip 由
+        # MainWindow 牵线设置（框归 SearchHost，规格 §5.1 v3）。
+        self.controller.filterExpressionRejected.connect(self.__on_filter_error)
+        self.error_panel.clearRequested.connect(self.__clear_search_expression)
 
         # 统计信息更新
         self.content.stats_updated.connect(self.__on_stats_updated)
 
     def __init_shortcuts(self) -> None:
-        QShortcut(QKeySequence.StandardKey.Find, self).activated.connect(
-            self.__show_and_focus_filter
-        )
+        # Ctrl+F 已上移 MainWindow（聚焦 titlebar 搜索槽，规格 §4.4），页内不再装。
         QShortcut(QKeySequence(Qt.Key.Key_Return), self.content).activated.connect(
             self.content.open_selected
         )
@@ -229,17 +238,14 @@ class CapturesInterface(QWidget):
         QShortcut(QKeySequence(Qt.Key.Key_Space), self).activated.connect(
             self.__toggle_capture_from_shortcut
         )
-        # Tab 序跟随命令栏新视觉顺序：主按钮 → 搜索框 → 右侧图标簇 → 表格。
+        # Tab 序跟随命令栏视觉顺序：主按钮 → 右侧图标簇 → 表格（表达式框在
+        # titlebar，属另一棵控件树，不进本页链）。
         QWidget.setTabOrder(
             self.command_bar.control_btn, self.command_bar.proxy_setting_btn
         )
         QWidget.setTabOrder(
-            self.command_bar.proxy_setting_btn, self.filter_panel.expression_input
+            self.command_bar.proxy_setting_btn, self.command_bar.open_btn
         )
-        QWidget.setTabOrder(
-            self.filter_panel.expression_input, self.command_bar.search_btn
-        )
-        QWidget.setTabOrder(self.command_bar.search_btn, self.command_bar.open_btn)
         QWidget.setTabOrder(
             self.command_bar.open_btn, self.command_bar.locate_selection_btn
         )
@@ -294,16 +300,16 @@ class CapturesInterface(QWidget):
         勾选「仅高亮不过滤」：清掉 View 过滤（被隐藏的行全部回来），改把命中集回推给
         表格整行高亮。两条路径互斥，切换即时生效。
         """
-        raw = self.filter_panel.get_raw_expression()
-        if self.filter_panel.is_highlight_mode():
+        raw = self.filter_actions.raw_text()
+        if self.filter_actions.is_highlight_mode():
             self.controller.apply_filter("")  # 清过滤：被隐藏的行全部回来
             self.content.set_highlight_ids(self.controller.apply_highlight(raw))
         else:
             self.content.set_highlight_ids(set())  # 关高亮
             self.controller.apply_filter(raw)  # 现状：表达式直接过滤
+        # 面板侧计数已随面板退役；空态「当前有 N 个有效条件」只需 0/1 语义。
         self._ui_state = replace(
-            self._ui_state,
-            active_filter_count=self.filter_panel.active_condition_count(),
+            self._ui_state, active_filter_count=1 if raw.strip() else 0
         )
         self._refresh_command_bar()
 
@@ -312,16 +318,29 @@ class CapturesInterface(QWidget):
 
         接三个 flow 信号（新增/更新/整体刷新），签名用 ``*_`` 兼容各自的实参个数。
         """
-        if self.filter_panel.is_highlight_mode():
+        if self.filter_actions.is_highlight_mode():
             self._hl_debounce.start()
 
     @Slot()
     def __refresh_highlight(self) -> None:
         """重算并回推命中集（仅高亮模式；表达式没变，只是流量集变了）。"""
-        if not self.filter_panel.is_highlight_mode():
+        if not self.filter_actions.is_highlight_mode():
             return
-        raw = self.filter_panel.get_raw_expression()
+        raw = self.filter_actions.raw_text()
         self.content.set_highlight_ids(self.controller.apply_highlight(raw))
+
+    @Slot(str)
+    def __on_filter_error(self, message: str) -> None:
+        """语法错误 → flow table 整体让位错误面板；空串 = 恢复表格（§5.3 v4）。"""
+        self.error_panel.set_raw_error(message)
+        self.content_stack.setCurrentWidget(
+            self.error_panel if message else self.content
+        )
+
+    @Slot()
+    def __clear_search_expression(self) -> None:
+        if self._search_host is not None:
+            self._search_host.clear_search()
 
     @Slot()
     def __show_proxy_port_dialog(self):
@@ -569,32 +588,13 @@ class CapturesInterface(QWidget):
             parent=self,
         )
 
-    @Slot()
-    def __toggle_filter_panel(self) -> None:
-        self.filter_panel.setVisible(not self.filter_panel.isVisible())
-        if self.filter_panel.isVisible():
-            self.filter_panel.expression_input.setFocus()
-        self._refresh_command_bar()
-
-    @Slot()
-    def __hide_filter_panel(self) -> None:
-        self.filter_panel.hide()
-        self._refresh_command_bar()
-
-    def __show_and_focus_filter(self) -> None:
-        # 搜索框已常驻命令栏，Ctrl+F 直接聚焦它即可（高级选项另由 search_btn 展开）。
-        self.filter_panel.expression_input.setFocus()
-
     def __handle_escape(self) -> None:
+        # 表达式框在 titlebar 后，页内 Esc 只剩「收起详情面板」一级。
         if self.content.is_panel_expanded():
             self.content.collapse_panel()
-        elif self.filter_panel.isVisible():
-            self.__hide_filter_panel()
 
     def __toggle_capture_from_shortcut(self) -> None:
         focus = QApplication.focusWidget()
-        if focus is not None and self.filter_panel.isAncestorOf(focus):
-            return
         if isinstance(
             focus,
             (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QComboBox),
@@ -607,13 +607,32 @@ class CapturesInterface(QWidget):
         ):
             self.controller.toggle_capture()
 
+    # --- titlebar 搜索协议（规格 §4.2）+ 捕获页独特动作注入（§5.1 v3）---
+
+    def search_placeholder(self) -> str:
+        return self.tr('~u "api/.*" & !~m GET')
+
+    def apply_search(self, text: str) -> None:
+        self._search_text = text
+        self.filter_actions.feed(text)
+
+    def current_search_text(self) -> str:
+        return self._search_text
+
+    def search_focus_target(self) -> QWidget:
+        return self.content.table
+
+    def search_actions(self) -> list[QAction]:
+        """注入全局框 trailing 位的捕获页独特动作（帮助 / 高亮，§5.1 v3）。"""
+        return self.filter_actions.actions
+
     def _refresh_command_bar(self) -> None:
         self._ui_state = replace(
             self._ui_state,
             channels_summary=self._channels_summary(),
             channel_issue=self._channel_issue(),
         )
-        self.command_bar.set_state(self._ui_state, self.filter_panel.isVisible())
+        self.command_bar.set_state(self._ui_state)
         self.content.set_capture_context(
             capture_state=self._ui_state.capture_state,
             endpoint=self._ui_state.endpoint,
@@ -722,46 +741,10 @@ class CaptureUiState:
     channel_issue: str = ""
 
 
-class CaptureFilterPanel(MultiFilterManager):
-    """Capture-specific full-width advanced filter band."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("CaptureFilterPanel")
-        # 重入守卫：setStyleSheet 本身会再触发 PaletteChange，没有它
-        # changeEvent → _apply_theme → setStyleSheet → changeEvent …… 栈溢出。
-        self._applying_theme = False
-        self._apply_theme()
-
-    def _apply_theme(self) -> None:
-        dark = isDarkTheme()
-        bg = _PANEL_BG_DARK if dark else _PANEL_BG_LIGHT
-        border = _PANEL_BORDER_DARK if dark else _PANEL_BORDER_LIGHT
-        self.setStyleSheet(
-            f"#CaptureFilterPanel {{"
-            f" background: {bg};"
-            f" border-top: 1px solid {border};"
-            f" border-bottom: 1px solid {border};"
-            f"}}"
-        )
-
-    def changeEvent(self, event) -> None:
-        super().changeEvent(event)
-        # qfw 切主题会发 PaletteChange，面板 QSS 不重算就会停在旧主题。
-        # setStyleSheet 自身也派生 PaletteChange，重入时必须短路。
-        if event.type() == QEvent.Type.PaletteChange and not self._applying_theme:
-            self._applying_theme = True
-            try:
-                self._apply_theme()
-            finally:
-                self._applying_theme = False
-
-
 class CaptureCommandBar(QWidget):
     """Compact capture status and command bar."""
 
     captureToggled = Signal(bool)
-    filterToggled = Signal()
     openRequested = Signal()
     clearRequested = Signal()
     deleteUnmarkedRequested = Signal()
@@ -771,8 +754,6 @@ class CaptureCommandBar(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._state: CaptureUiState | None = None
-        self._filter_panel_visible = False
-        self._search_edit: QWidget | None = None
 
         self.__init_widget()
         self.__init_layout()
@@ -800,10 +781,6 @@ class CaptureCommandBar(QWidget):
 
         self.stats_label = CaptionLabel(self.tr("{} 条").format(0), self)
 
-        self.search_btn = TransparentToolButton(FluentIcon.FILTER, self)
-        self.search_btn.setCheckable(True)
-        self.search_btn.setToolTip(self.tr("高级筛选") + " (Ctrl+F)")
-        self.search_btn.setAccessibleName(self.tr("高级筛选"))
         self.open_btn = TransparentToolButton(FluentIcon.FOLDER, self)
         self.open_btn.setToolTip(self.tr("加载 Flow 到当前列表"))
         self.open_btn.setAccessibleName(self.tr("加载 Flow 到当前列表"))
@@ -848,7 +825,6 @@ class CaptureCommandBar(QWidget):
         self.separator.setFixedHeight(16)
 
         for button in (
-            self.search_btn,
             self.open_btn,
             self.proxy_setting_btn,
             self.environment_btn,
@@ -884,22 +860,18 @@ class CaptureCommandBar(QWidget):
         status_group.addWidget(self.exposure_label)
         layout.addLayout(status_group)
         layout.addSpacing(8)
-        # ③ 内联搜索框宿主：stretch 撑开两端；表达式编辑器由 host_search_edit 领入。
-        # 未领入时（如命令栏单测）这个 stretch 子布局即充当中段弹性空白。
-        self._search_host = QHBoxLayout()
-        self._search_host.setContentsMargins(0, 0, 0, 0)
-        self._search_host.setSpacing(0)
-        layout.addLayout(self._search_host, 1)
+        # ③ 中段弹性空白：表达式编辑器已迁往 titlebar 槽位（§5.1/§5.8），
+        # 命令栏回归纯动作条，动作簇吃这段余量。
+        layout.addStretch(1)
         layout.addSpacing(6)
         # ④ 计数
         layout.addWidget(self.stats_label)
         layout.addSpacing(8)
-        # ⑤ 右侧图标动作簇：分组模式（pane 领入）+ 高级筛选 + 加载 + 定位 + 清空
+        # ⑤ 右侧图标动作簇：分组模式（pane 领入）+ 加载 + 定位 + 清空
         self._grouping_host = QHBoxLayout()
         self._grouping_host.setContentsMargins(0, 0, 0, 0)
         self._grouping_host.setSpacing(0)
         layout.addLayout(self._grouping_host)
-        layout.addWidget(self.search_btn)
         layout.addWidget(self.open_btn)
         layout.addSpacing(4)
         layout.addWidget(self.locate_selection_btn)
@@ -917,7 +889,6 @@ class CaptureCommandBar(QWidget):
     def __connect_signal_to_slot(self):
         """组件内部事件管理"""
         self.control_btn.clicked.connect(self.__emit_capture_toggle)
-        self.search_btn.clicked.connect(self.filterToggled.emit)
         self.open_btn.clicked.connect(self.openRequested.emit)
         self.proxy_setting_btn.clicked.connect(self.portRequested.emit)
         self.environment_btn.clicked.connect(self.__show_environment_menu)
@@ -932,17 +903,6 @@ class CaptureCommandBar(QWidget):
         进右侧簇的分组子槽；``addWidget`` 会顺带把它 reparent 到命令栏。
         """
         self._grouping_host.addWidget(button)
-
-    def host_search_edit(self, edit: QWidget) -> None:
-        """把过滤面板的表达式编辑器领进命令栏中段常驻显示（stretch）。
-
-        编辑器实体归 CaptureFilterPanel / MultiFilterManager 所有（flowfilter 表达式的
-        唯一事实源），这里只把它 reparent 进本栏中段弹性槽；高级面板收起后表达式框仍在。
-        最小宽度下调到 160，让窄窗时它先让位收缩、而不是把动作按钮挤出栏外。
-        """
-        edit.setMinimumWidth(160)
-        self._search_edit = edit
-        self._search_host.addWidget(edit, 1)
 
     @Slot()
     def __emit_capture_toggle(self) -> None:
@@ -980,9 +940,8 @@ class CaptureCommandBar(QWidget):
             self.environment_btn.mapToGlobal(QPoint(0, self.environment_btn.height()))
         )
 
-    def set_state(self, state: CaptureUiState, filter_panel_visible: bool) -> None:
+    def set_state(self, state: CaptureUiState) -> None:
         self._state = state
-        self._filter_panel_visible = filter_panel_visible
 
         # 抓包态由主按钮文案（开始抓包/停止抓包/启动中/停止中/重试抓包）与中间空状态
         # 面板承载，命令栏不再另设状态圆点+文字（曾经的次级指示与按钮语义重复，且被
@@ -1052,10 +1011,6 @@ class CaptureCommandBar(QWidget):
             )
         )
 
-        self.search_btn.setChecked(
-            filter_panel_visible or state.active_filter_count > 0
-        )
-
         self.captures_delete_btn.setEnabled(state.total_count > 0)
         self.captures_delete_more_btn.setEnabled(state.total_count > 0)
         self._apply_compact_mode(self.width())
@@ -1108,8 +1063,7 @@ class CaptureCommandBar(QWidget):
                 total_count=total,
                 shown_count=shown,
                 selected_count=selected,
-            ),
-            self._filter_panel_visible,
+            )
         )
 
 

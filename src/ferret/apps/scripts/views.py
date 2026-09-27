@@ -17,7 +17,6 @@ from qfluentwidgets import (
     FluentIcon,
     IconWidget,
     IndicatorPosition,
-    LineEdit,
     MessageBox,
     PushButton,
     RoundMenu,
@@ -48,10 +47,14 @@ class ScriptsInterface(QWidget):
     排序，换序走拖拽与右键的上移/下移 —— 两个入口同一个 `move_script_to`。
     """
 
-    def __init__(self, controller: ScriptsController, parent=None):
+    def __init__(
+        self, controller: ScriptsController, search_host=None, parent=None
+    ):
         super().__init__(parent)
         self.setObjectName("ScriptsInterface")
         self.controller = controller
+        self._search_host = search_host  # 全局框清筛选入口（规格 §6，可选注入）
+        self._search_text = ""  # titlebar 框回填源（协议 current_search_text，§4.2）
         # 整表 reset 会清掉选中并发 selectionChanged，重填期间必须哑掉详情联动，
         # 否则勾一下「启用」就被当成「切换到空选中」，正在编辑的正文会被问一遍存不存。
         self._restoring = False
@@ -113,11 +116,6 @@ class ScriptsInterface(QWidget):
         self.import_btn.setToolTip(self.tr("引用磁盘上现有的 .py 文件，不复制"))
         self.new_btn = PushButton(FluentIcon.ADD, self.tr("新建脚本"), bar)
 
-        self.search_edit = LineEdit(bar)
-        self.search_edit.setPlaceholderText(self.tr("搜索脚本"))
-        self.search_edit.setFixedHeight(32)
-        self.search_edit.setClearButtonEnabled(True)
-
         self.reload_btn = TransparentToolButton(FluentIcon.SYNC, bar)
         self.reload_btn.setFixedSize(32, 32)
         self.reload_btn.setIconSize(QSize(18, 18))
@@ -140,7 +138,7 @@ class ScriptsInterface(QWidget):
 
         layout.addWidget(self.import_btn)
         layout.addWidget(self.new_btn)
-        layout.addWidget(self.search_edit, 1)
+        layout.addStretch(1)
         layout.addWidget(self.reload_btn)
         layout.addWidget(self.delete_btn)
         layout.addSpacing(6)
@@ -212,7 +210,6 @@ class ScriptsInterface(QWidget):
         self.reload_btn.clicked.connect(self._on_reload_selected)
         self.delete_btn.clicked.connect(self._on_remove)
         self.enable_switch.checkedChanged.connect(self.controller.set_master_enabled)
-        self.search_edit.textChanged.connect(self._on_search_changed)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.table.doubleClicked.connect(self._on_row_activated)
@@ -231,9 +228,6 @@ class ScriptsInterface(QWidget):
         self.controller.operation_failed.connect(self._on_operation_failed)
         self.controller.operation_succeeded.connect(self._on_operation_succeeded)
 
-        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
-            lambda: self.search_edit.setFocus()
-        )
         QShortcut(QKeySequence(Qt.Key.Key_Delete), self.table).activated.connect(
             self._on_remove
         )
@@ -263,8 +257,9 @@ class ScriptsInterface(QWidget):
         index = self.proxy_model.mapFromSource(self.source_model.index(row, 1))
         if not index.isValid():
             # 被搜索挡住了 —— 新建/另存为的脚本要是不在筛选结果里就等于「消失」，
-            # 这时清掉筛选比让用户自己找更合适。
-            self.search_edit.clear()
+            # 这时清掉全局框的筛选比让用户自己找更合适（规格 §6）。
+            if self._search_host is not None:
+                self._search_host.clear_search()
             index = self.proxy_model.mapFromSource(self.source_model.index(row, 1))
         if index.isValid():
             self.table.selectRow(index.row())
@@ -278,7 +273,7 @@ class ScriptsInterface(QWidget):
 
     def _update_drag_state(self):
         """筛选期间关掉拖拽：看得见的行只是一部分，落点算出来的位置会骗人。"""
-        filtering = bool(self.search_edit.text().strip())
+        filtering = bool(self._search_text.strip())
         self.table.setDragEnabled(not filtering)
         self.table.setDragDropMode(
             QAbstractItemView.DragDropMode.NoDragDrop
@@ -388,11 +383,22 @@ class ScriptsInterface(QWidget):
     def _on_operation_succeeded(self, message: str):
         show_success(self.tr("成功"), message, self.window())
 
-    @Slot(str)
-    def _on_search_changed(self, text: str):
+    # --- titlebar 搜索协议（规格 §4.2）---
+
+    def search_placeholder(self) -> str:
+        return self.tr("搜索脚本")
+
+    def apply_search(self, text: str) -> None:
+        self._search_text = text
         self.proxy_model.set_filter_text(text)
         self._update_drag_state()
         self._update_action_state()
+
+    def current_search_text(self) -> str:
+        return self._search_text
+
+    def search_focus_target(self) -> QWidget:
+        return self.table
 
     @Slot()
     def _on_import(self):

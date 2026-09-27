@@ -1,4 +1,6 @@
-from PySide6.QtCore import Slot
+from typing import cast
+
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 from qfluentwidgets import (
@@ -20,6 +22,7 @@ from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import CertificateInterface
 from ferret.apps.common.icon import BaseAction, BaseIcon
 from ferret.apps.common.info_bar import show_warning
+from ferret.apps.common.search import SearchablePage, SearchHost, is_searchable
 from ferret.apps.common.window import center_window
 from ferret.apps.compose.controllers import ComposeController
 from ferret.apps.compose.views import ComposeInterface
@@ -50,10 +53,14 @@ class MainWindow(FluentWindow):
 
         self.session_controller = SessionController(self)
         self.settings_interface = SettingsInterface(self, mitm=self.runtime.mitm)
+        # titlebar 搜索宿主先于各页创建：捕获页错误面板「清除表达式」与脚本页
+        # clear_search 都经它注入（规格 §5.3 v4 / §6）。
+        self.search_host = SearchHost(self)
         self.captures_interface = CapturesInterface(
             self,
             mitm=self.runtime.mitm,
             system_proxy=self.runtime.system_proxy,
+            search_host=self.search_host,
         )
         self.sessions_interface = SessionsInterface(
             controller=self.session_controller, parent=self
@@ -82,7 +89,9 @@ class MainWindow(FluentWindow):
         )
         self.scripts_controller = ScriptsController(self, mitm=self.runtime.mitm)
         self.scripts_interface = ScriptsInterface(
-            controller=self.scripts_controller, parent=self
+            controller=self.scripts_controller,
+            search_host=self.search_host,
+            parent=self,
         )
         # 断点窗口是独立顶层窗口，构造时不能给 Qt 父对象（`qframelesswindow` 的
         # `updateFrameless()` 不补 `Qt.Window`，给了父对象就退化成子控件），所以它的
@@ -112,10 +121,21 @@ class MainWindow(FluentWindow):
         self.titleBar: FluentTitleBar = self.titleBar
         self.titleBar.buttonLayout.insertWidget(0, self.pin_button)
 
+        # titlebar 搜索槽（规格 §4.1 v3）：唯一全局框，居中悬浮于标题与按钮簇之间
+        # （两侧等权 stretch，2026-09-27 用户决议）；捕获页经协议注入独特动作，
+        # 不再换控件。
+        hbl = self.titleBar.hBoxLayout
+        hbl.insertWidget(hbl.count() - 1, self.search_host, 0, Qt.AlignVCenter)  # ty: ignore[unresolved-attribute]
+        hbl.insertStretch(hbl.count() - 1, 1)
+        # 捕获页帮助 Flyout 的锚点绑到全局框（§5.1 v3，主窗口牵线）。
+        self.captures_interface.filter_actions.bind_anchor(self.search_host.edit)
+
         self.navigationInterface.setExpandWidth(260)
         center_window(self)
         self.__init_navigation()
         self.__connect_signal_to_slot()
+        # 初始路由一次（启动页 = 捕获页 → titlebar 亮出表达式编辑器，规格 §4.3）。
+        self.__on_page_changed(self.stackedWidget.currentIndex())
 
     def __init_navigation(self):
         self.addSubInterface(self.captures_interface, FluentIcon.WIFI, self.tr("捕获"))
@@ -158,6 +178,18 @@ class MainWindow(FluentWindow):
         qconfig.themeChanged.connect(lambda theme: setTheme(theme))
         self.pin_button.clicked.connect(self.toggleStayOnTop)
         self.tray_icon.activated.connect(self.__on_activated)
+        # titlebar 搜索路由（规格 §4.3）：切页三分支 + 键入转发 + Esc 归还焦点。
+        self.stackedWidget.currentChanged.connect(self.__on_page_changed)
+        self.search_host.search_requested.connect(self.__on_titlebar_search_changed)
+        self.search_host.escape_pressed.connect(self.__return_search_focus)
+        # 捕获页非法表达式 → 全局框 tooltip（§5.1 v3：框归 SearchHost，主窗口牵线）。
+        self.captures_interface.controller.filterExpressionRejected.connect(
+            self.search_host.edit.setToolTip
+        )
+        # 全局 Ctrl+F（§4.4）：六页页内同名快捷键已随迁移删除，无双触发。
+        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
+            self.search_host.focus_current
+        )
         self.captures_interface.controller.capture_state_changed.connect(
             self.__on_capture_state_changed
         )
@@ -178,6 +210,35 @@ class MainWindow(FluentWindow):
         # 同上：断点页和断点窗口互不认识，两个方向都从这里接。
         self.intercept_interface.queue_requested.connect(self.intercept_window.pop_up)
         self.intercept_window.attention_requested.connect(self.__on_intercept_attention)
+
+    def __on_page_changed(self, index: int) -> None:
+        """titlebar 搜索槽路由（规格 §4.3 v3）：协议页显示 + 动作注入 / 其余隐藏。"""
+        page = self.stackedWidget.widget(index)
+        if is_searchable(page):
+            searchable = cast(SearchablePage, page)
+            actions_hook = getattr(page, "search_actions", None)
+            self.search_host.set_actions(
+                actions_hook() if callable(actions_hook) else []
+            )
+            self.search_host.show_box(
+                searchable.search_placeholder(), searchable.current_search_text()
+            )
+        else:
+            self.search_host.hide_all()
+
+    def __on_titlebar_search_changed(self, text: str) -> None:
+        page = self.stackedWidget.currentWidget()
+        if is_searchable(page):
+            cast(SearchablePage, page).apply_search(text)
+
+    def __return_search_focus(self) -> None:
+        """Esc 后焦点归还：页面给了 search_focus_target 就用它，否则回页容器（§4.7）。"""
+        page = self.stackedWidget.currentWidget()
+        if page is None:
+            return
+        hook = getattr(page, "search_focus_target", None)
+        target = hook() if callable(hook) else None
+        (target or page).setFocus()
 
     @Slot(int)
     def __on_intercept_attention(self, count: int) -> None:
