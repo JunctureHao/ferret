@@ -40,9 +40,9 @@ class RewriteController(QObject):
     def __init__(self, parent: QObject | None = None, *, mitm: MitmFacade):
         super().__init__(parent)
         self._mitm = mitm
-        # 总开关只在 runtime 内存里（plans/rewrite-ui.md §8：settings.py 零改动），
-        # 每次启动都是开 —— 关掉只是「临时下发空规则」，不碰各行 enabled 落盘值。
-        self._enabled = mitm.rewrite_enabled
+        # 总开关落盘（与网关/断点/脚本/Mock 四页同一口径）：关掉只是「临时下发
+        # 空规则」，不碰各行 enabled 落盘值；重启后恢复用户上次的开关状态。
+        self._enabled = bool(CONFIG.get(CONFIG.rewrite_enabled))
         # 手改坏的 config 不该让规则整批失效（快照编译是整批的，一条坏规则
         # 会把整批回滚），也不该悄悄消失：停用它、留给用户改。
         self._rules = [
@@ -50,6 +50,7 @@ class RewriteController(QObject):
             for rule in rewrite_rules_from_config(CONFIG.get(CONFIG.rewrite_rules))
         ]
         self._mitm.set_rewrite_rules(self._rules)
+        self._mitm.set_rewrite_enabled(self._enabled)
 
     @property
     def rules(self) -> list[RewriteRule]:
@@ -116,6 +117,7 @@ class RewriteController(QObject):
             self.operation_failed.emit(self.tr("总开关未生效"), str(exc))
             return False
         self._enabled = enabled
+        CONFIG.set(CONFIG.rewrite_enabled, enabled)
         self.enabled_changed.emit(enabled)
         self.operation_succeeded.emit(
             self.tr("重写已开启") if enabled else self.tr("重写已关闭")

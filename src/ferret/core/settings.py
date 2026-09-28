@@ -380,6 +380,16 @@ class Config(QConfig):
         default=[],
     )
 
+    # 重写总开关。关掉之后所有重写规则一律不生效，流量原样转发。默认**开**：
+    # 规则表出厂为空、零副作用，开与不开等价；落盘是为了与网关/断点/脚本/Mock
+    # 四个总开关同一口径 —— 重启后保持用户上次的开关状态。
+    rewrite_enabled = ConfigItem(
+        group="Rewrite",
+        name="Enabled",
+        default=True,
+        validator=BoolValidator(),
+    )
+
     # 用户脚本清单，存 list[dict]（见 core/mitm/scripts.py 的 ScriptEntry.to_dict）。
     # 和 rewrite_rules 同一个坑：QConfig.set 开头 `if item.value == value: return`，
     # 原地 mutate 再 set 会静默不落盘 —— 写回时必须传一个新 list。
