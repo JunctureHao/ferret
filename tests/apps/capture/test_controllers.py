@@ -368,9 +368,7 @@ class CaptureControllerStateTests(unittest.TestCase):
     def test_start_ready_stop_state_sequence(self) -> None:
         controller, runtime, facade, proxy = self.make_controller()
         states = []
-        legacy = []
         controller.capture_state_changed.connect(states.append)
-        controller.captureStateChanged.connect(legacy.append)
 
         controller.start_capture()
         self.assertEqual(controller.capture_state, CaptureState.RUNNING)
@@ -400,7 +398,6 @@ class CaptureControllerStateTests(unittest.TestCase):
                 CaptureState.STOPPED,
             ],
         )
-        self.assertEqual(legacy, [True, False])
 
     def test_attach_failure_exposes_failed_state_and_rolls_back_recording(self) -> None:
         controller, _, facade, proxy = self.make_controller(fail_attach=True)

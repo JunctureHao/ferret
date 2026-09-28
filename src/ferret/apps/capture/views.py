@@ -580,7 +580,16 @@ class CapturesInterface(QWidget):
 
     @Slot()
     def __on_delete_unmarked_requested(self) -> None:
-        """删除全部未标记流量（含被当前过滤式遮住的），对全部 store 生效。"""
+        """删除全部未标记流量（含被当前过滤式遮住的），对全部 store 生效。
+
+        与「清空」同一确认策略：先按同一套口径报数，用户点头才动手。
+        """
+        unmarked = self.controller.unmarked_flow_count()
+        if unmarked <= 0:
+            return
+        dialog = ClearUnmarkedFlowsDialog(unmarked, self.window())
+        if not dialog.exec():
+            return
         removed = self.controller.remove_unmarked_flows()
         self._ui_state = replace(
             self._ui_state, total_count=self.controller.total_count()
@@ -1158,6 +1167,28 @@ class ClearFlowsDialog(MessageBoxBase):
         )
         self.desc_label.setWordWrap(True)
         self.yesButton.setText(self.tr("清空"))
+        self.cancelButton.setText(self.tr("取消"))
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.desc_label)
+        self.viewLayout.addLayout(layout)
+        self.widget.setMinimumWidth(380)
+
+
+class ClearUnmarkedFlowsDialog(MessageBoxBase):
+    """Confirmation for deleting unmarked capture rows."""
+
+    def __init__(self, flow_count: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.title_label = SubtitleLabel(
+            self.tr("删除未标记的 {} 条流量？").format(flow_count), self
+        )
+        self.desc_label = BodyLabel(
+            self.tr("包含被当前过滤条件遮住的流量；此操作无法撤销。"), self
+        )
+        self.desc_label.setWordWrap(True)
+        self.yesButton.setText(self.tr("删除"))
         self.cancelButton.setText(self.tr("取消"))
         layout = QVBoxLayout()
         layout.setSpacing(8)

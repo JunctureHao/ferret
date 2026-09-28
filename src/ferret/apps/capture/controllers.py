@@ -108,9 +108,6 @@ class CaptureController(QObject):
     sse_event = Signal(str, object)
     sse_ended = Signal(str)
 
-    captureStateChanged = Signal(bool)
-    proxy_started = Signal()
-    proxy_failed = Signal(str)
     capture_state_changed = Signal(object)
     # 写入闸门与通道状态：流量表/命令栏据此显示「抓包中 / 已停止」与通道摘要。
     recordingChanged = Signal(bool)
@@ -365,7 +362,6 @@ class CaptureController(QObject):
             if not detach_ok:
                 self._last_error = self.tr("恢复原系统代理失败")
                 self._set_capture_state(CaptureState.FAILED)
-                self.captureStateChanged.emit(False)
                 return
         try:
             self._mitm.stop_capture_recording()
@@ -379,7 +375,6 @@ class CaptureController(QObject):
         except (RuntimeError, TimeoutError, ValueError):
             log.exception("failed to drop capture channels")
         self._set_capture_state(CaptureState.STOPPED)
-        self.captureStateChanged.emit(False)
 
     def shutdown(self) -> None:
         self.stop_capture()
@@ -579,6 +574,10 @@ class CaptureController(QObject):
     def remove_flows(self, flows: list[HTTPFlow]) -> None:
         self._mitm.remove_flows(flows)
 
+    def unmarked_flow_count(self) -> int:
+        """未标记流量条数（「删除未标记」确认框的计数，与删除同一套口径）。"""
+        return self._mitm.unmarked_flow_count()
+
     def remove_unmarked_flows(self) -> int:
         """删除全部未标记流量（含被当前过滤式遮住的），返回删除数。"""
         return self._mitm.remove_unmarked_flows()
@@ -626,16 +625,12 @@ class CaptureController(QObject):
                 )
                 self._last_error = message
                 self._set_capture_state(CaptureState.FAILED)
-                self.proxy_failed.emit(message)
-                self.captureStateChanged.emit(False)
                 return
             self._sysproxy_attached = True
 
         self._pending_attach = False
         self._set_recording(True)
         self._set_capture_state(CaptureState.RUNNING)
-        self.proxy_started.emit()
-        self.captureStateChanged.emit(True)
         self._schedule_channel_check()
 
     def _set_recording(self, recording: bool) -> None:
@@ -648,8 +643,6 @@ class CaptureController(QObject):
         self._pending_attach = False
         self._last_error = message
         self._set_capture_state(CaptureState.FAILED)
-        self.proxy_failed.emit(message)
-        self.captureStateChanged.emit(False)
 
     def update_channels(
         self,
@@ -731,7 +724,6 @@ class CaptureController(QObject):
             if not detach_ok:
                 self._last_error = self.tr("恢复原系统代理失败")
                 self._set_capture_state(CaptureState.FAILED)
-                self.captureStateChanged.emit(False)
                 return
         self._schedule_channel_check()
 
@@ -782,8 +774,6 @@ class CaptureController(QObject):
         self._set_recording(False)
         self._last_error = message
         self._set_capture_state(CaptureState.FAILED)
-        self.proxy_failed.emit(message)
-        self.captureStateChanged.emit(False)
 
     def _on_runtime_stopped(self) -> None:
         if self._runtime.state == MitmRuntimeState.STOPPED and self._capture_state in (

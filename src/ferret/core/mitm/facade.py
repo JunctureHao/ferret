@@ -1385,6 +1385,18 @@ class MitmFacade:
         else:
             remove()
 
+    def unmarked_flow_count(self) -> int:
+        """store 里未标记流量的条数。「删除未标记」确认框的计数：与
+        `remove_unmarked_flows` 同一套过滤口径（不看类型、只看 marked），
+        数字对不上就会删多。"""
+
+        def count() -> int:
+            return sum(1 for f in self.view._store.values() if not f.marked)
+
+        if self.runtime.is_running:
+            return int(self.runtime.call(count))
+        return count()
+
     def remove_unmarked_flows(self) -> int:
         """删除 store 里所有未标记流量（对齐原生 `view.clear_unmarked`，
         addons/view.py:369），返回删除数供界面播报。
