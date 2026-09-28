@@ -15,6 +15,7 @@ from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import (
+    Flow,
     HTTPFlow,
     LocalRedirectorInstance,
     Options,
@@ -28,6 +29,7 @@ from ferret.core.mitm.certificate import (
     build_trusted_ca_bundle,
     client_certs_error,
 )
+from ferret.core.mitm.compose import compose_recording
 from ferret.core.mitm.cut import DEFAULT_BODY_CUT_SIZE, clamp_body_cut_size
 from ferret.core.mitm.gateway import (
     GatewayRule,
@@ -229,7 +231,8 @@ class MitmRuntimeState(StrEnum):
 class UiBridgeAddon:
     """Forward the native View signals and the websocket hooks across the boundary.
 
-    View 的信号只是转发；websocket 那三个钩子是这里**自己**实现的 addon 钩子 ——
+    View 的新增信号按 Compose 记录选择分流，判断留在 mitm 线程，Qt 不读活 flow
+    的 metadata。其余 View 信号直接转发；websocket 那三个钩子由本类实现 ——
     `View` 一个 websocket 钩子都没有（它只有 `requestheaders` / `error` / `response` /
     `tcp_*` / `udp_*` / `update`），所以帧到达这件事没有任何原生信号可借。这与本类
     已经带着 `flow_suspended` / `flow_intercepted` 两个 ferret 自有信号是同一类问题：
@@ -248,7 +251,7 @@ class UiBridgeAddon:
         self._master = master
         self._generation = generation
         self._connected = True
-        self._on_add = lambda flow: bridge.flow_added.emit(flow)
+        self._on_add = self._forward_add
         self._on_update = lambda flow: bridge.flow_updated.emit(flow)
         self._on_remove = lambda flow, index: bridge.flow_removed.emit(flow, index)
         self._on_refresh = lambda: bridge.view_refreshed.emit()
@@ -256,6 +259,13 @@ class UiBridgeAddon:
         view.sig_view_update.connect(self._on_update)
         view.sig_view_remove.connect(self._on_remove)
         view.sig_view_refresh.connect(self._on_refresh)
+
+    def _forward_add(self, flow: Flow) -> None:
+        record = compose_recording(flow)
+        if record is True:
+            self._bridge.compose_flow_added.emit(flow)
+        elif record is None:
+            self._bridge.flow_added.emit(flow)
 
     def running(self) -> None:
         if not self._master.proxyserver.listen_addrs():
@@ -690,6 +700,8 @@ class MitmRuntime(QObject):
     stopped = Signal()
 
     flow_added = Signal(object)
+    # 显式选择记录的 Compose 新增行：独立于抓包写入闸门，仍遵循原生 View 过滤。
+    compose_flow_added = Signal(object)
     flow_updated = Signal(object)
     flow_removed = Signal(object, int)
     view_refreshed = Signal()

@@ -145,8 +145,7 @@ class CaptureController(QObject):
         self._capture_state = CaptureState.STOPPED
         self._last_error = ""
         self._pending_attach = False
-        # 写入闸门：关着的时候新 flow 不进流量表（通道照常转发）。默认关 ——
-        # 应用打开是「已停止」态，点开始抓包才开。
+        # 外部流量的写入闸门默认关，点开始抓包才开；Compose 显式记录走独立信号。
         self._recording = False
         # 系统代理注册表当前是否由我们挂着（attach 成功 / detach 落下）。
         self._sysproxy_attached = False
@@ -157,6 +156,7 @@ class CaptureController(QObject):
         self._last_valid_raw_filter = ""
 
         runtime.flow_added.connect(self._on_flow_added)
+        runtime.compose_flow_added.connect(self.flow_added)
         runtime.flow_updated.connect(self.flow_updated)
         # 挂起/放行也当成一次更新：网关挂起发生在 `request`，而 `View` 没有这个钩子，
         # 不借道 flow_updated 那一行的「挂起中」永远不上屏。
@@ -793,11 +793,11 @@ class CaptureController(QObject):
             self._on_runtime_failed(self.tr("mitmproxy 内核已停止"))
 
     def _on_flow_added(self, flow: object) -> None:
-        """写入闸门：闸门关着时新 flow 不进流量表。
+        """外部流量的写入闸门：关着时不录入新行。
 
         只挡新增：已有行的更新（响应到达、拦截标记等）照常转发 —— 表里已存在的
-        内容永远保持鲜活，暂停语义是「不进新行」而不是「冻结整张表」。compose /
-        手工请求的结果同样从这条路走，一并受闸门约束。
+        内容永远保持鲜活。Compose 的记录选择已在 mitm 线程判定，选择记录的
+        新增经 compose_flow_added 独立转发，不受此闸门约束，也不改变抓包状态。
         """
         if not self._recording:
             return

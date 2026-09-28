@@ -17,7 +17,12 @@ from ferret.core.mitm.bindings import (
     emoji,
     human,
 )
-from ferret.core.mitm.compose import COMPOSE_METADATA_KEY, build_compose_flow
+from ferret.core.mitm.compose import (
+    COMPOSE_METADATA_KEY,
+    COMPOSE_RECORD_METADATA_KEY,
+    build_compose_flow,
+    compose_recording,
+)
 from ferret.core.mitm.detail import build_flow_detail
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.gateway import GatewayRule
@@ -904,7 +909,8 @@ class MitmFacade:
 
     def total_count(self) -> int:
         count = lambda: sum(
-            isinstance(flow, HTTPFlow) for flow in self.view._store.values()
+            isinstance(flow, HTTPFlow) and compose_recording(flow) is not False
+            for flow in self.view._store.values()
         )
         return int(self.runtime.call(count)) if self.runtime.is_running else count()
 
@@ -928,7 +934,13 @@ class MitmFacade:
           之后到达的更新全部落空。迭代本身在 mitm 线程内完成（`runtime.call`），
           Qt 线程只持有结果 —— 与信号路径交付活 flow 是同一种暴露。
         """
-        visible = lambda: [f for f in self.view if isinstance(f, HTTPFlow)]
+        # 不记录的 Compose 在途时仍必须留在核心 View（提前移除会 kill），
+        # 但刷新/切换过滤条件不能把它们重新带进表格。
+        visible = lambda: [
+            f
+            for f in self.view
+            if isinstance(f, HTTPFlow) and compose_recording(f) is not False
+        ]
         return self.runtime.call(visible) if self.runtime.is_running else visible()
 
     def match_ids(self, matcher) -> set[str]:
@@ -941,7 +953,11 @@ class MitmFacade:
         高亮模式已清掉用户过滤，`self.view` 恰是「全部 ~http」——命中集与表格所见一致。
         """
         run = lambda: {
-            f.id for f in self.view if isinstance(f, HTTPFlow) and matcher(f)
+            f.id
+            for f in self.view
+            if isinstance(f, HTTPFlow)
+            and compose_recording(f) is not False
+            and matcher(f)
         }
         return self.runtime.call(run) if self.runtime.is_running else run()
 
@@ -1052,6 +1068,8 @@ class MitmFacade:
                 if master.client_playback.check(flow) is not None:
                     continue
                 replay = flow.copy()
+                # 普通重发沿用抓包闸门，不继承原 Compose 的记录选择。
+                replay.metadata.pop(COMPOSE_RECORD_METADATA_KEY, None)
                 replay.response = None
                 replay.error = None
                 replay.is_replay = "request"
@@ -1077,7 +1095,8 @@ class MitmFacade:
         """编辑页「发送」：徒手造一条 flow 交给 `ClientPlayback` 发出，返回 flow id。
 
         与 `replay_flows` 同一条路（重写 / 网关 / 断点规则照常命中）。`record`
-        决定是否留在流量列表：不留的那条由 `ComposeAddon` 在 View 收录后摘除。
+        决定是否进入流量列表，独立于抓包开关；不记录的请求在途时对表格隐藏，
+        落地后由 `ComposeAddon` 从核心 View 摘除。
         响应 / 错误落地后经 `MitmRuntime.compose_result` 信号回报编辑页。
         """
         if not method.strip():
@@ -1096,6 +1115,7 @@ class MitmFacade:
         def enqueue() -> str:
             flow = build_compose_flow(method, url, headers, content)
             flow.metadata[COMPOSE_METADATA_KEY] = "1"
+            flow.metadata[COMPOSE_RECORD_METADATA_KEY] = record
             flow.is_replay = "request"
             master.compose.register(flow.id, keep=record)
             # `start_replay` 自己会 backup / 清响应 / 入队；URL 不合法等构造错误

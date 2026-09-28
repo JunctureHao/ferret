@@ -1,7 +1,7 @@
 """flowfilter 搜索动作与错误条（.plans/0-titlebar-search.md §5 v3）。
 
 全局搜索框只有一个（`SearchHost.edit`，见 apps/common/search.py）；捕获页**不换
-控件**，而是把两个独特动作（帮助 Flyout / 高亮 toggle）作为 QAction 注入框内
+控件**，而是把两个独特动作（帮助文档 / 高亮 toggle）作为 QAction 注入框内
 trailing 位，键入文本经 200ms 复位式 debounce 交给本页的 flowfilter 引擎
 （"用自己的搜索引擎"，规格 §5.1 v3，2026-09-27 用户修正）。「仅高亮」切换即时
 重算不走 debounce。语法错误由 controller 经 `filterExpressionRejected` 回传：
@@ -9,21 +9,18 @@ trailing 位，键入文本经 200ms 复位式 debounce 交给本页的 flowfilt
 控制器契约不变（非法不上屏、沿用上次有效，见 capture/controllers.py）。
 
 曾经的「添加筛选」token 插入下拉与可折叠高级面板已退役（规格 §5.5/§5.6），
-token 知识的唯一来源是帮助 Flyout。
+语法帮助直接打开 mitmproxy 官方过滤表达式文档。
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     FluentIcon,
-    Flyout,
-    FlyoutAnimationType,
-    FlyoutView,
     IconWidget,
     PushButton,
     qconfig,
@@ -33,8 +30,7 @@ from qfluentwidgets import (
 class CaptureFilterActions(QObject):
     """捕获页注入全局搜索框的独特动作 + flowfilter 应用管线（规格 §5.1 v3）。
 
-    - 帮助：弹出 flowfilter 语法 Flyout（token 知识唯一来源）；锚点经 `bind_anchor`
-      绑到全局框（MainWindow 牵线）。
+    - 帮助：在默认浏览器打开 mitmproxy 官方过滤表达式文档。
     - 高亮：筛选/高亮二态 toggle，切换即时重算不走 debounce。
     - 文本：`feed()` 进 200ms 复位式 debounce，到点发 `conditionsChanged`
       （`CapturesInterface` 据此走 apply_filter / apply_highlight 两条路径）。
@@ -45,7 +41,6 @@ class CaptureFilterActions(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._text = ""
-        self._anchor: QWidget | None = None
         # 200ms 复位式 debounce：每个键入都重启，避免每按一键就编译一次表达式。
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -56,7 +51,7 @@ class CaptureFilterActions(QObject):
             FluentIcon.HELP.icon(), self.tr("flowfilter 语法帮助"), self
         )
         self.help_action.setToolTip(self.tr("flowfilter 语法帮助"))
-        self.help_action.triggered.connect(self._show_syntax_help)
+        self.help_action.triggered.connect(self._open_syntax_help)
 
         self.highlight_action = QAction(
             FluentIcon.FILTER.icon(), self.tr("过滤模式"), self
@@ -73,10 +68,6 @@ class CaptureFilterActions(QObject):
     def actions(self) -> list[QAction]:
         """注入全局框 trailing 位的动作（顺序即排布序，内嵌 clear 恒最右）。"""
         return [self.help_action, self.highlight_action]
-
-    def bind_anchor(self, anchor: QWidget) -> None:
-        """绑定帮助 Flyout 的锚点（= 全局搜索框；MainWindow 牵线）。"""
-        self._anchor = anchor
 
     def feed(self, text: str) -> None:
         """路由层键入转发入口：记下文本并重启 debounce。"""
@@ -120,35 +111,12 @@ class CaptureFilterActions(QObject):
     def _on_condition_changed(self) -> None:
         self.conditionsChanged.emit()
 
-    def _show_syntax_help(self) -> None:
-        """弹出 flowfilter 操作符速查表（「添加筛选」退役后 token 知识唯一来源）。"""
-        if self._anchor is None:  # 未牵线时静默不弹（不该发生，防御）
-            return
-        view = FlyoutView(
-            title=self.tr("flowfilter 语法"),
-            content=self.tr(
-                "~u <正则>     URL（含 scheme/端口/查询串）\n"
-                "~d <正则>     域名（不含端口）\n"
-                "~m <正则>     请求方法，如 ~m GET\n"
-                "~c <整数>     状态码，只认精确码，如 ~c 200 / ~c 404\n"
-                "~h <正则>     请求或响应头\n"
-                "~b <正则>     正文\n"
-                "~t <正则>     内容类型\n"
-                "~q / ~s        请求期 / 响应期\n"
-                "~websocket    WebSocket 流量\n"
-                "~marked        已标记流量\n"
-                "\n"
-                "组合：a & b（与） a | b（或） !a（非） ( )（分组）\n"
-                '带空格或括号的值要加引号：~u "api/.*"'
-            ),
-            isClosable=True,
+    @Slot()
+    def _open_syntax_help(self) -> None:
+        """在默认浏览器打开官方 flowfilter 文档。"""
+        QDesktopServices.openUrl(
+            QUrl("https://docs.mitmproxy.org/stable/concepts/filters/")
         )
-        flyout = Flyout.make(
-            view, self._anchor, self._anchor.window(), aniType=FlyoutAnimationType.PULL_UP
-        )
-        # qfw 的 × 只 emit `closed` 信号（`Flyout.create` 才会代连 close）；
-        # `Flyout.make` 不接线，必须自己连，否则点 × 关不掉（实测 bug）。
-        view.closed.connect(flyout.close)
 
 
 class FlowFilterErrorPanel(QWidget):

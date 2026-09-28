@@ -61,7 +61,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 1. `MitmRuntime.call(callback, timeout=5.0)` 投到 mitm 线程。
 2. Qt 侧一律经 `MitmFacade`（`apps/` 只持 facade，不直接调 `runtime.call`）。
-3. 事件经 `_ViewSignalBridge` 转 Qt Signal，**不要自己 poll View**。
+3. 事件经 `UiBridgeAddon` 转 Qt Signal，**不要自己 poll View**。
 
 禁止项：
 
@@ -97,7 +97,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - **不做 transparent / tun**：Windows 上游明文 unsupported、需整进程管理员、重定向端口硬编码 8080、随包分发 WinDivert 1.3.0；tun 在 Rust 侧 Linux-only。
 
-- **启停语义**：应用启动零抓包动作；「开始」= 通道接通 + 系统代理 attach（按勾选）+ 开写入闸门，「停止」整体回落。通道**意图值**（`use_local` / `local_spec` / `use_wireguard`，落盘）与**接通位**（`set_channels_engaged`，不落盘）分离；写入闸门在控制器（`_on_flow_added`）且**不碰 core View**（intercept/compose 依赖）。
+- **启停语义**：应用启动零抓包动作；「开始」= 通道接通 + 系统代理 attach（按勾选）+ 开写入闸门，「停止」整体回落。通道**意图值**（`use_local` / `local_spec` / `use_wireguard`，落盘）与**接通位**（`set_channels_engaged`，不落盘）分离；外部流量写入闸门在控制器（`_on_flow_added`），Compose 显式记录独立于该闸门（`UiBridgeAddon` 分流），**不碰 core View**（intercept/compose 依赖）。
 
 - **守护进程拆除必须同步**：`MitmRuntime.stop` 在存活事件循环上同步 `_disarm_local_redirector`，`_run_master` 开场防御性再清一次（守护进程在进程外，内核停止会丢挂起任务，机理见 `runtime.py` 注释）。
 

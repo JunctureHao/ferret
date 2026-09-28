@@ -1,5 +1,7 @@
 """Tests for the compose pipeline: flow construction and the result addon."""
 
+from __future__ import annotations
+
 import asyncio
 import http.server
 import os
@@ -13,18 +15,21 @@ from PySide6.QtWidgets import QApplication
 from ferret.core.mitm import (
     CaptureMaster,
     ComposeResult,
+    HTTPFlow,
     MitmFacade,
     MitmRuntime,
     Response,
+    parse_filter,
 )
 from ferret.core.mitm.compose import (
     COMPOSE_METADATA_KEY,
+    COMPOSE_RECORD_METADATA_KEY,
     ComposeAddon,
     build_compose_flow,
     compose_result,
 )
 
-from ._qt import start_runtime, wait_for_signal
+from ._qt import start_runtime, wait_until
 
 
 class BuildComposeFlowTests(unittest.TestCase):
@@ -177,6 +182,12 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
     """
 
     def _reply(self) -> None:
+        server = self.server
+        assert isinstance(server, _EchoServer)
+        server.request_received.set()
+        # 只在服务器线程上等测试放行；Qt/内核状态仍由 _qt.wait_until 轮询。
+        if not server.response_released.wait(timeout=30):
+            return
         if not self.headers.get("Host"):
             self.send_response(400)
             self.end_headers()
@@ -192,6 +203,14 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:
         pass  # 安静点
+
+
+class _EchoServer(http.server.HTTPServer):
+    def __init__(self) -> None:
+        self.request_received = threading.Event()
+        self.response_released = threading.Event()
+        self.response_released.set()
+        super().__init__(("127.0.0.1", 0), _EchoHandler)
 
 
 def _free_port() -> int:
@@ -210,43 +229,110 @@ class ComposeLiveTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
-        self.server = http.server.HTTPServer(("127.0.0.1", 0), _EchoHandler)
+        self.server = _EchoServer()
         self.server_thread = threading.Thread(
             target=self.server.serve_forever, daemon=True
         )
         self.server_thread.start()
         # addCleanup 是 LIFO：注册顺序必须与期望执行顺序相反 ——
         # 先 shutdown（让 serve_forever 退出）再 join，写反了 join 会永远等下去。
+        self.addCleanup(self.server.server_close)
         self.addCleanup(self.server_thread.join)
         self.addCleanup(self.server.shutdown)
         self.port = self.server.server_address[1]
 
         self.runtime = MitmRuntime(listen_port=_free_port())
         self.addCleanup(self.runtime.stop)
+        self.addCleanup(self.server.response_released.set)
         self.facade = MitmFacade(self.runtime)
+        self.results: list[ComposeResult] = []
+        self.recorded: list[HTTPFlow] = []
+        self.captured: list[HTTPFlow] = []
+        self.runtime.compose_result.connect(self.results.append)
+        self.runtime.compose_flow_added.connect(self.recorded.append)
+        self.runtime.flow_added.connect(self.captured.append)
         start_runtime(self.runtime)
 
     def test_send_reaches_local_server_and_reports_back(self) -> None:
+        self.assertFalse(self.runtime.channels_engaged)
         url = f"http://127.0.0.1:{self.port}/api?a=1"
         flow_id = self.facade.send_custom_request(
             "POST", url, [("X-Test", "yes")], b'{"a": 1}', record=True
         )
-        results = wait_for_signal(self.runtime.compose_result)
-        self.assertTrue(results, "compose_result 信号没有在超时内到达")
-        (result,) = results[0]
+        self.assertTrue(wait_until(lambda: self.results and self.recorded))
+        (result,) = self.results
         self.assertIsInstance(result, ComposeResult)
         self.assertEqual(result.flow_id, flow_id)
         self.assertEqual(result.error, "")
         self.assertEqual(result.detail["Status Code"], 200)
-        # record=True：流量留在列表里。
-        self.assertIsNotNone(self.runtime.view.get_by_id(flow_id))
+        # record=True 走独立新增信号，未「开始抓包」时也能被表格接收。
+        self.assertEqual([flow.id for flow in self.recorded], [flow_id])
+        self.assertEqual(self.captured, [])
+        self.assertFalse(self.runtime.channels_engaged)
+        self.assertEqual(self.facade.total_count(), 1)
+        (flow,) = self.facade.all_http_flows()
+        self.assertEqual(flow.id, flow_id)
+        self.assertIs(flow.metadata[COMPOSE_RECORD_METADATA_KEY], True)
 
-    def test_record_false_removes_flow_from_view(self) -> None:
+    def test_record_false_stays_hidden_until_response_then_leaves_view(self) -> None:
+        self.server.response_released.clear()
         url = f"http://127.0.0.1:{self.port}/quiet"
         flow_id = self.facade.send_custom_request("GET", url, [], b"", record=False)
-        results = wait_for_signal(self.runtime.compose_result)
-        self.assertTrue(results, "compose_result 信号没有在超时内到达")
-        self.assertIsNone(self.runtime.view.get_by_id(flow_id))
+        self.assertTrue(wait_until(self.server.request_received.is_set))
+        self.app.processEvents()
+        # 原生 View 仍须持有正在发送的流量；提前 remove 会 kill 回放。
+        (pending,) = self.facade.all_http_flows()
+        self.assertEqual(pending.id, flow_id)
+        self.assertIsNone(pending.response)
+        self.assertIs(pending.metadata[COMPOSE_RECORD_METADATA_KEY], False)
+        self.assertEqual(self.results, [])
+        self.assertEqual(self.recorded, [])
+        self.assertEqual(self.captured, [])
+        self.assertEqual(self.facade.visible_http_flows(), [])
+        self.assertEqual(self.facade.total_count(), 0)
+        matcher = parse_filter("~http")
+        assert matcher is not None
+        self.assertEqual(self.facade.match_ids(matcher), set())
+        # 改过滤器触发刷新，也不能把等待响应的隐藏条目带进表格。
+        self.facade.set_filter(matcher)
+        self.assertEqual(self.facade.visible_http_flows(), [])
+
+        self.server.response_released.set()
+        self.assertTrue(wait_until(lambda: self.results))
+        (result,) = self.results
+        self.assertEqual(result.flow_id, flow_id)
+        self.assertEqual(result.error, "")
+        self.assertEqual(result.detail["Status Code"], 200)
+        self.assertEqual(self.facade.all_http_flows(), [])
+        self.assertEqual(self.facade.visible_http_flows(), [])
+        self.assertEqual(self.facade.total_count(), 0)
+        self.assertEqual(self.facade.match_ids(matcher), set())
+        self.assertEqual(self.recorded, [])
+        self.assertEqual(self.captured, [])
+
+    def test_response_filter_delays_the_recorded_add_until_it_matches(self) -> None:
+        self.server.response_released.clear()
+        self.facade.set_filter(parse_filter("~s"))
+        flow_id = self.facade.send_custom_request(
+            "GET", f"http://127.0.0.1:{self.port}/filtered", record=True
+        )
+        self.assertTrue(wait_until(self.server.request_received.is_set))
+        self.app.processEvents()
+        self.assertEqual(self.recorded, [])
+        self.assertEqual(self.facade.visible_http_flows(), [])
+        self.assertEqual(self.facade.total_count(), 1)
+
+        self.server.response_released.set()
+        self.assertTrue(wait_until(lambda: self.results and self.recorded))
+        # 响应更新使原生 View 首次纳入可见集，此时仍识别为 Compose 记录。
+        self.runtime.call(lambda: self.runtime.view.update(list(self.runtime.view)))
+        self.app.processEvents()
+        self.assertEqual([flow.id for flow in self.recorded], [flow_id])
+        self.assertEqual(self.captured, [])
+        self.assertEqual(len(self.results), 1)
+        self.assertEqual(
+            [flow.id for flow in self.facade.visible_http_flows()], [flow_id]
+        )
 
 
 if __name__ == "__main__":

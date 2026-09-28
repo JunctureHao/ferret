@@ -27,7 +27,6 @@ class CaptureFilterActionsTests(unittest.TestCase):
         self.actions = CaptureFilterActions(self.host)
         self.host.search_requested.connect(self.actions.feed)
         self.host.set_actions(self.actions.actions)
-        self.actions.bind_anchor(self.host.edit)
 
     def tearDown(self) -> None:
         self.host.close()

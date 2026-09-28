@@ -5,9 +5,10 @@
 区别只在三处：
 
 1. flow 由 `build_compose_flow` 从零构造（`Request.make` + 客户端连接桩）；
-2. `flow.metadata[COMPOSE_METADATA_KEY]` 打上标记，`ComposeAddon` 凭它在
+2. `flow.metadata` 记录来源与本次发送的记录选择，`ComposeAddon` 按登记的 id 在
    `response` / `error` 钩子里认出这条流量、把结果快照经信号桥送回编辑页；
 3. 「进入流量列表」是一个选项：`View.requestheaders` 会无条件收录所有 flow，
+   桥接与表格刷新按记录选择决定是否显示，已选择记录的流量独立于抓包开关。
    不入选的由 `ComposeAddon` 在响应/错误落地后从 View 里摘除（提前摘会被
    `View.remove` 的 kill 副作用杀掉这条 replay flow，见 `_finish` 注释）。
 """
@@ -17,12 +18,29 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ferret.core.mitm.bindings import HTTPFlow, Request, View, connection, http_url
+from ferret.core.mitm.bindings import (
+    Flow,
+    HTTPFlow,
+    Request,
+    View,
+    connection,
+    http_url,
+)
 from ferret.core.mitm.detail import build_flow_detail
 
-# `flow.metadata` 的键：一次手工发送的唯一凭据。ComposeAddon 靠存在性识别，
-# 值只是给人看的（详情面板的「流量元数据」行会显示它）。
+# 来源标记用于元数据展示，是否入表由独立的布尔标记决定。
 COMPOSE_METADATA_KEY = "ferret.compose"
+COMPOSE_RECORD_METADATA_KEY = "ferret.compose.record"
+
+
+def compose_recording(flow: Flow) -> bool | None:
+    """本次 Compose 的记录选择；普通流量和旧文件返回 None。仅在 mitm 线程读取。
+
+    必须随 flow 保留：响应过滤可能到完成时才触发 View 新增，此时 addon 的
+    `_keep` 已被清理，不能再从在途登记表推断。非布尔的旧数据不改变抓包语义。
+    """
+    record = flow.metadata.get(COMPOSE_RECORD_METADATA_KEY)
+    return record if isinstance(record, bool) else None
 
 
 def build_compose_flow(
@@ -131,7 +149,6 @@ class ComposeAddon:
             # 只能靠摘除对抗。但摘除**不能提前**（`View.remove` 会 kill 活着的
             # replay flow，error 会抢在响应前落地）—— 等到 response/error 落地、
             # replay 结束（`killable=False`）后再摘，remove 就只是安静移出列表。
-            # 这一轮 response 钩子会先触发一次 `sig_view_update`：那一行存在过
-            # 一个事件循环切片，界面可能闪一下。要完全没有痕迹，得让 View 不认
-            # 这条流量（原生没有这条路子），这是最小代价的做法。
+            # 在途期间由 UiBridgeAddon 与 facade 的表格读接口排除，不向界面
+            # 暴露新增行；核心 View 保留它直到这里，避免干扰请求生命周期。
             self._view.remove([flow])

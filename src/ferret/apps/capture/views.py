@@ -849,7 +849,7 @@ class CaptureCommandBar(QWidget):
         self._row.setContentsMargins(16, 4, 16, 4)
         self._row.setSpacing(16)
         outer.addLayout(self._row, 1)
-        outer.addWidget(HorizontalSeparator(self))
+        # 下方表格自带顶边，命令栏不叠加分隔线。
 
         # 标题、统计、通道状态同一行；长摘要只省略显示，完整内容仍在 tooltip 中。
         self._heading = QWidget(self)

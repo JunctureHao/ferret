@@ -127,9 +127,6 @@ class MainWindow(FluentWindow):
         hbl = self.titleBar.hBoxLayout
         hbl.insertWidget(hbl.count() - 1, self.search_host, 0, Qt.AlignVCenter)  # ty: ignore[unresolved-attribute]
         hbl.insertStretch(hbl.count() - 1, 1)
-        # 捕获页帮助 Flyout 的锚点绑到全局框（§5.1 v3，主窗口牵线）。
-        self.captures_interface.filter_actions.bind_anchor(self.search_host.edit)
-
         self.navigationInterface.setExpandWidth(260)
         center_window(self)
         self.__init_navigation()

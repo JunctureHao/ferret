@@ -214,60 +214,26 @@
 <context>
     <name>CaptureFilterActions</name>
     <message>
-        <location filename="../../apps/common/filter.py" line="56"/>
-        <location filename="../../apps/common/filter.py" line="58"/>
+        <location filename="../../apps/common/filter.py" line="51"/>
+        <location filename="../../apps/common/filter.py" line="53"/>
         <source>flowfilter 语法帮助</source>
         <translation>flowfilter syntax help</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="62"/>
+        <location filename="../../apps/common/filter.py" line="57"/>
         <source>过滤模式</source>
         <translation>Filtering</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="66"/>
-        <location filename="../../apps/common/filter.py" line="105"/>
+        <location filename="../../apps/common/filter.py" line="61"/>
+        <location filename="../../apps/common/filter.py" line="96"/>
         <source>过滤模式：隐藏不匹配的流量，点击切换为仅高亮</source>
         <translation>Filter mode: non-matching rows are hidden; click to switch to highlight-only</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="103"/>
+        <location filename="../../apps/common/filter.py" line="94"/>
         <source>仅高亮模式：命中行整行染色，不隐藏；点击切回过滤</source>
         <translation>Highlight mode: matching rows are tinted, none hidden; click to switch back to filtering</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/filter.py" line="128"/>
-        <source>flowfilter 语法</source>
-        <translation>flowfilter syntax</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/filter.py" line="130"/>
-        <source>~u &lt;正则&gt;     URL（含 scheme/端口/查询串）
-~d &lt;正则&gt;     域名（不含端口）
-~m &lt;正则&gt;     请求方法，如 ~m GET
-~c &lt;整数&gt;     状态码，只认精确码，如 ~c 200 / ~c 404
-~h &lt;正则&gt;     请求或响应头
-~b &lt;正则&gt;     正文
-~t &lt;正则&gt;     内容类型
-~q / ~s        请求期 / 响应期
-~websocket    WebSocket 流量
-~marked        已标记流量
-
-组合：a &amp; b（与） a | b（或） !a（非） ( )（分组）
-带空格或括号的值要加引号：~u &quot;api/.*&quot;</source>
-        <translation>~u &lt;regex&gt;     URL (with scheme/port/query string)
-~d &lt;regex&gt;     Domain (without port)
-~m &lt;regex&gt;     Request method, e.g. ~m GET
-~c &lt;int&gt;       Status code, exact code only, e.g. ~c 200 / ~c 404
-~h &lt;regex&gt;     Request or response header
-~b &lt;regex&gt;     Body
-~t &lt;regex&gt;     Content type
-~q / ~s        Request phase / Response phase
-~websocket    WebSocket flows
-~marked        Marked flows
-
-Combine: a &amp; b (AND) a | b (OR) !a (NOT) ( ) (group)
-Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
     </message>
 </context>
 <context>
@@ -2736,17 +2702,17 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>FlowFilterErrorPanel</name>
     <message>
-        <location filename="../../apps/common/filter.py" line="169"/>
+        <location filename="../../apps/common/filter.py" line="137"/>
         <source>过滤表达式语法错误</source>
         <translation>Filter expression syntax error</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="174"/>
+        <location filename="../../apps/common/filter.py" line="142"/>
         <source>捕获表格已让位；修正或清除表达式后自动恢复</source>
         <translation>The capture table has stepped aside; it comes back once the expression is fixed or cleared</translation>
     </message>
     <message>
-        <location filename="../../apps/common/filter.py" line="176"/>
+        <location filename="../../apps/common/filter.py" line="144"/>
         <source>清除表达式</source>
         <translation>Clear expression</translation>
     </message>
@@ -4025,62 +3991,62 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../../apps/window.py" line="141"/>
+        <location filename="../../apps/window.py" line="138"/>
         <source>捕获</source>
         <translation>Captures</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="144"/>
+        <location filename="../../apps/window.py" line="141"/>
         <source>会话</source>
         <translation>Sessions</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="147"/>
+        <location filename="../../apps/window.py" line="144"/>
         <source>网关</source>
         <translation>Gateway</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="150"/>
+        <location filename="../../apps/window.py" line="147"/>
         <source>重写</source>
         <translation>Rewrite</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="153"/>
+        <location filename="../../apps/window.py" line="150"/>
         <source>Mock</source>
         <translation>Mock</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="155"/>
+        <location filename="../../apps/window.py" line="152"/>
         <source>断点</source>
         <translation>Intercept</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="160"/>
+        <location filename="../../apps/window.py" line="157"/>
         <source>请求编辑</source>
         <translation>Compose</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="157"/>
+        <location filename="../../apps/window.py" line="154"/>
         <source>脚本</source>
         <translation>Scripts</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="166"/>
+        <location filename="../../apps/window.py" line="163"/>
         <source>证书</source>
         <translation>Certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="173"/>
+        <location filename="../../apps/window.py" line="170"/>
         <source>设置</source>
         <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="253"/>
+        <location filename="../../apps/window.py" line="250"/>
         <source>断点拦下 {} 条流量，等待处理</source>
         <translation>Intercepted {} flow(s), waiting to be handled</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="268"/>
+        <location filename="../../apps/window.py" line="265"/>
         <source>在 Compose 中编辑失败</source>
         <translation>Edit in Compose failed</translation>
     </message>
@@ -4691,13 +4657,13 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>PinButton</name>
     <message>
-        <location filename="../../apps/window.py" line="359"/>
-        <location filename="../../apps/window.py" line="385"/>
+        <location filename="../../apps/window.py" line="356"/>
+        <location filename="../../apps/window.py" line="382"/>
         <source>置顶</source>
         <translation>Pin window</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="382"/>
+        <location filename="../../apps/window.py" line="379"/>
         <source>取消置顶</source>
         <translation>Unpin window</translation>
     </message>
@@ -6496,7 +6462,7 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>SystemTray</name>
     <message>
-        <location filename="../../apps/window.py" line="330"/>
+        <location filename="../../apps/window.py" line="327"/>
         <source>退出</source>
         <translation>Quit</translation>
     </message>

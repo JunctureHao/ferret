@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import tempfile
 import unittest
@@ -16,6 +18,7 @@ from ferret.core.settings import CONFIG
 
 class FakeRuntime(QObject):
     flow_added = Signal(object)
+    compose_flow_added = Signal(object)
     flow_updated = Signal(object)
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
@@ -466,7 +469,7 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertEqual(controller.capture_state, CaptureState.STARTING)
 
     def test_write_gate_drops_new_flows_until_capture_starts(self) -> None:
-        """闸门语义：未抓包时新 flow 不进表，既有行的更新照常通过。"""
+        """普通抓包流量仍受闸门控制，既有行的更新照常通过。"""
         controller, runtime, _, _ = self.make_controller()
         added, updated = [], []
         controller.flow_added.connect(added.append)
@@ -484,6 +487,53 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller.stop_capture()
         runtime.flow_added.emit(object())
         self.assertEqual(len(added), 1)
+
+    def test_recorded_compose_flows_pass_once_without_changing_capture_state(
+        self,
+    ) -> None:
+        """手工记录在开始前、抓包中和停止后均可入表，不接通通道或系统代理。"""
+        controller, runtime, facade, proxy = self.make_controller()
+        added: list[object] = []
+        recording_changes: list[bool] = []
+        capture_changes: list[CaptureState] = []
+        controller.flow_added.connect(added.append)
+        controller.recordingChanged.connect(recording_changes.append)
+        controller.capture_state_changed.connect(capture_changes.append)
+
+        def capture_state() -> tuple:
+            return (
+                controller.capture_state,
+                controller.recording,
+                facade.recording,
+                proxy.attached,
+                proxy.endpoint,
+                runtime.channels_engaged,
+                runtime.channel_pushes,
+                runtime.start_calls,
+                runtime.stop_calls,
+                runtime.restart_calls,
+                tuple(recording_changes),
+                tuple(capture_changes),
+            )
+
+        for phase, transition, expected_state in (
+            ("before_start", None, CaptureState.STOPPED),
+            ("capturing", controller.start_capture, CaptureState.RUNNING),
+            ("after_stop", controller.stop_capture, CaptureState.STOPPED),
+        ):
+            with self.subTest(phase=phase):
+                if transition is not None:
+                    transition()
+                self.assertEqual(controller.capture_state, expected_state)
+                before = capture_state()
+                previous_count = len(added)
+                flow = object()
+
+                runtime.compose_flow_added.emit(flow)
+
+                self.assertEqual(len(added), previous_count + 1)
+                self.assertIs(added[-1], flow)
+                self.assertEqual(capture_state(), before)
 
     def test_update_channels_persists_and_hot_applies_while_capturing(self) -> None:
         controller, runtime, _facade, _proxy = self.make_controller()
