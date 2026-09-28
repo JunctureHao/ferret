@@ -108,6 +108,6 @@ class FlowExporter:
         同一个 ``.har`` 文件（``entries`` 数组长度不同）。
         """
 
-        har = json.dumps(SaveHar().make_har(flows), indent=4).encode()
+        har = json.dumps(SaveHar().make_har(flows), indent=2).encode()
         with open(path, "wb") as file:
             file.write(har)

@@ -237,18 +237,19 @@ def validate_local_spec(local_spec: str) -> None:
 
 
 def ensure_wireguard_conf(conf_path: Path) -> None:
-    """确保 WireGuard 密钥文件存在，格式与 mitmproxy 内核写的完全一致。
+    """确保 WireGuard 密钥文件存在，键结构与内核写的一致。
 
     内核 WireGuardServerInstance._start() 只在文件不存在时写，所以这里抢先
     生成不会与它打架：先到者定密钥，后到者复用。用 "x" 独占创建关掉
-    「两边同时发现文件不存在」的竞态，撞上了就认对方那份。
+    「两边同时发现文件不存在」的竞态，撞上了就认对方那份。缩进按项目 2 空格
+    惯例（内核自己写是 4）：两边读回都只走 json.loads，字节外观无关紧要。
     """
     if conf_path.exists():
         return
     conf_path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(
         {"server_key": rs_wireguard.genkey(), "client_key": rs_wireguard.genkey()},
-        indent=4,
+        indent=2,
     )
     try:
         with conf_path.open("x", encoding="utf-8") as fp:
