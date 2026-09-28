@@ -41,24 +41,24 @@
     </message>
     <message>
         <location filename="../../apps/capture/views.py" line="774"/>
-        <location filename="../../apps/capture/views.py" line="1060"/>
+        <location filename="../../apps/capture/views.py" line="1052"/>
         <source>{} 条</source>
         <translation>{} flow(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="935"/>
+        <location filename="../../apps/capture/views.py" line="927"/>
         <source>加载 Flow 到当前列表</source>
         <translation>Load flows into the current list</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="938"/>
+        <location filename="../../apps/capture/views.py" line="930"/>
         <source>定位选中</source>
         <translation>Locate selection</translation>
     </message>
     <message>
         <location filename="../../apps/capture/views.py" line="813"/>
         <location filename="../../apps/capture/views.py" line="814"/>
-        <location filename="../../apps/capture/views.py" line="965"/>
+        <location filename="../../apps/capture/views.py" line="957"/>
         <source>清空当前流量</source>
         <translation>Clear current flows</translation>
     </message>
@@ -69,8 +69,8 @@
         <translation>More delete actions</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="922"/>
-        <location filename="../../apps/capture/views.py" line="969"/>
+        <location filename="../../apps/capture/views.py" line="914"/>
+        <location filename="../../apps/capture/views.py" line="961"/>
         <source>删除未标记流量</source>
         <translation>Delete unmarked flows</translation>
     </message>
@@ -78,8 +78,8 @@
         <location filename="../../apps/capture/views.py" line="805"/>
         <location filename="../../apps/capture/views.py" line="807"/>
         <location filename="../../apps/capture/views.py" line="808"/>
-        <location filename="../../apps/capture/views.py" line="1009"/>
-        <location filename="../../apps/capture/views.py" line="1010"/>
+        <location filename="../../apps/capture/views.py" line="1001"/>
+        <location filename="../../apps/capture/views.py" line="1002"/>
         <source>开始抓包</source>
         <translation>Start capturing</translation>
     </message>
@@ -92,7 +92,7 @@
         <location filename="../../apps/capture/views.py" line="795"/>
         <location filename="../../apps/capture/views.py" line="797"/>
         <location filename="../../apps/capture/views.py" line="798"/>
-        <location filename="../../apps/capture/views.py" line="945"/>
+        <location filename="../../apps/capture/views.py" line="937"/>
         <source>通道设置</source>
         <translation>Channel settings</translation>
     </message>
@@ -108,59 +108,59 @@
         <translation>Clear</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="952"/>
+        <location filename="../../apps/capture/views.py" line="944"/>
         <source>视图</source>
         <translation>View</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1015"/>
+        <location filename="../../apps/capture/views.py" line="1007"/>
         <source>启动中</source>
         <translation>Starting</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1016"/>
+        <location filename="../../apps/capture/views.py" line="1008"/>
         <source>正在开启抓包会话</source>
         <translation>Starting the capture session</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1021"/>
-        <location filename="../../apps/capture/views.py" line="1022"/>
+        <location filename="../../apps/capture/views.py" line="1013"/>
+        <location filename="../../apps/capture/views.py" line="1014"/>
         <source>停止抓包</source>
         <translation>Stop capturing</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1028"/>
+        <location filename="../../apps/capture/views.py" line="1020"/>
         <source>正在停止抓包会话</source>
         <translation>Stopping the capture session</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1033"/>
-        <location filename="../../apps/capture/views.py" line="1034"/>
+        <location filename="../../apps/capture/views.py" line="1025"/>
+        <location filename="../../apps/capture/views.py" line="1026"/>
         <source>重试抓包</source>
         <translation>Retry capturing</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1027"/>
+        <location filename="../../apps/capture/views.py" line="1019"/>
         <source>停止中</source>
         <translation>Stopping</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1048"/>
+        <location filename="../../apps/capture/views.py" line="1040"/>
         <source>本机通过 {} 接入；局域网设备也可连接</source>
         <translation>This machine connects via {}; LAN devices can connect too</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1050"/>
+        <location filename="../../apps/capture/views.py" line="1042"/>
         <source>本机通过 {} 接入</source>
         <translation>This machine connects via {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1062"/>
+        <location filename="../../apps/capture/views.py" line="1054"/>
         <source>{} / {} 条</source>
         <translation>{} / {} flow(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1067"/>
+        <location filename="../../apps/capture/views.py" line="1059"/>
         <source>共 {} 条，当前显示 {} 条，已选 {} 条</source>
         <translation>{} total, {} shown, {} selected</translation>
     </message>
@@ -1084,22 +1084,22 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>ClearFlowsDialog</name>
     <message>
-        <location filename="../../apps/capture/views.py" line="1162"/>
+        <location filename="../../apps/capture/views.py" line="1154"/>
         <source>清空当前 {} 条流量？</source>
         <translation>Clear the current {} flow(s)?</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1165"/>
+        <location filename="../../apps/capture/views.py" line="1157"/>
         <source>此操作无法撤销，但不会删除已保存的会话。</source>
         <translation>This cannot be undone, but saved sessions are not deleted.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1168"/>
+        <location filename="../../apps/capture/views.py" line="1160"/>
         <source>清空</source>
         <translation>Clear</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1169"/>
+        <location filename="../../apps/capture/views.py" line="1161"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
@@ -1302,99 +1302,131 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>ComposeInterface</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="220"/>
+        <location filename="../../apps/compose/views.py" line="219"/>
         <source>进入流量列表；关闭时请求仍会经过代理内核发出（重写/网关/断点规则照常生效），但不会出现在流量列表中</source>
         <translation>Record to flow list; when off, the request is still sent through the proxy core (rewrite/gateway/intercept rules apply) but does not appear in the flow list</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="234"/>
+        <location filename="../../apps/compose/views.py" line="227"/>
+        <location filename="../../apps/compose/views.py" line="515"/>
+        <source>发送</source>
+        <translation>Send</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="231"/>
         <source>发送这条请求</source>
         <translation>Send this request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="239"/>
+        <location filename="../../apps/compose/views.py" line="237"/>
         <source>从剪贴板导入 cURL 命令</source>
         <translation>Import a curl command from the clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="253"/>
+        <location filename="../../apps/compose/views.py" line="238"/>
+        <source>导入 cURL</source>
+        <translation>Import cURL</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="252"/>
         <source>数据类型</source>
         <translation>Content type</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="256"/>
+        <location filename="../../apps/compose/views.py" line="255"/>
         <source>参数</source>
         <translation>Params</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="257"/>
+        <location filename="../../apps/compose/views.py" line="256"/>
         <source>请求头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="270"/>
+        <location filename="../../apps/compose/views.py" line="269"/>
         <source>请求体</source>
         <translation>Body</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="305"/>
+        <location filename="../../apps/compose/views.py" line="291"/>
         <source>性能</source>
         <translation>Performance</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="312"/>
-        <source>在左侧编辑请求，然后点击「发送」</source>
-        <translation>Edit the request on the left and hit Send</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/views.py" line="384"/>
+        <location filename="../../apps/compose/views.py" line="386"/>
         <source>请求头 ({count})</source>
         <translation>Request headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="473"/>
-        <location filename="../../apps/compose/views.py" line="477"/>
-        <location filename="../../apps/compose/views.py" line="485"/>
+        <location filename="../../apps/compose/views.py" line="476"/>
+        <location filename="../../apps/compose/views.py" line="480"/>
+        <location filename="../../apps/compose/views.py" line="488"/>
         <source>导入失败</source>
         <translation>Import failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="473"/>
+        <location filename="../../apps/compose/views.py" line="476"/>
         <source>剪贴板是空的</source>
         <translation>The clipboard is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="478"/>
+        <location filename="../../apps/compose/views.py" line="481"/>
         <source>剪贴板里没有 cURL 命令</source>
         <translation>The clipboard does not contain a curl command</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="488"/>
+        <location filename="../../apps/compose/views.py" line="491"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="488"/>
+        <location filename="../../apps/compose/views.py" line="491"/>
         <source>已从 cURL 导入请求</source>
         <translation>Request imported from curl</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="495"/>
+        <location filename="../../apps/compose/views.py" line="500"/>
         <source>发送失败</source>
         <translation>Send failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="495"/>
+        <location filename="../../apps/compose/views.py" line="500"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="511"/>
+        <location filename="../../apps/compose/views.py" line="225"/>
+        <location filename="../../apps/compose/views.py" line="515"/>
         <source>发送中…</source>
         <translation>Sending…</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="517"/>
+        <location filename="../../apps/compose/views.py" line="215"/>
+        <source>记录流量</source>
+        <translation>Record traffic</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="525"/>
+        <source>正在等待响应</source>
+        <translation>Waiting for response</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="526"/>
+        <source>收到响应后会显示在这里</source>
+        <translation>The response will appear here when it arrives</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="530"/>
+        <source>暂无响应</source>
+        <translation>No response yet</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="531"/>
+        <source>编辑请求，然后点击「发送」</source>
+        <translation>Edit the request, then click Send</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="538"/>
         <source>请求失败</source>
         <translation>Request failed</translation>
     </message>
@@ -1402,112 +1434,112 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>ComposePerf</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="87"/>
+        <location filename="../../apps/compose/views.py" line="89"/>
         <source>时间</source>
         <translation>Time</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="91"/>
+        <location filename="../../apps/compose/views.py" line="93"/>
         <source>流量创建</source>
         <translation>Flow created</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="96"/>
+        <location filename="../../apps/compose/views.py" line="98"/>
         <source>客户端 TLS 握手</source>
         <translation>Client TLS handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="101"/>
+        <location filename="../../apps/compose/views.py" line="103"/>
         <source>请求开始</source>
         <translation>Request start</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="106"/>
+        <location filename="../../apps/compose/views.py" line="108"/>
         <source>请求结束</source>
         <translation>Request end</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="111"/>
+        <location filename="../../apps/compose/views.py" line="113"/>
         <source>请求时长</source>
         <translation>Request duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="116"/>
+        <location filename="../../apps/compose/views.py" line="118"/>
         <source>TCP 握手</source>
         <translation>TCP handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="121"/>
+        <location filename="../../apps/compose/views.py" line="123"/>
         <source>服务端 TLS 握手</source>
         <translation>Server TLS handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="126"/>
+        <location filename="../../apps/compose/views.py" line="128"/>
         <source>响应开始</source>
         <translation>Response start</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="131"/>
+        <location filename="../../apps/compose/views.py" line="133"/>
         <source>响应结束</source>
         <translation>Response end</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="136"/>
+        <location filename="../../apps/compose/views.py" line="138"/>
         <source>响应时长</source>
         <translation>Response duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="141"/>
+        <location filename="../../apps/compose/views.py" line="143"/>
         <source>总耗时</source>
         <translation>Total duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="148"/>
+        <location filename="../../apps/compose/views.py" line="150"/>
         <source>流量</source>
         <translation>Traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="150"/>
+        <location filename="../../apps/compose/views.py" line="152"/>
         <source>请求</source>
         <translation>Request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="152"/>
+        <location filename="../../apps/compose/views.py" line="154"/>
         <source>- 请求头</source>
         <translation>- Request headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="156"/>
+        <location filename="../../apps/compose/views.py" line="158"/>
         <source>- 请求体（线上）</source>
         <translation>- Request body on the wire</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="160"/>
+        <location filename="../../apps/compose/views.py" line="162"/>
         <source>- 请求体（解压）</source>
         <translation>- Request body decoded</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="163"/>
+        <location filename="../../apps/compose/views.py" line="165"/>
         <source>响应</source>
         <translation>Response</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="165"/>
+        <location filename="../../apps/compose/views.py" line="167"/>
         <source>- 响应头</source>
         <translation>- Response headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="169"/>
+        <location filename="../../apps/compose/views.py" line="171"/>
         <source>- 响应体（线上）</source>
         <translation>- Response body on the wire</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="173"/>
+        <location filename="../../apps/compose/views.py" line="175"/>
         <source>- 响应体（解压）</source>
         <translation>- Response body decoded</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="176"/>
+        <location filename="../../apps/compose/views.py" line="178"/>
         <source>总计</source>
         <translation>Total</translation>
     </message>
@@ -1515,7 +1547,7 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>ComposeView</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="70"/>
+        <location filename="../../apps/compose/views.py" line="72"/>
         <source>这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；发送时按原样发出。</source>
         <translation>This content is not valid UTF-8 (an archive, an image, or a non-UTF-8 charset), so it is locked read-only; it goes out unchanged when sent.</translation>
     </message>
@@ -4673,289 +4705,289 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>ProxyPortDialog</name>
     <message>
-        <location filename="../../apps/capture/views.py" line="1484"/>
+        <location filename="../../apps/capture/views.py" line="1476"/>
         <source>抓包通道</source>
         <translation>Capture channels</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1495"/>
+        <location filename="../../apps/capture/views.py" line="1487"/>
         <source>仅本机（{}）</source>
         <translation>This machine only ({})</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1496"/>
+        <location filename="../../apps/capture/views.py" line="1488"/>
         <source>局域网可访问（{}）</source>
         <translation>Reachable from LAN ({})</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1514"/>
-        <location filename="../../apps/capture/views.py" line="1515"/>
+        <location filename="../../apps/capture/views.py" line="1506"/>
+        <location filename="../../apps/capture/views.py" line="1507"/>
         <source>复制局域网地址</source>
         <translation>Copy LAN address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1522"/>
+        <location filename="../../apps/capture/views.py" line="1514"/>
         <source>拒绝来自公网的连接</source>
         <translation>Reject connections from the public internet</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1578"/>
+        <location filename="../../apps/capture/views.py" line="1570"/>
         <source>http://proxy.corp:8080</source>
         <translation>http://proxy.corp:8080</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1600"/>
-        <location filename="../../apps/capture/views.py" line="1601"/>
+        <location filename="../../apps/capture/views.py" line="1592"/>
+        <location filename="../../apps/capture/views.py" line="1593"/>
         <source>选择进程</source>
         <translation>Pick processes</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1623"/>
+        <location filename="../../apps/capture/views.py" line="1615"/>
         <source>查看客户端配置</source>
         <translation>View client configuration</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1638"/>
+        <location filename="../../apps/capture/views.py" line="1630"/>
         <source>https://example.com</source>
         <translation>https://example.com</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1579"/>
+        <location filename="../../apps/capture/views.py" line="1571"/>
         <source>代理地址</source>
         <translation>Proxy address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1488"/>
+        <location filename="../../apps/capture/views.py" line="1480"/>
         <source>系统代理</source>
         <translation>System proxy</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1489"/>
+        <location filename="../../apps/capture/views.py" line="1481"/>
         <source>浏览器与多数桌面应用的默认通道</source>
         <translation>The default channel for browsers and most desktop apps</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1521"/>
+        <location filename="../../apps/capture/views.py" line="1513"/>
         <source>拒绝公网</source>
         <translation>Block internet</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1524"/>
+        <location filename="../../apps/capture/views.py" line="1516"/>
         <source>拒绝局域网</source>
         <translation>Block LAN</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1529"/>
+        <location filename="../../apps/capture/views.py" line="1521"/>
         <source>拒绝来自局域网的连接；WireGuard / 反向代理开启期间此项暂停生效：隧道客户端来自 10.0.0.x 网段。</source>
         <translation>Rejects connections from the LAN; suspended while WireGuard / reverse proxy is on, because tunnel clients come from the 10.0.0.x range.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1567"/>
+        <location filename="../../apps/capture/views.py" line="1559"/>
         <source>经上游代理出口</source>
         <translation>Egress via an upstream proxy</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1571"/>
+        <location filename="../../apps/capture/views.py" line="1563"/>
         <source>企业代理 / 链式抓包；仅系统代理通道经上游出口，本地重定向 / WireGuard / 反向代理仍为直连</source>
         <translation>Corporate proxy / proxy chaining; only the system-proxy channel egresses via the upstream, local redirect / WireGuard / reverse proxy stay direct</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1583"/>
+        <location filename="../../apps/capture/views.py" line="1575"/>
         <source>用户名（可选）</source>
         <translation>Username (optional)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1550"/>
-        <location filename="../../apps/capture/views.py" line="1584"/>
+        <location filename="../../apps/capture/views.py" line="1542"/>
+        <location filename="../../apps/capture/views.py" line="1576"/>
         <source>用户名</source>
         <translation>Username</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1540"/>
+        <location filename="../../apps/capture/views.py" line="1532"/>
         <source>需要认证</source>
         <translation>Require authentication</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1543"/>
+        <location filename="../../apps/capture/views.py" line="1535"/>
         <source>连接本代理需输入用户名密码，防止局域网陌生设备蹭代理；本机系统代理流量同样会被挑战，浏览器会弹一次代理登录框</source>
         <translation>Connecting to this proxy requires a username and password, keeping unknown LAN devices off it; local system-proxy traffic is challenged as well, and the browser will show a proxy login prompt once</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1551"/>
+        <location filename="../../apps/capture/views.py" line="1543"/>
         <source>代理认证用户名</source>
         <translation>Proxy authentication username</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1554"/>
-        <location filename="../../apps/capture/views.py" line="1587"/>
+        <location filename="../../apps/capture/views.py" line="1546"/>
+        <location filename="../../apps/capture/views.py" line="1579"/>
         <source>密码（可选）</source>
         <translation>Password (optional)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1555"/>
+        <location filename="../../apps/capture/views.py" line="1547"/>
         <source>代理认证密码</source>
         <translation>Proxy authentication password</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1557"/>
+        <location filename="../../apps/capture/views.py" line="1549"/>
         <source>明文保存在本地配置文件，与 CA 私钥同一安全姿态</source>
         <translation>Stored in plain text in the local configuration file, the same security posture as the CA private key</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1588"/>
+        <location filename="../../apps/capture/views.py" line="1580"/>
         <source>密码</source>
         <translation>Password</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1649"/>
+        <location filename="../../apps/capture/views.py" line="1641"/>
         <source>SOCKS5 代理</source>
         <translation>SOCKS5 proxy</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1651"/>
+        <location filename="../../apps/capture/views.py" line="1643"/>
         <source>仅支持 TCP；只认 SOCKS5 的客户端（移动端 App、部分 CLI）由此接入</source>
         <translation>TCP only; SOCKS5-only clients (mobile apps, some CLIs) connect through here</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1952"/>
+        <location filename="../../apps/capture/views.py" line="1944"/>
         <source>全部进程</source>
         <translation>All processes</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1957"/>
+        <location filename="../../apps/capture/views.py" line="1949"/>
         <source>{} +{} 个</source>
         <translation>{} +{} more</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2017"/>
+        <location filename="../../apps/capture/views.py" line="2009"/>
         <source>局域网</source>
         <translation>LAN</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2023"/>
+        <location filename="../../apps/capture/views.py" line="2015"/>
         <source>未知</source>
         <translation>Unknown</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2038"/>
+        <location filename="../../apps/capture/views.py" line="2030"/>
         <source>! WireGuard 开启期间「拒绝局域网」暂停生效</source>
         <translation>! &quot;Block LAN&quot; is suspended while WireGuard is on</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2042"/>
+        <location filename="../../apps/capture/views.py" line="2034"/>
         <source>! 反向代理开启期间「拒绝局域网」暂停生效</source>
         <translation>! &quot;Block LAN&quot; is suspended while the reverse proxy is on</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2046"/>
+        <location filename="../../apps/capture/views.py" line="2038"/>
         <source>! SOCKS5 代理开启期间「拒绝局域网」暂停生效</source>
         <translation>! &quot;Block LAN&quot; is suspended while the SOCKS5 proxy is on</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2049"/>
+        <location filename="../../apps/capture/views.py" line="2041"/>
         <source>! 未能识别局域网地址</source>
         <translation>! Could not determine the LAN address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2071"/>
+        <location filename="../../apps/capture/views.py" line="2063"/>
         <source>! 本地重定向 / WireGuard / 反向代理开启期间代理认证暂停生效</source>
         <translation>! Proxy authentication is suspended while local redirect / WireGuard / the reverse proxy is on</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2092"/>
-        <location filename="../../apps/capture/views.py" line="2105"/>
+        <location filename="../../apps/capture/views.py" line="2084"/>
+        <location filename="../../apps/capture/views.py" line="2097"/>
         <source>! 端口与系统代理 {} 冲突</source>
         <translation>! Port collides with the system proxy on {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2094"/>
+        <location filename="../../apps/capture/views.py" line="2086"/>
         <source>! 端口与 WireGuard UDP 51820 冲突</source>
         <translation>! Port collides with WireGuard UDP 51820</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2107"/>
+        <location filename="../../apps/capture/views.py" line="2099"/>
         <source>! 端口与反向代理 {} 冲突</source>
         <translation>! Port collides with the reverse proxy on {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2111"/>
+        <location filename="../../apps/capture/views.py" line="2103"/>
         <source>! 已开启代理认证，客户端需配置用户名和密码</source>
         <translation>! Proxy authentication is on; clients must provide a username and password</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2129"/>
+        <location filename="../../apps/capture/views.py" line="2121"/>
         <source>! 反代目标也会收到上游凭证</source>
         <translation>! The reverse-proxy target also receives the upstream credential</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1662"/>
+        <location filename="../../apps/capture/views.py" line="1654"/>
         <source>更改立即生效</source>
         <translation>Changes apply immediately</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1639"/>
+        <location filename="../../apps/capture/views.py" line="1631"/>
         <source>目标 URL</source>
         <translation>Target URL</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1593"/>
+        <location filename="../../apps/capture/views.py" line="1585"/>
         <source>本地重定向</source>
         <translation>Local redirect</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1595"/>
+        <location filename="../../apps/capture/views.py" line="1587"/>
         <source>零配置、按进程截获本机流量，启用时可能请求管理员授权</source>
         <translation>Zero-config, per-process capture of local traffic; enabling it may request admin elevation</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1613"/>
+        <location filename="../../apps/capture/views.py" line="1605"/>
         <source>WireGuard</source>
         <translation>WireGuard</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1615"/>
+        <location filename="../../apps/capture/views.py" line="1607"/>
         <source>手机等设备经隧道接入，二维码导入客户端</source>
         <translation>Phones and other devices join through the tunnel; scan the QR code to import the client</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1619"/>
+        <location filename="../../apps/capture/views.py" line="1611"/>
         <source>UDP {}</source>
         <translation>UDP {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1622"/>
+        <location filename="../../apps/capture/views.py" line="1614"/>
         <source>查看客户端配置，扫码导入手机</source>
         <translation>View the client configuration; scan to import it on a phone</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1627"/>
+        <location filename="../../apps/capture/views.py" line="1619"/>
         <source>反向代理</source>
         <translation>Reverse proxy</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1631"/>
+        <location filename="../../apps/capture/views.py" line="1623"/>
         <source>把 ferret 架在目标服务前；客户端需信任 ferret CA，按域名签目标证书，按 IP 直连签本机证书</source>
         <translation>Puts ferret in front of the target service; clients must trust the ferret CA. Signed for the target when reached by hostname, for this machine when reached by IP</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1644"/>
-        <location filename="../../apps/capture/views.py" line="1658"/>
+        <location filename="../../apps/capture/views.py" line="1636"/>
+        <location filename="../../apps/capture/views.py" line="1650"/>
         <source>监听端口</source>
         <translation>Listen port</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1503"/>
+        <location filename="../../apps/capture/views.py" line="1495"/>
         <source>监听地址</source>
         <translation>Listen address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1509"/>
-        <location filename="../../apps/capture/views.py" line="1825"/>
+        <location filename="../../apps/capture/views.py" line="1501"/>
+        <location filename="../../apps/capture/views.py" line="1817"/>
         <source>端口</source>
         <translation>Port</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="1931"/>
+        <location filename="../../apps/capture/views.py" line="1923"/>
         <source>WireGuard 配置不可用</source>
         <translation>WireGuard configuration unavailable</translation>
     </message>
@@ -6586,12 +6618,12 @@ Quote values with spaces or parentheses: ~u &quot;api/.*&quot;</translation>
 <context>
     <name>WireGuardConfigDialog</name>
     <message>
-        <location filename="../../apps/capture/views.py" line="2155"/>
+        <location filename="../../apps/capture/views.py" line="2147"/>
         <source>WireGuard 客户端配置</source>
         <translation>WireGuard client configuration</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2161"/>
+        <location filename="../../apps/capture/views.py" line="2153"/>
         <source>在设备的 WireGuard 应用中导入此配置；该设备的全部流量将经由 Ferret。</source>
         <translation>Import this profile in the WireGuard app on your device; it routes all of that device&apos;s traffic through Ferret.</translation>
     </message>

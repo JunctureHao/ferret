@@ -1,21 +1,23 @@
 """compose 页测试：结构、URL 合并、性能页与状态流转。
 
-compose 此前没有 UI 测试；这批锁住四件事 —— 页面结构（三标签 + 响应区三条
-标签）、参数页合并进 URL 的规则（实时写回 URL 栏 + 发送合并同一套端口规范）、
-「性能」页（状态行 + 时间/流量卡片）、状态随 发送 → 结果 → 失败 的流转。
+覆盖页面结构、参数页与 URL 的同步规则、性能页的时间/流量卡片，以及
+发送 → 结果 → 失败 时按钮、等待提示和响应内容的可见性。
 发送链路本身归 `tests/core/mitm/test_compose.py`。
 """
+
+from __future__ import annotations
 
 import os
 import unittest
 from collections.abc import Sequence
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.test import tflow
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import EditableComboBox, InfoLevel
+from qfluentwidgets import CheckBox, EditableComboBox, PrimaryPushButton
 
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.compose.views import ComposeInterface
@@ -81,14 +83,19 @@ class ConstructionTests(ComposeInterfaceTestCase):
 
     def test_the_response_side_starts_on_the_empty_hint(self) -> None:
         self.assertIs(self.page.response_stack.currentWidget(), self.page.empty_hint)
-        self.assertTrue(self.page.status_badge.isHidden())
-        self.assertEqual(self.page.status_label.text(), "")
+        self.assertEqual(self.page.empty_title.text(), "暂无响应")
+        self.assertTrue(self.page.empty_title.isVisibleTo(self.page))
+        self.assertTrue(self.page.empty_subtitle.isVisibleTo(self.page))
 
     def test_the_send_button_is_a_primary_sized_action(self) -> None:
-        """这一页唯一的主动作：**横向加宽**（宽度 96、高度不锁），宽出周围一圈
-        才镇得住顶栏。"""
-        self.assertEqual(self.page.send_btn.minimumSize().width(), 96)
-        self.assertEqual(self.page.send_btn.maximumSize().width(), 96)
+        """主按钮带文字，宽度兼顾发送中状态和翻译长度，高度随样式计算。"""
+        self.assertIsInstance(self.page.send_btn, PrimaryPushButton)
+        self.assertEqual(self.page.send_btn.text(), "发送")
+        self.assertGreaterEqual(self.page.send_btn.minimumSize().width(), 96)
+        self.assertEqual(
+            self.page.send_btn.minimumSize().width(),
+            self.page.send_btn.maximumSize().width(),
+        )
         # 高度不锁死：只加宽，不变高。
         self.assertEqual(
             self.page.send_btn.maximumSize().height(),
@@ -158,29 +165,55 @@ class UrlMergeTests(ComposeInterfaceTestCase):
         self.assertEqual(call[2], "https://api.example.com/v1?page=2")
         self.assertEqual(call[3], (("token", "t"),))
         self.assertEqual(call[4], '{"a": 1}')
-        self.assertTrue(call[5])  # record 胶囊默认选中
+        self.assertTrue(call[5])  # 默认记录流量
+
+    def test_disabling_recording_is_passed_to_the_controller(self) -> None:
+        self.assertIsInstance(self.page.record_btn, CheckBox)
+        self.assertEqual(self.page.record_btn.text(), "记录流量")
+        self.page.url_edit.setText("https://api.example.com/v1")
+        self.page.record_btn.setChecked(False)
+        self.page._on_send()
+
+        self.assertFalse(self.controller.calls[0][5])
 
 
 class StatusFlowTests(ComposeInterfaceTestCase):
     def test_sending_disables_the_button_and_shows_a_hint(self) -> None:
+        initial_width = self.page.send_btn.width()
         self.controller.sending_changed.emit(True)
         self.assertFalse(self.page.send_btn.isEnabled())
-        self.assertEqual(self.page.status_label.text(), "发送中…")
-        self.assertTrue(self.page.status_badge.isHidden())
+        self.assertEqual(self.page.send_btn.text(), "发送中…")
+        self.assertEqual(self.page.send_btn.width(), initial_width)
+        self.assertIs(self.page.response_stack.currentWidget(), self.page.empty_hint)
+        self.assertEqual(self.page.empty_title.text(), "正在等待响应")
+        self.assertTrue(self.page.empty_title.isVisibleTo(self.page))
+        self.assertTrue(self.page.empty_icon_stack.isVisibleTo(self.page))
+        self.assertTrue(self.page.loading_ring.isVisibleTo(self.page))
 
-    def test_a_result_lands_in_the_status_line_and_the_response_pane(self) -> None:
+    def test_a_result_lands_in_the_response_pane_and_restores_the_button(self) -> None:
         # 真实控制器的次序：先收「发送结束」，再发结果。
         self.controller.sending_changed.emit(True)
         self.controller.sending_changed.emit(False)
-        self.controller.result_ready.emit(success_result())
+        result = success_result()
+        self.controller.result_ready.emit(result)
 
         self.assertIs(self.page.response_stack.currentWidget(), self.page.response_pane)
+        self.assertEqual(self.page.response_pane.datas, result.detail)
         self.assertTrue(self.page.send_btn.isEnabled())
-        self.assertEqual(self.page.status_badge.text(), "200")
-        self.assertEqual(self.page.status_badge.level, InfoLevel.SUCCESS)
-        self.assertEqual(
-            self.page.status_label.text(), "200 OK · 12 ms · 1.2k · 1.2.3.4:443"
-        )
+        self.assertEqual(self.page.send_btn.text(), "发送")
+        self.assertEqual(self.page.empty_title.text(), "暂无响应")
+        self.assertFalse(self.page.loading_ring.isVisibleTo(self.page))
+
+    def test_a_new_send_hides_the_previous_response(self) -> None:
+        self.controller.result_ready.emit(success_result())
+        self.page.response_pane.setCurrentTab("Body")
+        self.assertTrue(self.page.response_pane.isVisibleTo(self.page))
+
+        self.controller.sending_changed.emit(True)
+
+        self.assertFalse(self.page.response_pane.isVisibleTo(self.page))
+        self.assertTrue(self.page.empty_title.isVisibleTo(self.page))
+        self.assertEqual(self.page.empty_title.text(), "正在等待响应")
 
     def test_the_performance_page_carries_the_timing_and_traffic_keys(self) -> None:
         """性能页的数据卡直接吃详情字典：时间/流量两组只显示字典里真有的键。"""
@@ -197,21 +230,37 @@ class StatusFlowTests(ComposeInterfaceTestCase):
         self.assertIn(("Flow ID", result.detail["Flow ID"]), rows)
         self.assertIn(("总耗时", "12 ms"), rows)
 
-    def test_an_error_result_paints_the_badge_red(self) -> None:
-        self.controller.result_ready.emit(
-            ComposeResult(
-                flow_id="flow-1", error="boom", detail={"Status Code": "Error"}
+    def test_an_error_result_restores_the_button_and_reports_the_error(self) -> None:
+        self.controller.sending_changed.emit(True)
+        self.controller.sending_changed.emit(False)
+        with patch("ferret.apps.compose.views.show_error") as show_error:
+            self.controller.result_ready.emit(
+                ComposeResult(
+                    flow_id="flow-1", error="boom", detail={"Status Code": "Error"}
+                )
             )
-        )
-        self.assertEqual(self.page.status_badge.text(), "Error")
-        self.assertEqual(self.page.status_badge.level, InfoLevel.ERROR)
+            show_error.assert_called_once_with("请求失败", "boom", self.page)
 
-    def test_a_send_failure_shows_the_message_in_the_performance_page(self) -> None:
-        """还没进队列就失败（URL 非法等）：没有 result 可等，性能页状态行直接背锅。"""
-        self.controller.send_failed.emit("Send failed", "The URL is empty")
-        self.assertEqual(self.page.status_badge.text(), "Error")
-        self.assertEqual(self.page.status_badge.level, InfoLevel.ERROR)
-        self.assertEqual(self.page.status_label.text(), "The URL is empty")
+        self.assertTrue(self.page.send_btn.isEnabled())
+        self.assertEqual(self.page.send_btn.text(), "发送")
+        self.assertFalse(self.page.loading_ring.isVisibleTo(self.page))
+
+    def test_a_send_failure_hides_the_previous_response_and_reports_the_error(
+        self,
+    ) -> None:
+        """入队失败没有 sending_changed 信号，仍要隐藏旧结果并展示当前错误。"""
+        self.controller.result_ready.emit(success_result())
+        self.page.response_pane.setCurrentTab("Body")
+        with patch("ferret.apps.compose.views.show_error") as show_error:
+            self.controller.send_failed.emit("Send failed", "The URL is empty")
+            show_error.assert_called_once_with(
+                "Send failed", "The URL is empty", self.page
+            )
+
+        self.assertFalse(self.page.response_pane.isVisibleTo(self.page))
+        self.assertTrue(self.page.empty_title.isVisibleTo(self.page))
+        self.assertTrue(self.page.send_btn.isEnabled())
+        self.assertEqual(self.page.send_btn.text(), "发送")
 
     def test_an_empty_url_never_reaches_the_controller(self) -> None:
         self.page.url_edit.setText("   ")
@@ -282,12 +331,12 @@ class PrefillTests(ComposeInterfaceTestCase):
         self.assertEqual(self.page.body_panel.plain_text(), "hello")
 
     def test_the_response_area_is_reset(self) -> None:
-        """旧结果不属于新表单：prefill 后回到空态，徽标藏起来。"""
+        """旧结果不属于新表单：prefill 后回到空态。"""
         self.controller.result_ready.emit(success_result())
         self.assertIs(self.page.response_stack.currentWidget(), self.page.response_pane)
         self.page.prefill(self.edit())
         self.assertIs(self.page.response_stack.currentWidget(), self.page.empty_hint)
-        self.assertTrue(self.page.status_badge.isHidden())
+        self.assertEqual(self.page.empty_title.text(), "暂无响应")
 
 
 if __name__ == "__main__":

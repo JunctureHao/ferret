@@ -1,10 +1,12 @@
 """手工请求编辑页视图：顶栏（方法/URL/发送）+ 左右 Splitter（请求编辑 / 响应展示）。
 
 顶栏独占一行；左侧是请求详情（参数/请求头/请求体，复用详情面板的可编辑组件），
-右侧是响应区——`ResponsePane`（with_raw=False）承载 响应头/响应体/性能 三条标签：
-「性能」页顶部是状态行（状态徽标 + 一句话摘要），下面按 时间/流量 两组卡片展示
-`ComposeResult.detail` 里的时序与字节键。发送前右侧整页显示空态提示。
+右侧是响应区——`ResponsePane`（with_raw=False）承载 响应头/响应体/性能 三条标签，
+「性能」页展示瀑布图和时间/流量两组详情。发送前显示空态，等待响应时显示进度
+提示，避免把上次结果当成当前响应。
 """
+
+from __future__ import annotations
 
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -19,14 +21,14 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
+    CheckBox,
     ComboBox,
     EditableComboBox,
     FluentIcon,
-    InfoBadge,
-    InfoLevel,
+    IconWidget,
+    IndeterminateProgressRing,
     LineEdit,
-    PillToolButton,
-    PrimaryToolButton,
+    PrimaryPushButton,
     ToolButton,
     ToolTipFilter,
 )
@@ -36,7 +38,7 @@ from ferret.apps.common.edit import (
     JsonDualPanel,
     Language,
 )
-from ferret.apps.common.flow.detail import ResponsePane, status_level
+from ferret.apps.common.flow.detail import ResponsePane
 from ferret.apps.common.flow.fields import (
     Field,
     OverviewPane,
@@ -54,7 +56,7 @@ from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.compose.controllers import ComposeController
 from ferret.apps.compose.curl_import import parse_curl
-from ferret.core.mitm import ComposeResult, RequestEdit, human
+from ferret.core.mitm import ComposeResult, RequestEdit
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 # 请求体「数据类型」下拉：(显示名, 高亮语言, 默认 Content-Type)。
@@ -186,6 +188,7 @@ class ComposeInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("ComposeInterface")
         self.controller = controller
+        self._sending = False
 
         self.__init_widget()
         self.__init_layout()
@@ -208,35 +211,31 @@ class ComposeInterface(QWidget):
         self.url_edit.setPlaceholderText("https://example.com/api")
         self.url_edit.setClearButtonEnabled(True)
 
-        # 「进入流量列表」：嵌在输入框尾部的胶囊开关，点一下选中（选中色），
-        # 再点取消。挂进 url_edit 自己的布局并登记到 rightButtons，
-        # _adjustTextMargins 会自动给文本让出右侧边距（宽度保持 30，
-        # 与它的单按钮记账一致；库内 SearchLineEdit/PasswordLineEdit 同款做法）。
-        self.record_btn = PillToolButton(FluentIcon.IOT, self.url_edit)
+        # 记录是请求选项，独立于 URL；文字与勾选状态一起表达用途和当前选择。
+        self.record_btn = CheckBox(self.tr("记录流量"), self)
         self.record_btn.setChecked(True)
-        self.record_btn.setFixedSize(30, 25)
         self.record_btn.setToolTip(
             self.tr(
                 "进入流量列表；关闭时请求仍会经过代理内核发出（重写/网关/断点规则照常生效），但不会出现在流量列表中"
             )
         )
         self.record_btn.installEventFilter(ToolTipFilter(self.record_btn, 700))
-        self.url_edit.rightButtons.append(self.record_btn)
-        self.url_edit.hBoxLayout.addWidget(
-            self.record_btn, 0, Qt.AlignmentFlag.AlignRight
-        )
-        self.url_edit._adjustTextMargins()
 
-        # 顶栏主操作：主色图标按钮。高度不动，**横向加宽** —— 用左右尺寸凸显
-        # 它是这一页唯一的主动作，宽出周围一圈才镇得住顶栏。
-        self.send_btn = PrimaryToolButton(FluentIcon.SEND, self)
-        self.send_btn.setFixedWidth(96)
+        # 按当前语言的最长状态文案预留宽度，发送中不挤动 URL，也不截断英文。
+        self.send_btn = PrimaryPushButton(FluentIcon.SEND, self.tr("发送中…"), self)
+        sending_width = self.send_btn.sizeHint().width()
+        self.send_btn.setText(self.tr("发送"))
+        self.send_btn.setFixedWidth(
+            max(96, sending_width, self.send_btn.sizeHint().width())
+        )
         self.send_btn.setToolTip(self.tr("发送这条请求"))
+        self.send_btn.installEventFilter(ToolTipFilter(self.send_btn, 700))
 
         # cURL 粘贴导入：读剪贴板灌表单，解析错误就地 show_error（v1 不做
         # 粘贴编辑对话框）。
         self.paste_curl_btn = ToolButton(FluentIcon.PASTE, self)
         self.paste_curl_btn.setToolTip(self.tr("从剪贴板导入 cURL 命令"))
+        self.paste_curl_btn.setAccessibleName(self.tr("导入 cURL"))
         self.paste_curl_btn.installEventFilter(ToolTipFilter(self.paste_curl_btn, 700))
 
         # 左侧：请求详情（参数/请求头/请求体，复用详情面板的可编辑组件）。
@@ -278,44 +277,46 @@ class ComposeInterface(QWidget):
         # 标签只剩 响应头/响应体，「性能」由本页追加到末位。
         self.response_pane = ResponsePane(self, with_raw=False)
 
-        # 「性能」页 = 状态行（徽标 + 摘要）+ 时间/流量两组卡片。状态行原先是
-        # 右侧顶部一条独立横排，收进性能页后右侧标签行少了一层。
-        self.status_badge = InfoBadge(self)
-        self.status_badge.hide()
-        self.status_label = CaptionLabel(self)
-        status_row = QWidget(self)
-        status_layout = QHBoxLayout(status_row)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(8)
-        status_layout.addWidget(self.status_badge)
-        status_layout.addWidget(self.status_label, 1)
-
         self.perf_overview = OverviewPane(sections=_PERF_SECTIONS)
-        # 瀑布条压在「时间」组卡片头部（状态行之下、滚动区之上）：compose 回放
+        # 瀑布条压在「时间」组卡片头部（滚动区之上）：compose 回放
         # 的连接段嵌在等待里（lane="nested"，虚线框），与详情页时序同一模型。
         self.perf_waterfall = WaterfallBar(self)
         perf_page = QWidget(self)
         perf_layout = QVBoxLayout(perf_page)
         perf_layout.setContentsMargins(0, 0, 0, 0)
         perf_layout.setSpacing(8)
-        perf_layout.addWidget(status_row)
         perf_layout.addWidget(self.perf_waterfall)
         perf_layout.addWidget(self.perf_overview, 1)
 
         self.response_pane.addTab("Perf", perf_page, self.tr("性能"))
 
-        # 初始空态提示（右侧整页）：第一次出结果前显示。与 flow 表格的
-        # FlowEmptyState 同一个模式 —— QStackedWidget 整页切换，不用 hide()
-        # 叠加（悬空子控件会浮在左上角）。
+        # 与 FlowEmptyState 同一层级：小图标、标题、说明。等待时只切换图标
+        # 和文案，QStackedWidget 管住子控件，避免悬空控件浮到左上角。
         self.empty_hint = QWidget(self)
-        hint_label = CaptionLabel(
-            self.tr("在左侧编辑请求，然后点击「发送」"), self.empty_hint
+        self.empty_icon_stack = QStackedWidget(self.empty_hint)
+        self.empty_icon_stack.setFixedSize(32, 32)
+        self.empty_icon = IconWidget(FluentIcon.SEND, self.empty_icon_stack)
+        self.loading_ring = IndeterminateProgressRing(
+            self.empty_icon_stack, start=False
         )
-        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_ring.setFixedSize(32, 32)
+        self.loading_ring.setStrokeWidth(3)
+        self.empty_icon_stack.addWidget(self.empty_icon)
+        self.empty_icon_stack.addWidget(self.loading_ring)
+        self.empty_title = BodyLabel(self.empty_hint)
+        self.empty_subtitle = CaptionLabel(self.empty_hint)
+        self.empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_subtitle.setWordWrap(True)
         hint_layout = QVBoxLayout(self.empty_hint)
+        hint_layout.setContentsMargins(16, 16, 16, 16)
         hint_layout.addStretch(1)
-        hint_layout.addWidget(hint_label)
+        hint_layout.addWidget(self.empty_icon_stack, 0, Qt.AlignmentFlag.AlignCenter)
+        hint_layout.addSpacing(8)
+        hint_layout.addWidget(self.empty_title)
+        hint_layout.addWidget(self.empty_subtitle)
         hint_layout.addStretch(1)
+        self._set_waiting(False)
 
         # 右侧：空态 ↔ 响应内容 整页切换。
         self.response_stack = QStackedWidget(self)
@@ -329,6 +330,7 @@ class ComposeInterface(QWidget):
         top.setSpacing(8)
         top.addWidget(self.method_combo)
         top.addWidget(self.url_edit, stretch=1)
+        top.addWidget(self.record_btn)
         top.addWidget(self.paste_curl_btn)
         top.addWidget(self.send_btn)
 
@@ -445,7 +447,8 @@ class ComposeInterface(QWidget):
         self.headers_card.set_items(list(edit.headers))
         self._load_body(edit.content)
         self.response_stack.setCurrentWidget(self.empty_hint)
-        self.status_badge.hide()
+        if not self._sending:
+            self._set_waiting(False)
 
     def _load_body(self, content: bytes) -> None:
         """UTF-8 可解码 → 进编辑器；不可解码 → 二进制锁，原样直通发送。"""
@@ -489,10 +492,12 @@ class ComposeInterface(QWidget):
 
     @Slot()
     def _on_send(self):
+        if self._sending:
+            return
         method = self.method_combo.currentText().strip()
         url = self._collect_url()
         if not url:
-            show_error(self.tr("发送失败"), self.tr("URL 为空"), self)
+            self._on_send_failed(self.tr("发送失败"), self.tr("URL 为空"))
             return
 
         self.controller.send(
@@ -505,13 +510,29 @@ class ComposeInterface(QWidget):
 
     @Slot(bool)
     def _on_sending_changed(self, sending: bool):
+        self._sending = sending
         self.send_btn.setDisabled(sending)
+        self.send_btn.setText(self.tr("发送中…") if sending else self.tr("发送"))
+        self.send_btn.setIcon(FluentIcon.SYNC if sending else FluentIcon.SEND)
+        self._set_waiting(sending)
         if sending:
-            self.status_badge.hide()
-            self.status_label.setText(self.tr("发送中…"))
+            self.response_stack.setCurrentWidget(self.empty_hint)
+
+    def _set_waiting(self, waiting: bool) -> None:
+        if waiting:
+            self.empty_icon_stack.setCurrentWidget(self.loading_ring)
+            self.loading_ring.start()
+            self.empty_title.setText(self.tr("正在等待响应"))
+            self.empty_subtitle.setText(self.tr("收到响应后会显示在这里"))
+        else:
+            self.loading_ring.stop()
+            self.empty_icon_stack.setCurrentWidget(self.empty_icon)
+            self.empty_title.setText(self.tr("暂无响应"))
+            self.empty_subtitle.setText(self.tr("编辑请求，然后点击「发送」"))
 
     @Slot(object)
     def _on_result(self, result: ComposeResult):
+        self._on_sending_changed(False)
         detail = result.detail
         if result.error:
             show_error(self.tr("请求失败"), result.error, self)
@@ -520,41 +541,8 @@ class ComposeInterface(QWidget):
         self.perf_overview.set_data(detail)
         self.perf_waterfall.set_model(phases(detail))
 
-        status = str(detail.get("Status Code", "Error" if result.error else ""))
-        self.status_label.setText(self._summarize(detail, status))
-        if status:
-            self.status_badge.setText(status)
-            self.status_badge.setLevel(status_level(status))
-            self.status_badge.adjustSize()
-            self.status_badge.show()
-        else:
-            self.status_badge.hide()
-
-    @staticmethod
-    def _summarize(detail: dict, status: str) -> str:
-        """性能页状态行摘要：`200 OK · 12 ms · 1.2k · 1.2.3.4:443`。
-
-        全部取自详情字典的既有键。
-        """
-        reason = str(detail.get("Reason", ""))
-        head = f"{status} {reason}".strip() or "—"
-        total = int(detail.get("res_total_size") or 0)
-        parts = [
-            part
-            for part in (
-                format_duration(detail.get("duration_ms")),
-                human.pretty_size(total) if total else "",
-                str(detail.get("Server Address", "")),
-            )
-            if part
-        ]
-        return " · ".join([head, *parts])
-
     @Slot(str, str)
     def _on_send_failed(self, title: str, content: str):
+        self._on_sending_changed(False)
+        self.response_stack.setCurrentWidget(self.empty_hint)
         show_error(title, content, self)
-        self.status_badge.setText("Error")
-        self.status_badge.setLevel(InfoLevel.ERROR)
-        self.status_badge.adjustSize()
-        self.status_badge.show()
-        self.status_label.setText(content)
