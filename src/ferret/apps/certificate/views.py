@@ -565,6 +565,11 @@ class CertificateInterface(ScrollArea):
         self.install_btn.setText(
             self.tr("重新安装") if state.needs_reinstall else self.tr("安装证书")
         )
+        # 先卸焦点再藏按钮：隐藏持有焦点的控件会让 Qt 把焦点传给 Tab 链上的
+        # 下一个控件，QScrollArea 随之 ensureWidgetVisible 把整页滚过去——
+        # 旧证书重装成功（STALE→TRUSTED）时按钮消失，滚动条瞬跳就是这么来的。
+        if self.install_btn.hasFocus():
+            self.install_btn.clearFocus()
         self.install_btn.setVisible(state.can_install)
         self.status_card.install_hint.setVisible(state.can_install)
         self.detail_card.setVisible(state.info is not None)
