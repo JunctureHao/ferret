@@ -11,9 +11,10 @@
 # nuitka-project: --msvc=latest
 # nuitka-project: --lto=no
 # nuitka-project: --remove-output
-# nuitka-project: --windows-console-mode=force
 # nuitka-project: --python-flag=no_docstrings
 # nuitka-project: --python-flag=no_asserts
+# GUI 程序不保留控制台窗口（黑框）；缺省 standalone 会用 force 把黑框留下
+# nuitka-project: --windows-console-mode=disable
 
 # ═══════════════════════════════════════════════════════════════════════
 # PySide6 / Qt 相关
