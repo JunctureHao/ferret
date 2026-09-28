@@ -17,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from mitmproxy.test import tflow
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import CheckBox, EditableComboBox, PrimaryPushButton
+from qfluentwidgets import CheckBox, ComboBox, PrimaryPushButton
 
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.compose.views import ComposeInterface
@@ -104,8 +104,11 @@ class ConstructionTests(ComposeInterfaceTestCase):
         self.assertTrue(self.page.send_btn.isEnabled())
 
     def test_the_method_combo_accepts_methods_outside_the_vocabulary(self) -> None:
-        """prefill 可能带来词表外的方法（PROPFIND 等），必须显示得出来 —— 可编辑下拉。"""
-        self.assertIs(type(self.page.method_combo), EditableComboBox)
+        """prefill 可能带来词表外的方法（PROPFIND 等），必须显示得出来 ——
+        下拉不可编辑，写入走 _set_method（缺项动态补条目）。"""
+        self.assertIs(type(self.page.method_combo), ComboBox)
+        self.page._set_method("PROPFIND")
+        self.assertEqual(self.page.method_combo.currentText(), "PROPFIND")
 
     def test_the_splitter_follows_the_global_layout(self) -> None:
         """全局水平 → 本页左右排；全局垂直 → 上下排（本页不反转）。"""

@@ -23,7 +23,6 @@ from qfluentwidgets import (
     CaptionLabel,
     CheckBox,
     ComboBox,
-    EditableComboBox,
     FluentIcon,
     IconWidget,
     IndeterminateProgressRing,
@@ -197,8 +196,9 @@ class ComposeInterface(QWidget):
     # ── 组件 ──────────────────────────────────
 
     def __init_widget(self):
-        # 顶栏。方法用可编辑下拉：prefill 可能带来词表外的方法（PROPFIND 等）。
-        self.method_combo = EditableComboBox(self)
+        # 顶栏。方法下拉不可编辑：prefill 可能带来词表外的方法（PROPFIND 等），
+        # 写入统一走 _set_method（缺项动态补条目）。
+        self.method_combo = ComboBox(self)
         self.method_combo.addItems(METHODS)
         self.method_combo.setCurrentText("GET")
         self.method_combo.setFixedWidth(110)
@@ -430,15 +430,23 @@ class ComposeInterface(QWidget):
         「参数」就是 URL 的查询串，两边各存一份只会互相打脸。"""
         return self._merge_query(self.url_edit.text().strip(), self.params_card.items())
 
+    def _set_method(self, method: str) -> None:
+        """写入方法下拉。纯 ComboBox 有两个坑：setText 只改按钮字面、不动选中项，
+        发送时读的 currentText() 会留在旧方法上（显示 PROPFIND、按 GET 发出）；
+        setCurrentText 又只认词表内项，落空静默不动。所以缺项先补进条目列表
+        再选中，补过的条目留在下拉里。
+        """
+        if self.method_combo.findText(method) < 0:
+            self.method_combo.addItem(method)
+        self.method_combo.setCurrentText(method)
+
     def prefill(self, edit: RequestEdit) -> None:
         """把一份请求草稿灌进表单（右键「Edit in Compose」/ cURL 导入）。
 
         静默覆盖正在编辑的内容：compose 页没有「未保存草稿」概念，加确认框
         成本大于收益。响应区复位——旧结果不属于这张新表单。
         """
-        # setText 而不是 setCurrentText：后者的实现只认词表内项（findText 落空
-        # 就静默不动），PROPFIND 这类词表外方法会留在旧值上。
-        self.method_combo.setText(edit.method)
+        self._set_method(edit.method)
         self.url_edit.setText(edit.url)
         # query 拆进参数页（断点面板 `RequestPanel.load` 同款）：URL 栏留整串，
         # 参数页是权威源，发送时再合并回去。
