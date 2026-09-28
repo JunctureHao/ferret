@@ -746,7 +746,7 @@ class CaptureUiState:
 
 
 class CaptureCommandBar(QWidget):
-    """任务管理器式命令栏：左侧标题/统计/通道状态，右侧文字操作与溢出菜单。"""
+    """任务管理器式命令栏：左侧标题/统计/通道状态同一行，右侧文字操作与溢出菜单。"""
 
     captureToggled = Signal(bool)
     openRequested = Signal()
@@ -767,7 +767,7 @@ class CaptureCommandBar(QWidget):
 
     def __init_widget(self):
         """初始化界面组件"""
-        self.setFixedHeight(68)
+        self.setFixedHeight(52)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.title_label = SubtitleLabel(self.tr("抓包"), self)
@@ -846,28 +846,20 @@ class CaptureCommandBar(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         self._row = QHBoxLayout()
-        self._row.setContentsMargins(16, 8, 16, 8)
+        self._row.setContentsMargins(16, 4, 16, 4)
         self._row.setSpacing(16)
         outer.addLayout(self._row, 1)
         outer.addWidget(HorizontalSeparator(self))
 
+        # 标题、统计、通道状态同一行；长摘要只省略显示，完整内容仍在 tooltip 中。
         self._heading = QWidget(self)
-        heading_layout = QVBoxLayout(self._heading)
+        heading_layout = QHBoxLayout(self._heading)
         heading_layout.setContentsMargins(0, 0, 0, 0)
-        heading_layout.setSpacing(2)
-        title_row = QHBoxLayout()
-        title_row.setSpacing(10)
-        title_row.addWidget(self.title_label)
-        title_row.addWidget(self.stats_label)
-        title_row.addStretch(1)
-        heading_layout.addLayout(title_row)
-        status_group = QHBoxLayout()
-        status_group.setContentsMargins(0, 0, 0, 0)
-        status_group.setSpacing(6)
-        status_group.addWidget(self.endpoint_label)
-        status_group.addWidget(self.exposure_label)
-        status_group.addStretch(1)
-        heading_layout.addLayout(status_group)
+        heading_layout.setSpacing(8)
+        heading_layout.addWidget(self.title_label)
+        heading_layout.addWidget(self.stats_label)
+        heading_layout.addWidget(self.endpoint_label, 1)
+        heading_layout.addWidget(self.exposure_label)
         self._row.addWidget(self._heading, 1)
 
         self._commands = QHBoxLayout()
