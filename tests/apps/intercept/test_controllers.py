@@ -94,10 +94,6 @@ class FakeFacade:
         self._maybe_fail()
         return len(self.flows)
 
-    def revert_flow(self, flow_id: str) -> None:
-        self.calls.append(f"revert:{flow_id}")
-        self._maybe_fail()
-
     def apply_request_edits(
         self, flow_id: str, edit: RequestEdit, *, release: bool = False
     ) -> None:
@@ -108,10 +104,6 @@ class FakeFacade:
         self, flow_id: str, edit: ResponseEdit, *, release: bool = False
     ) -> None:
         self.calls.append(f"response:{flow_id}:{release}:{edit.status_code}")
-        self._maybe_fail()
-
-    def fake_response(self, flow_id: str, edit: ResponseEdit) -> None:
-        self.calls.append(f"fake:{flow_id}:{edit.status_code}")
         self._maybe_fail()
 
 
@@ -385,10 +377,6 @@ class InterceptWriteBackTests(ConfigSandbox):
         self.assertFalse(self.controller.release_all())
         self.assertEqual(len(self.failures), 1)
 
-    def test_revert_delegates(self) -> None:
-        self.assertTrue(self.controller.revert_flow("f1"))
-        self.assertEqual(self.facade.calls, ["revert:f1"])
-
     def test_apply_request_carries_the_release_flag(self) -> None:
         edit = RequestEdit(
             method="POST", url="http://api.example.com/v1", headers=[], content=b""
@@ -406,12 +394,6 @@ class InterceptWriteBackTests(ConfigSandbox):
         self.assertEqual(
             self.facade.calls, ["response:f1:False:201", "response:f1:True:201"]
         )
-
-    def test_fake_response_delegates(self) -> None:
-        """请求期直接回给客户端，根本不拨号 —— 走的是另一个门面方法。"""
-        edit = ResponseEdit(status_code=404, headers=[], content=b"nope")
-        self.assertTrue(self.controller.fake_response("f1", edit))
-        self.assertEqual(self.facade.calls, ["fake:f1:404"])
 
     def test_a_rejected_edit_reports_without_refreshing(self) -> None:
         """内核那边什么都没改（校验全在 `backup()` 之前），队列不必重新要。"""

@@ -79,7 +79,6 @@ class PhasePanel(QWidget):
 
     releaseRequested = Signal()
     dropRequested = Signal()
-    changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -118,9 +117,6 @@ class PhasePanel(QWidget):
         body_layout.setSpacing(4)
         body_layout.addWidget(self.body_panel, 1)
         body_layout.addWidget(self.body_hint)
-
-        self.headers_panel.changed.connect(self.changed)
-        self.body_panel.changed.connect(self.changed)
 
     # —— 骨架 ——
 
@@ -216,11 +212,8 @@ class RequestPanel(PhasePanel):
         self.url_edit = LineEdit(self)
         self.url_edit.setPlaceholderText("https://api.example.com/v1/user")
         self.url_edit.setClearButtonEnabled(True)
-        self.method_combo.currentTextChanged.connect(self.changed)
-        self.url_edit.textChanged.connect(self.changed)
 
         self.params_panel = ItemDualPanel(True, self)
-        self.params_panel.changed.connect(self.changed)
 
         header = self._build_header(self.method_combo, self.url_edit, stretch_last=True)
 
@@ -284,7 +277,6 @@ class ResponsePanel(PhasePanel):
         self.code_edit.setPlaceholderText("200")
         self.code_edit.setFixedWidth(110)
         self.code_edit.setClearButtonEnabled(True)
-        self.code_edit.textChanged.connect(self.changed)
 
         header = self._build_header(self.code_edit)
 

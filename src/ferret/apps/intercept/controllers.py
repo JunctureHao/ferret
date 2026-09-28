@@ -219,11 +219,6 @@ class InterceptController(QObject):
             self.operation_succeeded.emit(done.format(count))
         return bool(count)
 
-    def revert_flow(self, flow_id: str) -> bool:
-        return self._mutate(
-            lambda: self._mitm.revert_flow(flow_id), self.tr("已撤销编辑")
-        )
-
     def apply_request(
         self, flow_id: str, edit: RequestEdit, *, release: bool = False
     ) -> bool:
@@ -238,13 +233,6 @@ class InterceptController(QObject):
         return self._mutate(
             lambda: self._mitm.apply_response_edits(flow_id, edit, release=release),
             self.tr("已放行") if release else self.tr("已应用响应改动"),
-        )
-
-    def fake_response(self, flow_id: str, edit: ResponseEdit) -> bool:
-        """请求期直接返回：构造一条响应回给客户端，不发往服务器（顺手放行）。"""
-        return self._mutate(
-            lambda: self._mitm.fake_response(flow_id, edit),
-            self.tr("已直接返回伪造响应"),
         )
 
     def _mutate(self, action, message: str) -> bool:

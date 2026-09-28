@@ -31,7 +31,6 @@ class CertificateController(QObject):
     busy_changed = Signal(bool)
     operation_failed = Signal(str, str)  # title, detail
     operation_succeeded = Signal(str)
-    exported = Signal(object)  # Path
 
     def __init__(
         self,
@@ -197,7 +196,6 @@ class CertificateController(QObject):
         self.state_changed.emit(state)
 
     def _on_exported(self, path: object) -> None:
-        self.exported.emit(path)
         self.operation_succeeded.emit(self.tr("已导出到 {}").format(path))
 
     def _reload_store(self) -> None:

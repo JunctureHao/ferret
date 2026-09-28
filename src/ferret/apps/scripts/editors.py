@@ -46,7 +46,6 @@ class ScriptEditorPanel(QWidget):
     save_as_requested = Signal(str)
     reload_requested = Signal(str)
     open_external_requested = Signal(str)
-    dirty_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -277,11 +276,9 @@ class ScriptEditorPanel(QWidget):
         self._refresh_dirty()
 
     def _refresh_dirty(self) -> None:
-        dirty = self._editable() and self.editor.text() != self._saved_text
-        self.save_btn.setEnabled(dirty)
-        if dirty != self._dirty:
-            self._dirty = dirty
-            self.dirty_changed.emit(dirty)
+        # `_dirty` 是 dirty property 的存储位（视图侧直读），没有变化信号。
+        self._dirty = self._editable() and self.editor.text() != self._saved_text
+        self.save_btn.setEnabled(self._dirty)
 
     @Slot()
     def _on_text_changed(self) -> None:

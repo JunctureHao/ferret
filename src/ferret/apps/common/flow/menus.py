@@ -48,7 +48,6 @@ class FlowContextMenu(RoundMenu):
     # 「加入 Mock 响应」请求信号（携带 flow id 列表）。同样只带 id：副本由
     # facade 在 mitm 线程上做（.plans/0-server-playback.md §3.2）。
     add_to_mock_requested = Signal(list)
-    comment_requested = Signal()
 
     def __init__(
         self,
@@ -200,7 +199,10 @@ class FlowContextMenu(RoundMenu):
 
         if self.capabilities.can_mark:
             self.addMenu(self.mark_menu)
-        self.addAction(self.comment_action)
+        # 备注要在活 flow 上写（can_comment 同 can_mark 的理由）：会话查看器
+        # 的控制器没有 set_flow_comment，不门控右键就是必崩的 AttributeError。
+        if self.capabilities.can_comment:
+            self.addAction(self.comment_action)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""

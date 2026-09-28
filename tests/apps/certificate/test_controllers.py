@@ -239,15 +239,12 @@ class RegenerateTests(ControllerTestCase):
 class ExportTests(ControllerTestCase):
     def test_export_passes_format_and_target_to_the_service(self) -> None:
         target = Path("D:/out/Ferret.pem")
-        exported: list[object] = []
-        self.controller.exported.connect(exported.append)
         self.controller.export("pem", target)
         self.drain()
         self.assertEqual(len(self.service.exported), 1)
         fmt, got_target = self.service.exported[0]
         self.assertEqual(getattr(fmt, "key", None), "pem")
         self.assertEqual(got_target, target)
-        self.assertEqual(exported, [target])
         self.assertIn(str(target), self.messages[0])
 
     def test_unknown_format_fails_without_starting_a_task(self) -> None:
