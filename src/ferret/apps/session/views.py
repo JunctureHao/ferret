@@ -123,6 +123,9 @@ class SessionListPage(QWidget):
         self.table.sortByColumn(1, Qt.SortOrder.DescendingOrder)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        # 右键先选中再弹菜单（流量表同款）：菜单里的动作全部作用于选区，
+        # 不开这个，右键一个未选中的行会出现「导出是这行、删除是旧选区」的分裂。
+        self.table.setSelectRightClickedRow(True)
         self.table.setWordWrap(False)
         widths = [320, 170, 90, 100, 90]
         header = self.table.horizontalHeader()
@@ -290,7 +293,9 @@ class SessionListPage(QWidget):
     @Slot()
     def _on_rename(self):
         rows = self.table.selectionModel().selectedRows()
-        if not rows:
+        # 重命名是单条语义：多选时按钮已置灰，F2 同一口径不动作，
+        # 不然静默只改第一行。
+        if len(rows) != 1:
             return
         row = self.proxy_model.mapToSource(rows[0]).row()
         meta = self.source_model.session_at(row)
@@ -310,15 +315,7 @@ class SessionListPage(QWidget):
 
     @Slot()
     def _on_delete(self):
-        rows = self.table.selectionModel().selectedRows()
-        if not rows:
-            return
-        metas = []
-        for r in rows:
-            src_row = self.proxy_model.mapToSource(r).row()
-            m = self.source_model.session_at(src_row)
-            if m:
-                metas.append(m)
+        metas = self._selection_metas()
         if not metas:
             return
 
@@ -341,12 +338,30 @@ class SessionListPage(QWidget):
         if not meta:
             return
 
+        selected = self._selection_metas()
+
         menu = RoundMenu(parent=self)
         menu.addAction(self._make_action(self.tr("打开"), self._open_selected))
-        menu.addAction(self._make_action(self.tr("重命名"), self._on_rename))
-        menu.addAction(
-            self._make_action(self.tr("导出 Flow"), lambda: self._export_session(meta))
-        )
+        # 重命名是单条语义：多选时菜单项置灰（工具栏按钮同一口径），
+        # 点了没反应的死菜单项比没有更糟。
+        rename_action = self._make_action(self.tr("重命名"), self._on_rename)
+        rename_action.setEnabled(len(selected) == 1)
+        menu.addAction(rename_action)
+        # 导出按选区分支：单条走存文件对话框，多条选一个目录按名字各落一个
+        # .flow（删除本就支持批量）。
+        if len(selected) > 1:
+            menu.addAction(
+                self._make_action(
+                    self.tr("导出 {} 个会话").format(len(selected)),
+                    lambda: self._export_selected(selected),
+                )
+            )
+        else:
+            menu.addAction(
+                self._make_action(
+                    self.tr("导出 Flow"), lambda: self._export_session(meta)
+                )
+            )
         menu.addAction(
             self._make_action(
                 self.tr("在文件管理器中显示"),
@@ -364,6 +379,16 @@ class SessionListPage(QWidget):
         action.triggered.connect(callback)
         return action
 
+    def _selection_metas(self) -> list[SessionMeta]:
+        """当前选区对应的会话元数据（经代理模型映射回源行）。"""
+        metas: list[SessionMeta] = []
+        for r in self.table.selectionModel().selectedRows():
+            src_row = self.proxy_model.mapToSource(r).row()
+            m = self.source_model.session_at(src_row)
+            if m:
+                metas.append(m)
+        return metas
+
     def _export_session(self, meta: SessionMeta):
         path, _ = QFileDialog.getSaveFileName(
             self.window(),
@@ -373,6 +398,13 @@ class SessionListPage(QWidget):
         )
         if path:
             self.controller.export_session(meta.session_id, Path(path))
+
+    def _export_selected(self, metas: list[SessionMeta]):
+        directory = QFileDialog.getExistingDirectory(
+            self.window(), self.tr("选择导出目录")
+        )
+        if directory:
+            self.controller.export_sessions(metas, Path(directory))
 
     def _show_in_explorer(self, meta: SessionMeta):
         flow_path = str(meta.path)
@@ -391,9 +423,10 @@ class SessionListPage(QWidget):
             self.content_stack.setCurrentWidget(self.table)
 
     def _update_action_state(self):
-        has_selection = bool(self.table.selectionModel().selectedRows())
-        self.rename_btn.setEnabled(has_selection)
-        self.delete_btn.setEnabled(has_selection)
+        rows = self.table.selectionModel().selectedRows()
+        # 重命名是单条语义，多选置灰（_on_rename 同一口径）；删除支持批量。
+        self.rename_btn.setEnabled(len(rows) == 1)
+        self.delete_btn.setEnabled(bool(rows))
 
     def eventFilter(self, obj, event):
         return super().eventFilter(obj, event)

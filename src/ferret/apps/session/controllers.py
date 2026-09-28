@@ -264,3 +264,31 @@ class SessionController(QObject):
             on_success=lambda _: self.operation_succeeded.emit(self.tr("会话已导出")),
             write=True,
         )
+
+    def export_sessions(self, metas: list[SessionMeta], directory: Path) -> None:
+        """批量导出：每个会话按自己的名字落一个 ``<名字>.flow``。
+
+        会话名在仓库内唯一（create/rename 走 ``_unique_path``），同批互不覆盖；
+        逐条 try 是刻意的：一个会话的文件没了不该拖垮整批。
+        """
+
+        def _export_all() -> list[str]:
+            failures: list[str] = []
+            for meta in metas:
+                try:
+                    self._repo.export(meta.session_id, directory / f"{meta.name}.flow")
+                except OSError as exc:
+                    failures.append(f"{meta.name}: {exc}")
+            return failures
+
+        def _on_exported(failures: list[str]) -> None:
+            if failures:
+                self.operation_failed.emit(
+                    self.tr("部分会话导出失败"), "\n".join(failures)
+                )
+            else:
+                self.operation_succeeded.emit(
+                    self.tr("已导出 {} 个会话").format(len(metas))
+                )
+
+        self._run(_export_all, on_success=_on_exported, write=True)
