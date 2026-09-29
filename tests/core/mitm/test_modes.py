@@ -6,6 +6,8 @@ WireGuard 客户端配置的生成格式（对齐上游 ``WireGuardServerInstanc
 以及 local 提权守护进程在内核停止/重启时的拆除时机。
 """
 
+from __future__ import annotations
+
 import json
 import os
 import socket
@@ -46,6 +48,7 @@ from ferret.core.mitm.modes import (
 )
 
 from ._qt import start_runtime, wait_ready, wait_until
+from ._windows import process_enumeration_window
 
 
 def free_port() -> int:
@@ -407,7 +410,8 @@ class LocalTargetTests(unittest.TestCase):
 
         不断言 executables 都真实存在——上游会枚举出 ``Registry`` 这类伪路径。
         """
-        targets = list_local_targets()
+        with process_enumeration_window():
+            targets = list_local_targets()
         self.assertTrue(targets, "至少应枚举到一个非系统进程")
         names = {target.display_name.lower() for target in targets}
         self.assertNotIn("svchost.exe", names)
@@ -417,8 +421,9 @@ class LocalTargetTests(unittest.TestCase):
         )
 
     def test_list_local_targets_include_system_expands_the_list(self) -> None:
-        relaxed = list_local_targets(include_system=True)
-        strict = list_local_targets()
+        with process_enumeration_window():
+            relaxed = list_local_targets(include_system=True)
+            strict = list_local_targets()
         self.assertGreaterEqual(len(relaxed), len(strict))
 
 

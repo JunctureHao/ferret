@@ -184,6 +184,11 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
     def _reply(self) -> None:
         server = self.server
         assert isinstance(server, _EchoServer)
+        # 必须消费请求体再关闭 HTTP/1.0 连接；Windows 上带着未读数据关 socket
+        # 会发 RST，使同一条 POST 偶发复位或等不到回放结果。
+        server.request_body = self.rfile.read(
+            int(self.headers.get("Content-Length", 0))
+        )
         server.request_received.set()
         # 只在服务器线程上等测试放行；Qt/内核状态仍由 _qt.wait_until 轮询。
         if not server.response_released.wait(timeout=30):
@@ -208,6 +213,7 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
 class _EchoServer(http.server.HTTPServer):
     def __init__(self) -> None:
         self.request_received = threading.Event()
+        self.request_body: bytes | None = None
         self.response_released = threading.Event()
         self.response_released.set()
         super().__init__(("127.0.0.1", 0), _EchoHandler)
@@ -259,12 +265,18 @@ class ComposeLiveTests(unittest.TestCase):
         flow_id = self.facade.send_custom_request(
             "POST", url, [("X-Test", "yes")], b'{"a": 1}', record=True
         )
-        self.assertTrue(wait_until(lambda: self.results and self.recorded))
+        self.assertTrue(
+            wait_until(lambda: self.results and self.recorded),
+            f"runtime={self.runtime.state}, "
+            f"server_received={self.server.request_received.is_set()}, "
+            f"results={self.results!r}, recorded={len(self.recorded)}",
+        )
         (result,) = self.results
         self.assertIsInstance(result, ComposeResult)
         self.assertEqual(result.flow_id, flow_id)
         self.assertEqual(result.error, "")
         self.assertEqual(result.detail["Status Code"], 200)
+        self.assertEqual(self.server.request_body, b'{"a": 1}')
         # record=True 走独立新增信号，未「开始抓包」时也能被表格接收。
         self.assertEqual([flow.id for flow in self.recorded], [flow_id])
         self.assertEqual(self.captured, [])
