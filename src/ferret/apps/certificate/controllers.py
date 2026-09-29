@@ -252,6 +252,11 @@ class CertificateController(QObject):
         def _finished() -> None:
             self._set_active(-1)
             self._tasks.discard(task)
+            # 拆环：task → signals → Qt 连接 → 本闭包 → task 横跨 C++ 边界，
+            # gc 收不掉；断掉 signals 上的连接后任务才整体可释放。
+            task.signals.succeeded.disconnect()
+            task.signals.failed.disconnect()
+            task.signals.finished.disconnect()
 
         task.signals.succeeded.connect(_succeeded)
         task.signals.failed.connect(_failed)

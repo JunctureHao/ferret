@@ -170,6 +170,11 @@ class SessionController(QObject):
         def _on_finished():
             self._set_task_active(False)
             self._tasks.discard(task)
+            # 拆环：task → signals → Qt 连接 → 本闭包 → task 是横跨 C++ 边界的
+            # 引用环，gc.collect() 收不掉；断掉 signals 上的连接后任务才整体可释放。
+            task.signals.succeeded.disconnect()
+            task.signals.failed.disconnect()
+            task.signals.finished.disconnect()
 
         task.signals.succeeded.connect(_on_succeeded)
         task.signals.failed.connect(_on_failed)

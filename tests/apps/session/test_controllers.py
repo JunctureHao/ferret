@@ -128,5 +128,87 @@ class OpenSessionTests(unittest.TestCase):
         self.assertIsNone(ref1())
 
 
+class TaskLifecycleTests(unittest.TestCase):
+    """异步任务对象随完成整体释放。
+
+    FunctionTask 的 signals 上挂着持 task 的闭包，task → signals → Qt 连接 → 闭包
+    → task 是横跨 C++ 边界的引用环，gc 收不掉；_run 在完成回调里断开连接拆环，
+    run() 收尾时放开入参引用（save_capture 的整份流量副本就靠这一步释放）。
+    """
+
+    def setUp(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.repo = SessionRepository(root=tmp / "repo")
+        self.controller = SessionController(repository=self.repo)
+
+    def _pump(self, seconds: float = 0.2) -> None:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        for _ in range(20):
+            app.processEvents()
+
+    def test_task_objects_are_released_after_open(self) -> None:
+        import gc
+
+        from ferret.apps.common.tasks import FunctionTask, WorkerSignals
+
+        self.repo.create("会话甲", [tflow.tflow(resp=True)])
+        sid = self.repo.list_all()[0].session_id
+
+        # 全量跑套件时别的模块可能留着自己的任务对象，只关心本次新增的是否归零。
+        gc.collect()
+        before_tasks = {id(o) for o in gc.get_objects() if isinstance(o, FunctionTask)}
+        before_signals = {
+            id(o) for o in gc.get_objects() if isinstance(o, WorkerSignals)
+        }
+
+        done: list = []
+        self.controller.session_opened.connect(lambda meta, vc: done.append(vc))
+        self.controller.open_session(sid)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not done:
+            app.processEvents()
+            time.sleep(0.01)
+        self._pump()
+        gc.collect()
+
+        new_tasks = [
+            o
+            for o in gc.get_objects()
+            if isinstance(o, FunctionTask) and id(o) not in before_tasks
+        ]
+        new_signals = [
+            o
+            for o in gc.get_objects()
+            if isinstance(o, WorkerSignals) and id(o) not in before_signals
+        ]
+        self.assertEqual(new_tasks, [])
+        self.assertEqual(new_signals, [])
+
+    def test_save_does_not_pin_flows_after_completion(self) -> None:
+        import gc
+        import weakref
+
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.content = b"x" * 1024
+        ref = weakref.ref(flow)
+
+        created: list = []
+        self.controller.session_created.connect(created.append)
+        self.controller.save_capture("会话甲", [flow])
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not created:
+            app.processEvents()
+            time.sleep(0.01)
+        self._pump()
+
+        del flow
+        gc.collect()
+        self.assertIsNone(ref())
+
+
 if __name__ == "__main__":
     unittest.main()

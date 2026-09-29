@@ -37,3 +37,8 @@ class FunctionTask(QRunnable):
             self.signals.failed.emit(str(e))
         finally:
             self.signals.finished.emit()
+            # 结果/入参一经信号发出即归排队事件所有。任务对象会因其 signals 上的
+            # Qt 连接反过来引用持有它的闭包而多活一阵（跨 C++ 边界的环，gc 收不掉），
+            # 提前放开入参，避免环存活期内一直压着大载荷（如 save_capture 的整份流量）。
+            self._args = ()
+            self._kwargs = {}
