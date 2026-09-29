@@ -1248,9 +1248,9 @@ class MitmFacade:
             return int(self.runtime.call(add, timeout=30.0))
         except FlowReadException as exc:
             raise ValueError(
-                QCoreApplication.translate("MitmFacade", "无法读取 Flow 文件：{}").format(
-                    exc
-                )
+                QCoreApplication.translate(
+                    "MitmFacade", "无法读取 Flow 文件：{}"
+                ).format(exc)
             ) from exc
 
     def remove_mock_flows(self, entry_ids: list[str]) -> int:
@@ -1334,9 +1334,7 @@ class MitmFacade:
             for flow in runtime.mock_pool:
                 response = flow.response
                 content = (
-                    response.get_content(strict=False)
-                    if response is not None
-                    else b""
+                    response.get_content(strict=False) if response is not None else b""
                 )
                 entries.append(
                     {
