@@ -744,8 +744,10 @@ class FerretScriptAddon:
             # 状态已由 _report_load_error 写。
             return
         try:
-            with addonmanager.safecall():
-                self._master.addons.register(ns)
+            # register 对 LoadHook 不设防（原生 invoke_addon_sync 裸调），脚本
+            # load() 的异常原样出 register —— 故意不包 safecall：包了异常被吞、
+            # 本条永远 LOADED；重名 AddonManagerError 也靠直通 except 翻 ERROR。
+            self._master.addons.register(ns)
             if self._configured:
                 self._master.addons.invoke_addon_sync(
                     ns, hooks.ConfigureHook(self._master.options.keys())

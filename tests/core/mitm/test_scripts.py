@@ -37,6 +37,14 @@ def free_port() -> int:
 
 HEADER_SCRIPT = 'def request(f):\n    f.request.headers["X-T"] = "1"\n'
 BROKEN_SCRIPT = "def request(f:\n"
+# load() 钩子炸：import 本身成功，专打 register 通道；request 钩子若仍被派发
+# （带伤收流量）X-BAD 就会出现——用独立头名与 good 脚本的 X-T 区分。
+LOAD_HOOK_RAISES_SCRIPT = (
+    "def load(loader):\n"
+    "    raise RuntimeError('boom in load hook')\n"
+    "def request(f):\n"
+    "    f.request.headers['X-BAD'] = '1'\n"
+)
 
 
 class ScriptEntryTests(unittest.TestCase):
@@ -238,6 +246,38 @@ class RuntimeScriptTests(unittest.TestCase):
         self.assertEqual(states[good].state, ScriptState.LOADED)
 
         self.send_once()
+        self.assertEqual(self.last_headers().get("X-T"), "1")
+
+    def test_load_hook_exception_becomes_error_status_and_stays_out_of_dispatch(
+        self,
+    ) -> None:
+        """load() 钩子炸 ≠ 装载成功：状态 ERROR、不进钩子派发，好脚本照常。
+
+        顶层语法错误走 load_script_module 的 report 通道，钩子异常走 register
+        ——两条路都得翻 ERROR（后者曾被 register 外多包的一层 safecall 吞成
+        LOADED，还借 addons 属性带伤收流量钩子）。
+        """
+        bad = self.write("boom.py", LOAD_HOOK_RAISES_SCRIPT)
+        good = self.write("good.py", HEADER_SCRIPT)
+        self.runtime.scripts = [
+            ScriptEntry(path=bad),
+            ScriptEntry(path=good),
+        ]
+        start_runtime(self.runtime)
+
+        self.assertTrue(
+            wait_until(lambda: len(self.statuses) >= 2),
+            "两条状态信号没有在超时内到齐",
+        )
+        states = {path: status for path, status in self.statuses}
+        self.assertEqual(states[bad].state, ScriptState.ERROR)
+        self.assertIn("RuntimeError", states[bad].error)
+        self.assertIn("boom in load hook", states[bad].error)
+        self.assertEqual(self.facade.script_statuses[bad].state, ScriptState.ERROR)
+        self.assertEqual(states[good].state, ScriptState.LOADED)
+
+        self.send_once()
+        self.assertIsNone(self.last_headers().get("X-BAD"))
         self.assertEqual(self.last_headers().get("X-T"), "1")
 
     def test_missing_file_becomes_missing_status(self) -> None:
