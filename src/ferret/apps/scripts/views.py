@@ -47,9 +47,7 @@ class ScriptsInterface(QWidget):
     排序，换序走拖拽与右键的上移/下移 —— 两个入口同一个 `move_script_to`。
     """
 
-    def __init__(
-        self, controller: ScriptsController, search_host=None, parent=None
-    ):
+    def __init__(self, controller: ScriptsController, search_host=None, parent=None):
         super().__init__(parent)
         self.setObjectName("ScriptsInterface")
         self.controller = controller
@@ -287,11 +285,15 @@ class ScriptsInterface(QWidget):
         self.reload_btn.setEnabled(bool(rows))
         self.delete_btn.setEnabled(bool(rows))
 
-    def _guard_dirty(self) -> None:
-        """离开一条有未保存改动的脚本前问一句。两个按钮：存（并重载）或丢。"""
+    def _guard_dirty(self) -> bool:
+        """离开一条有未保存改动的脚本前问一句。两个按钮：存（并重载）或丢。
+
+        返回 False 表示用户选了「保存」但保存失败——这时不能放行走换条流程，
+        否则改动照样丢掉，等于骗了用户。
+        """
         entry = self.panel.entry
         if entry is None or not self.panel.dirty:
-            return
+            return True
         box = MessageBox(
             self.tr("有未保存的改动"),
             self.tr('"{}" 的改动还没保存，保存后会立即重载。').format(
@@ -301,8 +303,13 @@ class ScriptsInterface(QWidget):
         )
         box.yesButton.setText(self.tr("保存并重载"))
         box.cancelButton.setText(self.tr("放弃改动"))
-        if box.exec():
-            self.controller.save_script(entry.path, self.panel.editor.text())
+        if not box.exec():
+            return True
+        text = self.panel.editor.text()
+        if not self.controller.save_script(entry.path, text):
+            return False
+        self.panel.mark_saved(text)
+        return True
 
     def _load_entry(self, entry: ScriptEntry) -> None:
         status = self.controller.status_of(entry.path)
@@ -324,8 +331,18 @@ class ScriptsInterface(QWidget):
             self.panel.update_entry(target, self.controller.status_of(target.path))
             return
         # 被移除的条目没什么可保存的，只有还在清单里的才值得问一句。
-        if current is not None and self.controller.index_of(current.path) >= 0:
-            self._guard_dirty()
+        if (
+            current is not None
+            and self.controller.index_of(current.path) >= 0
+            and not self._guard_dirty()
+        ):
+            # 保存失败：把选中拨回原来那条，中止切换。
+            self._restoring = True
+            try:
+                self._select_path(current.path)
+            finally:
+                self._restoring = False
+            return
         if target is None:
             self.panel.clear()
             return
