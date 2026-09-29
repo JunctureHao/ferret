@@ -12,6 +12,7 @@
 在这里覆盖，那条路由端到端冒烟兜着。）
 """
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,7 +30,7 @@ from ferret.core.mitm import (
     View,
     WsClose,
 )
-from ferret.core.mitm.addons import GatewayState
+from ferret.core.mitm.addons import GatewayPolicy, GatewayState
 from ferret.core.mitm.intercept import InterceptState
 
 
@@ -202,6 +203,61 @@ class ResumeCountTests(unittest.TestCase):
 
     def test_an_unknown_id_counts_for_nothing(self) -> None:
         self.assertEqual(self.facade.release_flows(["nope"]), 0)
+
+
+class KillFlowTests(unittest.TestCase):
+    """右键「杀死」绝不能把挂起中的连接钉死在 wait_for_resume() 上。
+
+    `kill()` 会把 `intercepted` 清成 False，而 `resume()` 开头就是
+    `if not intercepted: return` —— 直接 kill 之后连「全部放行」也救不回来，
+    所以 `kill_flow` 必须先走账上的放行（内部先 resume 再 kill）。
+    """
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+        self.flow = tflow.tflow()
+        self.runtime.view.add([self.flow])
+
+    def test_killing_an_intercept_held_flow_resumes_it_first(self) -> None:
+        """钉住 bug 本体：杀完之后等待任务必须已经被唤醒。"""
+        self.runtime.master.intercept_state.arm(self.flow)
+        self.flow._resume_event = asyncio.Event()
+        self.flow._resume_event.clear()
+
+        self.facade.kill_flow(self.flow.id)
+
+        self.assertTrue(self.flow._resume_event.is_set())
+        self.assertFalse(self.flow.intercepted)
+        self.assertIsNotNone(self.flow.error)
+        # 账也清了：之后「全部放行」不会再去碰它。
+        self.assertEqual(self.facade.release_all_intercepted(), 0)
+
+    def test_killing_a_gateway_held_flow_resumes_it_first(self) -> None:
+        self.runtime.master.gateway.suspend(self.flow, GatewayPolicy.SUSPEND_OUT)
+        self.flow._resume_event = asyncio.Event()
+        self.flow._resume_event.clear()
+
+        self.facade.kill_flow(self.flow.id)
+
+        self.assertTrue(self.flow._resume_event.is_set())
+        self.assertFalse(self.flow.intercepted)
+        self.assertIsNotNone(self.flow.error)
+
+    def test_killing_a_plain_live_flow_just_kills_it(self) -> None:
+        self.facade.kill_flow(self.flow.id)
+        self.assertFalse(self.flow.killable)
+        self.assertIsNotNone(self.flow.error)
+
+    def test_killing_an_unknown_id_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            self.facade.kill_flow("nope")
+
+    def test_killing_a_completed_flow_is_a_no_op(self) -> None:
+        """已完成的 flow 不可杀，静默跳过、不抛 ControlException。"""
+        self.flow.live = False
+        self.facade.kill_flow(self.flow.id)
+        self.assertIsNone(self.flow.error)
 
 
 class RemoveUnmarkedTests(unittest.TestCase):

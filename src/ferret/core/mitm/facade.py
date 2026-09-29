@@ -642,13 +642,33 @@ class MitmFacade:
 
         已不可杀的 flow（已 kill / 已出错）静默跳过，不抛错 —— 右键菜单「点了没反应」
         好过弹一个 ControlException。
-        """
 
-        def kill(flow) -> None:
+        挂起中的绝不能直接 ``kill()``：``kill()`` 会把 ``intercepted`` 清成 False，
+        而 ``resume()`` 开头就是 ``if not self.intercepted: return`` —— 那条连接会
+        永久钉死在 ``wait_for_resume()`` 上，之后连「全部放行」也救不回来（账上的
+        ``release`` 也是先 ``resume()``，照样落空）。所以先走两本账的放行（它们内部
+        是先 resume 再 kill），再兜底扫原生拦的，最后才补杀没被任何人攥着的活流。
+        """
+        if not self.runtime.is_running:
+            raise RuntimeError(_not_running())
+
+        def run() -> None:
+            flow = self.view.get_by_id(flow_id)
+            if not isinstance(flow, HTTPFlow):
+                # 与 `_mutate` 同一条判据：找不到和不是 HTTP 流量，对界面是同一件事。
+                raise ValueError(  # noqa: TRY004
+                    QCoreApplication.translate("MitmFacade", "这条流量已不在列表中")
+                )
+            master = self.runtime.master
+            if master is not None:
+                master.gateway.release([flow_id], kill=True)
+                master.intercept_state.release([flow_id], kill=True)
+            self._sweep([flow_id], kill=True)
             if flow.killable:
                 flow.kill()
+            self.view.update([flow])
 
-        self._mutate(flow_id, kill, release=False)
+        self.runtime.call(run)
 
     def set_flow_comment(self, flow_id: str, comment: str) -> None:
         """Set a comment on a held flow."""
