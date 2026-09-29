@@ -310,6 +310,43 @@ class ComposeLiveTests(unittest.TestCase):
         self.assertEqual(self.recorded, [])
         self.assertEqual(self.captured, [])
 
+    def test_bypass_rule_still_reports_compose_result(self) -> None:
+        """网关「绕行」命中 Compose 流量时，结果回报不得被 AddonHalt 截断。
+
+        回归钉：绕行原本在每个钩子派发都抛 AddonHalt，链尾的 ComposeAddon
+        收不到 response/error，编辑页永久停在「发送中」。
+        """
+        from ferret.core.mitm import (
+            GatewayField,
+            GatewayLayer,
+            GatewayLogic,
+            GatewayPolicy,
+            GatewayRule,
+        )
+
+        self.facade.set_gateway_rules(
+            [
+                GatewayRule(
+                    layer=GatewayLayer.L7,
+                    policy=GatewayPolicy.BYPASS,
+                    field=GatewayField.HOST,
+                    logic=GatewayLogic.EQUALS,
+                    value="127.0.0.1",
+                )
+            ]
+        )
+        url = f"http://127.0.0.1:{self.port}/bypassed"
+        flow_id = self.facade.send_custom_request("GET", url, [], b"", record=False)
+        self.assertTrue(wait_until(lambda: self.results), f"results={self.results!r}")
+        (result,) = self.results
+        self.assertEqual(result.flow_id, flow_id)
+        self.assertEqual(result.error, "")
+        self.assertEqual(result.detail["Status Code"], 200)
+        # 绕行：不产生任何抓包记录（record=False 的 Compose 也一样不落地）。
+        self.assertEqual(self.recorded, [])
+        self.assertEqual(self.captured, [])
+        self.assertEqual(self.facade.total_count(), 0)
+
     def test_response_filter_delays_the_recorded_add_until_it_matches(self) -> None:
         self.server.response_released.clear()
         self.facade.set_filter(parse_filter("~s"))

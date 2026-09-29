@@ -23,6 +23,7 @@ from ferret.core.mitm.bindings import (
     status_codes,
     tlsconfig_module,
 )
+from ferret.core.mitm.compose import compose_recording
 from ferret.core.mitm.gateway import (
     GATEWAY_METADATA_KEY,
     GATEWAY_STATUS_CLOSE,
@@ -386,7 +387,16 @@ class GatewayL7Addon:
         if request is None:
             return None
         decision = self._state.decide(request.host, request.port, request.method)
-        if decision is not None and decision.policy == GatewayPolicy.BYPASS:
+        if (
+            decision is not None
+            and decision.policy == GatewayPolicy.BYPASS
+            # Compose 是用户显式点「发送」的流量：绕行的豁免语义是「不抓」，不能
+            # 连结果回报一起截断。这里若照常抛 AddonHalt，每个钩子派发都会被截在
+            # 网关之前，链尾的 ComposeAddon 永远收不到 response / error —— 编辑页
+            # 停在「发送中」，后续发送也被卡死。放行让链跑完，记不进流量表由
+            # ComposeAddon 按 compose_recording 标记在落地后摘除。
+            and compose_recording(flow) is None
+        ):
             raise AddonHalt
         return decision
 
