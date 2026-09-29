@@ -4,6 +4,7 @@
 绝不执行真的 `certutil`，也不读写用户的 Windows 信任库与 config.json。
 """
 
+import datetime
 import tempfile
 import unittest
 from collections.abc import Sequence
@@ -165,9 +166,18 @@ class CaInfoTests(ServiceTestCase):
         int(self.info.fingerprint_sha256, 16)
 
     def test_validity_window(self) -> None:
-        # CA_EXPIRY 10 年、CERT_VALIDITY_OFFSET -2 天 → 新证书剩 3648 天。
+        # mitmproxy CA_EXPIRY 10 年、CERT_VALIDITY_OFFSET -2 天回溯。create_ca
+        # 用 naive 本地时间锚 not_before/not_after，cryptography 按 UTC 解释，
+        # days_remaining（对 UTC now 相减取整）随生成机器时区在 3647/3648 间
+        # 摆动（UTC runner 恒少一天）—— 断言锚窗口与口径，不锚具体天数。
         self.assertFalse(self.info.expired)
-        self.assertEqual(self.info.days_remaining, 3648)
+        self.assertEqual(
+            self.info.not_after - self.info.not_before, certs.CA_EXPIRY
+        )
+        self.assertEqual(  # 与 days_remaining 同口径重算，钉住计算语义
+            self.info.days_remaining,
+            (self.info.not_after - datetime.datetime.now(datetime.UTC)).days,
+        )
         self.assertLess(self.info.not_before, self.info.not_after)
         self.assertIsNotNone(self.info.not_after.tzinfo)
 
