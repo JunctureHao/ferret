@@ -154,6 +154,21 @@ class ExportRoundtripTests(unittest.TestCase):
         self.assertEqual(edit.method, "GET")
         self.assertIn(("Accept-Encoding", "gzip, deflate"), edit.headers)
 
+    def test_a_flow_with_apostrophes_round_trips(self) -> None:
+        """issues.md #10：单引号参数导出后解析必须一致，否则无法重放。"""
+        flow = tflow.tflow()
+        flow.request.method = "POST"
+        flow.request.url = "https://api.example.com/v1"
+        flow.request.headers = Headers([(b"User-Agent", b"O'Reilly/1.0")])
+        flow.request.content = b"author=O'Reilly"
+
+        edit = parse_curl(FlowExporter.curl_command(flow))
+
+        self.assertEqual(edit.method, "POST")
+        self.assertEqual(edit.url, "https://api.example.com/v1")
+        self.assertEqual(edit.content, b"author=O'Reilly")
+        self.assertIn(("User-Agent", "O'Reilly/1.0"), edit.headers)
+
 
 if __name__ == "__main__":
     unittest.main()
