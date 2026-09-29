@@ -1155,6 +1155,10 @@ class MitmFacade:
                 return await master.readfile.load_flows_from_path(str(path))
             finally:
                 if recording:
+                    # Save.done() 已关文件；原样恢复普通路径会以 wb 重开并截断。
+                    # 原生 "+" 前缀表示追加；保留已有前缀，连续导入也能续写同一文件。
+                    if not recording.startswith("+"):
+                        recording = f"+{recording}"
                     master.options.update(save_stream_file=recording)
 
         return int(self.runtime.call(load, timeout=30.0))
