@@ -214,7 +214,10 @@ class SessionController(QObject):
             if generation != self._open_generation:
                 return
             meta, flows = result
-            vc = SessionViewController(meta, flows, self)
+            # 不给长期存活的 SessionController 当 parent：Qt 的父-子所有权会让每个
+            # 会话把整份流量副本（含正文）钉在父对象上直到进程退出，GC 收不掉。
+            # 旧 vc 的释放交给 SessionViewerPage.load 覆盖 self.vc，见 views.py。
+            vc = SessionViewController(meta, flows)
             self.session_opened.emit(meta, vc)
 
         def _do_open(sid: str):

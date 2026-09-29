@@ -44,9 +44,10 @@ class ExportSessionsTests(unittest.TestCase):
 
     def _wait_signals(self, count: int) -> None:
         deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline and (
-            len(self.succeeded) + len(self.failed)
-        ) < count:
+        while (
+            time.monotonic() < deadline
+            and (len(self.succeeded) + len(self.failed)) < count
+        ):
             app.processEvents()
             time.sleep(0.01)
         for _ in range(20):
@@ -79,6 +80,52 @@ class ExportSessionsTests(unittest.TestCase):
         self.assertEqual(self.succeeded, [])
         self.assertEqual(len(self.failed), 1)
         self.assertIn("甲", self.failed[0][1])
+
+
+class OpenSessionTests(unittest.TestCase):
+    """打开会话：旧 vc 不挂在长期存活的 SessionController 上（controllers.py:217）。
+
+    挂 parent=self 会让 Qt 父-子所有权把整份流量副本钉到进程退出；
+    这里用弱引用钉住「连续开两个会话后，第一个 vc 已可被 GC 回收」。
+    """
+
+    def setUp(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.repo = SessionRepository(root=tmp / "repo")
+        self.controller = SessionController(repository=self.repo)
+        self.opened: list = []
+        self.controller.session_opened.connect(
+            lambda meta, vc: self.opened.append((meta, vc))
+        )
+
+    def _open(self, name: str):
+        self.repo.create(name, [tflow.tflow(resp=True)])
+        sid = self.repo.list_all()[0].session_id
+        self.controller.open_session(sid)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not self.opened:
+            app.processEvents()
+            time.sleep(0.01)
+        for _ in range(20):
+            app.processEvents()
+        self.assertEqual(len(self.opened), 1)
+        return self.opened.pop()
+
+    def test_reopening_releases_previous_view_controller(self) -> None:
+        import gc
+        import weakref
+
+        _, vc1 = self._open("会话甲")
+        ref1 = weakref.ref(vc1)
+        self.assertIsNotNone(ref1())
+
+        _, vc2 = self._open("会话乙")
+        self.assertIsNot(vc1, vc2)
+
+        # SessionViewerPage 没接上时，vc1 除弱引用外已无人持有，须可被回收。
+        del vc1, vc2
+        gc.collect()
+        self.assertIsNone(ref1())
 
 
 if __name__ == "__main__":
