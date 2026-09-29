@@ -5,7 +5,9 @@
 自己算 ``QColor``。
 """
 
-from PySide6.QtCore import QRect, QSize, Qt
+from __future__ import annotations
+
+from PySide6.QtCore import QRect, QSize, Qt, Slot
 from PySide6.QtGui import (
     QColor,
     QPainter,
@@ -24,7 +26,7 @@ from .theme import EditorPalette
 
 
 class LineNumberArea(QWidget):
-    def __init__(self, parent: "CodeEditor"):
+    def __init__(self, parent: CodeEditor):
         super().__init__(parent)
         self.code_editor = parent
 
@@ -77,9 +79,15 @@ class CodeEditor(PlainTextEdit):
         self.updateRequest.connect(self.set_line_number_area)
         self.cursorPositionChanged.connect(self.set_highlight_current_line)
 
-        qconfig.themeChanged.connect(lambda _: self.line_number_area.update())
-        qconfig.themeChanged.connect(self.set_highlight_current_line)
-        qconfig.themeChanged.connect(lambda _: self.highlighter.refresh_style())
+        # QObject 槽随编辑器销毁自动断连；全局信号上的 lambda 会保留 self，
+        # 下一次切主题仍访问已销毁的行号区 / highlighter，并不断累积失效回调。
+        qconfig.themeChanged.connect(self._on_theme_changed)
+
+    @Slot()
+    def _on_theme_changed(self) -> None:
+        self.line_number_area.update()
+        self.set_highlight_current_line()
+        self.highlighter.refresh_style()
 
     def get_line_number_area_width(self) -> int:
         digits = 1
