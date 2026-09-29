@@ -324,7 +324,7 @@ class WireGuardClientConfigTests(unittest.TestCase):
         self.assertEqual(qr_matrix("ferret-qr-smoke"), qr_matrix("ferret-qr-smoke"))
 
     def test_oversized_text_is_rejected(self) -> None:
-        """编码失败显式抛 ValueError（界面据此只留手动复制退路）。"""
+        """编码失败显式抛 ValueError（界面据此兜底成无码对话框而非崩溃）。"""
         with self.assertRaises(ValueError):
             qr_matrix("x" * 4000)
 

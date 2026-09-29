@@ -2178,10 +2178,11 @@ class ProxyPortDialog(MessageBoxBase):
 
 
 class WireGuardConfigDialog(MessageBoxBase):
-    """WireGuard 客户端配置预览：扫码导入 + 只读文本，确认键即复制。
+    """WireGuard 客户端配置预览：只有二维码，扫码导入。
 
-    二维码直接从传入的配置文本派生（同一段内容两种呈现，永不各说一套）；
-    扫不上码的人仍可手动复制。QR 矩阵不含静区，绘制时按规范补 4 模块。
+    刻意不做只读文本 / 复制按钮（2026-09-28 决议：明文配置不落界面，扫码是
+    唯一出口，故确认键也一并隐藏）；二维码直接从传入的配置文本派生。
+    QR 矩阵不含静区，绘制时按规范补 4 模块。
     """
 
     QUIET_ZONE = 4
@@ -2207,7 +2208,7 @@ class WireGuardConfigDialog(MessageBoxBase):
         try:
             qr = self._render_qr(qr_matrix(config))
         except ValueError:
-            # 文本超容量等编码失败不应挡住手动复制这条退路。
+            # 文本超容量等编码失败（配置远小于 QR 容量，理论到不了）兜底成无码对话框，别炸。
             qr = None
         if qr is not None:
             self.qr_label = QLabel(self)
