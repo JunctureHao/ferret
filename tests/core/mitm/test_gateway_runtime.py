@@ -18,7 +18,6 @@ from ferret.core.mitm import (
     View,
 )
 from ferret.core.mitm.addons import GatewayState
-from ferret.core.mitm.cut import FerretCutAddon
 from ferret.core.mitm.gateway import (
     GatewayLayer,
     GatewayLogic,
@@ -58,8 +57,6 @@ class FakeMaster:
         # 真 addon：`clear_flows` / `remove_flows` 会连带清它的事件存档，用替身就
         # 测不到「存档跟着 flow 一起走」这条路径（bridge 缺省 = 只存不发信号）。
         self.sse = FerretSseAddon()
-        # 同理：删除生命周期会调 `cut.forget`（db139e8 起挂的账），桩也得给真的。
-        self.cut = FerretCutAddon(should_intercept=lambda flow: False)
         self.options = MagicMock()
 
 

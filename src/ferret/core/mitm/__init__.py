@@ -40,16 +40,6 @@ from ferret.core.mitm.compose import (
     ComposeAddon,
     ComposeResult,
 )
-from ferret.core.mitm.cut import (
-    BODY_FULL_SIZE_KEY,
-    BODY_TRUNCATED_KEY,
-    DEFAULT_BODY_CUT_SIZE,
-    MAX_BODY_CUT_SIZE,
-    MIN_BODY_CUT_SIZE,
-    FerretCutAddon,
-    clamp_body_cut_size,
-    truncated_body_count,
-)
 from ferret.core.mitm.detail import (
     build_flow_detail,
     head_size,
@@ -169,13 +159,10 @@ from ferret.core.mitm.wsframe import (
 
 __all__ = [
     "ANTICACHE_OPTIONS",
-    "BODY_FULL_SIZE_KEY",
     "BODY_KINDS",
-    "BODY_TRUNCATED_KEY",
     "CA_ARTIFACTS",
     "CLIENT_CERTS_SCAN_LIMIT",
     "COMPOSE_METADATA_KEY",
-    "DEFAULT_BODY_CUT_SIZE",
     "DEFAULT_EVENT",
     "EXPORT_FORMATS",
     "FILE_REPLACEMENT_PREFIX",
@@ -189,8 +176,6 @@ __all__ = [
     "LAYER_POLICIES",
     "MAP_KINDS",
     "MARKER_DEFAULT",
-    "MAX_BODY_CUT_SIZE",
-    "MIN_BODY_CUT_SIZE",
     "PROTOCOL_OPTIONS",
     "REPLACE_KINDS",
     "REPLACE_RESPONSE_DEFAULT_STATUS",
@@ -216,7 +201,6 @@ __all__ = [
     "CompiledRewrite",
     "ComposeAddon",
     "ComposeResult",
-    "FerretCutAddon",
     "FerretMaster",
     "FerretSseAddon",
     "Flow",
@@ -264,7 +248,6 @@ __all__ = [
     "build_flow_detail",
     "build_request_edit",
     "capture_mode_specs",
-    "clamp_body_cut_size",
     "client_certs_error",
     "client_certs_option_updates",
     "client_certs_suggest_dir",
@@ -302,7 +285,6 @@ __all__ = [
     "scripts_to_config",
     "split_spec",
     "sticky_session_option_updates",
-    "truncated_body_count",
     "validate_local_spec",
     "validate_mode_specs",
     "wire_size",
