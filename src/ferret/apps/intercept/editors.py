@@ -85,6 +85,11 @@ class PhasePanel(QWidget):
         # 原始体字节。UTF-8 解不开时不让改，放行时原样送回，别把 gzip / 图片改烂。
         self._raw_body: bytes = b""
         self._binary = False
+        # 「没动过就原样放行」短路：QTextDocument 把 \r\n 归一成段落边界，
+        # toPlainText() 回来只剩 \n —— 未编辑也无条件写回会把 multipart 边界、
+        # 签名正文里的 CRLF 改坏。changed 只在用户编辑时发（程序化装载被
+        # _loading 闸挡住），用它做脏标记最稳。
+        self._body_dirty = False
 
         self.release_button = PrimaryToolButton(FluentIcon.SEND, self)
         self.release_button.setToolTip(
@@ -117,6 +122,11 @@ class PhasePanel(QWidget):
         body_layout.setSpacing(4)
         body_layout.addWidget(self.body_panel, 1)
         body_layout.addWidget(self.body_hint)
+
+        self.body_panel.changed.connect(self._on_body_edited)
+
+    def _on_body_edited(self) -> None:
+        self._body_dirty = True
 
     # —— 骨架 ——
 
@@ -158,10 +168,12 @@ class PhasePanel(QWidget):
         self._update_header_count(len(headers))
 
         self._raw_body = message.get_content(strict=False) or b""
+        self._body_dirty = False
         try:
             text = self._raw_body.decode("utf-8")
         except UnicodeDecodeError:
-            # 严格解码故意不加兜底：能显示的一定能一字节不差地写回去。
+            # 严格解码故意不加兜底：能显示的一定能一字节不差地写回去（CRLF 归一
+            # 由「未编辑不覆盖」兜住，见 _body_bytes）。
             self._binary = True
             text = ""
         else:
@@ -174,8 +186,8 @@ class PhasePanel(QWidget):
         self.body_panel.set_read_only(self._binary)
 
     def _body_bytes(self) -> bytes:
-        """写回用的体字节。二进制体原样返回；文本体的编码与显示时严格互逆。"""
-        if self._binary:
+        """写回用的体字节。二进制体与未编辑的体原样返回；编辑过的文本体按 UTF-8 编码。"""
+        if self._binary or not self._body_dirty:
             return self._raw_body
         return self.body_panel.plain_text().encode("utf-8")
 
@@ -190,6 +202,7 @@ class PhasePanel(QWidget):
     def _clear_message(self) -> None:
         self._raw_body = b""
         self._binary = False
+        self._body_dirty = False
         self.headers_panel.set_items([])
         self.body_panel.set_text("")
         self.body_hint.hide()
