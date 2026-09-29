@@ -188,10 +188,22 @@ class SseFeeder:
     def feed(self, text: str) -> list[SseEvent]:
         """喂一段解码后的文本，吐出这一段凑齐的所有事件。"""
         events: list[SseEvent] = []
-        lines = _split_lines(self._pending + text)
+        data = self._pending + text
+        # 段尾悬着一个 `\r` 时先扣下不切：它可能自己就是行分隔符，也可能是 `\r\n`
+        # 的前半 —— TCP 把一个 `\r\n` 劈在两段之间（`\r` 收上一段尾、`\n` 开下一段
+        # 头）是常态。此时当行尾吃掉，下一段开头的 `\n` 就成了一条凭空空行，把攒到
+        # 一半的块当场派发（`event:` 与 `data:` 分裂成两条事件）。扣下的 `\r` 并进
+        # pending，下一段凑齐再判定；真是裸 `\r` 分隔符的只晚一段到货，不会卡死。
+        held_cr = data.endswith("\r")
+        if held_cr:
+            data = data[:-1]
+        lines = _split_lines(data)
         # 最后一段没有行尾分隔符，可能是个喂到一半的行 —— 留到下一段凑齐再解，
-        # 否则 `data: {"a` 会被当成完整字段吐出去一次。
+        # 否则 `data: {"a` 会被当成完整字段吐出去一次。pending 里没有任何行分隔符，
+        # 至多悬着上面扣下的那个 `\r`。
         self._pending = lines.pop()
+        if held_cr:
+            self._pending += "\r"
         for line in lines:
             if line:
                 self._block.feed(line)
@@ -210,8 +222,12 @@ class SseFeeder:
         """
         events: list[SseEvent] = []
         if self._pending:
-            self._block.feed(self._pending)
+            # 悬置的 `\r` 到流末落定：`\r\n` 的后半不会再来，它就是个行尾，
+            # 不能漏进最后一个字段的值（`retry: 100\r` 的 `"100\r"` 不是数字）。
+            line = self._pending.removesuffix("\r")
             self._pending = ""
+            if line:
+                self._block.feed(line)
         if self._block.lines:
             events.append(self._block.build(self._count))
             self._count += 1

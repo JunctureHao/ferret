@@ -344,6 +344,27 @@ class FeederTests(unittest.TestCase):
         events = self.feed_all(["data: a\r", "\n\r", "\ndata: b\r\n\r\n"])
         self.assertEqual([e.data for e in events], ["a", "b"])
 
+    def test_a_split_crlf_does_not_dispatch_a_half_collected_block(self) -> None:
+        """劈开的 CRLF 误判成空行时，单行块的症状被掩盖（派发的恰好是凑齐的块）；
+        多行块才现原形 —— `event:` 与 `data:` 被那条凭空空行拦腰分成两条事件。"""
+        events = self.feed_all(["event: tick\r", "\ndata: 42\r\n\r\n"])
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event, "tick")
+        self.assertEqual(events[0].data, "42")
+
+    def test_a_bare_cr_at_a_chunk_end_is_still_a_separator(self) -> None:
+        """扣下的 `\\r` 等来的若不是 `\\n`，它自己就是分隔符 —— 裸 `\\r` 流只晚一段。"""
+        events = self.feed_all(["data: a\r", "data: b\r\r"])
+
+        self.assertEqual([e.data for e in events], ["a\nb"])
+
+    def test_a_cr_held_to_flush_does_not_leak_into_the_value(self) -> None:
+        """流末悬着的 `\\r` 只是行尾 —— 漏进值里 `retry` 就不再是数字。"""
+        events = self.feed_all(["retry: 100\r"])
+
+        self.assertEqual(events[0].retry, 100)
+
 
 if __name__ == "__main__":
     unittest.main()
