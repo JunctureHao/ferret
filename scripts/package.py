@@ -34,6 +34,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from ferret.core.meta import REPO_URL
+
 ROOT = Path(__file__).resolve().parents[1]
 # 编译与发布产物统一收在 build/ 根下：dist/ 是 Nuitka 中间产物（可随手清），
 # releases/ 是 vpk 更新历史（只增不删）；保留策略相反，只共根不分家。
@@ -120,28 +122,9 @@ def pack(
     run(cmd, args.dry_run)
 
 
-def derive_repo_url() -> str | None:
-    """从 ``git remote get-url origin`` 推导 GitHub 仓库地址，推不出返回 None。"""
-    try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=ROOT,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    url = result.stdout.strip()
-    if url.startswith("git@"):  # git@github.com:owner/repo → https
-        url = "https://" + url[4:].replace(":", "/", 1)
-    url = url.removesuffix(".git")
-    return url or None
-
-
 def upload(output_dir: Path, version: str, args: argparse.Namespace) -> None:
     """把 releases 目录推上 GitHub Releases（即应用内更新的更新源）。"""
-    repo_url = args.repo_url or derive_repo_url()
+    repo_url = args.repo_url or REPO_URL
     if not repo_url:
         raise SystemExit("无法从 git origin 推导仓库地址，请用 --repo-url 显式指定")
     cmd = [
