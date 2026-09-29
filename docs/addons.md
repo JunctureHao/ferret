@@ -1,0 +1,96 @@
+# 内置 Addon 功能对照（对比 mitmproxy）
+
+> 状态快照，实际装载以 `src/ferret/core/mitm/master.py` 为准。
+>
+> 图例：✅ 已实现　🟡 未实现（GUI 场景通常不需要）　❌ 未实现（功能缺口）
+
+## 核心运行 Addon（已装载）
+
+| Addon           | 功能                   | 状态 |
+| --------------- | ---------------------- | ---- |
+| Core            | 核心事件循环           | ✅   |
+| Proxyserver     | 代理服务器             | ✅   |
+| NextLayer       | 协议探测（HTTP/TLS/…） | ✅   |
+| DnsResolver     | DNS 解析               | ✅   |
+| View            | 流量视图与存储         | ✅   |
+| ClientPlayback  | 客户端重放             | ✅   |
+| Save            | 保存流量文件           | ✅   |
+| FerretTlsConfig | 证书配置（自定义名称） | ✅   |
+| LogAddon        | 连接/HTTP 生命周期日志 | ✅   |
+| FlowExporter    | curl/httpie/raw 导出   | ✅   |
+| Compose         | 手工构造请求发送       | ✅   |
+| CertDownload    | 内置 CA 证书下载端点   | ✅   |
+| update_alt_svc  | 更新 alt-svc（仅反向代理模式生效，随 reverse 通道挂载） | ✅ |
+
+## 流量修改类
+
+| Addon                   | 功能                      | 状态 |
+| ----------------------- | ------------------------- | ---- |
+| intercept               | 拦截/断点修改             | ✅   |
+| rewrite（自研）         | 统一重写：修改头/体、URL 重定向、文件映射、替换请求/响应 | ✅ |
+| stickycookie            | 固化 Cookie               | ✅   |
+| stickyauth              | 固化认证                  | ✅   |
+| anticache               | 去除缓存头强制走源站      | ✅   |
+| anticomp                | 去除压缩头看明文          | ✅   |
+| block                   | 代理访问控制（按来源 IP） | ✅   |
+| gateway（网关）         | 屏蔽/拦截/绕行/仅允许     | ✅   |
+| cut                     | 截断大 body               | ❌   |
+| disable_h2c             | 禁用 h2c 升级             | ✅   |
+| strip_dns_https_records | 剥离 DNS HTTPS 记录       | ✅   |
+
+## 重放 / 导入导出类
+
+| Addon          | 功能                      | 状态 |
+| -------------- | ------------------------- | ---- |
+| serverplayback | 服务端重放（mock 整响应） | ✅   |
+| readfile       | 读取 .flow 文件重放       | ✅   |
+| savehar        | 导出 HAR                  | ✅   |
+| dumper         | 流式 dump 到文件          | ❌   |
+| export         | mitmproxy 自带导出命令    | ✅   |
+| asgiapp        | 内嵌 ASGI 应用            | ❌   |
+
+## 认证 / 代理链
+
+| Addon         | 功能         | 状态 |
+| ------------- | ------------ | ---- |
+| proxyauth     | 代理层认证   | ✅   |
+| upstream_auth | 上游代理认证 | ✅   |
+
+## 界面 / 辅助类（GUI 场景通常不需要）
+
+| Addon                      | 功能             | 状态 |
+| -------------------------- | ---------------- | ---- |
+| onboarding / onboardingapp | Web 引导页       | 🟡   |
+| termlog                    | 终端日志         | 🟡   |
+| command_history            | 命令历史         | 🟡   |
+| comment                    | 流量备注         | ✅   |
+| eventstore                 | 事件存储         | 🟡   |
+| browser                    | 打开浏览器       | 🟡   |
+| script                     | 加载 Python 脚本 | ✅   |
+| keepserving                | 保持运行         | 🟡   |
+| errorcheck                 | 错误检查         | 🟡   |
+| server_side_events         | SSE 不支持的告警 | 🟡   |
+
+## 与原生的分叉说明
+
+`comment` 的原生 addon 不装（红线：不给 master 追加命令行 addon），备注能力由 GUI
+自己实现 —— 右键菜单和详情面板都能改，两处共用 `apps/common/dialog.py::CommentDialog`。
+`server_side_events` 的能力由自研 SSE tee 覆盖（见下「协议支持」），原生告警 addon 不装。
+原生 `BlockList` 也从链上撤掉了 —— 屏蔽（出）由网关统一承载（`core/mitm/gateway.py`），
+老屏蔽页规则仅在升级时迁回网关（`core/mitm/blocklist.py` 只存兼容迁移）。
+原生 `ModifyHeaders` / `ModifyBody` / `MapLocal` / `MapRemote` 四件同样退役 —— 重写由
+自研统一引擎承载（`core/mitm/addons.py::FerretRewriteAddon`）：一个规则模型、
+行序＝执行序，并把「替换请求 / 替换响应」两个原生补不上的缺口补齐。
+
+## 协议支持（不是 addon，在代理层）
+
+| 协议            | 功能                              | 状态 |
+| --------------- | --------------------------------- | ---- |
+| WebSocket       | 帧收发 + 详情页「消息」逐帧展示   | ✅   |
+| SSE             | 详情页「消息」按事件分行展示      | ✅   |
+| SSE（边收边显） | 事件随推送实时进表                | ✅   |
+
+SSE 的边收边显靠自研 tee：mitmproxy 对 SSE 零支持（原生两条路都不通 —— 默认缓冲端点不
+收尾看不到事件，开流式 body 又不入库），ferret 在 `responseheaders` 把 `response.stream`
+换成官方 callable，边转发边解析、事件经 Qt 信号实时进表；攒下的字节流末补回 body，响应
+体页 / 保存 / HAR 导出照常。设计取舍见 `core/mitm/sse.py` 的模块 docstring。

@@ -1,7 +1,8 @@
 [project]
 name = "ferret"
 version = "0.1.0"
-description = "Add your description here"
+description = "Windows Desktop Packet Capture Tool: mitmproxy Core + PySide6 / QFluentWidgets GUI"
+license = "GPL-3.0-only"
 readme = "README.md"
 requires-python = "==3.12.13"
 dependencies = [
@@ -16,7 +17,6 @@ dependencies = [
 
 [project.scripts]
 ferret = "ferret.__main__:main"
-# i18n/资源流水线：lupdate → lrelease → rcc
 ferret-resources = "ferret.utils.scripts:main"
 
 [tool.uv.workspace]
