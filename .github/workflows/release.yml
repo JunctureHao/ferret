@@ -82,7 +82,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60 # Nuitka 全量编译（PySide6 + mitmproxy）约 15-30 分钟
     steps:
+      # 全量历史 + tags：发布说明要从上一版 tag 起 git log
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v6
         with:
@@ -109,6 +112,30 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run python scripts/package.py --upload
+
+      # vpk 不支持写 release body；发布完成后用 gh 把自上一版以来的提交清单
+      # 补进去。vpk 的 tag 是发布时才在远端创建的、checkout 拿不到，所以本地
+      # 最高 v* tag 天然就是上一版。
+      - name: attach changelog to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="$(uv run --no-sync python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          PREV="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+          if [ -z "$PREV" ]; then
+            echo "没有上一版 tag，跳过变更说明"
+            exit 0
+          fi
+          {
+            echo "## 更新内容"
+            echo
+            git log "${PREV}..HEAD" --pretty=format:"- %h %s"
+            echo
+            echo
+            echo "**完整变更**: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${PREV}...v${VERSION}"
+          } > release_notes.md
+          gh release edit "v${VERSION}" --notes-file release_notes.md --repo "${GITHUB_REPOSITORY}"
 
       # Release 之外再存一份产物，方便不入库查看 / 失败排查
       - uses: actions/upload-artifact@v4
