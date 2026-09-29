@@ -496,6 +496,21 @@ class RewriteEndToEndTests(unittest.TestCase):
         self.addon.request(flow)
         self.assertEqual(flow.request.headers["X-Token"], "from disk")
 
+    def test_an_unreadable_at_file_header_rule_keeps_the_original_value(self) -> None:
+        """`@文件` 读失败整条跳过：原头原样保留，不留「删了没加回」的半改报文。"""
+        self.push(
+            kind_rule(
+                RewriteKind.MODIFY_REQUEST_HEADER,
+                target="X-Token",
+                replacement=FILE_REPLACEMENT_PREFIX + "no/such/file.txt",
+            )
+        )
+        flow = flow_to(URL)
+        flow.request.headers["X-Token"] = "old"
+        with self.assertLogs(level="WARNING"):
+            self.addon.request(flow)
+        self.assertEqual(flow.request.headers["X-Token"], "old")
+
     def test_a_response_header_rule_rewrites_the_response(self) -> None:
         self.push(
             kind_rule(
@@ -746,6 +761,24 @@ class RewriteEndToEndTests(unittest.TestCase):
         self.addon.request(second)
         self.assertEqual(first.request.get_content(strict=False), b"v1")
         self.assertEqual(second.request.get_content(strict=False), b"v2")
+
+    def test_an_unreadable_at_file_body_leaves_the_replace_request_untouched(self) -> None:
+        """体读失败整条跳过：method / path / 头表都不许先落（同 `_modify_header`）。"""
+        self.push(
+            kind_rule(
+                RewriteKind.REPLACE_REQUEST,
+                method="POST",
+                headers=(("X-A", "1"),),
+                replacement=FILE_REPLACEMENT_PREFIX + "no/such/file.txt",
+            )
+        )
+        flow = flow_to(URL)
+        flow.request.headers["X-Keep"] = "old"
+        with self.assertLogs(level="WARNING"):
+            self.addon.request(flow)
+        self.assertEqual(flow.request.method, "GET")
+        self.assertEqual(flow.request.headers["X-Keep"], "old")
+        self.assertNotIn("X-A", flow.request.headers)
 
     # —— 替换响应 ——
 

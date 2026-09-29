@@ -481,16 +481,20 @@ class FerretRewriteAddon:
     # —— 执行分支 ——
 
     def _modify_header(self, headers, entry: CompiledRewrite) -> None:
-        """先删同名头、非空再按新值加回（§5 契约；mitmproxy Headers 大小写不敏感）。
+        """删同名头、非空再按新值加回（§5 契约；mitmproxy Headers 大小写不敏感）。
 
-        对齐原生 `ModifyHeaders.run`：`pop(subject, None)` 删不掉不炸；`add` 直接收
-        bytes —— `@文件` 读出的内容不必是 utf-8 文本也能当头值用。
+        `@文件` 先读后落：读失败整条跳过、原头原样保留，兜底日志的「已跳过」才
+        名副其实——原生 `ModifyHeaders.run` 两阶段先 pop 后读，读失败原头已丢，
+        此处刻意不抄。`pop(subject, None)` 删不掉不炸；`add` 直接收 bytes ——
+        `@文件` 读出的内容不必是 utf-8 文本也能当头值用。
         """
-        headers.pop(entry.header_name, None)
         replacement = entry.rule.replacement
         if not replacement:
+            headers.pop(entry.header_name, None)
             return
-        headers.add(entry.header_name, read_replacement(replacement))
+        value = read_replacement(replacement)
+        headers.pop(entry.header_name, None)
+        headers.add(entry.header_name, value)
 
     def _modify_body(self, message, entry: CompiledRewrite) -> None:
         """对 **utf-8 可解码**的体做正则替换，重新编码；二进制体跳过。"""
@@ -581,17 +585,21 @@ class FerretRewriteAddon:
         return joined
 
     def _replace_request(self, flow: HTTPFlow, entry: CompiledRewrite) -> None:
-        """逐项覆盖 method / path / 头表 / 体；留空的栏保持原样。"""
+        """逐项覆盖 method / path / 头表 / 体；留空的栏保持原样。
+
+        `@文件` 体先读后落（同 `_modify_header`）：读失败整条跳过，不留半改报文。
+        """
         rule = entry.rule
+        content = read_replacement(rule.replacement) if rule.replacement else None
         if rule.method.strip():
             flow.request.method = rule.method.strip()
         if rule.path.strip():
             flow.request.path = rule.path.strip()
         for name, value in rule.headers:
             flow.request.headers[name] = value
-        if rule.replacement:
+        if content is not None:
             # 写 content 而不是 text：体是字节，Content-Length 由 mitmproxy 重算。
-            flow.request.content = read_replacement(rule.replacement)
+            flow.request.content = content
 
     def _replace_response(self, flow: HTTPFlow, entry: CompiledRewrite) -> None:
         """整条作答：请求不出网，响应按状态码 / 头表 / 体拼装。"""
