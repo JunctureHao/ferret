@@ -4,8 +4,11 @@
 绑定地址可切，本机接入地址恒为环回，局域网地址只用来显示和复制。
 """
 
+from __future__ import annotations
+
 import os
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -80,6 +83,20 @@ class LocalSpecSelectorTests(unittest.TestCase):
         self.selector.set_tokens(["Chrome"])
         self._find("Chrome").setCheckState(Qt.CheckState.Unchecked)
         self.assertEqual(self.selector.tokens(), [])
+
+    def test_enumeration_failure_keeps_manual_tokens_editable(self) -> None:
+        with mock.patch(
+            "ferret.apps.capture.views.list_local_targets",
+            side_effect=RuntimeError("process enumeration unavailable"),
+        ) as enumerate_targets:
+            selector = LocalSpecSelector()
+            self.addCleanup(selector.deleteLater)
+
+            selector.set_tokens(["Chrome", "!123"])
+            self.assertEqual(selector.tokens(), ["Chrome", "!123"])
+            selector.set_tokens([])
+            self.assertEqual(selector.tokens(), [])
+            enumerate_targets.assert_called_once_with()
 
     def test_clicking_row_toggles_check_state(self) -> None:
         """点行任意处切换勾选（itemClicked → _toggle_item 路径）。"""

@@ -1352,15 +1352,17 @@ class LocalSpecSelector(ListWidget):
         ]
 
     def _known_names(self) -> list[str]:
-        """候选进程名（枚举失败降级为空列表：手输 token 仍可用）。"""
-        try:
-            return [target.display_name for target in self._ensure_targets()]
-        except Exception:  # noqa: BLE001
-            return []
+        """候选进程名；枚举失败统一由 `_ensure_targets` 降级。"""
+        return [target.display_name for target in self._ensure_targets()]
 
     def _ensure_targets(self) -> list[LocalTarget]:
         if self._targets is None:
-            self._targets = list_local_targets()
+            try:
+                self._targets = list_local_targets()
+            except Exception:  # noqa: BLE001
+                # 无窗口/受限桌面上原生枚举可能失败。所有读取入口都要降级，
+                # 否则构造时虽能兜住，回填 token / 查图标仍会使整个对话框报错。
+                self._targets = []
         return self._targets
 
     def _target_by_name(self, label: str) -> LocalTarget | None:
