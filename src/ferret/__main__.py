@@ -16,6 +16,11 @@
 # GUI 程序不保留控制台窗口（黑框）；缺省 standalone 会用 force 把黑框留下
 # nuitka-project: --windows-console-mode=disable
 
+# Dependency Walker 首次使用要下载并询问，CI 非交互拿不到应答按 No 处理直接
+# FATAL（本地有 %LOCALAPPDATA% 缓存命中，永不触发，故本地绿 CI 红）；放行下载
+# 是 Nuitka 官方 CI 用法，顺带覆盖 ccache 等后续一切下载询问
+# nuitka-project: --assume-yes-for-downloads
+
 # ═══════════════════════════════════════════════════════════════════════
 # PySide6 / Qt 相关
 # ═══════════════════════════════════════════════════════════════════════
