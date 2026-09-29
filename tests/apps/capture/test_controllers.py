@@ -310,10 +310,20 @@ class FakeFacade:
 
 
 class FakeSystemProxy:
-    def __init__(self, *, fail_attach: bool = False) -> None:
+    def __init__(
+        self, *, fail_attach: bool = False, fail_detach: bool = False
+    ) -> None:
         self.fail_attach = fail_attach
+        self.fail_detach = fail_detach
         self.attached = False
         self.endpoint = None
+        self.detach_calls = 0
+
+    @property
+    def is_attached(self) -> bool:
+        # 控制器以这个 property 为唯一事实源；与真身对齐：restore 失败时端点
+        # 不落、仍算挂着。
+        return self.attached
 
     def attach(self, host: str, port: int) -> None:
         if self.fail_attach:
@@ -322,6 +332,10 @@ class FakeSystemProxy:
         self.endpoint = (host, port)
 
     def detach(self) -> bool:
+        self.detach_calls += 1
+        if self.fail_detach and self.attached:
+            # 真身 restore 失败会回滚端点并保持 is_attached 为真。
+            return False
         self.attached = False
         return True
 
@@ -358,10 +372,12 @@ class CaptureControllerStateTests(unittest.TestCase):
         CONFIG.file = self._original_file
         self._config_dir.cleanup()
 
-    def make_controller(self, *, fail_attach: bool = False):
+    def make_controller(
+        self, *, fail_attach: bool = False, fail_detach: bool = False
+    ):
         runtime = FakeRuntime()
         facade = FakeFacade(runtime)
-        proxy = FakeSystemProxy(fail_attach=fail_attach)
+        proxy = FakeSystemProxy(fail_attach=fail_attach, fail_detach=fail_detach)
         controller = CaptureController(mitm=facade, system_proxy=proxy)  # type: ignore
         return controller, runtime, facade, proxy
 
@@ -408,6 +424,80 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertEqual(controller.last_error, "address already in use")
         self.assertFalse(proxy.attached)
         self.assertFalse(facade.recording)
+
+    def test_stop_with_failed_detach_still_tears_down_recording_and_channels(
+        self,
+    ) -> None:
+        """detach 失败不短路停止链路：录制与通道照常回落，只有代理遗留成 FAILED。"""
+        controller, runtime, facade, proxy = self.make_controller(fail_detach=True)
+        controller.start_capture()
+        self.assertTrue(proxy.attached)
+
+        controller.stop_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+        self.assertIn("恢复原系统代理失败", controller.last_error)
+        # 注册表还挂着我们：不能假报已停止（service 的 is_attached 保持为真）。
+        self.assertTrue(proxy.attached)
+        self.assertTrue(controller.system_proxy_attached)
+        # 但录制与通道的回落不被短路，否则留下「闸门开着、通道接着」的半开会话。
+        self.assertFalse(facade.recording)
+        self.assertFalse(controller.recording)
+        self.assertFalse(runtime.channels_engaged)
+
+    def test_stop_again_after_failed_detach_retries_the_restore(self) -> None:
+        controller, _, _, proxy = self.make_controller(fail_detach=True)
+        controller.start_capture()
+        controller.stop_capture()
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+
+        proxy.fail_detach = False
+        controller.stop_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
+        self.assertFalse(proxy.attached)
+        self.assertEqual(proxy.detach_calls, 2)
+
+    def test_toggle_retries_stop_while_the_proxy_is_still_ours(self) -> None:
+        """FAILED + 代理仍挂着 = 停止失败：toggle 往停止走一键重试，不再岔去开始。"""
+        controller, _, _, proxy = self.make_controller(fail_detach=True)
+        controller.start_capture()
+        controller.stop_capture()
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+
+        proxy.fail_detach = False
+        self.assertFalse(controller.toggle_capture())
+
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
+        self.assertFalse(proxy.attached)
+
+    def test_toggle_still_retries_start_after_a_start_failure(self) -> None:
+        """启动失败时代理没挂上：toggle 保持原有的「重试抓包」方向。"""
+        controller, _, _, proxy = self.make_controller(fail_attach=True)
+        controller.start_capture()
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+        self.assertFalse(controller.system_proxy_attached)
+
+        proxy.fail_attach = False
+        self.assertTrue(controller.toggle_capture())
+        self.assertEqual(controller.capture_state, CaptureState.RUNNING)
+
+    def test_dialog_toggle_off_with_failed_detach_surfaces_failed(self) -> None:
+        """对话框取消勾选遇 restore 失败：置 FAILED 留重试入口，会话其余部分照旧。"""
+        controller, _, _, proxy = self.make_controller(fail_detach=True)
+        controller.start_capture()
+        self.assertTrue(proxy.attached)
+
+        controller.update_channels(
+            use_system_proxy=False,
+            use_local=True,
+            local_spec="",
+            use_wireguard=True,
+        )
+
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+        self.assertTrue(proxy.attached)
+        self.assertTrue(controller.recording)
 
     def test_system_proxy_stays_on_loopback_when_bound_to_all_interfaces(self) -> None:
         """放开监听不能改系统代理 —— 写 `0.0.0.0:8080` 会让抓包整体失效。"""

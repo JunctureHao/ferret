@@ -644,6 +644,7 @@ class CapturesInterface(QWidget):
             self._ui_state,
             channels_summary=self._channels_summary(),
             channel_issue=self._channel_issue(),
+            proxy_attached=self.controller.system_proxy_attached,
         )
         self.command_bar.set_state(self._ui_state)
         self.content.set_capture_context(
@@ -752,6 +753,9 @@ class CaptureUiState:
     channels_summary: str = ""
     # 通道健康检查发现的问题（如 UAC 拒绝），非空时以 ⚠ 标注并进提示。
     channel_issue: str = ""
+    # 系统代理注册表当前是否由我们挂着（转发 controller.system_proxy_attached）。
+    # FAILED 且为真 = 停止失败（restore 没落下），主按钮显示「重试停止」一键重试。
+    proxy_attached: bool = False
 
 
 class CaptureCommandBar(QWidget):
@@ -1036,6 +1040,15 @@ class CaptureCommandBar(QWidget):
                 True,
             ),
         }
+        if state.capture_state == CaptureState.FAILED and state.proxy_attached:
+            # 停止失败（restore 没落下、代理还挂着）：按钮往停止走一键重试，与
+            # toggle_capture 按 is_attached 的分流同一判据；其余 FAILED 仍是启动失败。
+            state_ui[CaptureState.FAILED] = (
+                FluentIcon.POWER_BUTTON,
+                self.tr("重试停止"),
+                self.tr("重试停止"),
+                True,
+            )
         icon, button_text, tooltip, enabled = state_ui[state.capture_state]
         self.control_btn.setIcon(icon)
         self.control_btn.setText(button_text)

@@ -144,8 +144,6 @@ class CaptureController(QObject):
         self._pending_attach = False
         # 外部流量的写入闸门默认关，点开始抓包才开；Compose 显式记录走独立信号。
         self._recording = False
-        # 系统代理注册表当前是否由我们挂着（attach 成功 / detach 落下）。
-        self._sysproxy_attached = False
         # 通道健康检查（异步启动失败只能延迟读 channel_health）的最近结果。
         self._channel_errors: dict[str, str] = {}
         # 「上次有效」的原生过滤表达式：非法输入绝不上屏，沿用上一次编译成功的
@@ -238,6 +236,16 @@ class CaptureController(QObject):
     def recording(self) -> bool:
         """写入闸门。开着时新 flow 才进流量表；与系统代理挂载是两回事。"""
         return self._recording
+
+    @property
+    def system_proxy_attached(self) -> bool:
+        """系统代理注册表当前是否由我们挂着（含停止失败后的遗留）。
+
+        事实源是 ``SystemProxyService.is_attached``——attach 成功才置上，restore
+        失败会回滚端点、保持为真。控制器不养影子副本：曾经的 ``_sysproxy_attached``
+        在 detach 失败时被提前清掉，「再次停止」就不再重试恢复代理了。
+        """
+        return self._system_proxy.is_attached
 
     @property
     def channel_errors(self) -> dict[str, str]:
@@ -356,13 +364,8 @@ class CaptureController(QObject):
         if self._capture_state == CaptureState.STOPPED:
             return
         self._set_capture_state(CaptureState.STOPPING)
-        if self._sysproxy_attached:
-            detach_ok = self._system_proxy.detach()
-            self._sysproxy_attached = False
-            if not detach_ok:
-                self._last_error = self.tr("恢复原系统代理失败")
-                self._set_capture_state(CaptureState.FAILED)
-                return
+        # detach 幂等安全：从未挂载时 service 内部短路返回 True，不碰注册表。
+        self._system_proxy.detach()
         try:
             self._mitm.stop_capture_recording()
         except Exception:
@@ -374,6 +377,14 @@ class CaptureController(QObject):
             self._mitm.disengage_channels()
         except (RuntimeError, TimeoutError, ValueError):
             log.exception("failed to drop capture channels")
+        # restore 失败时 service 仍持有端点（is_attached 为真）：会话以 FAILED 收场
+        # 而非 STOPPED —— 注册表还指着我们，「已停止」不能假报，再点一次停止会在
+        # 上面重试 detach。录制与通道的回落不因 detach 失败而短路，否则会留下
+        # 「闸门还开着、通道还接着」的半开会话。
+        if self._system_proxy.is_attached:
+            self._last_error = self.tr("恢复原系统代理失败")
+            self._set_capture_state(CaptureState.FAILED)
+            return
         self._set_capture_state(CaptureState.STOPPED)
 
     def shutdown(self) -> None:
@@ -583,7 +594,12 @@ class CaptureController(QObject):
         return self._mitm.remove_unmarked_flows()
 
     def toggle_capture(self) -> bool:
-        if self._capture_state == CaptureState.RUNNING:
+        # FAILED 且代理仍挂着我们 = 停止失败（detach 没落下），往停止走一键重试；
+        # 其余 FAILED 是启动失败，往开始走。判据读 service 事实，不另设状态位。
+        if self._capture_state == CaptureState.RUNNING or (
+            self._capture_state == CaptureState.FAILED
+            and self._system_proxy.is_attached
+        ):
             self.stop_capture()
             return False
         if self._capture_state in (CaptureState.STOPPED, CaptureState.FAILED):
@@ -626,7 +642,6 @@ class CaptureController(QObject):
                 self._last_error = message
                 self._set_capture_state(CaptureState.FAILED)
                 return
-            self._sysproxy_attached = True
 
         self._pending_attach = False
         self._set_recording(True)
@@ -715,13 +730,13 @@ class CaptureController(QObject):
         if self._capture_state != CaptureState.RUNNING:
             return
         want_proxy = use_system_proxy
-        if want_proxy and not self._sysproxy_attached:
+        if want_proxy and not self._system_proxy.is_attached:
             self._pending_attach = True
             self._attach_system_proxy()
-        elif not want_proxy and self._sysproxy_attached:
-            detach_ok = self._system_proxy.detach()
-            self._sysproxy_attached = False
-            if not detach_ok:
+        elif not want_proxy and self._system_proxy.is_attached:
+            # restore 失败时 service 仍持有端点：置 FAILED 留重试入口（toggle 按
+            # is_attached 分流到停止），journal 留给退出 / 下次启动 recover 兜底。
+            if not self._system_proxy.detach():
                 self._last_error = self.tr("恢复原系统代理失败")
                 self._set_capture_state(CaptureState.FAILED)
                 return
@@ -768,9 +783,10 @@ class CaptureController(QObject):
 
     def _on_runtime_failed(self, message: str) -> None:
         self._pending_attach = False
-        if self._sysproxy_attached:
+        if self._system_proxy.is_attached:
+            # 内核已死，restore 再失败只能靠 journal 由退出 / 下次启动 recover
+            # 兜底，这里保持 fire-and-forget；is_attached 保持为真即是对账事实。
             self._system_proxy.detach()
-            self._sysproxy_attached = False
         self._set_recording(False)
         self._last_error = message
         self._set_capture_state(CaptureState.FAILED)
