@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import subprocess
 import sys
@@ -35,6 +36,14 @@ import tomllib
 from pathlib import Path
 
 from ferret.core.meta import REPO_URL
+
+# 输出编码：CI 的 stdout 是重定向管道，Windows runner 上是 ANSI 代码页
+# （en-US → cp1252），中文 print 直接 UnicodeEncodeError——本地交互控制台是
+# UTF-8 所以从未触发，首次暴露于 CI（Nuitka 编译成功后崩在第一句中文 print）。
+# 统一按 UTF-8 重配，与日志查看端的解码一致。
+for _stream in (sys.stdout, sys.stderr):
+    if isinstance(_stream, io.TextIOWrapper):  # 被替换成非 TextIOWrapper 时跳过
+        _stream.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[1]
 # 编译与发布产物统一收在 build/ 根下：dist/ 是 Nuitka 中间产物（可随手清），
