@@ -545,6 +545,15 @@ class Config(QConfig):
         default={},
     )
 
+    # 启动后自动检查更新（.plans/3-auto-update.md §2）：只控制「启动那一次静默
+    # 检查」，设置页的手动入口恒可用，不受此开关影响。
+    auto_check_update = ConfigItem(
+        group="Update",
+        name="AutoCheck",
+        default=True,
+        validator=BoolValidator(),
+    )
+
 
 def get_config_dir() -> Path:
     d = Path(

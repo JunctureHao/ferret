@@ -1691,27 +1691,27 @@
 <context>
     <name>DnsServersDialog</name>
     <message>
-        <location filename="../../apps/settings/views.py" line="51"/>
+        <location filename="../../apps/settings/views.py" line="58"/>
         <source>自定义 DNS 服务器</source>
         <translation>Custom DNS servers</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="57"/>
+        <location filename="../../apps/settings/views.py" line="64"/>
         <source>仅对 WireGuard 隧道内的 DNS 查询生效；留空使用系统 DNS。每行一个 IPv4 / IPv6 地址。</source>
         <translation>Only applies to DNS queries inside the WireGuard tunnel; leave empty to use the system DNS. One IPv4 / IPv6 address per line.</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="75"/>
+        <location filename="../../apps/settings/views.py" line="82"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="76"/>
+        <location filename="../../apps/settings/views.py" line="83"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="113"/>
+        <location filename="../../apps/settings/views.py" line="120"/>
         <source>第 {} 行不是合法的 IP 地址：{}</source>
         <translation>Line {} is not a valid IP address: {}</translation>
     </message>
@@ -3982,62 +3982,62 @@
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../../apps/window.py" line="138"/>
+        <location filename="../../apps/window.py" line="141"/>
         <source>捕获</source>
         <translation>Captures</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="141"/>
+        <location filename="../../apps/window.py" line="144"/>
         <source>会话</source>
         <translation>Sessions</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="144"/>
+        <location filename="../../apps/window.py" line="147"/>
         <source>网关</source>
         <translation>Gateway</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="147"/>
+        <location filename="../../apps/window.py" line="150"/>
         <source>重写</source>
         <translation>Rewrite</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="150"/>
+        <location filename="../../apps/window.py" line="153"/>
         <source>Mock</source>
         <translation>Mock</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="152"/>
+        <location filename="../../apps/window.py" line="155"/>
         <source>断点</source>
         <translation>Intercept</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="157"/>
+        <location filename="../../apps/window.py" line="160"/>
         <source>请求编辑</source>
         <translation>Compose</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="154"/>
+        <location filename="../../apps/window.py" line="157"/>
         <source>脚本</source>
         <translation>Scripts</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="163"/>
+        <location filename="../../apps/window.py" line="166"/>
         <source>证书</source>
         <translation>Certificate</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="170"/>
+        <location filename="../../apps/window.py" line="173"/>
         <source>设置</source>
         <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="250"/>
+        <location filename="../../apps/window.py" line="253"/>
         <source>断点拦下 {} 条流量，等待处理</source>
         <translation>Intercepted {} flow(s), waiting to be handled</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="265"/>
+        <location filename="../../apps/window.py" line="268"/>
         <source>在 Compose 中编辑失败</source>
         <translation>Edit in Compose failed</translation>
     </message>
@@ -4649,13 +4649,13 @@
 <context>
     <name>PinButton</name>
     <message>
-        <location filename="../../apps/window.py" line="356"/>
-        <location filename="../../apps/window.py" line="382"/>
+        <location filename="../../apps/window.py" line="359"/>
+        <location filename="../../apps/window.py" line="385"/>
         <source>置顶</source>
         <translation>Pin window</translation>
     </message>
     <message>
-        <location filename="../../apps/window.py" line="379"/>
+        <location filename="../../apps/window.py" line="382"/>
         <source>取消置顶</source>
         <translation>Unpin window</translation>
     </message>
@@ -6266,184 +6266,245 @@
 <context>
     <name>SettingsInterface</name>
     <message>
-        <location filename="../../apps/settings/views.py" line="139"/>
+        <location filename="../../apps/settings/views.py" line="146"/>
         <source>设置</source>
         <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="143"/>
+        <location filename="../../apps/settings/views.py" line="156"/>
+        <source>关于与更新</source>
+        <translation>About &amp; Updates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="160"/>
+        <source>当前版本</source>
+        <translation>Current Version</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="165"/>
+        <source>检查</source>
+        <translation>Check</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="167"/>
+        <source>检查更新</source>
+        <translation>Check for Updates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="168"/>
+        <location filename="../../apps/settings/views.py" line="522"/>
+        <source>检查 GitHub 上是否有新版本</source>
+        <translation>Check GitHub for a new release</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="173"/>
+        <source>自动检查更新</source>
+        <translation>Automatically Check for Updates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="174"/>
+        <source>启动后在后台静默检查，发现新版本才提示</source>
+        <translation>Silently check in the background at startup; only prompt when a new version is found</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="181"/>
+        <source>发布页</source>
+        <translation>Releases</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="183"/>
+        <source>便携版 / 开发环境不支持原地更新，请前往发布页下载</source>
+        <translation>Portable / dev builds cannot update in place; please download from the releases page</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="189"/>
         <source>个性化</source>
         <translation>Personalization</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="149"/>
+        <location filename="../../apps/settings/views.py" line="195"/>
         <source>应用主题</source>
         <translation>Application theme</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="150"/>
+        <location filename="../../apps/settings/views.py" line="196"/>
         <source>自定义应用外观</source>
         <translation>Customize the look of your application</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="151"/>
+        <location filename="../../apps/settings/views.py" line="197"/>
         <source>浅色</source>
         <translation>Light</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="151"/>
+        <location filename="../../apps/settings/views.py" line="197"/>
         <source>深色</source>
         <translation>Dark</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="151"/>
-        <location filename="../../apps/settings/views.py" line="172"/>
+        <location filename="../../apps/settings/views.py" line="197"/>
+        <location filename="../../apps/settings/views.py" line="218"/>
         <source>使用系统设置</source>
         <translation>Use system setting</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="157"/>
+        <location filename="../../apps/settings/views.py" line="203"/>
         <source>主题颜色</source>
         <translation>Theme color</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="158"/>
+        <location filename="../../apps/settings/views.py" line="204"/>
         <source>更改应用的主题颜色</source>
         <translation>Change the theme color of you application</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="164"/>
+        <location filename="../../apps/settings/views.py" line="210"/>
         <source>界面缩放</source>
         <translation>Interface zoom</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="165"/>
+        <location filename="../../apps/settings/views.py" line="211"/>
         <source>调整控件和字体的大小</source>
         <translation>Change the size of widgets and fonts</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="179"/>
+        <location filename="../../apps/settings/views.py" line="225"/>
         <source>语言</source>
         <translation>Language</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="180"/>
+        <location filename="../../apps/settings/views.py" line="226"/>
         <source>选择界面所使用的语言</source>
         <translation>Set your preferred language for UI</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="188"/>
+        <location filename="../../apps/settings/views.py" line="234"/>
         <source>主面板</source>
         <translation>Main Panel</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="191"/>
+        <location filename="../../apps/settings/views.py" line="237"/>
         <source>关闭后最小化至托盘</source>
         <translation>Minimize to tray after closing</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="192"/>
+        <location filename="../../apps/settings/views.py" line="238"/>
         <source>应用程序将继续在后台运行</source>
         <translation>application will continue to run in the background</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="199"/>
+        <location filename="../../apps/settings/views.py" line="245"/>
         <source>布局</source>
         <translation>Layout</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="200"/>
+        <location filename="../../apps/settings/views.py" line="246"/>
         <source>切换表格信息中详细面板布局</source>
         <translation>Where the detail panel sits next to the flow table</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="201"/>
+        <location filename="../../apps/settings/views.py" line="247"/>
         <source>水平</source>
         <translation>Horizontal</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="201"/>
+        <location filename="../../apps/settings/views.py" line="247"/>
         <source>垂直</source>
         <translation>Vertical</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="209"/>
+        <location filename="../../apps/settings/views.py" line="255"/>
         <source>固定会话</source>
         <translation>Sticky session</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="211"/>
+        <location filename="../../apps/settings/views.py" line="257"/>
         <source>固化 Cookie 与认证头：跨连接复用客户端会话不丢；仅补发给服务器的 Cookie/Auth，不改变服务器行为、不写请求参数</source>
         <translation>Replay Cookie and authorization headers across connections so the client session survives; only fills the Cookie/Auth sent to the server — never changes server behaviour or request parameters</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="222"/>
+        <location filename="../../apps/settings/views.py" line="268"/>
         <source>无缓存 · 看明文</source>
         <translation>No cache · Plaintext</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="224"/>
+        <location filename="../../apps/settings/views.py" line="270"/>
         <source>删除条件缓存头强制服务器回最新内容，并要求明文响应不解压；会改写抓到的原始请求头</source>
         <translation>Strip conditional cache headers to force fresh responses and ask for uncompressed plaintext; rewrites the captured original request headers</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="236"/>
+        <location filename="../../apps/settings/views.py" line="282"/>
         <source>HTTP/2 支持</source>
         <translation>HTTP/2 support</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="238"/>
+        <location filename="../../apps/settings/views.py" line="284"/>
         <source>关闭后 TLS 连接一律降级为 HTTP/1.1，报文按行可读；明文 h2c 升级本就不支持、恒被剥离</source>
         <translation>Downgrades all TLS connections to HTTP/1.1 for line-readable messages; cleartext h2c upgrades are unsupported and always stripped</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="246"/>
+        <location filename="../../apps/settings/views.py" line="292"/>
         <source>HTTP/3 (QUIC) 支持</source>
         <translation>HTTP/3 (QUIC) support</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="248"/>
+        <location filename="../../apps/settings/views.py" line="294"/>
         <source>关闭后客户端回落 HTTP/2 (TCP)，解决 QUIC/UDP 流量抓不到的问题；已缓存的 alt-svc 可能先试一次再回落</source>
         <translation>Clients fall back to HTTP/2 (TCP) so QUIC/UDP traffic that cannot be captured becomes visible; a cached alt-svc may be tried once before falling back</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="260"/>
+        <location filename="../../apps/settings/views.py" line="306"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="262"/>
+        <location filename="../../apps/settings/views.py" line="308"/>
         <source>自定义 DNS 服务器</source>
         <translation>Custom DNS servers</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="263"/>
-        <location filename="../../apps/settings/views.py" line="400"/>
+        <location filename="../../apps/settings/views.py" line="309"/>
+        <location filename="../../apps/settings/views.py" line="462"/>
         <source>仅对 WireGuard 隧道内的域名解析生效；留空使用系统 DNS</source>
         <translation>Only applies to name resolution inside the WireGuard tunnel; leave empty to use the system DNS</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="268"/>
+        <location filename="../../apps/settings/views.py" line="314"/>
         <source>解析时查询 hosts 文件</source>
         <translation>Consult the hosts file during resolution</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="270"/>
+        <location filename="../../apps/settings/views.py" line="316"/>
         <source>隧道内 DNS 应答先查本机 hosts，写一条即可把域名指向测试机（需管理员编辑系统 hosts 文件，且会影响本机自身解析）</source>
         <translation>Answers for the tunnel&apos;s DNS queries consult the local hosts file first; a single entry points a domain at your test machine (editing the system hosts file requires admin rights and affects this machine&apos;s own resolution)</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="396"/>
+        <location filename="../../apps/settings/views.py" line="458"/>
         <source>已设 {} 台：仅隧道内生效</source>
         <translation>{} configured: effective in tunnel only</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="424"/>
+        <location filename="../../apps/settings/views.py" line="486"/>
         <source>DNS 设置未生效</source>
         <translation>DNS settings not applied</translation>
     </message>
     <message>
-        <location filename="../../apps/settings/views.py" line="435"/>
+        <location filename="../../apps/settings/views.py" line="516"/>
+        <source>正在检查更新…</source>
+        <translation>Checking for updates…</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="528"/>
+        <source>当前已是最新版本</source>
+        <translation>You are on the latest version</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="534"/>
+        <source>检查更新失败</source>
+        <translation>Failed to Check for Updates</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/views.py" line="566"/>
         <source>配置将在重启后生效</source>
         <translation>Configuration takes effect after restart</translation>
     </message>
@@ -6459,7 +6520,7 @@
 <context>
     <name>SystemTray</name>
     <message>
-        <location filename="../../apps/window.py" line="327"/>
+        <location filename="../../apps/window.py" line="330"/>
         <source>退出</source>
         <translation>Quit</translation>
     </message>
@@ -6576,6 +6637,67 @@
         <location filename="../../apps/certificate/dialogs.py" line="181"/>
         <source>第 {} 个文件里没有证书：{}</source>
         <translation>No certificate found in file #{}: {}</translation>
+    </message>
+</context>
+<context>
+    <name>Update</name>
+    <message>
+        <location filename="../../core/update.py" line="68"/>
+        <source>未知</source>
+        <translation>Unknown</translation>
+    </message>
+    <message>
+        <location filename="../../core/update.py" line="88"/>
+        <source>检查更新失败</source>
+        <translation>Failed to Check for Updates</translation>
+    </message>
+    <message>
+        <location filename="../../core/update.py" line="98"/>
+        <source>下载更新失败</source>
+        <translation>Failed to Download the Update</translation>
+    </message>
+    <message>
+        <location filename="../../core/update.py" line="108"/>
+        <source>应用更新失败</source>
+        <translation>Failed to Apply the Update</translation>
+    </message>
+</context>
+<context>
+    <name>UpdateDialog</name>
+    <message>
+        <location filename="../../apps/settings/dialogs.py" line="44"/>
+        <source>发现新版本 v{}</source>
+        <translation>New Version v{} Available</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/dialogs.py" line="49"/>
+        <source>当前版本 v{}，新版本包大小 {}。</source>
+        <translation>Current version v{}; the new package is {}.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/dialogs.py" line="55"/>
+        <source>查看更新内容</source>
+        <translation>View Release Notes</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/dialogs.py" line="68"/>
+        <source>立即更新</source>
+        <translation>Update Now</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/dialogs.py" line="69"/>
+        <source>稍后</source>
+        <translation>Later</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/dialogs.py" line="111"/>
+        <source>下载完成，重启后生效。</source>
+        <translation>Download complete. A restart is required to apply it.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/settings/dialogs.py" line="112"/>
+        <source>重启应用</source>
+        <translation>Restart App</translation>
     </message>
 </context>
 <context>
