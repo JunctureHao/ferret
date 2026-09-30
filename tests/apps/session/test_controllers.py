@@ -7,6 +7,7 @@ processEvents 等信号落袋（AGENTS §1：等信号用轮询原语，不写�
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import time
 import unittest
@@ -126,6 +127,40 @@ class OpenSessionTests(unittest.TestCase):
         del vc1, vc2
         gc.collect()
         self.assertIsNone(ref1())
+
+
+class DuplicateIdRecoveryTests(unittest.TestCase):
+    """#79：录制文件可能含同 id 的未完成+完成两条（录制中导入历史文件等场景）。
+
+    原生 View.add 只收首次出现的 id，不去重的话打开会话展示的永远是没响应的
+    那条 —— load_flows 按 id 取**最后**一条（最完整），位置仍按首次出现排。
+    """
+
+    def test_duplicate_ids_keep_the_last_and_most_complete_entry(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        repo = SessionRepository(root=tmp / "repo")
+
+        premature = tflow.tflow()  # 在途时被冲进文件的那条：无响应
+        complete = tflow.tflow(resp=True)  # 收尾后的完整条
+        complete.id = premature.id
+        other = tflow.tflow(resp=True)
+        other.request.path = "/other"
+        repo.create("双条", [premature, complete, other])
+
+        flows = repo.load_flows(repo.list_all()[0].session_id)
+        self.assertEqual([f.id for f in flows], [premature.id, other.id])
+        self.assertIsNotNone(flows[0].response)
+
+    def test_a_file_without_duplicates_is_returned_as_is(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        repo = SessionRepository(root=tmp / "repo")
+        flows_in = [tflow.tflow(resp=True), tflow.tflow(resp=True)]
+        repo.create("普通", flows_in)
+
+        flows = repo.load_flows(repo.list_all()[0].session_id)
+        self.assertEqual([f.id for f in flows], [f.id for f in flows_in])
 
 
 class TaskLifecycleTests(unittest.TestCase):

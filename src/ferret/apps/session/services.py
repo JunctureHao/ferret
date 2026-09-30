@@ -155,7 +155,17 @@ class SessionRepository:
                     "SessionRepository", "会话文件不存在: {}"
                 ).format(session_id)
             )
-        return self._read_http(path)
+        flows = self._read_http(path)
+        # 录制文件可能含同 id 多条：录制中导入历史文件等场景，在途流先被冲一条
+        # 当时状态、收尾再写一条完整记录（#79）。原生 View.add 只收首次出现的
+        # id，整表灌进去展示的永远是不完整的那条 —— 打开时按 id 取**最后**一条
+        # （最完整），顺序仍按首次出现排。磁盘原样保留，不在此重写文件。
+        if len({flow.id for flow in flows}) != len(flows):
+            deduped: dict[str, HTTPFlow] = {}
+            for flow in flows:
+                deduped[flow.id] = flow
+            flows = list(deduped.values())
+        return flows
 
     def rename(self, session_id: str, name: str) -> SessionMeta:
         source = self._path(session_id)
