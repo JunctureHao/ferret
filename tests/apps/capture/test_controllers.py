@@ -800,6 +800,37 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller._check_channel_health()
         self.assertIn("local", controller.channel_errors)
 
+    def test_channel_health_polls_repeatedly_while_capturing(self) -> None:
+        """#15：单次 1.5s 检查盖不住晚到的失败（UAC 晚拒绝、守护进程中途死）。
+
+        健康在第一轮检查之后才变坏：旧实现的 singleShot 已经跑完，永远看不见；
+        周期轮询下第二轮照样把它捞上来。
+        """
+        controller, runtime, _, _ = self.make_controller()
+        controller.start_capture()
+
+        runtime.health = {}
+        controller._check_channel_health()
+        self.assertEqual(controller.channel_errors, {})
+
+        runtime.health = {
+            "local": "Failed to start the interception process as administrator."
+        }
+        controller._check_channel_health()
+        self.assertIn("管理员授权（UAC）", controller.channel_errors["local"])
+
+    def test_channel_health_timer_stops_with_the_session(self) -> None:
+        """#15：轮询只在抓包期间转 —— 停止即停表，不抓包时零常驻唤醒。"""
+        controller, _runtime, _, _ = self.make_controller()
+        self.assertFalse(controller._channel_timer.isActive())
+
+        controller.start_capture()
+        self.assertTrue(controller._channel_timer.isActive())
+        self.assertEqual(controller._channel_timer.interval(), 1500)
+
+        controller.stop_capture()
+        self.assertFalse(controller._channel_timer.isActive())
+
 
 class ApplyFilterRawTests(unittest.TestCase):
     """原生 flowfilter 表达式的唯一校验点在 controller（`.plans/0-mark-filter-polish.md`

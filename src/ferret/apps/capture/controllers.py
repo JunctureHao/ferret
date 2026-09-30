@@ -151,6 +151,12 @@ class CaptureController(QObject):
         self._recording = False
         # 通道健康检查（异步启动失败只能延迟读 channel_health）的最近结果。
         self._channel_errors: dict[str, str] = {}
+        # 健康检查改为周期轮询（#15）：通道实例的失败可能晚到（UAC 弹窗挂了几秒
+        # 才被拒、守护进程中途死掉），单次 1.5s 检查漏报；抓包期间复用同一个
+        # QTimer，停止 / 失败即停表，不抓包时零开销。
+        self._channel_timer = QTimer(self)
+        self._channel_timer.setInterval(1500)
+        self._channel_timer.timeout.connect(self._check_channel_health)
         # 「上次有效」的原生过滤表达式：非法输入绝不上屏，沿用上一次编译成功的
         # 合并结果（校验与缓存都在这层，view 只做控件与错误态呈现）。
         self._last_valid_raw_filter = ""
@@ -369,6 +375,9 @@ class CaptureController(QObject):
         if self._capture_state == CaptureState.STOPPED:
             return
         self._set_capture_state(CaptureState.STOPPING)
+        # 健康轮询随会话一起停（迟到 tick 也会在 _check_channel_health 自我了断，
+        # 这里是即刻停表）。
+        self._channel_timer.stop()
         # detach 幂等安全：从未挂载时 service 内部短路返回 True，不碰注册表。
         self._system_proxy.detach()
         try:
@@ -756,11 +765,16 @@ class CaptureController(QObject):
         return raw
 
     def _schedule_channel_check(self) -> None:
-        """通道实例是异步启动的（UAC 弹窗可能挂起数秒），延迟一轮再查健康。"""
-        QTimer.singleShot(1500, self._check_channel_health)
+        """通道实例是异步启动的（UAC 弹窗可能挂起数秒），延迟一轮再查健康；此后
+        周期复查 —— 健康是持续事实，晚到的失败（晚拒绝的 UAC、中途死掉的守护
+        进程）单次检查盖不住（#15），AGENTS「控制器抓包中周期轮询」以此为准。"""
+        self._channel_timer.start()
 
     def _check_channel_health(self) -> None:
         if self._capture_state != CaptureState.RUNNING or not self._runtime.is_running:
+            # 不在抓包就停表：定时器只在 RUNNING 期间转，FAILED/STOPPED 迟到的
+            # 一次 tick 在这里自我了断，不留常驻唤醒。
+            self._channel_timer.stop()
             return
         try:
             health = self._mitm.channel_health()
