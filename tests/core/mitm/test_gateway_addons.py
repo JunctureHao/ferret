@@ -421,7 +421,7 @@ class FerretMasterGatewayWiringTests(unittest.TestCase):
         start = self.names.index(GatewayL7Addon.__name__)
         self.assertEqual(
             self.names[start + 1 : start + 4],
-            ["FerretScriptAddon", "ServerPlayback", "FerretIntercept"],
+            ["FerretScriptAddon", "FerretServerPlayback", "FerretIntercept"],
         )
 
     def test_the_breakpoint_plane_runs_immediately_before_the_view(self) -> None:

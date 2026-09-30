@@ -33,7 +33,11 @@ from mitmproxy.test import tflow
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm import MitmRuntime
-from ferret.core.mitm.addons import CertDownloadAddon, ProxyAuthScrubAddon
+from ferret.core.mitm.addons import (
+    AUTH_CHALLENGED_METADATA_KEY,
+    CertDownloadAddon,
+    ProxyAuthScrubAddon,
+)
 from ferret.core.mitm.bindings import Options, OptionsError
 from ferret.core.mitm.master import FerretMaster
 
@@ -202,6 +206,40 @@ class ProxyAuthAddonTests(unittest.TestCase):
         self.assertNotIn("proxyauth", flow.metadata)
         scrubber.requestheaders(flow)  # 幂等：没这个键也不炸
         self.assertNotIn("proxyauth", flow.metadata)
+
+    def test_a_challenged_flow_is_marked_and_the_mock_pool_skips_it(self) -> None:
+        """#76：407 挑战必须原样送达，mock 池不得顶掉它。
+
+        原生 `ServerPlayback.request` 不看 flow.response 就作答 —— 开着代理
+        认证时，无凭证/错密码的请求也能读到池里的合成正文。标记由抹凭证件
+        （链上紧跟 ProxyAuth）写入，`FerretServerPlayback` 据此跳过。对照组：
+        认证过的流不打标记，池照常作答。
+        """
+        self.master.options.update(proxyauth="alice:secret")
+        scrubber = ProxyAuthScrubAddon()
+
+        challenged = flow_in_mode("regular")  # 无凭证 → 被挑战
+        self._addon().requestheaders(challenged)
+        assert challenged.response is not None
+        self.assertEqual(challenged.response.status_code, 407)
+        scrubber.requestheaders(challenged)
+        self.assertEqual(challenged.metadata[AUTH_CHALLENGED_METADATA_KEY], "1")
+
+        authed = flow_in_mode("regular")
+        authed.request.headers["Proxy-Authorization"] = BASIC
+        self._addon().requestheaders(authed)
+        scrubber.requestheaders(authed)
+        self.assertNotIn(AUTH_CHALLENGED_METADATA_KEY, authed.metadata)
+
+        source = tflow.tflow(resp=True)  # 与上面两条流同请求 → 同哈希
+        self.master.server_playback.load_flows([source])
+        self.master.server_playback.request(challenged)
+        assert challenged.response is not None
+        self.assertEqual(challenged.response.status_code, 407)
+
+        self.master.server_playback.request(authed)
+        assert authed.response is not None
+        self.assertEqual(authed.response.status_code, 200)
 
     def test_a_connect_authenticated_connection_skips_later_challenges(self) -> None:
         """CONNECT 认证过的连接进 ``self.authenticated`` 弱键表，后续请求免验
@@ -448,6 +486,32 @@ class ProxyAuthKernelTests(unittest.TestCase):
         )
         self.assertTrue(response.startswith(b"HTTP/1.1 200 OK"), response)
         self.assertIn(b"application/x-x509-ca-cert", response)
+
+    def test_a_mock_pool_never_answers_unauthenticated_requests(self) -> None:
+        """#76 端到端：池里有匹配条目，无凭证请求仍吃 407，读不到池正文。
+
+        池在认证**之后**才有发言权 —— 「认证管谁能用」不被「mock 优先」豁免。
+        """
+        origin = self._origin()
+        runtime = self._authed()
+        master = runtime._master
+        assert master is not None
+
+        source = tflow.tflow(resp=True)
+        source.request.host = "127.0.0.1"
+        source.request.port = origin.port
+        source.request.scheme = "http"
+        source.request.path = "/probe"
+        assert source.response is not None
+        source.response.content = b"MOCK-PRIVATE-PAYLOAD"
+        runtime.call(lambda: master.server_playback.load_flows([source]))
+
+        response = http_through(
+            runtime.listen_port, f"http://127.0.0.1:{origin.port}/probe"
+        )
+        self.assertTrue(response.startswith(b"HTTP/1.1 407"), response)
+        self.assertNotIn(b"MOCK-PRIVATE-PAYLOAD", response)
+        self.assertEqual(origin.requests, [])
 
     def test_turning_the_credential_off_at_runtime_lifts_the_challenge(self) -> None:
         """热更关闭：选项回 None，同一个客户端不再吃 407（内核不重启）。"""

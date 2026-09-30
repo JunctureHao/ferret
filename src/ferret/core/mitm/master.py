@@ -6,6 +6,7 @@ from ferret.core.mitm.addons import (
     CertDownloadAddon,
     FerretRewriteAddon,
     FerretScriptAddon,
+    FerretServerPlayback,
     FerretTlsConfig,
     GatewayL4Addon,
     GatewayL7Addon,
@@ -28,7 +29,6 @@ from ferret.core.mitm.bindings import (
     Proxyserver,
     ReadFile,
     Save,
-    ServerPlayback,
     StickyAuth,
     StickyCookie,
     StripDnsHttpsRecords,
@@ -68,12 +68,12 @@ class FerretMaster(Master):
         self.rewrite = FerretRewriteAddon()
         # 用户脚本扩展（plans/scripts.md §3.2）：常驻无开关，空列表即全空转。
         self.scripts = FerretScriptAddon()
-        # mock 响应池（.plans/0-server-playback.md）：原生 ServerPlayback，request
-        # 钩子按请求哈希命中已录响应直接顶回、不拨上游；空表零副作用，「开关」就是
-        # flowmap 有没有货。池内容与旋钮由 runtime 播种 / facade 热更，装载只走
-        # 方法调用（add_flows / load_flows），`server_replay` 选项那条带单向闸的
-        # 文件通道不用。
-        self.server_playback = ServerPlayback()
+        # mock 响应池（.plans/0-server-playback.md）：原生 ServerPlayback 的 Ferret
+        # 子类，request 钩子按请求哈希命中已录响应直接顶回、不拨上游；空表零副作用，
+        # 「开关」就是 flowmap 有没有货。池内容与旋钮由 runtime 播种 / facade 热更，
+        # 装载只走方法调用（add_flows / load_flows），`server_replay` 选项那条带
+        # 单向闸的文件通道不用。子类只加一件事：被代理认证挑战过的流不作答（#76）。
+        self.server_playback = FerretServerPlayback()
         # 固定会话（StickyCookie / StickyAuth）：默认关，开关在设置页。排在重写类
         # 之后 —— 代理补回的 Cookie / Authorization 要压过用户对同名头的重写规则，
         # 否则「会话不丢」这条承诺会被自己的重写页拆台；排在 View 之前 —— 流量表

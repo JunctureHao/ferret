@@ -13,6 +13,7 @@ from ferret.core.mitm.bindings import (
     HTTPFlow,
     Master,
     Response,
+    ServerPlayback,
     TlsConfig,
     addonmanager,
     connection,
@@ -47,9 +48,13 @@ from ferret.core.mitm.scripts import (
 )
 from ferret.core.settings import APP_NAME
 
+#: 被 ProxyAuth 挑战（认证未过）的流在 metadata 上的标记。与 GATEWAY_METADATA_KEY
+#: 同一姿势：只放可序列化字符串，随 flow 存档也无妨 —— 它是诊断信息，不是秘密。
+AUTH_CHALLENGED_METADATA_KEY: str = "ferret.proxyauth.challenged"
+
 
 class ProxyAuthScrubAddon:
-    """抹掉原生 ProxyAuth 写进 flow 的明文凭证元组。
+    """抹掉原生 ProxyAuth 写进 flow 的明文凭证元组，并标记认证未过的流量。
 
     `ProxyAuth.authenticate_http` 认证成功后会写
     `flow.metadata["proxyauth"] = (username, password)`
@@ -64,10 +69,37 @@ class ProxyAuthScrubAddon:
     所以在链上紧跟 ProxyAuth 把它删掉 —— 删得比 View 收录更早，任何快照都看不到。
     这是对原生行为的**减法**，按 AGENTS.md §2 本该克制，但此处删的是死数据、
     换来的是不让凭证离开内核，划算。哪天有人真要用这个键，改成只留 username。
+
+    同一钩子顺带给被 407 挑战的流打 `AUTH_CHALLENGED_METADATA_KEY` 标记（#76）：
+    本 addon 在链上紧跟 ProxyAuth，到这里 `flow.response` 还不是 None 的只可能
+    是认证失败刚设上的挑战响应 —— 链上更早的 requestheaders 参与者（AntiCache /
+    AntiComp / DisableH2C）只改头、不作答。Mock 池据此跳过这类流，见
+    `FerretServerPlayback`。
     """
 
     def requestheaders(self, flow: HTTPFlow) -> None:
         flow.metadata.pop("proxyauth", None)
+        if flow.response is not None:
+            flow.metadata[AUTH_CHALLENGED_METADATA_KEY] = "1"
+
+
+class FerretServerPlayback(ServerPlayback):
+    """原生 Mock 池加一道「认证未过不作答」的闸门（#76）。
+
+    原生组合里 `ProxyAuth` 挑战未认证请求（requestheaders 设 407）之后，
+    `ServerPlayback.request` 不看 flow.response 就把池内响应顶上去 —— 开着
+    代理认证时，无凭证/错密码的请求照样能读到 mock 池里的合成正文（可能含
+    私有数据）。「认证管谁能用」不在「mock 优先于网关调试屏蔽」的决议授权
+    范围内（那个豁免只针对调试屏蔽，master.py 链位注释），所以挑过挑战的流
+    在这里直接跳过，407 挑战原样送达客户端。标记由 `ProxyAuthScrubAddon`
+    （链上紧跟 ProxyAuth）写入。
+    """
+
+    # 参数名对齐原生 `request(self, f: HTTPFlow)`：ty 按名检查 LSP，换名算不兼容覆写。
+    def request(self, f: HTTPFlow) -> None:
+        if f.metadata.get(AUTH_CHALLENGED_METADATA_KEY):
+            return
+        super().request(f)
 
 
 class CertDownloadAddon:
