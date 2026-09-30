@@ -12,13 +12,20 @@
 """
 
 import os
+import typing
 import unittest
+import unittest.mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.http import Response
 from mitmproxy.test import tflow
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import (
+    QItemSelectionModel,
+    QPoint,
+    QObject,
+    Signal,
+)
 from PySide6.QtWidgets import QApplication
 
 from ferret.apps.intercept.dialogs import HeldFlowsChoice
@@ -363,6 +370,79 @@ class ActionTests(InterceptWindowTestCase):
         self.assertEqual(
             win.request_panel.url_edit.text(), "http://edited.example.com/"
         )
+
+
+
+class _MenuStub(QObject):
+    """替身菜单：真 `RoundMenu.exec` 会弹出非阻塞菜单，离线测试没人点它。
+
+    必须是 `QObject`：菜单动作把菜单当 parent 构造，QAction 拒绝 MagicMock。
+    """
+
+    created: typing.ClassVar[list] = []
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        _MenuStub.created.append(self)
+
+    def addAction(self, action) -> None:  # noqa: RUF100 (Qt 命名，与 QTableWidget.addAction 同形)
+        pass
+
+    def exec(self, pos) -> None:
+        pass
+
+
+class ContextMenuSelectionTests(InterceptWindowTestCase):
+    """右键先选中光标下的流量（issues #50）：这张表的动作是放行/丢弃，右键
+    还落在旧选区上就是「对错误的请求放行」。菜单本体走替身，不真弹。"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        _MenuStub.created.clear()
+        patcher = unittest.mock.patch(
+            "ferret.apps.intercept.window.RoundMenu", _MenuStub
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _pos_at_row(self, win, row: int) -> QPoint:
+        win.flow_table.resize(600, 300)
+        rect = win.flow_table.visualRect(win.flow_model.index(row, 0))
+        return rect.center()
+
+    def test_right_clicking_an_unselected_flow_acts_on_that_flow(self) -> None:
+        win = self.window()
+        first, second = flow_to(), flow_to("http://cdn.example.com/a.js")
+        self.controller.emit_flows([first, second])
+        win.flow_table.selectRow(0)
+        win._on_flow_context_menu(self._pos_at_row(win, 1))
+        self.assertEqual(len(_MenuStub.created), 1)
+        self.assertEqual(
+            [flow.id for flow in win._selected_flows()], [second.id]
+        )
+
+    def test_right_clicking_a_selected_row_keeps_the_multi_selection(self) -> None:
+        win = self.window()
+        flows = [flow_to(), flow_to("http://cdn.example.com/a.js")]
+        self.controller.emit_flows(flows)
+        for row in (0, 1):
+            win.flow_table.selectionModel().select(
+                win.flow_model.index(row, 0),
+                QItemSelectionModel.SelectionFlag.Select
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+        win._on_flow_context_menu(self._pos_at_row(win, 1))
+        self.assertEqual(len(_MenuStub.created), 1)
+        self.assertEqual(len(win._selected_flows()), 2)
+
+    def test_right_clicking_empty_space_shows_no_menu(self) -> None:
+        win = self.window()
+        self.controller.emit_flows([flow_to()])
+        win.flow_table.selectRow(0)
+        win._on_flow_context_menu(
+            QPoint(5, win.flow_table.viewport().height() + 50)
+        )
+        self.assertEqual(_MenuStub.created, [])
 
 
 if __name__ == "__main__":

@@ -390,6 +390,13 @@ class InterceptWindow(FluentWidget):
 
     @Slot(QPoint)
     def _on_flow_context_menu(self, pos: QPoint):
+        # 右键先选中光标下的流量（issues #50）：这张表上的动作是放行/丢弃，右键
+        # 还落在旧选区上就是「对错误的请求放行」。点中已选中的一行则保留多选。
+        index = self.flow_table.indexAt(pos)
+        if not index.isValid():
+            return
+        if not self.flow_table.selectionModel().isSelected(index):
+            self.flow_table.selectRow(index.row())
         flows = self._selected_flows()
         if not flows:
             return

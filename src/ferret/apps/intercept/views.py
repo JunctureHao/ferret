@@ -291,6 +291,13 @@ class InterceptInterface(QWidget):
 
     @Slot(QPoint)
     def _on_rule_context_menu(self, pos: QPoint):
+        # 右键先选中光标下的行（issues #50）：qfw 表格默认不开右键选行，选 A 右键
+        # B 时删除/停用还落在 A 上。点中已选中的一行则保留多选、菜单作用于整批。
+        index = self.rule_table.indexAt(pos)
+        if not index.isValid():
+            return
+        if not self.rule_table.selectionModel().isSelected(index):
+            self.rule_table.selectRow(index.row())
         rows = self._selected_rule_rows()
         if not rows:
             return

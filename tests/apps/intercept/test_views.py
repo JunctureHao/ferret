@@ -9,12 +9,14 @@
 """
 
 import os
+import typing
 import unittest
+import unittest.mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.test import tflow
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QPoint, Signal
 from PySide6.QtWidgets import QApplication
 
 from ferret.apps.intercept.views import InterceptInterface
@@ -177,6 +179,67 @@ class InterceptInterfaceTests(unittest.TestCase):
         self.controller.emit_flows(1)
         self.iface.queue_btn.click()
         self.assertEqual(seen, [1])
+
+
+class _MenuStub(QObject):
+    """替身菜单：真 `RoundMenu.exec` 会弹出非阻塞菜单，离线测试没人点它。
+
+    必须是 `QObject`：菜单动作把菜单当 parent 构造，QAction 拒绝 MagicMock。
+    """
+
+    created: typing.ClassVar[list] = []
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        _MenuStub.created.append(self)
+
+    def addAction(self, action) -> None:
+        pass
+
+    def exec(self, pos) -> None:
+        pass
+
+
+class ContextMenuSelectionTests(unittest.TestCase):
+    """右键先选中光标下的规则（issues #50）：qfw 表格默认不开右键选行，选 A
+    右键 B 时启停/删除还落在 A 上。"""
+
+    def setUp(self) -> None:
+        self.controller = FakeController()
+        self.iface = InterceptInterface(self.controller)  # type: ignore
+        self.iface.resize(700, 400)
+        self.addCleanup(app.processEvents)
+        self.addCleanup(self.iface.deleteLater)
+        _MenuStub.created.clear()
+        patcher = unittest.mock.patch(
+            "ferret.apps.intercept.views.RoundMenu", _MenuStub
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _push_rules(self) -> None:
+        self.controller.rules = [
+            InterceptRule(value="a.example.com"),
+            InterceptRule(value="b.example.com"),
+        ]
+        self.controller.rules_changed.emit(self.controller.rules)
+
+    def test_right_clicking_an_unselected_row_selects_it(self) -> None:
+        self._push_rules()
+        self.iface.rule_table.selectRow(0)
+        pos = self.iface.rule_table.visualRect(
+            self.iface.rule_proxy.index(1, 0)
+        ).center()
+        self.iface._on_rule_context_menu(pos)
+        self.assertEqual(len(_MenuStub.created), 1)
+        self.assertEqual(self.iface._selected_rule_rows(), [1])
+
+    def test_right_clicking_empty_space_shows_no_menu(self) -> None:
+        self._push_rules()
+        self.iface.rule_table.selectRow(0)
+        # 页面还没经过真实布局，视口很小；直接给一个远超两行内容的坐标。
+        self.iface._on_rule_context_menu(QPoint(5, 100000))
+        self.assertEqual(_MenuStub.created, [])
 
 
 if __name__ == "__main__":

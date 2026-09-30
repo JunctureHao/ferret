@@ -462,6 +462,13 @@ class MockInterface(QWidget):
 
     @Slot()
     def _on_context_menu(self, pos) -> None:
+        # 右键先选中光标下的行（issues #50）：qfw 表格默认不开右键选行，选 A 右键
+        # B 时删除还落在 A 上。点中已选中的一行则保留多选、菜单作用于整批。
+        index = self.table.indexAt(pos)
+        if not index.isValid():
+            return
+        if not self.table.selectionModel().isSelected(index):
+            self.table.selectRow(index.row())
         entry_ids = self._selected_entry_ids()
         if not entry_ids:
             return
