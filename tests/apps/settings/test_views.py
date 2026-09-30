@@ -69,5 +69,33 @@ class ProtocolSwitchCardTests(unittest.TestCase):
         )
 
 
+class UpdateCardTests(unittest.TestCase):
+    """「关于与更新」组的卡片绑定与自动检查闸门（.plans/3-auto-update.md §2）。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.settings = SettingsInterface()
+        self.addCleanup(self.settings.deleteLater)
+
+    def test_auto_check_card_is_bound_to_the_config_item(self) -> None:
+        self.assertIs(
+            self.settings.auto_update_card.configItem, CONFIG.auto_check_update
+        )
+
+    def test_auto_check_is_blocked_in_dev_mode(self) -> None:
+        """开发态 update_supported() 恒 False：自动入口必须不发起检查。"""
+        calls: list = []
+        original = self.settings.update_controller.check
+        self.settings.update_controller.check = lambda: calls.append(True)  # ty: ignore[invalid-assignment]
+        self.addCleanup(setattr, self.settings.update_controller, "check", original)
+
+        self.settings.check_updates_auto()
+
+        self.assertEqual(calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

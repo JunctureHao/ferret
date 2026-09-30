@@ -555,6 +555,15 @@ class Config(QConfig):
         default={},
     )
 
+    # 启动后自动检查更新（.plans/3-auto-update.md §2）：只控制「启动那一次静默
+    # 检查」，设置页的手动入口恒可用，不受此开关影响。BoolConfigItem 而非裸
+    # validator=BoolValidator()：坏值回落本项默认（#88 的收口语义）。
+    auto_check_update = BoolConfigItem(
+        group="Update",
+        name="AutoCheck",
+        default=True,
+    )
+
 
 # 历史版本用 AppConfigLocation（%LocalAppData%\Ferret），与 Velopack 安装根
 # （%LocalAppData%\<packId>，scripts/package.py 的 PACK_ID 同为 "Ferret"）撞车：
@@ -598,9 +607,7 @@ def _migrate_legacy_config_dir(new_dir: Path) -> None:
 
 def get_config_dir() -> Path:
     d = Path(
-        QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.AppDataLocation
-        )
+        QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
     )
     _migrate_legacy_config_dir(d)
     d.mkdir(parents=True, exist_ok=True)

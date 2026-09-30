@@ -1,6 +1,6 @@
 from typing import cast
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 from qfluentwidgets import (
@@ -133,6 +133,9 @@ class MainWindow(FluentWindow):
         self.__connect_signal_to_slot()
         # 初始路由一次（启动页 = 捕获页 → titlebar 亮出表达式编辑器，规格 §4.3）。
         self.__on_page_changed(self.stackedWidget.currentIndex())
+        # 启动自动检查更新（.plans/3-auto-update.md §2）：延迟避开启动高峰；
+        # 开关与形态闸门都收在 check_updates_auto 内部，这里只管定时触发。
+        QTimer.singleShot(5000, self.settings_interface.check_updates_auto)
 
     def __init_navigation(self):
         self.addSubInterface(self.captures_interface, FluentIcon.WIFI, self.tr("捕获"))

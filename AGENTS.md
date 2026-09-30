@@ -83,7 +83,7 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - `core/mitm/`：`bindings.py` 是唯一 mitmproxy 入口，对外 API 以 `__init__.py` 为准；会送到界面的异常文案（`certificate` / `facade` / `gateway` / `intercept` / `modes` / `rewrite` / `runtime`）用 `QCoreApplication.translate("<Ctx>", ...)` 包一层（不碰控件）；日志与 `from_dict` 校验消息不译（后者从不上界面）。
 
-- `apps/`：不直接 import mitmproxy 内部模块；后台任务统一 `apps/common/tasks.py::FunctionTask`；编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel` / `ToolPlainTextEdit` / `JsonDualPanel`），不新造编辑器；方法词表 `apps/common/http_methods.py` 与断点共享。各子包职责与 UI 结构以自己的 controllers / views docstring 为准，本文件不复述。
+- `apps/`：不直接 import mitmproxy 内部模块；后台任务统一 `apps/common/tasks.py::FunctionTask`（任务对象必须由调用方持有到 finished——没人持有时 Python 包装连同 signals 被 GC，worker 跑完成功信号也永远不到，机理见 `apps/settings/controllers.py` docstring）；编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel` / `ToolPlainTextEdit` / `JsonDualPanel`），不新造编辑器；方法词表 `apps/common/http_methods.py` 与断点共享。各子包职责与 UI 结构以自己的 controllers / views docstring 为准，本文件不复述。
 
 - `utils/`：不再新增依赖；`utils/http_parser.py` 现存一处对 `core/mitm/bindings` 的历史误引，勿模仿扩散（唯一例外，机理见 `core/mitm/detail.py` 注释）。
 
