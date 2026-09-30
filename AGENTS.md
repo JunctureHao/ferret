@@ -113,6 +113,8 @@ mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有
 
 - SSE 靠自研 tee（mitmproxy 对 SSE 零支持，两条原生路都不通），见 `core/mitm/sse.py`。
 
+- **数据目录只用 Roaming**（`get_config_dir` 走 `AppDataLocation`）：`AppConfigLocation`（Local）与 Velopack 安装根撞车（`PACK_ID` 同为 `Ferret`），覆盖重装/卸载会端掉 CA → STALE「证书失效」。旧根数据由 `settings.py::_migrate_legacy_config_dir` 一次性搬走，勿动 Velopack 文件。
+
 - 已删除勿复活：顶层 `application/` 包、`utils/proxy_manager.py`、自造 `format_bytes` / `compute_folds` / `mime_of`。
 
 ## 6. 功能边界
