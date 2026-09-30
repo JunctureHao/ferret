@@ -160,10 +160,19 @@ class GatewayRuleDialog(MessageBoxBase):
 
         self.status_combo = ComboBox(self)
         self.status_combo.addItems([status_label(s) for s in STATUS_CHOICES])
+        # 非预设状态码的临时条目（issues #65）；预设内就是 None。
+        self._extra_status: int | None = None
         if self._rule.status_code in STATUS_CHOICES:
             self.status_combo.setCurrentIndex(
                 STATUS_CHOICES.index(self._rule.status_code)
             )
+        elif self._rule.status_code is not None:
+            # 模型允许、但不在预设下拉里的状态码（多半来自手改的配置文件，如 429）：
+            # 补一个临时条目顶到当前位，不然打开不动、get_rule 就会把原值折成
+            # 首个预设 403。保存时原值原样往返。
+            self._extra_status = self._rule.status_code
+            self.status_combo.addItem(status_label(self._rule.status_code))
+            self.status_combo.setCurrentIndex(self.status_combo.count() - 1)
 
         self.preview_label = CaptionLabel(self)
         self.preview_label.setWordWrap(True)
@@ -251,9 +260,18 @@ class GatewayRuleDialog(MessageBoxBase):
         self.status_row_label.setEnabled(needed)
 
     def _sync_fields(self):
-        """Rebuild the field combo for the current layer, keeping the choice."""
-        wanted = self._current_field()
+        """Rebuild the field combo for the current layer, keeping the choice.
+
+        首次填充时下拉还是空的（currentIndex=-1），`_current_field()` 会把它折成
+        本层第 0 项 —— 模型里的 METHOD=POST 打开不动就变 HOST=POST（issues #85）。
+        第一遍以规则自带的 field 为准；此后切层才保留控件当前的选择。
+        """
         fields = self._current_fields()
+        wanted = (
+            self._rule.field
+            if self.field_combo.count() == 0
+            else self._current_field()
+        )
         self.field_combo.blockSignals(True)
         self.field_combo.clear()
         self.field_combo.addItems([field_label(f) for f in fields])
@@ -290,13 +308,19 @@ class GatewayRuleDialog(MessageBoxBase):
         self._validate()
 
     def get_rule(self) -> GatewayRule:
+        index = max(self.status_combo.currentIndex(), 0)
+        # 末位是给非预设状态码补的临时条目（issues #65）：读回原值而不是越界/折算。
+        if self._extra_status is not None and index == self.status_combo.count() - 1:
+            status_code = self._extra_status
+        else:
+            status_code = STATUS_CHOICES[index]
         return GatewayRule(
             layer=self._current_layer(),
             policy=self._current_policy(),
             field=self._current_field(),
             logic=_LOGICS[max(self.logic_combo.currentIndex(), 0)],
             value=self.value_edit.text().strip(),
-            status_code=STATUS_CHOICES[max(self.status_combo.currentIndex(), 0)],
+            status_code=status_code,
             enabled=self._rule.enabled,
         )
 
