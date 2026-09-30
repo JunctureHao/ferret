@@ -4,9 +4,9 @@ from typing import Any
 
 from PySide6.QtCore import QLocale, QStandardPaths
 from qfluentwidgets import (
-    BoolValidator,
     ConfigItem,
     ConfigSerializer,
+    ConfigValidator,
     EnumSerializer,
     OptionsConfigItem,
     OptionsValidator,
@@ -49,6 +49,39 @@ class LayoutSerializer(ConfigSerializer):
         return Layout(value)
 
 
+class _BoolValidator(ConfigValidator):
+    """非 bool 一律修回构造时声明的默认值。
+
+    qfw 的 ``BoolValidator`` 是 ``OptionsValidator([True, False])``，`correct`
+    把不在 options 里的值修成 ``options[0]`` —— 恰好是 True：JSON 里的 null、
+    ``"false"``、0 加载时都会把默认关闭的开关顶开（ssl_insecure / scripts_enabled
+    首当其冲，issues #88）。这里收紧：合法值原样通过，坏值回各项默认。
+    """
+
+    def __init__(self, default: bool) -> None:
+        self.default = default
+
+    def validate(self, value) -> bool:
+        return isinstance(value, bool)
+
+    def correct(self, value) -> bool:
+        return value if isinstance(value, bool) else self.default
+
+
+class BoolConfigItem(ConfigItem):
+    """布尔配置项：加载坏值回落**本项默认**，而不是 qfw 的「非法值恒变 True」。
+
+    用自定义 validator 而不是改 qfw 产物：qfw 包不动，校验挂钩在
+    `ConfigItem.value` setter 上，``qconfig.load`` → ``deserializeFrom`` →
+    setter 一路都会过它，加载与手改两条路一次收口。
+    """
+
+    def __init__(self, group: str, name: str, default: bool, restart: bool = False):
+        super().__init__(
+            group, name, default, validator=_BoolValidator(default), restart=restart
+        )
+
+
 class Config(QConfig):
     # 应用主题：覆盖 qfluentwidgets 基类的出厂默认（Theme.LIGHT），改为跟随系统。
     # 键名 group/name 必须与基类一致（QFluentWidgets/ThemeMode），否则落盘与
@@ -78,11 +111,10 @@ class Config(QConfig):
         restart=True,
     )
 
-    minimize_to_tray = ConfigItem(
+    minimize_to_tray = BoolConfigItem(
         group="MainWindow",
         name="MinimizeToTray",
         default=False,
-        validator=BoolValidator(),
     )
 
     layout = OptionsConfigItem(
@@ -125,18 +157,16 @@ class Config(QConfig):
     # 原生 Block addon 的来源过滤（mitmproxy/addons/block.py），按**来源 IP 类别**
     # 拒连。默认**不拒公网**：出厂即拦公网会让用户第一次抓外网就莫名连不上，先放行、
     # 让用户按需打开更符合直觉（环回恒放行且不可配）。
-    block_global = ConfigItem(
+    block_global = BoolConfigItem(
         group="Proxy",
         name="BlockGlobal",
         default=False,
-        validator=BoolValidator(),
     )
 
-    block_private = ConfigItem(
+    block_private = BoolConfigItem(
         group="Proxy",
         name="BlockPrivate",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 代理认证（原生 ProxyAuth addon，见 .plans/proxyauth.md）：和上面两个开关同属
@@ -144,11 +174,10 @@ class Config(QConfig):
     # 放行同网段陌生人」这种需求 —— 那正是这里补的洞。
     # 只对 regular / upstream 通道有效；local / wireguard / reverse 接通期间自动让路
     # （MitmRuntime._effective_proxyauth），意图值照常保留。
-    proxyauth_enabled = ConfigItem(
+    proxyauth_enabled = BoolConfigItem(
         group="Proxy",
         name="ProxyAuthEnabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 与 upstream_username/password 拆两项存的理由相同，但**约束更严**：原生
@@ -173,18 +202,16 @@ class Config(QConfig):
     # 时开启哪些通道」—— 应用启动本身零抓包动作（内核 regular 空转），所以这里
     # 落盘的是偏好而不是运行态。默认只开系统代理：本地重定向要提权装驱动、
     # WireGuard 要开 UDP 端口，都不该在用户没点之前替他决定。
-    system_proxy_enabled = ConfigItem(
+    system_proxy_enabled = BoolConfigItem(
         group="Proxy",
         name="SystemProxyEnabled",
         default=True,
-        validator=BoolValidator(),
     )
 
-    local_enabled = ConfigItem(
+    local_enabled = BoolConfigItem(
         group="Proxy",
         name="LocalEnabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 本地重定向的进程过滤串，语法同上游 `local:` spec（进程名 / PID，逗号分隔，
@@ -195,21 +222,19 @@ class Config(QConfig):
         default="",
     )
 
-    wireguard_enabled = ConfigItem(
+    wireguard_enabled = BoolConfigItem(
         group="Proxy",
         name="WireGuardEnabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 反向代理通道（.plans/reverse-mode.md）：把 ferret 架在目标服务前面，客户端
     # 直连本监听口即被捕获。意图值落盘、接通位不落盘，与三条既有通道同一语义。
     # 默认关且目标为空——与 local/wireguard 不同，它需要一个显式目标才有意义。
-    reverse_enabled = ConfigItem(
+    reverse_enabled = BoolConfigItem(
         group="Proxy",
         name="ReverseEnabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 伪装的目标服务，只接受 http(s)://host[:port]（提交前有前置校验，坏值过
@@ -233,11 +258,10 @@ class Config(QConfig):
     # SOCKS5 入站通道（.plans/0-socks5-channel.md）：独立端口的 SOCKS5 代理，给只认
     # SOCKS5 的客户端（移动端 App、部分 CLI）接入。意图值落盘、接通位不落盘，与
     # 四通道同一语义。默认关。监听地址跟随全局 listen_host（D2）。
-    socks5_enabled = ConfigItem(
+    socks5_enabled = BoolConfigItem(
         group="Proxy",
         name="Socks5Enabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # SOCKS5 通道的独立监听端口，默认 1080（SOCKS5 惯例，D1）。与 reverse_port
@@ -253,11 +277,10 @@ class Config(QConfig):
     # 只把系统代理这条通道的出口从直连改成「先交给上游代理」。企业强制代理、链式
     # 抓包（ferret → Burp/Charles）、出口 IP 池都靠它。意图值落盘、接通位不落盘，
     # 与四条通道同一语义。默认关且目标为空——它需要一个显式目标才有意义。
-    upstream_enabled = ConfigItem(
+    upstream_enabled = BoolConfigItem(
         group="Proxy",
         name="UpstreamEnabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 上游代理地址，只接受 host[:port] 或 http(s)://host[:port]，**不能带
@@ -300,11 +323,10 @@ class Config(QConfig):
 
     # 解析时查操作系统 hosts 文件（原生默认 True，开关方向不反转 —— 呈现语义
     # 就是「解析时查 hosts」）。
-    dns_use_hosts_file = ConfigItem(
+    dns_use_hosts_file = BoolConfigItem(
         group="Proxy",
         name="DnsUseHostsFile",
         default=True,
-        validator=BoolValidator(),
     )
 
     # 上游 TLS 信任三选项（.plans/upstream-tls.md）：原生 tlsconfig 的 ssl_* 与
@@ -312,11 +334,10 @@ class Config(QConfig):
     # 语义天然一致 —— 全局偏好，不设让路、不随通道回滚。
     # 不校验上游服务器证书（原生默认 False）。顺带打开不安全重协商
     # （tlsconfig.py 把它同时喂给 legacy_server_connect），文案已写明。
-    ssl_insecure = ConfigItem(
+    ssl_insecure = BoolConfigItem(
         group="Proxy",
         name="SslInsecure",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 额外信任的 CA 证书文件路径（.pem / .crt / .cer），留空 = 只认公共根。
@@ -333,11 +354,10 @@ class Config(QConfig):
     # 向客户端拼接上游真实证书链（原生默认 False）。给做了证书锁定的 App 用，
     # 与前两项正交 —— 下发时必须一并带上 upstream_cert=True，否则原生
     # Core.configure 抛 OptionsError（见 core/mitm/runtime.py::ssl_option_updates）。
-    add_upstream_certs_to_client_chain = ConfigItem(
+    add_upstream_certs_to_client_chain = BoolConfigItem(
         group="Proxy",
         name="UpstreamCertsToClientChain",
         default=False,
-        validator=BoolValidator(),
     )
 
     # mTLS 客户端证书路径（.plans/mtls-client-certs.md）：空串 = 未启用。
@@ -364,11 +384,10 @@ class Config(QConfig):
 
     # 网关总开关。关掉之后所有规则一律不判，挂起中的流量立刻放行。
     # 默认**关**：各功能一律默认不启用，由用户在界面显式打开。
-    gateway_enabled = ConfigItem(
+    gateway_enabled = BoolConfigItem(
         group="Gateway",
         name="Enabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 重写规则，存 list[dict]（见 core/mitm/rewrite.py 的 RewriteRule.to_dict）。
@@ -383,11 +402,10 @@ class Config(QConfig):
     # 重写总开关。关掉之后所有重写规则一律不生效，流量原样转发。默认**开**：
     # 规则表出厂为空、零副作用，开与不开等价；落盘是为了与网关/断点/脚本/Mock
     # 四个总开关同一口径 —— 重启后保持用户上次的开关状态。
-    rewrite_enabled = ConfigItem(
+    rewrite_enabled = BoolConfigItem(
         group="Rewrite",
         name="Enabled",
         default=True,
-        validator=BoolValidator(),
     )
 
     # 用户脚本清单，存 list[dict]（见 core/mitm/scripts.py 的 ScriptEntry.to_dict）。
@@ -402,32 +420,29 @@ class Config(QConfig):
     # 脚本总开关。关掉之后所有脚本一律不装载、不参与流量处理。默认**关**：脚本以
     # 应用同等权限执行，一启动就全跑起来风险太大，由用户显式打开（各功能一律默认
     # 不启用，与网关/断点同一姿态）。
-    scripts_enabled = ConfigItem(
+    scripts_enabled = BoolConfigItem(
         group="Scripts",
         name="Enabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 固定会话总开关（原生 StickyCookie / StickyAuth 两个 addon，见
     # core/mitm/runtime.py）。默认**关**：开启会改写实时抓取所见的请求头（代理侧
     # 补 Cookie / Authorization），与「抓包应如实转发原件」冲突 —— 验证「客户端
     # 到底传不传」时开着它会得到被代理污染的假象。
-    sticky_session_enabled = ConfigItem(
+    sticky_session_enabled = BoolConfigItem(
         group="Rewrite",
         name="StickySessionEnabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 无缓存·明文（原生 anticache + anticomp 两个 addon，见 core/mitm/runtime.py）。
     # 默认关：开着会改写请求头（删条件缓存头 + 改 Accept-Encoding=identity），
     # 与「抓包应如实转发原件」冲突。合成一个开关，两个 option 同开同关。
-    anticache_plaintext = ConfigItem(
+    anticache_plaintext = BoolConfigItem(
         group="Rewrite",
         name="AnticachePlaintext",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 协议层两开关（.plans/2-protocol-switches.md）：原生 http2 / http3 布尔选项。
@@ -435,18 +450,16 @@ class Config(QConfig):
     # HTTP/1.1 行式可读、h3 → 客户端回落 TCP 解决 QUIC/UDP 抓不到），不是「如实
     # 转发」问题，故默认值方向与 sticky / anticache 相反。开关方向不反转（呈现
     # 语义 = 落盘语义 = 「启用」），与 dns_use_hosts_file 同款理由。
-    http2_enabled = ConfigItem(
+    http2_enabled = BoolConfigItem(
         group="Proxy",
         name="Http2Enabled",
         default=True,
-        validator=BoolValidator(),
     )
 
-    http3_enabled = ConfigItem(
+    http3_enabled = BoolConfigItem(
         group="Proxy",
         name="Http3Enabled",
         default=True,
-        validator=BoolValidator(),
     )
 
     # 断点规则，存 list[dict]（见 core/mitm/intercept.py 的 InterceptRule.to_dict）。
@@ -460,11 +473,10 @@ class Config(QConfig):
 
     # 断点总开关。默认**关**：断点会把客户端连接一直钉住等人处理，一启动就生效
     # 等于用户还没看见界面、流量就先卡住了（重写、网关都是无人值守的，断点不是）。
-    intercept_enabled = ConfigItem(
+    intercept_enabled = BoolConfigItem(
         group="Intercept",
         name="Enabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # mock 响应池（.plans/0-server-playback.md）：原生 ServerPlayback 的旋钮。
@@ -472,11 +484,10 @@ class Config(QConfig):
     # 存开关与匹配行为。默认全按「GUI mock 语义」取值，与原生出厂值两处刻意不同：
     # reuse=True（原生默认 False 是消耗式，池耗尽后未命中策略跟着失效、流量静默
     # 直连，GUI 用户不可感知）；extra="forward" 保持原生默认。
-    mock_enabled = ConfigItem(
+    mock_enabled = BoolConfigItem(
         group="Mock",
         name="Enabled",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 未命中策略（原生 server_replay_extra 的 choices，多一个不许少一个不行 ——
@@ -488,27 +499,24 @@ class Config(QConfig):
         validator=OptionsValidator(["forward", "kill", "204", "400", "404", "500"]),
     )
 
-    mock_reuse = ConfigItem(
+    mock_reuse = BoolConfigItem(
         group="Mock",
         name="Reuse",
         default=True,
-        validator=BoolValidator(),
     )
 
     # 命中后刷新日期/Expires/Last-Modified 头与 Cookie 过期（原生默认 True）。
-    mock_refresh = ConfigItem(
+    mock_refresh = BoolConfigItem(
         group="Mock",
         name="Refresh",
         default=True,
-        validator=BoolValidator(),
     )
 
     # —— 高级匹配（原生哈希粒度选项；变更时原生 configure 自动重算哈希）——
-    mock_ignore_host = ConfigItem(
+    mock_ignore_host = BoolConfigItem(
         group="Mock",
         name="IgnoreHost",
         default=False,
-        validator=BoolValidator(),
     )
 
     # 两个列表项与 block_list 同一个坑：QConfig.set 开头 `if item.value == value:
