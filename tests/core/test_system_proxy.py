@@ -32,12 +32,13 @@ class WiringTests(unittest.TestCase):
         controller.deleteLater()
 
     def test_the_error_mapping_covers_every_package_constant(self) -> None:
-        """包的对账常量缺一条，界面上那条错误就会原样冒英文。"""
+        """包的对账常量缺一条，界面上那条错误就会原样冒英文。
+
+        左侧按 ``ERR_`` 前缀枚举包的实际导出（#63）：手写常量名的话，包新增
+        第五个常量时这里照样绿，映射缺口要到用户看到英文错误才被发现。
+        """
         constants = {
-            sysproxy.ERR_INVALID_ADDRESS,
-            sysproxy.ERR_RESTORE_FAILED,
-            sysproxy.ERR_SET_FAILED,
-            sysproxy.ERR_OWNER_ACTIVE,
+            getattr(sysproxy, name) for name in dir(sysproxy) if name.startswith("ERR_")
         }
         self.assertEqual(constants, set(_SYSTEM_PROXY_ERRORS))
 
