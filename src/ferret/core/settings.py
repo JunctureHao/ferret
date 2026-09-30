@@ -1,3 +1,5 @@
+import logging
+import shutil
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -554,12 +556,53 @@ class Config(QConfig):
     )
 
 
-def get_config_dir() -> Path:
-    d = Path(
+# 历史版本用 AppConfigLocation（%LocalAppData%\Ferret），与 Velopack 安装根
+# （%LocalAppData%\<packId>，scripts/package.py 的 PACK_ID 同为 "Ferret"）撞车：
+# 覆盖重装 / 卸载会整个替换该根，CA、会话、脚本连锅端，之后 mitmproxy 静默生成新
+# CA、系统信任的还是旧的那张 → STALE「证书失效」。Roaming 在 Velopack 领地之外，
+# 官方也建议要活过卸载的数据放那里。旧根同时是 Velopack 工作目录，只搬走自己的
+# 数据项，绝不整目录删除。
+_LEGACY_CONFIG_ITEMS = (
+    CONFIG_NAME,
+    "certs",
+    "sessions",
+    "scripts",
+    "mock_pool.flow",
+    "system-proxy-state.json",
+)
+
+
+def _migrate_legacy_config_dir(new_dir: Path) -> None:
+    """把 AppConfigLocation 时代的自有数据一次性搬到 Roaming（幂等，不覆盖新数据）。"""
+    old_dir = Path(
         QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.AppConfigLocation
         )
     )
+    if old_dir == new_dir or not old_dir.is_dir():
+        return
+    candidates = [old_dir / name for name in _LEGACY_CONFIG_ITEMS]
+    candidates.extend(old_dir.glob("ferret.log*"))
+    for src in candidates:
+        dst = new_dir / src.name
+        if not src.exists() or dst.exists():
+            continue
+        try:
+            new_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dst))
+        except OSError as exc:
+            logging.getLogger("ferret.settings").warning(
+                "旧配置目录迁移失败 %s: %s", src, exc
+            )
+
+
+def get_config_dir() -> Path:
+    d = Path(
+        QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppDataLocation
+        )
+    )
+    _migrate_legacy_config_dir(d)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
