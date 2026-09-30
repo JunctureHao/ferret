@@ -161,13 +161,16 @@ class UrlMergeTests(ComposeInterfaceTestCase):
         self.page.params_card.set_items([("page", "2")])
         self.page.headers_card.set_items([("token", "t"), ("", "x")])
         self.page.body_panel.set_text('{"a": 1}')
+        # set_text 是程序化装载，不算用户编辑；体内容走用户编辑路径（changed 信号）。
+        self.page.body_panel.changed.emit()
         self.page._on_send()
 
         call = self.controller.calls[0]
         self.assertEqual(call[1], "GET")
         self.assertEqual(call[2], "https://api.example.com/v1?page=2")
         self.assertEqual(call[3], (("token", "t"),))
-        self.assertEqual(call[4], '{"a": 1}')
+        # 体恒为字节（编辑过的文本按 UTF-8 编码；未编辑直通原 bytes）。
+        self.assertEqual(call[4], b'{"a": 1}')
         self.assertTrue(call[5])  # 默认记录流量
 
     def test_disabling_recording_is_passed_to_the_controller(self) -> None:

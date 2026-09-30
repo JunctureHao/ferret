@@ -206,6 +206,14 @@ class ComposeInterface(QWidget):
         # 二进制体直通：prefill 进非 UTF-8 内容时锁只读，原始字节存这里原样发出。
         self._raw_body: bytes = b""
         self._binary = False
+        # 「没动过就原样发」的三处脏标记（断点面板 `_body_dirty` 同一思路）：
+        # QTextDocument 会把 \r\n 归一成 \n、合并参数会重编码 query —— 未编辑的
+        # 内容必须绕开这两条有损路径原样送达。_loading_form 挡住 prefill 的
+        # setText 自己触发的 textChanged（程序化装载不是用户编辑）。
+        self._body_dirty = False
+        self._url_dirty = False
+        self._params_dirty = False
+        self._loading_form = False
 
         self.url_edit = LineEdit(self)
         self.url_edit.setPlaceholderText("https://example.com/api")
@@ -271,6 +279,7 @@ class ComposeInterface(QWidget):
         # 请求头(N)：条数挂标签，随编辑实时变（参数变化实时写回 URL，见下）。
         self.headers_card.changed.connect(self._update_header_count)
         self.params_card.changed.connect(self._sync_params_to_url)
+        self.params_card.changed.connect(self._on_params_edited)
         self._update_header_count()
 
         # 右侧：响应区。`with_raw=False`：compose 的结果不需要原始报文兜底，
@@ -357,6 +366,8 @@ class ComposeInterface(QWidget):
         self.paste_curl_btn.clicked.connect(self._on_paste_curl)
         self.url_edit.returnPressed.connect(self._on_send)
         self.body_kind_combo.currentIndexChanged.connect(self._sync_body_kind)
+        self.url_edit.textChanged.connect(self._on_url_edited)
+        self.body_panel.changed.connect(self._on_body_edited)
         self.controller.sending_changed.connect(self._on_sending_changed)
         self.controller.result_ready.connect(self._on_result)
         self.controller.send_failed.connect(self._on_send_failed)
@@ -385,6 +396,20 @@ class ComposeInterface(QWidget):
         self.request_panel.setTabText(
             "Headers", self.tr("请求头 ({count})").format(count=count)
         )
+
+    @Slot()
+    def _on_url_edited(self) -> None:
+        if not self._loading_form:
+            self._url_dirty = True
+
+    @Slot()
+    def _on_params_edited(self) -> None:
+        if not self._loading_form:
+            self._params_dirty = True
+
+    @Slot()
+    def _on_body_edited(self) -> None:
+        self._body_dirty = True
 
     @Slot()
     def _sync_params_to_url(self) -> None:
@@ -427,7 +452,14 @@ class ComposeInterface(QWidget):
 
     def _collect_url(self) -> str:
         """发送时的 URL = URL 栏 + 参数页合并。参数页是权威 query：编辑页语义上
-        「参数」就是 URL 的查询串，两边各存一份只会互相打脸。"""
+        「参数」就是 URL 的查询串，两边各存一份只会互相打脸。
+
+        未编辑保真（issues #78）：URL 栏与参数页都没动过时整串原样返回，不走
+        parse_qsl/urlencode 的重编码路径 —— `?q=a%20b&flag` 重排成 `q=a+b&flag=`
+        会让签名类参数失效。编辑过才合并（端口规范见 `_merge_query`）。
+        """
+        if not self._url_dirty and not self._params_dirty:
+            return self.url_edit.text()
         return self._merge_query(self.url_edit.text().strip(), self.params_card.items())
 
     def _set_method(self, method: str) -> None:
@@ -446,20 +478,30 @@ class ComposeInterface(QWidget):
         静默覆盖正在编辑的内容：compose 页没有「未保存草稿」概念，加确认框
         成本大于收益。响应区复位——旧结果不属于这张新表单。
         """
-        self._set_method(edit.method)
-        self.url_edit.setText(edit.url)
-        # query 拆进参数页（断点面板 `RequestPanel.load` 同款）：URL 栏留整串，
-        # 参数页是权威源，发送时再合并回去。
-        parts = urlsplit(edit.url)
-        self.params_card.set_items(parse_qsl(parts.query, keep_blank_values=True))
-        self.headers_card.set_items(list(edit.headers))
-        self._load_body(edit.content)
+        # 程序化装载：setText 的 textChanged 不算用户编辑，脏标记全部归零。
+        self._loading_form = True
+        try:
+            self._set_method(edit.method)
+            self.url_edit.setText(edit.url)
+            # query 拆进参数页（断点面板 `RequestPanel.load` 同款）：URL 栏留整串，
+            # 参数页是权威源，发送时再合并回去。
+            parts = urlsplit(edit.url)
+            self.params_card.set_items(parse_qsl(parts.query, keep_blank_values=True))
+            self.headers_card.set_items(list(edit.headers))
+            self._load_body(edit.content)
+            self._body_dirty = False
+            self._url_dirty = False
+            self._params_dirty = False
+        finally:
+            self._loading_form = False
         self.response_stack.setCurrentWidget(self.empty_hint)
         if not self._sending:
             self._set_waiting(False)
 
-    def _load_body(self, content: bytes) -> None:
+    def _load_body(self, content: bytes | None) -> None:
         """UTF-8 可解码 → 进编辑器；不可解码 → 二进制锁，原样直通发送。"""
+        # None 只在类型上可能（`RequestEdit.content` 的「未编辑」值），等价空体。
+        content = content or b""
         self._raw_body = content
         try:
             text = content.decode("utf-8")
@@ -512,9 +554,20 @@ class ComposeInterface(QWidget):
             method,
             url,
             self._collect_headers(),
-            self._raw_body if self._binary else self.body_panel.plain_text(),
+            self._body_content(),
             record=self.record_btn.isChecked(),
         )
+
+    def _body_content(self) -> bytes:
+        """发送的体字节。未编辑（或改回了原文）一律走 `_raw_body`：QTextDocument
+        把 \\r\\n 归一成 \\n，multipart 边界、签名正文里的 CRLF 经不得这条有损路径
+        （issues #77）。只有真编辑过的文本体才按 UTF-8 编码发出。"""
+        if self._binary or not self._body_dirty:
+            return self._raw_body
+        text = self.body_panel.plain_text()
+        if text.encode("utf-8") == self._raw_body:
+            return self._raw_body
+        return text.encode("utf-8")
 
     @Slot(bool)
     def _on_sending_changed(self, sending: bool):
