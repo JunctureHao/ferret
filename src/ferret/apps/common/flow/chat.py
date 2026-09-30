@@ -93,6 +93,9 @@ class Bubble(CardWidget):
         self.setBorderRadius(8)
 
         self.content_label = BodyLabel(content, self)
+        # 协议原文按纯文本承载：QLabel 默认 AutoText，SSE 事件 / WS 帧里一个
+        # `<b>` 就会被当富文本渲染、选中复制还丢标签（issues #87）。
+        self.content_label.setTextFormat(Qt.TextFormat.PlainText)
         self.content_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
@@ -183,7 +186,9 @@ class SystemNote(QFrame):
     def __init__(self, text: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("ChatSystemNote")
+        # 心跳注释 / 关闭原因都是线上原文，同 Bubble 一样锁纯文本（issues #87）。
         self.label = CaptionLabel(text, self)
+        self.label.setTextFormat(Qt.TextFormat.PlainText)
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 4, 12, 4)

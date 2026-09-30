@@ -919,6 +919,9 @@ class FieldCard(QWidget):
 
     def __value(self, row: Row) -> BodyLabel:
         label = BodyLabel(row.value, self.view)
+        # 值列承载协议原文与用户备注，锁纯文本：AutoText 会把 `<b>` 之类渲染成
+        # 富文本、选中复制丢标签（issues #87）。
+        label.setTextFormat(Qt.TextFormat.PlainText)
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         if row.mono:

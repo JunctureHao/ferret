@@ -23,9 +23,11 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.test import tflow
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from ferret.apps.common.flow.chat import MAX_COLLAPSED_HEIGHT, Bubble, SystemNote
+from ferret.apps.common.flow.fields import Field, FieldCard, Section
 from ferret.apps.common.flow.messages import (
     HEX_DUMP_LIMIT,
     MESSAGE_ROW_LIMIT,
@@ -902,3 +904,34 @@ class ModeSelectionTests(unittest.TestCase):
         """表格双击传过来的可能只有几个键。"""
         self.pane.set_data({"Method": "GET", "URL": "https://x/y"})
         self.assertFalse(self.pane.applicable)
+
+class PlainTextRenderingTests(unittest.TestCase):
+    """协议原文按纯文本承载（issues #87）：QLabel 默认 AutoText 会把 `<b>` 渲染成
+    富文本，选中复制还丢标签 —— 气泡 / 系统条 / 字段卡三处一律锁 PlainText。"""
+
+    MARKUP = "<b>KEEP-TAGS</b>"
+
+    def test_a_bubble_carries_protocol_text_as_plain_text(self) -> None:
+        bubble = Bubble(self.MARKUP, align_right=False)
+        self.assertEqual(bubble.content_label.textFormat(), Qt.TextFormat.PlainText)
+        self.assertEqual(bubble.content_label.text(), self.MARKUP)
+
+    def test_a_system_note_carries_protocol_text_as_plain_text(self) -> None:
+        note = SystemNote(": " + self.MARKUP, None)
+        self.assertEqual(note.label.textFormat(), Qt.TextFormat.PlainText)
+        self.assertEqual(note.label.text(), ": " + self.MARKUP)
+
+    def test_a_field_card_value_is_plain_text(self) -> None:
+        section = Section(title="X", fields=(Field("备注", "comment"),))
+        card = FieldCard(section)
+        card.set_data({"comment": self.MARKUP})
+        rows = card.rows()
+        self.assertTrue(rows)
+        for row in rows:
+            if row.heading:
+                continue
+            self.assertEqual(row.value, self.MARKUP)
+
+
+if __name__ == "__main__":
+    unittest.main()
