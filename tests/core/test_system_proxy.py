@@ -37,6 +37,7 @@ class WiringTests(unittest.TestCase):
             sysproxy.ERR_INVALID_ADDRESS,
             sysproxy.ERR_RESTORE_FAILED,
             sysproxy.ERR_SET_FAILED,
+            sysproxy.ERR_OWNER_ACTIVE,
         }
         self.assertEqual(constants, set(_SYSTEM_PROXY_ERRORS))
 

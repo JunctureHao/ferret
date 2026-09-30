@@ -161,45 +161,50 @@
 <context>
     <name>CaptureController</name>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="39"/>
+        <location filename="../../apps/capture/controllers.py" line="40"/>
         <source>无效的系统代理地址</source>
         <translation>Invalid system proxy address</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="40"/>
-        <location filename="../../apps/capture/controllers.py" line="385"/>
-        <location filename="../../apps/capture/controllers.py" line="740"/>
+        <location filename="../../apps/capture/controllers.py" line="41"/>
+        <location filename="../../apps/capture/controllers.py" line="390"/>
+        <location filename="../../apps/capture/controllers.py" line="745"/>
         <source>恢复原系统代理失败</source>
         <translation>Failed to restore the original system proxy</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="41"/>
+        <location filename="../../apps/capture/controllers.py" line="42"/>
         <source>设置系统代理失败</source>
         <translation>Setting the system proxy failed</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="50"/>
+        <location filename="../../apps/capture/controllers.py" line="43"/>
+        <source>另一个正在运行的 Ferret 实例已接管系统代理，请先在那边停止抓包</source>
+        <translation>Another running Ferret instance already owns the system proxy; stop capturing there first</translation>
+    </message>
+    <message>
+        <location filename="../../apps/capture/controllers.py" line="55"/>
         <source>本地重定向需要管理员授权（UAC）</source>
         <translation>The local redirector needs administrator approval (UAC)</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="57"/>
+        <location filename="../../apps/capture/controllers.py" line="62"/>
         <source>本地重定向已在运行</source>
         <translation>The local redirector is already running</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="61"/>
+        <location filename="../../apps/capture/controllers.py" line="66"/>
         <source>WireGuard 隧道启动失败</source>
         <translation>The WireGuard tunnel could not be started</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="68"/>
-        <location filename="../../apps/capture/controllers.py" line="72"/>
+        <location filename="../../apps/capture/controllers.py" line="73"/>
+        <location filename="../../apps/capture/controllers.py" line="77"/>
         <source>端口被占用，请换一个端口</source>
         <translation>The port is in use; pick another port</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="799"/>
+        <location filename="../../apps/capture/controllers.py" line="804"/>
         <source>mitmproxy 内核已停止</source>
         <translation>The mitmproxy core has stopped</translation>
     </message>
@@ -4161,80 +4166,80 @@
 <context>
     <name>MitmFacade</name>
     <message>
-        <location filename="../../core/mitm/facade.py" line="63"/>
+        <location filename="../../core/mitm/facade.py" line="66"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="279"/>
+        <location filename="../../core/mitm/facade.py" line="309"/>
         <source>无法写入 WireGuard 密钥文件：{}</source>
         <translation>Cannot write the WireGuard key file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="290"/>
+        <location filename="../../core/mitm/facade.py" line="320"/>
         <source>WireGuard 密钥文件已损坏，删除 {} 后重试</source>
         <translation>The WireGuard key file is corrupt; delete {} and try again</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="694"/>
+        <location filename="../../core/mitm/facade.py" line="724"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="660"/>
-        <location filename="../../core/mitm/facade.py" line="745"/>
+        <location filename="../../core/mitm/facade.py" line="690"/>
+        <location filename="../../core/mitm/facade.py" line="775"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="855"/>
-        <location filename="../../core/mitm/facade.py" line="1045"/>
+        <location filename="../../core/mitm/facade.py" line="885"/>
+        <location filename="../../core/mitm/facade.py" line="1079"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1052"/>
+        <location filename="../../core/mitm/facade.py" line="1086"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1057"/>
-        <location filename="../../core/mitm/facade.py" line="1130"/>
+        <location filename="../../core/mitm/facade.py" line="1091"/>
+        <location filename="../../core/mitm/facade.py" line="1164"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1077"/>
+        <location filename="../../core/mitm/facade.py" line="1111"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1101"/>
+        <location filename="../../core/mitm/facade.py" line="1135"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1103"/>
+        <location filename="../../core/mitm/facade.py" line="1137"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1107"/>
+        <location filename="../../core/mitm/facade.py" line="1141"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1144"/>
+        <location filename="../../core/mitm/facade.py" line="1178"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1251"/>
+        <location filename="../../core/mitm/facade.py" line="1298"/>
         <source>无法读取 Flow 文件：{}</source>
         <translation>Cannot read flow file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1310"/>
+        <location filename="../../core/mitm/facade.py" line="1357"/>
         <source>无法写入文件：{}</source>
         <translation>Cannot write file: {}</translation>
     </message>
@@ -5976,37 +5981,37 @@
         <translation>Operation failed</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="186"/>
+        <location filename="../../apps/session/controllers.py" line="191"/>
         <source>会话已保存</source>
         <translation>Session saved</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="200"/>
+        <location filename="../../apps/session/controllers.py" line="205"/>
         <source>会话已导入</source>
         <translation>Session imported</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="233"/>
+        <location filename="../../apps/session/controllers.py" line="238"/>
         <source>会话已重命名</source>
         <translation>Session renamed</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="252"/>
+        <location filename="../../apps/session/controllers.py" line="257"/>
         <source>会话已删除</source>
         <translation>Session deleted</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="267"/>
+        <location filename="../../apps/session/controllers.py" line="272"/>
         <source>会话已导出</source>
         <translation>Session exported</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="290"/>
+        <location filename="../../apps/session/controllers.py" line="295"/>
         <source>部分会话导出失败</source>
         <translation>Some sessions failed to export</translation>
     </message>
     <message>
-        <location filename="../../apps/session/controllers.py" line="294"/>
+        <location filename="../../apps/session/controllers.py" line="299"/>
         <source>已导出 {} 个会话</source>
         <translation>Exported {} sessions</translation>
     </message>
@@ -6177,13 +6182,13 @@
     </message>
     <message>
         <location filename="../../apps/session/services.py" line="144"/>
-        <location filename="../../apps/session/services.py" line="164"/>
+        <location filename="../../apps/session/services.py" line="174"/>
         <source>会话不存在: {}</source>
         <translation>Session not found: {}</translation>
     </message>
     <message>
         <location filename="../../apps/session/services.py" line="154"/>
-        <location filename="../../apps/session/services.py" line="181"/>
+        <location filename="../../apps/session/services.py" line="191"/>
         <source>会话文件不存在: {}</source>
         <translation>Session file not found: {}</translation>
     </message>
@@ -6576,12 +6581,12 @@
 <context>
     <name>WireGuardConfigDialog</name>
     <message>
-        <location filename="../../apps/capture/views.py" line="2193"/>
+        <location filename="../../apps/capture/views.py" line="2194"/>
         <source>WireGuard 客户端配置</source>
         <translation>WireGuard client configuration</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/views.py" line="2199"/>
+        <location filename="../../apps/capture/views.py" line="2200"/>
         <source>在设备的 WireGuard 应用中导入此配置；该设备的全部流量将经由 Ferret。</source>
         <translation>Import this profile in the WireGuard app on your device; it routes all of that device&apos;s traffic through Ferret.</translation>
     </message>

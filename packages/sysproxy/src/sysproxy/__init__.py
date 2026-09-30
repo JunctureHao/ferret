@@ -7,6 +7,7 @@ from sysproxy.backends import (
 from sysproxy.models import ProxyEndpoint, ProxySnapshot
 from sysproxy.service import (
     ERR_INVALID_ADDRESS,
+    ERR_OWNER_ACTIVE,
     ERR_RESTORE_FAILED,
     ERR_SET_FAILED,
     SystemProxyService,
@@ -14,6 +15,7 @@ from sysproxy.service import (
 
 __all__ = [
     "ERR_INVALID_ADDRESS",
+    "ERR_OWNER_ACTIVE",
     "ERR_RESTORE_FAILED",
     "ERR_SET_FAILED",
     "ProxyEndpoint",

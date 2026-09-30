@@ -9,6 +9,7 @@ from typing import Any
 from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal
 from sysproxy import (
     ERR_INVALID_ADDRESS,
+    ERR_OWNER_ACTIVE,
     ERR_RESTORE_FAILED,
     ERR_SET_FAILED,
     SystemProxyService,
@@ -39,6 +40,10 @@ _SYSTEM_PROXY_ERRORS = {
     ERR_INVALID_ADDRESS: QT_TRANSLATE_NOOP("CaptureController", "无效的系统代理地址"),
     ERR_RESTORE_FAILED: QT_TRANSLATE_NOOP("CaptureController", "恢复原系统代理失败"),
     ERR_SET_FAILED: QT_TRANSLATE_NOOP("CaptureController", "设置系统代理失败"),
+    ERR_OWNER_ACTIVE: QT_TRANSLATE_NOOP(
+        "CaptureController",
+        "另一个正在运行的 Ferret 实例已接管系统代理，请先在那边停止抓包",
+    ),
 }
 
 # local / wireguard 通道的启动失败没有异常类型可对账（原生 proxyserver 把实例
