@@ -438,21 +438,30 @@ class RequestEdit:
     flow 上 —— 中间不夹带任何 flow / Master 引用，所以不碰「Qt 线程不许读写 flow」
     那条红线。头用**有序键值对序列**而不是 dict：重复的 ``Cookie`` / ``Set-Cookie``
     完全合法，dict 会把重名的挤掉。
+
+    ``content`` 为 ``None`` 表示「体没动过」：写回时整段跳过，不重设 —— 通用
+    setter 会按体长重算 Content-Length，对 HEAD 这类请求是不存在的语义（#89），
+    对二进制体还省一次解压→回压的往返。
     """
 
     method: str
     url: str
     headers: Sequence[tuple[str, str]]
-    content: bytes
+    content: bytes | None
 
 
 @dataclass(frozen=True, slots=True)
 class ResponseEdit:
-    """A response as edited in the UI (see :class:`RequestEdit`)."""
+    """A response as edited in the UI (see :class:`RequestEdit`).
+
+    ``content=None`` 对无正文响应（HEAD/204/304）尤其要紧：这些响应的
+    ``Content-Length`` 由源站赋予长度语义，`response.content = b""` 会把它清成
+    0，原样跳过才是「未编辑保真」（#89）。
+    """
 
     status_code: int
     headers: Sequence[tuple[str, str]]
-    content: bytes
+    content: bytes | None
     reason: str = ""
 
 
@@ -548,7 +557,9 @@ def apply_request_edit(flow: HTTPFlow, edit: RequestEdit) -> None:
     # ``content-length``。反过来先写体，改过的 content-encoding 就作用不到了，
     # 而 Content-Length 手写更是明令禁止的（原生自己算）。
     request.headers = headers
-    request.content = edit.content
+    if edit.content is not None:
+        # None = 体没动过：整段跳过，线上原字节与 Content-Length 原样保留（#89）。
+        request.content = edit.content
 
 
 def apply_response_edit(flow: HTTPFlow, edit: ResponseEdit) -> None:
@@ -565,7 +576,10 @@ def apply_response_edit(flow: HTTPFlow, edit: ResponseEdit) -> None:
     response.status_code = status_code
     response.reason = edit.reason or status_codes.RESPONSES.get(status_code, "")
     response.headers = headers  # 同上，头先于体
-    response.content = edit.content
+    if edit.content is not None:
+        # None = 体没动过。HEAD/304 的 Content-Length 描述的是「对应表示」的长度，
+        # `response.content = b""` 会被通用 setter 清成 0 —— 未编辑绝不重写（#89）。
+        response.content = edit.content
 
 
 def fake_response(flow: HTTPFlow, edit: ResponseEdit) -> None:
@@ -589,7 +603,9 @@ def fake_response(flow: HTTPFlow, edit: ResponseEdit) -> None:
     headers = _build_headers(edit.headers)
     flow.backup()
     # `Response.make` 会补 reason 和 content-length，比自己拼 Response 稳。
-    response = Response.make(status_code, edit.content, headers)
+    # 这里没有「未编辑」可言：None 就是空体，与改动前的 b"" 同一产物。
+    content = edit.content if edit.content is not None else b""
+    response = Response.make(status_code, content, headers)
     if edit.reason:
         response.reason = edit.reason
     flow.response = response

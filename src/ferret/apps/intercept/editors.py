@@ -7,13 +7,13 @@
 组件与流量详情面板是同一批类：标签容器 `TabPanel`、键值 `ItemDualPanel`（editable
 档）、体 `JsonDualPanel` —— 断点这边只是 tab 更少（请求：参数/请求头/请求体；响应：
 响应头/响应体）加一条页头行（方法/URL 或状态码 + 放行/丢弃）。参数页是断点新增的
-结构化 query 编辑：写回时参数页是 query 的权威源，合并进 URL（与 compose 页
-`_collect_url` 的端口规范保持同一套规则）。
+结构化 query 编辑：编辑过才由参数页合并进 URL，没动过则 URL 整串原样写回（与
+compose 页 `_collect_url` 同一条保真规则，端口规范也是同一套）。
 """
 
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from PySide6.QtCore import QCoreApplication, Signal
+from PySide6.QtCore import QCoreApplication, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     CaptionLabel,
@@ -185,11 +185,22 @@ class PhasePanel(QWidget):
         self.body_hint.setVisible(self._binary)
         self.body_panel.set_read_only(self._binary)
 
-    def _body_bytes(self) -> bytes:
-        """写回用的体字节。二进制体与未编辑的体原样返回；编辑过的文本体按 UTF-8 编码。"""
+    def _body_bytes(self) -> bytes | None:
+        """写回用的体字节；``None`` 表示体没动过、写回时整段跳过。
+
+        未编辑跳过而不回写「原值」有两个实测过的理由：QTextDocument 把 ``\\r\\n``
+        归一成 ``\\n``，回写就改坏了 multipart 边界 / 签名正文（#3）；而 HEAD/304
+        这类无正文响应的 Content-Length 说的是「对应表示」的长度而非当前体长，
+        `response.content = b""` 会被通用 setter 清成 0（#89）—— 跳过让长度语义
+        原样保留。二进制体被只读锁锁着本来就不该碰，跳过还省掉一次解压→回压。
+        改回原文与没改等价，一并跳过。
+        """
         if self._binary or not self._body_dirty:
-            return self._raw_body
-        return self.body_panel.plain_text().encode("utf-8")
+            return None
+        text = self.body_panel.plain_text()
+        if text.encode("utf-8") == self._raw_body:
+            return None
+        return text.encode("utf-8")
 
     def _update_header_count(self, count: int) -> None:
         """`请求头(N)` / `响应头(N)`：条数直接挂在标签上，与流量详情页同一语言。
@@ -228,6 +239,14 @@ class RequestPanel(PhasePanel):
 
         self.params_panel = ItemDualPanel(True, self)
 
+        # URL 保真（issues #78）：URL 栏与参数页都没动过时，写回整串原样返回，
+        # 不走 parse_qsl/urlencode 的重编码路径。textChanged 对程序化 setText
+        # 也发，所以装载后再把标记归零（见 load）。
+        self._url_dirty = False
+        self._params_dirty = False
+        self.url_edit.textChanged.connect(self._on_url_edited)
+        self.params_panel.changed.connect(self._on_params_edited)
+
         header = self._build_header(self.method_combo, self.url_edit, stretch_last=True)
 
         self.detail = self._build_detail()
@@ -242,8 +261,16 @@ class RequestPanel(PhasePanel):
         layout.addWidget(header)
         layout.addWidget(self.detail, 1)
 
+    @Slot()
+    def _on_url_edited(self) -> None:
+        self._url_dirty = True
+
+    @Slot()
+    def _on_params_edited(self) -> None:
+        self._params_dirty = True
+
     def load(self, flow: HTTPFlow) -> None:
-        """URL 整串进地址栏，query 同时解析进参数页 —— 写回时参数页说了算。"""
+        """URL 整串进地址栏，query 同时解析进参数页 —— 编辑过才由参数页说了算。"""
         request = flow.request
         # setText 而不是 setCurrentText：后者只认词表内项（findText 落空就静默
         # 不动），词表外方法（PROPFIND 等）会显示成上一条的旧值并照样写回。
@@ -252,6 +279,9 @@ class RequestPanel(PhasePanel):
         parts = urlsplit(request.url)
         self.params_panel.set_items(parse_qsl(parts.query, keep_blank_values=True))
         self._load_message(request)
+        # 程序化装载不是用户编辑：setText 的 textChanged 同步发完了，这里归零。
+        self._url_dirty = False
+        self._params_dirty = False
 
     def edit(self) -> RequestEdit:
         """`apply_request_edit` 那边会校验方法非空、URL 可解析，这里不抢着判。"""
@@ -263,6 +293,11 @@ class RequestPanel(PhasePanel):
         )
 
     def _merge_url(self) -> str:
+        """参数页为 query 权威源；URL 与参数都没动过时整串原样返回（issues #78）：
+        `?q=a%20b&flag` 经 parse_qsl/urlencode 会重排成 `q=a+b&flag=`，签名类
+        参数就废了 —— 没改过的东西不该被「规范化」。"""
+        if not self._url_dirty and not self._params_dirty:
+            return self.url_edit.text()
         return _merge_query(self.url_edit.text().strip(), self.params_panel.items())
 
     def clear(self) -> None:
@@ -270,6 +305,8 @@ class RequestPanel(PhasePanel):
         self.url_edit.clear()
         self.params_panel.set_items([])
         self._clear_message()
+        self._url_dirty = False
+        self._params_dirty = False
 
 
 class ResponsePanel(PhasePanel):

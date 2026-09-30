@@ -258,10 +258,12 @@ class PanelTests(InterceptWindowTestCase):
         self.assertEqual(self.controller.calls, [])
 
     def test_params_merge_into_the_url_on_write_back(self) -> None:
-        """参数页是 query 的权威源：写回时合并进 URL（与 compose 页同一套规则）。"""
+        """参数页是 query 的权威源：编辑过才合并进 URL（与 compose 页同一套规则）。"""
         win = self.window()
         self.controller.emit_flows([flow_to("https://api.example.com/v1?keep=1")])
         win.request_panel.params_panel.set_items([("page", "2"), ("tag", "a b")])
+        # set_items 是程序化装载；合并走用户编辑路径（changed 信号，issues #78）。
+        win.request_panel.params_panel.changed.emit()
         win._on_release()
 
         call = self.controller.calls[0]
@@ -269,6 +271,18 @@ class PanelTests(InterceptWindowTestCase):
         # 合并结果直接读面板的合并函数：FakeController 不存 edit 内容。
         self.assertEqual(
             win.request_panel._merge_url(), "https://api.example.com/v1?page=2&tag=a+b"
+        )
+
+    def test_unedited_url_passes_through_on_write_back(self) -> None:
+        """队列换人也不许重编码没动过的 URL（issues #78）。"""
+        win = self.window()
+        self.controller.emit_flows(
+            [flow_to("https://api.example.com/v1?keep=1&x=a%20b")]
+        )
+        win._on_release()
+        self.assertEqual(
+            win.request_panel._merge_url(),
+            "https://api.example.com/v1?keep=1&x=a%20b",
         )
 
     def test_empty_params_leave_the_url_query_alone(self) -> None:
