@@ -162,6 +162,26 @@ class RecordingImportTests(unittest.TestCase):
         self.assertIsNone(self.master.options.save_stream_file)
         self.assertEqual(self.recording.read_bytes(), before)
 
+    def test_restart_in_the_same_second_gets_a_unique_file(self) -> None:
+        """#74：秒精度文件名 + Save 的 wb 截断，同秒重开会吃掉上一段录制。"""
+        first = self.recording
+        self.facade.stop_capture_recording()
+
+        second = self.facade.start_capture_recording()
+        self.addCleanup(self.facade.stop_capture_recording)
+        self.assertNotEqual(second, first)
+        self.assertTrue(second.exists())  # 占位文件已建（Save 写入前是空的）
+        self._record("/again")
+        self.facade.stop_capture_recording()
+
+        # 第一段的正文原样保留，没有落在第二段的文件里。
+        self.assertEqual(self._recorded_paths(), ["/before"])
+        second_paths = []
+        for flow in FlowFile.read(second):
+            assert isinstance(flow, HTTPFlow)
+            second_paths.append(flow.request.path)
+        self.assertEqual(second_paths, ["/again"])
+
 
 if __name__ == "__main__":
     unittest.main()

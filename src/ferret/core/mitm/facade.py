@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from PySide6.QtCore import QCoreApplication
 
@@ -61,6 +63,33 @@ from ferret.core.settings import get_certs_dir, get_mock_pool_file, get_sessions
 # （`core/application.py` 顶层就 import 了主窗口），译文会永久冻结成英文。
 def _not_running() -> str:
     return QCoreApplication.translate("MitmFacade", "mitmproxy 内核未运行")
+
+
+def _reserve_recording_path(started_at: datetime) -> Path:
+    """唯一且防竞争地占住录制文件名，返回已创建的空占位文件（#74）。
+
+    文件名只有秒精度：同一秒内 stop→start 会撞名，原生 Save 以 wb 重开就把
+    上一段录制整个截掉了；时钟回拨同理。这里先用 ``O_CREAT|O_EXCL`` 把名字
+    抢下来再下发 —— 占位是空文件，Save 随后的 wb 截断等于无操作；名字被占
+    就加 ``-2``/``-3`` 后缀重试（同名越多后缀越大），极端密集才退到 uuid。
+
+    占位后没能真正开录的空文件由调用方删除，录制期间无数据的空文件由
+    ``stop_capture_recording`` 的空文件清理兜底。
+    """
+    directory = get_sessions_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = f"capture-{started_at:%Y%m%d-%H%M%S}"
+    names = [f"{stem}.flow", *(f"{stem}-{n}.flow" for n in range(2, 100))]
+    names.append(f"{stem}-{uuid4().hex[:8]}.flow")
+    for name in names:
+        candidate = directory / name
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        return candidate
+    raise RuntimeError("could not reserve a unique recording path")  # pragma: no cover
 
 
 # 「已标记」写进 `flow.marked` 的值。和原生 `flow.mark.toggle` 用的是同一个
@@ -1018,13 +1047,17 @@ class MitmFacade:
         master = self.runtime.master
         if not self.runtime.is_running or master is None:
             raise RuntimeError(_not_running())
-        started_at = datetime.now().astimezone()
-        path = get_sessions_dir() / f"capture-{started_at:%Y%m%d-%H%M%S}.flow"
-        self.runtime.call(
-            lambda: master.options.update(
-                save_stream_file=str(path), save_stream_filter="~http"
+        path = _reserve_recording_path(datetime.now().astimezone())
+        try:
+            self.runtime.call(
+                lambda: master.options.update(
+                    save_stream_file=str(path), save_stream_filter="~http"
+                )
             )
-        )
+        except BaseException:
+            # 下发失败时把占位空文件删掉，别在会话目录里留垃圾。
+            path.unlink(missing_ok=True)
+            raise
         self._recording_path = path
         return path
 
