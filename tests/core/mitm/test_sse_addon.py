@@ -20,6 +20,9 @@ chunk 过一趟 callable、转发其返回值，流末以空 chunk 收尾）就�
   随 View 的删/清走。
 """
 
+import socket
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -34,6 +37,10 @@ from ferret.core.mitm import (
     SseEvent,
     parse_sse,
 )
+from ferret.core.mitm.gateway import GatewayLayer, GatewayPolicy, GatewayRule
+
+from ._qt import start_runtime, wait_until
+from .test_upstream import free_port, http_through
 
 
 def response_of(flow: HTTPFlow) -> Response:
@@ -296,6 +303,94 @@ class BridgelessAddonTests(unittest.TestCase):
         pump(flow, [b"data: a\n\n"])
 
         self.assertEqual(response_of(flow).data.content, b"data: a\n\n")
+
+
+class _SseOrigin:
+    """只够用的 SSE 源站：发响应头 + 一个事件块，然后把连接挂住不收尾。
+
+    真 socket 而不是 mock：要验证的正是「字节有没有真的到达客户端那一端」。
+    """
+
+    def __init__(self) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(8)
+        self.port = int(self.sock.getsockname()[1])
+        self.requests: list[bytes] = []
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:  # close() 关掉监听 socket，线程随之退出
+                return
+            threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
+
+    def _handle(self, conn: socket.socket) -> None:
+        with conn:
+            data = b""
+            while b"\r\n\r\n" not in data:
+                chunk = conn.recv(65536)
+                if not chunk:
+                    return
+                data += chunk
+            self.requests.append(data)
+            conn.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/event-stream\r\n"
+                b"Cache-Control: no-store\r\n\r\n"
+                b"data: ORIGINAL\n\n"
+            )
+            # SSE 语义：流到这里还没完。挂住连接给内核留派发时间，超时收尾兜底。
+            time.sleep(5.0)
+
+    def close(self) -> None:
+        self.sock.close()
+
+
+class GatewayBlockInTimingTests(unittest.TestCase):
+    """#75：屏蔽（入）必须在字节交付之前执行。
+
+    流式响应在 responseheaders 钩子返回后就开始向客户端交字节（tee 一装 stream
+    callable，原生随即 start_response_stream），BLOCK_IN 挂在 `response` 钩子时
+    原始报文已经发出去了 —— 客户端收到原文、flow 却标着 block_in。端到端验收：
+    客户端连响应头都收不到，flow 记录「已屏蔽」。
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def test_a_blocked_stream_never_reaches_the_client(self) -> None:
+        origin = _SseOrigin()
+        self.addCleanup(origin.close)
+        runtime = MitmRuntime(listen_port=free_port())
+        self.addCleanup(runtime.stop)
+        start_runtime(runtime)
+        runtime.apply_gateway_rules(
+            [
+                GatewayRule(
+                    layer=GatewayLayer.L7,
+                    policy=GatewayPolicy.BLOCK_IN,
+                    value="127.0.0.1",
+                )
+            ],
+            enabled=True,
+        )
+
+        response = http_through(
+            runtime.listen_port, f"http://127.0.0.1:{origin.port}/events"
+        )
+        self.assertNotIn(b"ORIGINAL", response)
+        self.assertNotIn(b"text/event-stream", response)
+
+        self.assertTrue(wait_until(lambda: len(runtime.view) > 0))
+        flows = runtime.call(lambda: list(runtime.view))
+        blocked = [f for f in flows if f.metadata.get("gateway") == "block_in"]
+        self.assertEqual(len(blocked), 1)
+        self.assertIsNotNone(blocked[0].error)
 
 
 if __name__ == "__main__":

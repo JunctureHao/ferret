@@ -286,14 +286,16 @@ class GatewayL7AddonTests(unittest.TestCase):
         self.assertIs(flow.response, original)
         self.assertIsNone(flow.error)
 
-    def test_block_in_kills_only_on_the_response_hook(self) -> None:
+    def test_block_in_kills_on_the_responseheaders_hook_only(self) -> None:
+        """屏蔽（入）在 responseheaders 就得杀（#75）：流式响应过了这个钩子
+        就开始向客户端交字节，`response` 钩子只收得到马后炮。"""
         self.state.set_rules(ruleset(l7(GatewayPolicy.BLOCK_IN)))
         on_request = http_flow()
         self.addon.request(on_request)
         self.assertIsNone(on_request.error)
 
         flow = http_flow(resp=True)
-        self.addon.response(flow)
+        self.addon.responseheaders(flow)
         self.assertIsNotNone(flow.error)
         self.assertEqual(flow.metadata[GATEWAY_METADATA_KEY], "block_in")
 

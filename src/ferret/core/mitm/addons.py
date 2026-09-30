@@ -388,15 +388,27 @@ class GatewayL7Addon:
         elif policy == GatewayPolicy.SUSPEND_OUT:
             self._state.suspend(flow, policy)
 
+    def responseheaders(self, flow: HTTPFlow) -> None:
+        # 屏蔽（入）必须赶在响应头发出之前（#75）：流式响应（SSE 等）在
+        # responseheaders 钩子返回后就开始向客户端交字节（原生 HTTP 层
+        # start_response_stream），挂到 `response` 钩子时客户端已经收到了
+        # 原始报文，屏蔽只剩个马后炮标记。原生 HTTP 层在 responseheaders
+        # 钩子之后立刻 check_killed —— 这里 kill，客户端一个字节都收不到。
+        # 普通缓冲响应提前 kill 也只是少下载一段注定丢弃的正文，行为不变。
+        # 挂起（入）仍留在 `response`：挂起要给用户看完整报文，提前挂起
+        # 只能拿到空 body（时机差异是既定边界，不在本修复内扩大）。
+        decision = self._gate(flow)
+        if decision is None or flow.error or not flow.live:
+            return
+        if decision.policy == GatewayPolicy.BLOCK_IN:
+            self._kill(flow, decision.policy)
+
     def response(self, flow: HTTPFlow) -> None:
         decision = self._gate(flow)
         if decision is None or flow.error or not flow.live:
             return
-        policy = decision.policy
-        if policy == GatewayPolicy.BLOCK_IN:
-            self._kill(flow, policy)
-        elif policy == GatewayPolicy.SUSPEND_IN:
-            self._state.suspend(flow, policy)
+        if decision.policy == GatewayPolicy.SUSPEND_IN:
+            self._state.suspend(flow, decision.policy)
 
     def error(self, flow: HTTPFlow) -> None:
         self._gate(flow)
@@ -413,7 +425,7 @@ class GatewayL7Addon:
                 捕获后直接 return，链上后面的 addon 一个都不会跑。
                 不能改用 `View.set_filter`：`View.add()` 无条件写 `_store`，filter
                 只管可见列表，计数 / HAR 导出 / 录制照样会漏。每个钩子都是一次独立
-                派发，所以四个钩子都要判、都要抛。
+                派发，所以五个钩子都要判、都要抛。
         """
         request = flow.request
         if request is None:
