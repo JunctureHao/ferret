@@ -12,7 +12,7 @@ tests/apps/compose/test_curl_import.py）。
 
 import base64
 import shlex
-from urllib.parse import quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from ferret.core.mitm import RequestEdit
 
@@ -55,6 +55,25 @@ def _take(args: list[str], i: int, inline: str | None, flag: str) -> tuple[str, 
     return args[i + 1], i + 1
 
 
+# -G 拼 query 时的「安全字符」：RFC 3986 里 query 合法出现的字符原样保留 ——
+# `&` `=` 是分隔符、`%` 是既有转义的前缀，都不能再编（真实 curl 的 CURLU_URLENCODE
+# 就是这套语义：`-G -d 'a=1&b=2'` 在线上是两个参数，`%20` 不会被二次编码；
+# issues #81）。quote 本就恒不碰字母数字与 `-._~`，这里补上其余合法字符。
+_QUERY_SAFE = "!$&'()*+,;=:@/?%"
+
+
+def _data_urlencode_part(part: str) -> str:
+    """`--data-urlencode <data>` → `name=content`：只对 content 全量编码。
+
+    curl 约定 `name=content` 编码 content、name 原样（name 默认已是合法 token）；
+    `=content` 没有名字；裸值没有 `=`。`@file` 形态在 `-d` 分支已被拦。
+    """
+    name, sep, value = part.partition("=")
+    if not sep:
+        return quote(part, safe="")
+    return f"{name}={quote(value, safe='')}"
+
+
 def parse_curl(command: str) -> RequestEdit:
     """解析一条 curl 命令行。
 
@@ -75,7 +94,9 @@ def parse_curl(command: str) -> RequestEdit:
     method = ""
     url = ""
     headers: list[tuple[str, str]] = []
-    data_parts: list[str] = []
+    # 每段数据带各自的编码语义：-d 原样、--data-urlencode 全量编码（curl 允许
+    # 两种混用，必须逐段记）。
+    data_parts: list[tuple[str, bool]] = []
     data_is_query = False  # -G：-d 数据并进 URL query，方法保持 GET
     compressed = False
 
@@ -103,7 +124,15 @@ def parse_curl(command: str) -> RequestEdit:
                     "Reading the request body from a file (@file) is not "
                     "supported; paste the content instead"
                 )
-            data_parts.append(value)
+            data_parts.append((value, False))
+        elif token == "--data-urlencode":
+            value, i = _take(args, i, inline, token)
+            if value.startswith("@"):
+                raise ValueError(
+                    "Reading the request body from a file (@file) is not "
+                    "supported; paste the content instead"
+                )
+            data_parts.append((value, True))
         elif token in ("-G", "--get"):
             data_is_query = True
         elif token in ("-u", "--user"):
@@ -136,19 +165,27 @@ def parse_curl(command: str) -> RequestEdit:
 
     content = b""
     if data_parts and data_is_query:
-        # -G：数据 quote 后并入查询串（curl 对 -G 也是 percent-encode）。
+        # -G：数据并进查询串。逐段按 curl 语义编码 —— `-d` 只编 query 里非法的
+        # 字符（`&` `=` 保持分隔符、既有 `%20` 不二次编），`--data-urlencode`
+        # 全量编码 content（issues #81：之前对整段 urlencode，`a=1&b=2` 变成了
+        # 一个值 `a%3D1%26b%3D2`，线上 curl 发的是两个参数）。
         parts = urlsplit(url)
         query = parts.query
-        for part in data_parts:
-            name, sep, value = part.partition("=")
-            encoded = urlencode([(name, value)]) if sep else quote(name)
-            query = f"{query}&{encoded}" if query else encoded
+        for part, urlencoded in data_parts:
+            if urlencoded:
+                piece = _data_urlencode_part(part)
+            else:
+                piece = quote(part, safe=_QUERY_SAFE)
+            query = f"{query}&{piece}" if query else piece
         url = urlunsplit(
             (parts.scheme, parts.netloc, parts.path, query, parts.fragment)
         )
     elif data_parts:
-        # 多个 -d 按 curl 语义用 & 拼接。
-        content = "&".join(data_parts).encode("utf-8")
+        # 多个 -d 按 curl 语义用 & 拼接；--data-urlencode 段先编码。
+        content = "&".join(
+            _data_urlencode_part(part) if urlencoded else part
+            for part, urlencoded in data_parts
+        ).encode("utf-8")
 
     if compressed:
         # 与导出侧对称：`FlowExporter.curl_command` 见到 Accept-Encoding 就写

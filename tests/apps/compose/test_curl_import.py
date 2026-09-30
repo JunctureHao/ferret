@@ -51,6 +51,32 @@ class ParseCurlTests(unittest.TestCase):
         self.assertEqual(edit.url, "https://example.com/api?keep=1&page=2")
         self.assertEqual(edit.content, b"")
 
+    def test_get_flag_keeps_ampersands_as_parameter_separators(self) -> None:
+        """对照真实 curl（issues #81）：`-G -d 'a=1&b=2'` 在线上是两个参数 ——
+        `&`/`=` 是分隔符，不是被整体编码成一个值 `a%3D1%26b%3D2`。"""
+        edit = parse_curl("curl -G -d 'a=1&b=2' https://example.com/api")
+        self.assertEqual(edit.url, "https://example.com/api?a=1&b=2")
+
+    def test_get_flag_encodes_only_characters_illegal_in_a_query(self) -> None:
+        """空格编成 %20；既有百分号转义不再二次编码。"""
+        edit = parse_curl("curl -G -d 'q=hello world&x=a%20b' https://example.com/api")
+        self.assertEqual(edit.url, "https://example.com/api?q=hello%20world&x=a%20b")
+
+    def test_data_urlencode_encodes_the_content_part(self) -> None:
+        """`--data-urlencode` 只编码 content、name 原样（curl 约定）；非 -G 时
+        进 body，与 -d 段用 & 连接。"""
+        edit = parse_curl(
+            "curl -d raw --data-urlencode 'name=a b&c' https://example.com/api"
+        )
+        self.assertEqual(edit.content, b"raw&name=a%20b%26c")
+
+    def test_data_urlencode_with_get_lands_in_the_query(self) -> None:
+        edit = parse_curl(
+            "curl -G --data-urlencode 'q=1 2' https://example.com/api"
+        )
+        self.assertEqual(edit.url, "https://example.com/api?q=1%202")
+        self.assertEqual(edit.method, "GET")
+
     def test_user_becomes_a_basic_authorization_header(self) -> None:
         edit = parse_curl("curl -u alice:secret https://example.com")
         expected = base64.b64encode(b"alice:secret").decode("ascii")
