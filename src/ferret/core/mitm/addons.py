@@ -35,6 +35,7 @@ from ferret.core.mitm.gateway import (
 from ferret.core.mitm.rewrite import (
     REPLACE_RESPONSE_DEFAULT_STATUS,
     REWRITE_ANSWERED_KEY,
+    REWRITE_STREAMED_KEY,
     CompiledRewrite,
     RewriteKind,
     RewriteRuleSet,
@@ -466,9 +467,11 @@ class FerretRewriteAddon:
     原生 MapRemote / MapLocal / ModifyHeaders / ModifyBody 四件退役的动机与
     语义契约见 `core/mitm/rewrite.py` 的模块 docstring。这里只管执行：
 
-    - 请求期类型全部落在 `request` 钩子、响应期类型全部落在 `response` 钩子，
-      **按列表行序逐条作用、不短路** —— 行序＝执行序，跨类型也有意义。请求期
-      钩子还保证原生断点（`Intercept` 也在 `request` 拦）拦到的是替换后的报文。
+    - 请求期类型全部落在 `request` 钩子；响应期的**头**类型落在
+      `responseheaders`（流式响应过了这个钩子就开始交字节，`response` 钩子只
+      收得到马后炮，issues #37）、**体**类型落在 `response`。各自**按列表行序
+      逐条作用、不短路** —— 行序＝执行序，同钩子内跨类型也有意义；响应头规则
+      相对体规则整体提前（对客户端可见的头必须是改过的，行序让位于时序）。
     - 每条规则独立 try/except：一条规则执行炸了记日志跳过，绝不打断钩子链，
       更不能连坐整批（编译期的校验已在 `RewriteRuleSet` 构造时完成）。
     - 文件映射的目录候选算法逐行对齐原生 `MapLocal.file_candidates`，路径拼接
@@ -516,9 +519,32 @@ class FerretRewriteAddon:
             except Exception as exc:  # noqa: BLE001
                 self._log.warning("重写规则执行失败，本条已跳过: %s", exc)
 
+    def responseheaders(self, flow: HTTPFlow) -> None:
+        """响应头规则在头发出前作用（issues #37）。
+
+        mitmproxy 的 HTTP 层跑完 `responseheaders` 钩子就把响应头（以及流式
+        响应的每一个 chunk）交给客户端了；缓冲响应的头同样先于 `response` 钩子
+        发出。头规则必须挂在这里才对线上报文生效 —— 之前挂在 `response`，实证
+        客户端收到原文、存档里却是改过的。
+        """
+        if not self._enabled or flow.response is None or not flow.live:
+            return
+        url = flow.request.pretty_url
+        for entry in self._rules.entries():
+            if entry.rule.kind != RewriteKind.MODIFY_RESPONSE_HEADER:
+                continue
+            if not entry.matches(url):
+                continue
+            try:
+                self._modify_header(flow.response.headers, entry)
+            except Exception as exc:  # noqa: BLE001
+                self._log.warning("重写规则执行失败，本条已跳过: %s", exc)
+
     def response(self, flow: HTTPFlow) -> None:
         if not self._enabled or flow.response is None or not flow.live:
             return
+        # 流式响应到这一钩子时字节已交付完毕（见 REWRITE_STREAMED_KEY 注释）。
+        streamed = bool(flow.response.stream)
         url = flow.request.pretty_url
         for entry in self._rules.entries():
             if not entry.matches(url):
@@ -526,11 +552,27 @@ class FerretRewriteAddon:
             kind = entry.rule.kind
             try:
                 if kind == RewriteKind.MODIFY_RESPONSE_HEADER:
-                    self._modify_header(flow.response.headers, entry)
-                elif kind == RewriteKind.MODIFY_RESPONSE_BODY:
+                    # 已提前到 responseheaders；这里绝不能二遍执行。
+                    continue
+                if kind == RewriteKind.MODIFY_RESPONSE_BODY:
+                    if streamed:
+                        self._skip_streamed_body(flow, entry)
+                        continue
                     self._modify_body(flow.response, entry)
             except Exception as exc:  # noqa: BLE001
                 self._log.warning("重写规则执行失败，本条已跳过: %s", exc)
+
+    def _skip_streamed_body(self, flow: HTTPFlow, entry: CompiledRewrite) -> None:
+        """流式响应的体重写规则只能跳过：改存档副本会让存档与客户端所见分叉
+        （客户端收到原文、界面显示改文，排查时两边都对不上）。也不允许为让规则
+        生效而关流式 —— 无限 SSE 整体缓冲是内存炸弹。每条流只落一次日志。"""
+        if flow.metadata.get(REWRITE_STREAMED_KEY):
+            return
+        flow.metadata[REWRITE_STREAMED_KEY] = "1"
+        self._log.info(
+            "流式响应已开始交付，体重写规则不生效: %s",
+            entry.rule.target or "(整体替换)",
+        )
 
     # —— 执行分支 ——
 
@@ -571,8 +613,15 @@ class FerretRewriteAddon:
             return
         # 编译期保证 entry.body 非 None（仅体类型会走到这里）。
         assert entry.body is not None
+        # 替换串按**字面量**解释（issues #36）：`re.sub` 的字符串 repl 是模板，
+        # `\1` 会被当反向引用、字面 `\n` 会变换行、`C:\Users` 直接 bad escape ——
+        # 而界面帮助与自研契约都是「输入什么发什么」（上游 modifybody 也是用
+        # lambda 关掉模板语义）。lambda repl 让 re.sub 原样取返回值。URL 重写
+        # （MAP_REMOTE）保留模板语义，那是重定向的既有契约。
         # 直接写 content：mitmproxy 自动重算 Content-Length；charset 保持原头不动。
-        message.content = entry.body.sub(replacement, text).encode("utf-8")
+        message.content = entry.body.sub(lambda _match: replacement, text).encode(
+            "utf-8"
+        )
 
     def _map_remote(self, flow: HTTPFlow, entry: CompiledRewrite) -> None:
         """``re.sub(subject, template, pretty_url)`` → ``request.url``。

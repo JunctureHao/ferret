@@ -18,6 +18,7 @@ from ferret.core.mitm import (
     REPLACE_KINDS,
     REPLACE_RESPONSE_DEFAULT_STATUS,
     REWRITE_ANSWERED_KEY,
+    REWRITE_STREAMED_KEY,
     WHOLE_BODY_PATTERN,
     FerretMaster,
     RewriteKind,
@@ -512,6 +513,20 @@ class RewriteEndToEndTests(unittest.TestCase):
         self.assertEqual(flow.request.headers["X-Token"], "old")
 
     def test_a_response_header_rule_rewrites_the_response(self) -> None:
+        """响应头规则挂在 `responseheaders`（issues #37）：流式响应过了这个钩子
+        就开始交字节，挂在 `response` 只改得到存档副本、改不到线上报文。"""
+        self.push(
+            kind_rule(
+                RewriteKind.MODIFY_RESPONSE_HEADER, target="X-Token", replacement="new"
+            )
+        )
+        flow = flow_to(URL, resp=True)
+        self.addon.responseheaders(flow)
+        self.assertEqual(flow.response.headers["X-Token"], "new")
+
+    def test_the_response_hook_never_applies_header_rules(self) -> None:
+        """`response` 钩子绝不二遍执行响应头规则 —— 它们整体提前到
+        `responseheaders` 了，执行序里不再有这一类。"""
         self.push(
             kind_rule(
                 RewriteKind.MODIFY_RESPONSE_HEADER, target="X-Token", replacement="new"
@@ -519,7 +534,31 @@ class RewriteEndToEndTests(unittest.TestCase):
         )
         flow = flow_to(URL, resp=True)
         self.addon.response(flow)
-        self.assertEqual(flow.response.headers["X-Token"], "new")
+        self.assertNotIn("X-Token", flow.response.headers)
+
+    def test_a_streamed_response_skips_body_rules(self) -> None:
+        """流式响应到 `response` 钩子时字节已交付：体重写规则跳过并落日志，
+        存档与客户端所见保持一致（issues #37）。"""
+        self.push(kind_rule(RewriteKind.MODIFY_RESPONSE_BODY, replacement="EDITED"))
+        flow = flow_to(URL, resp=True)
+        flow.response.content = b"ORIGINAL"
+        flow.response.stream = True  # 原生对流式响应保留该标记直到流末
+        with self.assertLogs(level="INFO"):
+            self.addon.response(flow)
+        self.assertEqual(flow.response.get_content(strict=False), b"ORIGINAL")
+        self.assertEqual(flow.metadata[REWRITE_STREAMED_KEY], "1")
+        # 同一条流只落一次日志（多条规则命中也不再刷）。
+        with self.assertNoLogs(level="INFO"):
+            self.addon.response(flow)
+
+    def test_a_buffered_response_still_applies_body_rules(self) -> None:
+        """缓冲响应（stream=False）的体规则照常生效 —— 提前的只有头规则。"""
+        self.push(kind_rule(RewriteKind.MODIFY_RESPONSE_BODY, replacement="EDITED"))
+        flow = flow_to(URL, resp=True)
+        flow.response.content = b"ORIGINAL"
+        self.assertFalse(flow.response.stream)
+        self.addon.response(flow)
+        self.assertEqual(flow.response.get_content(strict=False), b"EDITED")
 
     def test_request_kinds_never_touch_the_response(self) -> None:
         self.push(
@@ -580,6 +619,28 @@ class RewriteEndToEndTests(unittest.TestCase):
         flow.response.content = b"x"
         self.addon.response(flow)
         self.assertEqual(flow.response.headers["Content-Length"], "11")
+
+    def test_a_body_replacement_with_a_backslash_path_stays_literal(self) -> None:
+        """替换串按字面量解释（issues #36）：`C:\\Users` 在 re.sub 模板里是
+        bad escape、旧实现整条跳过 —— 字面量语义下原样写进报文。"""
+        self.push(
+            kind_rule(RewriteKind.MODIFY_RESPONSE_BODY, replacement=r"C:\Users\pet")
+        )
+        flow = flow_to(URL, resp=True)
+        flow.response.content = b"home"
+        self.addon.response(flow)
+        self.assertEqual(
+            flow.response.get_content(strict=False), rb"C:\Users\pet"
+        )
+
+    def test_a_body_replacement_with_escape_like_text_stays_literal(self) -> None:
+        """字面 `\\n`、`\\1` 不做转义、不当反向引用 —— 界面帮助与引擎契约
+        都是「输入什么发什么」。"""
+        self.push(kind_rule(RewriteKind.MODIFY_RESPONSE_BODY, replacement=r"a\nb\1"))
+        flow = flow_to(URL, resp=True)
+        flow.response.content = b"x"
+        self.addon.response(flow)
+        self.assertEqual(flow.response.get_content(strict=False), rb"a\nb\1")
 
     # —— URL 重定向 ——
 

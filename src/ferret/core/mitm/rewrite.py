@@ -77,6 +77,13 @@ REPLACE_RESPONSE_DEFAULT_STATUS = 200
 # 当成真事件流包装起来（plans/rewrite-ui.md §13 风险一）。
 REWRITE_ANSWERED_KEY = "ferret_rewrite_answered"
 
+# 「这条响应走了流式管道」的标记，`response` 钩子里读：流式响应到这一钩子时
+# 字节早已交付给客户端，体重写规则再改 flow.response 只是改存档副本，存档与
+# 客户端所见就会分叉 —— 跳过并落一条日志，两边都保持真实（issues #37）。
+# 判据就是 `response.stream`（True 或 callable）：它在转发开始前置位、流完仍
+# 保留，缓冲响应恒为 False。
+REWRITE_STREAMED_KEY = "ferret_rewrite_streamed"
+
 
 class RewriteLogic(StrEnum):
     """How a rule's match value is turned into the url-regex subject."""

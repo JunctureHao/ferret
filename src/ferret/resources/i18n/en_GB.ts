@@ -1289,131 +1289,131 @@
 <context>
     <name>ComposeInterface</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="219"/>
+        <location filename="../../apps/compose/views.py" line="227"/>
         <source>进入流量列表；关闭时请求仍会经过代理内核发出（重写/网关/断点规则照常生效），但不会出现在流量列表中</source>
         <translation>Record to flow list; when off, the request is still sent through the proxy core (rewrite/gateway/intercept rules apply) but does not appear in the flow list</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="227"/>
-        <location filename="../../apps/compose/views.py" line="523"/>
+        <location filename="../../apps/compose/views.py" line="235"/>
+        <location filename="../../apps/compose/views.py" line="574"/>
         <source>发送</source>
         <translation>Send</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="231"/>
+        <location filename="../../apps/compose/views.py" line="239"/>
         <source>发送这条请求</source>
         <translation>Send this request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="237"/>
+        <location filename="../../apps/compose/views.py" line="245"/>
         <source>从剪贴板导入 cURL 命令</source>
         <translation>Import a curl command from the clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="238"/>
+        <location filename="../../apps/compose/views.py" line="246"/>
         <source>导入 cURL</source>
         <translation>Import cURL</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="252"/>
+        <location filename="../../apps/compose/views.py" line="260"/>
         <source>数据类型</source>
         <translation>Content type</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="255"/>
+        <location filename="../../apps/compose/views.py" line="263"/>
         <source>参数</source>
         <translation>Params</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="256"/>
+        <location filename="../../apps/compose/views.py" line="264"/>
         <source>请求头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="269"/>
+        <location filename="../../apps/compose/views.py" line="277"/>
         <source>请求体</source>
         <translation>Body</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="291"/>
+        <location filename="../../apps/compose/views.py" line="300"/>
         <source>性能</source>
         <translation>Performance</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="386"/>
+        <location filename="../../apps/compose/views.py" line="397"/>
         <source>请求头 ({count})</source>
         <translation>Request headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="484"/>
-        <location filename="../../apps/compose/views.py" line="488"/>
-        <location filename="../../apps/compose/views.py" line="496"/>
+        <location filename="../../apps/compose/views.py" line="524"/>
+        <location filename="../../apps/compose/views.py" line="528"/>
+        <location filename="../../apps/compose/views.py" line="536"/>
         <source>导入失败</source>
         <translation>Import failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="484"/>
+        <location filename="../../apps/compose/views.py" line="524"/>
         <source>剪贴板是空的</source>
         <translation>The clipboard is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="489"/>
+        <location filename="../../apps/compose/views.py" line="529"/>
         <source>剪贴板里没有 cURL 命令</source>
         <translation>The clipboard does not contain a curl command</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="499"/>
+        <location filename="../../apps/compose/views.py" line="539"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="499"/>
+        <location filename="../../apps/compose/views.py" line="539"/>
         <source>已从 cURL 导入请求</source>
         <translation>Request imported from curl</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="508"/>
+        <location filename="../../apps/compose/views.py" line="548"/>
         <source>发送失败</source>
         <translation>Send failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="508"/>
+        <location filename="../../apps/compose/views.py" line="548"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="225"/>
-        <location filename="../../apps/compose/views.py" line="523"/>
+        <location filename="../../apps/compose/views.py" line="233"/>
+        <location filename="../../apps/compose/views.py" line="574"/>
         <source>发送中…</source>
         <translation>Sending…</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="215"/>
+        <location filename="../../apps/compose/views.py" line="223"/>
         <source>记录流量</source>
         <translation>Record traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="533"/>
+        <location filename="../../apps/compose/views.py" line="584"/>
         <source>正在等待响应</source>
         <translation>Waiting for response</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="534"/>
+        <location filename="../../apps/compose/views.py" line="585"/>
         <source>收到响应后会显示在这里</source>
         <translation>The response will appear here when it arrives</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="538"/>
+        <location filename="../../apps/compose/views.py" line="589"/>
         <source>暂无响应</source>
         <translation>No response yet</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="539"/>
+        <location filename="../../apps/compose/views.py" line="590"/>
         <source>编辑请求，然后点击「发送」</source>
         <translation>Edit the request, then click Send</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="546"/>
+        <location filename="../../apps/compose/views.py" line="597"/>
         <source>请求失败</source>
         <translation>Request failed</translation>
     </message>
@@ -3074,13 +3074,13 @@
     </message>
     <message>
         <location filename="../../apps/gateway/views.py" line="98"/>
-        <location filename="../../apps/gateway/views.py" line="277"/>
+        <location filename="../../apps/gateway/views.py" line="284"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
         <location filename="../../apps/gateway/views.py" line="104"/>
-        <location filename="../../apps/gateway/views.py" line="308"/>
+        <location filename="../../apps/gateway/views.py" line="315"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
@@ -3125,22 +3125,22 @@
         <translation>Edit gateway rule</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/views.py" line="285"/>
+        <location filename="../../apps/gateway/views.py" line="292"/>
         <source>启用</source>
         <translation>Enable</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/views.py" line="285"/>
+        <location filename="../../apps/gateway/views.py" line="292"/>
         <source>停用</source>
         <translation>Disable</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/views.py" line="296"/>
+        <location filename="../../apps/gateway/views.py" line="303"/>
         <source>上移</source>
         <translation>Move up</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/views.py" line="302"/>
+        <location filename="../../apps/gateway/views.py" line="309"/>
         <source>下移</source>
         <translation>Move down</translation>
     </message>
@@ -3295,37 +3295,37 @@
         <translation>Acts on each HTTP flow and can match on the method; blocked or suspended traffic still leaves a record in the list.</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/dialogs.py" line="171"/>
+        <location filename="../../apps/gateway/dialogs.py" line="180"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/dialogs.py" line="172"/>
+        <location filename="../../apps/gateway/dialogs.py" line="181"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/dialogs.py" line="180"/>
+        <location filename="../../apps/gateway/dialogs.py" line="189"/>
         <source>匹配对象</source>
         <translation>Match on</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/dialogs.py" line="181"/>
+        <location filename="../../apps/gateway/dialogs.py" line="190"/>
         <source>条件</source>
         <translation>Condition</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/dialogs.py" line="182"/>
+        <location filename="../../apps/gateway/dialogs.py" line="191"/>
         <source>值</source>
         <translation>Value</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/dialogs.py" line="183"/>
+        <location filename="../../apps/gateway/dialogs.py" line="192"/>
         <source>响应</source>
         <translation>Response</translation>
     </message>
     <message>
-        <location filename="../../apps/gateway/dialogs.py" line="313"/>
+        <location filename="../../apps/gateway/dialogs.py" line="337"/>
         <source>匹配正则：{}</source>
         <translation>Match pattern: {}</translation>
     </message>
@@ -3511,32 +3511,32 @@
 <context>
     <name>InterceptEdit</name>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="484"/>
+        <location filename="../../core/mitm/intercept.py" line="493"/>
         <source>无效的 HTTP 状态码：{}</source>
         <translation>Invalid HTTP status code: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="521"/>
+        <location filename="../../core/mitm/intercept.py" line="530"/>
         <source>这条流量没有请求可改</source>
         <translation>This flow has no request to edit</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="531"/>
+        <location filename="../../core/mitm/intercept.py" line="540"/>
         <source>请求方法不能为空</source>
         <translation>The request method cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="536"/>
+        <location filename="../../core/mitm/intercept.py" line="545"/>
         <source>请求 URL 不能为空</source>
         <translation>The request URL cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="559"/>
+        <location filename="../../core/mitm/intercept.py" line="570"/>
         <source>这条流量还没有响应可改</source>
         <translation>This flow has no response to edit yet</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="583"/>
+        <location filename="../../core/mitm/intercept.py" line="597"/>
         <source>这条流量已经有响应，请直接编辑响应</source>
         <translation>This flow already has a response; edit the response instead</translation>
     </message>
@@ -3589,13 +3589,13 @@
     </message>
     <message>
         <location filename="../../apps/intercept/views.py" line="123"/>
-        <location filename="../../apps/intercept/views.py" line="302"/>
+        <location filename="../../apps/intercept/views.py" line="309"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
         <location filename="../../apps/intercept/views.py" line="129"/>
-        <location filename="../../apps/intercept/views.py" line="320"/>
+        <location filename="../../apps/intercept/views.py" line="327"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
@@ -3645,17 +3645,17 @@
         <translation>Edit breakpoint rule</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="310"/>
+        <location filename="../../apps/intercept/views.py" line="317"/>
         <source>启用</source>
         <translation>Enable</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="310"/>
+        <location filename="../../apps/intercept/views.py" line="317"/>
         <source>停用</source>
         <translation>Disable</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/views.py" line="342"/>
+        <location filename="../../apps/intercept/views.py" line="349"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
@@ -3823,12 +3823,12 @@
         <translation>Select a held flow to edit it</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="398"/>
+        <location filename="../../apps/intercept/window.py" line="405"/>
         <source>放行</source>
         <translation>Release</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="403"/>
+        <location filename="../../apps/intercept/window.py" line="410"/>
         <source>丢弃</source>
         <translation>Drop</translation>
     </message>
@@ -3848,17 +3848,17 @@
         <translation>Breakpoints · {} pending</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="416"/>
+        <location filename="../../apps/intercept/window.py" line="423"/>
         <source>{} 条待处理 · 正在编辑 {}</source>
         <translation>{} pending · editing {}</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="420"/>
+        <location filename="../../apps/intercept/window.py" line="427"/>
         <source>{} 条待处理</source>
         <translation>{} pending</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="463"/>
+        <location filename="../../apps/intercept/window.py" line="470"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
@@ -3866,12 +3866,12 @@
 <context>
     <name>ItemDualPanel</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="776"/>
+        <location filename="../../apps/common/edit/widgets.py" line="808"/>
         <source>文本模式</source>
         <translation>Text view</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="778"/>
+        <location filename="../../apps/common/edit/widgets.py" line="810"/>
         <source>表格模式</source>
         <translation>Table view</translation>
     </message>
@@ -3879,76 +3879,76 @@
 <context>
     <name>ItemTableToolWidget</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="275"/>
+        <location filename="../../apps/common/edit/widgets.py" line="298"/>
         <source>升序</source>
         <translation>Ascending</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="280"/>
+        <location filename="../../apps/common/edit/widgets.py" line="303"/>
         <source>降序</source>
         <translation>Descending</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="285"/>
+        <location filename="../../apps/common/edit/widgets.py" line="308"/>
         <source>原始顺序</source>
         <translation>Original order</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="317"/>
-        <location filename="../../apps/common/edit/widgets.py" line="409"/>
+        <location filename="../../apps/common/edit/widgets.py" line="340"/>
+        <location filename="../../apps/common/edit/widgets.py" line="438"/>
         <source>新增行</source>
         <translation>Add row</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="321"/>
-        <location filename="../../apps/common/edit/widgets.py" line="412"/>
+        <location filename="../../apps/common/edit/widgets.py" line="344"/>
+        <location filename="../../apps/common/edit/widgets.py" line="443"/>
         <source>删除选中行</source>
         <translation>Delete selected rows</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="325"/>
+        <location filename="../../apps/common/edit/widgets.py" line="348"/>
         <source>复制</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="329"/>
-        <location filename="../../apps/common/edit/widgets.py" line="383"/>
+        <location filename="../../apps/common/edit/widgets.py" line="352"/>
+        <location filename="../../apps/common/edit/widgets.py" line="406"/>
         <source>排序</source>
         <translation>Sort</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="333"/>
+        <location filename="../../apps/common/edit/widgets.py" line="356"/>
         <source>复制JSON</source>
         <translation>Copy as JSON</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="399"/>
         <location filename="../../apps/common/edit/widgets.py" line="426"/>
+        <location filename="../../apps/common/edit/widgets.py" line="458"/>
         <source>提示</source>
         <translation>Notice</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="400"/>
+        <location filename="../../apps/common/edit/widgets.py" line="427"/>
         <source>请先选中要删除的行</source>
         <translation>Select the rows you want to delete first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="426"/>
+        <location filename="../../apps/common/edit/widgets.py" line="458"/>
         <source>没有可复制的内容</source>
         <translation>Nothing to copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="429"/>
+        <location filename="../../apps/common/edit/widgets.py" line="461"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="434"/>
+        <location filename="../../apps/common/edit/widgets.py" line="466"/>
         <source>已复制到剪贴板</source>
         <translation>Copied to clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="453"/>
+        <location filename="../../apps/common/edit/widgets.py" line="485"/>
         <source>JSON 已复制到剪贴板</source>
         <translation>JSON copied to clipboard</translation>
     </message>
@@ -3956,12 +3956,12 @@
 <context>
     <name>JsonDualPanel</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="971"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1003"/>
         <source>文本模式</source>
         <translation>Text view</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="973"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1005"/>
         <source>树形模式</source>
         <translation>Tree view</translation>
     </message>
@@ -3969,12 +3969,12 @@
 <context>
     <name>JsonTreeWidget</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="846"/>
+        <location filename="../../apps/common/edit/widgets.py" line="878"/>
         <source>键</source>
         <translation>Key</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="846"/>
+        <location filename="../../apps/common/edit/widgets.py" line="878"/>
         <source>值</source>
         <translation>Value</translation>
     </message>
@@ -4531,12 +4531,12 @@
         <translation>One header name per line; their values are additionally compared when matching</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="471"/>
+        <location filename="../../apps/mock/views.py" line="478"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../../apps/mock/views.py" line="473"/>
+        <location filename="../../apps/mock/views.py" line="480"/>
         <source>删除 {} 条</source>
         <translation>Delete {} flow(s)</translation>
     </message>
@@ -4981,22 +4981,22 @@
 <context>
     <name>RequestPanel</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="216"/>
+        <location filename="../../apps/intercept/editors.py" line="227"/>
         <source>请求头 ({count})</source>
         <translation>Request headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="234"/>
+        <location filename="../../apps/intercept/editors.py" line="253"/>
         <source>参数</source>
         <translation>Params</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="235"/>
+        <location filename="../../apps/intercept/editors.py" line="254"/>
         <source>请求头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="236"/>
+        <location filename="../../apps/intercept/editors.py" line="255"/>
         <source>请求体</source>
         <translation>Body</translation>
     </message>
@@ -5027,17 +5027,17 @@
 <context>
     <name>ResponsePanel</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="284"/>
+        <location filename="../../apps/intercept/editors.py" line="321"/>
         <source>响应头 ({count})</source>
         <translation>Response headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="297"/>
+        <location filename="../../apps/intercept/editors.py" line="334"/>
         <source>响应头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="298"/>
+        <location filename="../../apps/intercept/editors.py" line="335"/>
         <source>响应体</source>
         <translation>Body</translation>
     </message>
@@ -5138,13 +5138,13 @@
     </message>
     <message>
         <location filename="../../apps/rewrite/views.py" line="115"/>
-        <location filename="../../apps/rewrite/views.py" line="295"/>
+        <location filename="../../apps/rewrite/views.py" line="302"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
         <location filename="../../apps/rewrite/views.py" line="121"/>
-        <location filename="../../apps/rewrite/views.py" line="342"/>
+        <location filename="../../apps/rewrite/views.py" line="349"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
@@ -5189,24 +5189,24 @@
         <translation>Edit rewrite rule</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="303"/>
-        <location filename="../../apps/rewrite/views.py" line="328"/>
+        <location filename="../../apps/rewrite/views.py" line="310"/>
+        <location filename="../../apps/rewrite/views.py" line="335"/>
         <source>启用</source>
         <translation>Enable</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="303"/>
-        <location filename="../../apps/rewrite/views.py" line="335"/>
+        <location filename="../../apps/rewrite/views.py" line="310"/>
+        <location filename="../../apps/rewrite/views.py" line="342"/>
         <source>停用</source>
         <translation>Disable</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="314"/>
+        <location filename="../../apps/rewrite/views.py" line="321"/>
         <source>上移</source>
         <translation>Move up</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/views.py" line="320"/>
+        <location filename="../../apps/rewrite/views.py" line="327"/>
         <source>下移</source>
         <translation>Move down</translation>
     </message>
@@ -5297,73 +5297,73 @@
     </message>
     <message>
         <location filename="../../apps/rewrite/models.py" line="207"/>
-        <location filename="../../core/mitm/rewrite.py" line="290"/>
+        <location filename="../../core/mitm/rewrite.py" line="297"/>
         <source>本地文件或目录不能为空</source>
         <translation>The local file or folder cannot be empty</translation>
     </message>
     <message>
         <location filename="../../apps/rewrite/models.py" line="214"/>
-        <location filename="../../core/mitm/rewrite.py" line="306"/>
+        <location filename="../../core/mitm/rewrite.py" line="313"/>
         <source>请求头/响应头名称不能为空</source>
         <translation>The header name cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="112"/>
+        <location filename="../../core/mitm/rewrite.py" line="119"/>
         <source>无效的重写目标：{}</source>
         <translation>Invalid rewrite target: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="136"/>
+        <location filename="../../core/mitm/rewrite.py" line="143"/>
         <source>无效的 HTTP 状态码：{}</source>
         <translation>Invalid HTTP status code: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="175"/>
+        <location filename="../../core/mitm/rewrite.py" line="182"/>
         <source>匹配值不能为空</source>
         <translation>Match value cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="192"/>
+        <location filename="../../core/mitm/rewrite.py" line="199"/>
         <source>重写目标不能为空</source>
         <translation>Rewrite target cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="320"/>
+        <location filename="../../core/mitm/rewrite.py" line="327"/>
         <source>无效的体正则：{}</source>
         <translation>Invalid body regex: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="328"/>
+        <location filename="../../core/mitm/rewrite.py" line="335"/>
         <source>替换请求至少要填写方法、路径、请求头或请求体之一</source>
         <translation>Replace request needs at least a method, path, header or body</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="336"/>
+        <location filename="../../core/mitm/rewrite.py" line="343"/>
         <source>请求方法不能含空白字符</source>
         <translation>HTTP method must not contain whitespace</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="342"/>
+        <location filename="../../core/mitm/rewrite.py" line="349"/>
         <source>替换响应至少要填写状态码、响应头或响应体之一</source>
         <translation>Replace response needs at least a status code, header or body</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="262"/>
+        <location filename="../../core/mitm/rewrite.py" line="269"/>
         <source>无效的匹配值：{}</source>
         <translation>Invalid match value: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="277"/>
+        <location filename="../../core/mitm/rewrite.py" line="284"/>
         <source>重写目标必须是带协议和主机名的完整 URL</source>
         <translation>The rewrite target must be a full URL with a scheme and a host</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="296"/>
+        <location filename="../../core/mitm/rewrite.py" line="303"/>
         <source>本地路径不存在或不可访问：{}（{}）</source>
         <translation>The local path does not exist or is unreadable: {} ({})</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/rewrite.py" line="310"/>
+        <location filename="../../core/mitm/rewrite.py" line="317"/>
         <source>请求头/响应头名称不能含换行</source>
         <translation>The header name cannot contain line breaks</translation>
     </message>
@@ -5417,13 +5417,13 @@
     </message>
     <message>
         <location filename="../../apps/rewrite/dialogs.py" line="112"/>
-        <source>命中时先删掉同名头、再按新值加回去；头值留空 = 只删不加。头值以 @ 开头会被当作**文件路径**读取内容（因此无法下发真的以 @ 开头的头值）。\n、\t 等转义会被解码，要字面反斜杠请写 \\。</source>
-        <translation>On match the named header is removed first, then re-added with the new value; an empty value = remove only. A value starting with @ is read from a **file path** (so a literal value starting with @ cannot be delivered). Escapes like \n and \t are decoded; write \\ for a literal backslash.</translation>
+        <source>命中时先删掉同名头、再按新值加回去；头值留空 = 只删不加。头值以 @ 开头会被当作**文件路径**读取内容（因此无法下发真的以 @ 开头的头值）。头值按**字面量**下发，\n、\t 之类的转义不做解码。</source>
+        <translation>On match the named header is removed first, then re-added with the new value; an empty value = remove only. A value starting with @ is read from a **file path** (so a literal value starting with @ cannot be delivered). Values are delivered **literally**; escapes like \n and \t are not decoded.</translation>
     </message>
     <message>
         <location filename="../../apps/rewrite/dialogs.py" line="119"/>
-        <source>体正则留空 = 整体替换（实际下发 {}）；新内容留空 = 清空匹配到的内容。新内容是**字面量**，不支持 \1 反向引用；以 @ 开头会被当作**文件路径**读取内容，每次请求现读。\n、\t 等转义会被解码，要字面反斜杠请写 \\。</source>
-        <translation>Empty body regex = replace the whole body ({} is delivered); empty content = clear the matched text. The content is a **literal**; \1 back-references are not supported. Content starting with @ is read from a **file path** on every request. Escapes like \n and \t are decoded; write \\ for a literal backslash.</translation>
+        <source>体正则留空 = 整体替换（实际下发 {}）；新内容留空 = 清空匹配到的内容。新内容是**字面量**，不支持 \1 反向引用，\n、\t 之类的转义也不做解码；以 @ 开头会被当作**文件路径**读取内容，每次请求现读。</source>
+        <translation>Empty body regex = replace the whole body ({} is delivered); empty content = clear the matched text. The content is a **literal**: \1 back-references are not supported, and escapes like \n and \t are not decoded. Content starting with @ is read from a **file path** on every request.</translation>
     </message>
     <message>
         <location filename="../../apps/rewrite/dialogs.py" line="126"/>
@@ -5847,13 +5847,13 @@
     </message>
     <message>
         <location filename="../../apps/scripts/views.py" line="120"/>
-        <location filename="../../apps/scripts/views.py" line="548"/>
+        <location filename="../../apps/scripts/views.py" line="555"/>
         <source>重载</source>
         <translation>Reload</translation>
     </message>
     <message>
         <location filename="../../apps/scripts/views.py" line="126"/>
-        <location filename="../../apps/scripts/views.py" line="553"/>
+        <location filename="../../apps/scripts/views.py" line="560"/>
         <source>移除</source>
         <translation>Remove</translation>
     </message>
@@ -5938,29 +5938,29 @@
         <translation>No application is associated with .py files</translation>
     </message>
     <message>
-        <location filename="../../apps/scripts/views.py" line="503"/>
-        <location filename="../../apps/scripts/views.py" line="534"/>
+        <location filename="../../apps/scripts/views.py" line="510"/>
+        <location filename="../../apps/scripts/views.py" line="541"/>
         <source>启用</source>
         <translation>Enable</translation>
     </message>
     <message>
-        <location filename="../../apps/scripts/views.py" line="503"/>
-        <location filename="../../apps/scripts/views.py" line="541"/>
+        <location filename="../../apps/scripts/views.py" line="510"/>
+        <location filename="../../apps/scripts/views.py" line="548"/>
         <source>停用</source>
         <translation>Disable</translation>
     </message>
     <message>
-        <location filename="../../apps/scripts/views.py" line="514"/>
+        <location filename="../../apps/scripts/views.py" line="521"/>
         <source>上移</source>
         <translation>Move up</translation>
     </message>
     <message>
-        <location filename="../../apps/scripts/views.py" line="520"/>
+        <location filename="../../apps/scripts/views.py" line="527"/>
         <source>下移</source>
         <translation>Move down</translation>
     </message>
     <message>
-        <location filename="../../apps/scripts/views.py" line="527"/>
+        <location filename="../../apps/scripts/views.py" line="534"/>
         <source>在编辑器中打开</source>
         <translation>Open in editor</translation>
     </message>
@@ -6475,62 +6475,62 @@
 <context>
     <name>ToolPlainTextEdit</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="505"/>
+        <location filename="../../apps/common/edit/widgets.py" line="537"/>
         <source>复制</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="507"/>
+        <location filename="../../apps/common/edit/widgets.py" line="539"/>
         <source>换行</source>
         <translation>Word wrap</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="509"/>
+        <location filename="../../apps/common/edit/widgets.py" line="541"/>
         <source>查找</source>
         <translation>Find</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="513"/>
+        <location filename="../../apps/common/edit/widgets.py" line="545"/>
         <source>查找...</source>
         <translation>Find...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="517"/>
+        <location filename="../../apps/common/edit/widgets.py" line="549"/>
         <source>上一个</source>
         <translation>Previous</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="522"/>
+        <location filename="../../apps/common/edit/widgets.py" line="554"/>
         <source>下一个</source>
         <translation>Next</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="527"/>
+        <location filename="../../apps/common/edit/widgets.py" line="559"/>
         <source>关闭</source>
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="581"/>
+        <location filename="../../apps/common/edit/widgets.py" line="613"/>
         <source>提示</source>
         <translation>Notice</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="581"/>
+        <location filename="../../apps/common/edit/widgets.py" line="613"/>
         <source>没有可复制的内容</source>
         <translation>Nothing to copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="584"/>
+        <location filename="../../apps/common/edit/widgets.py" line="616"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="584"/>
+        <location filename="../../apps/common/edit/widgets.py" line="616"/>
         <source>已复制到剪贴板</source>
         <translation>Copied to clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="661"/>
+        <location filename="../../apps/common/edit/widgets.py" line="693"/>
         <source>无匹配</source>
         <translation>No matches</translation>
     </message>
