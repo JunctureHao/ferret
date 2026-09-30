@@ -68,6 +68,8 @@ class ProxyAuthScrubAddon:
       `.flows` 文件因此带着密码，而这类文件正是用户拿去交换排障的东西。
 
     所以在链上紧跟 ProxyAuth 把它删掉 —— 删得比 View 收录更早，任何快照都看不到。
+    挂两个钩子：``requestheaders``（普通请求）与 ``http_connect``（CONNECT 的
+    提前分支，它不走 requestheaders，#45）。
     这是对原生行为的**减法**，按 AGENTS.md §2 本该克制，但此处删的是死数据、
     换来的是不让凭证离开内核，划算。哪天有人真要用这个键，改成只留 username。
 
@@ -82,6 +84,15 @@ class ProxyAuthScrubAddon:
         flow.metadata.pop("proxyauth", None)
         if flow.response is not None:
             flow.metadata[AUTH_CHALLENGED_METADATA_KEY] = "1"
+
+    def http_connect(self, flow: HTTPFlow) -> None:
+        # CONNECT 不走 requestheaders（上游 http_connect 是更早的独立分支），
+        # 认证成功写进 metadata 的凭证在这条流上没人抹、原样存盘/上屏（#45）。
+        # 只抹凭证、不打 AUTH_CHALLENGED 标记：被拒的 CONNECT 拿到 407 后隧道
+        # 根本不成立，没有「流」可供 Mock 作答，标记没有读者。
+        # 原生 ProxyAuth 自己那份 `self.authenticated[client_conn]` 持有的是元组
+        # 本身，抹掉 metadata 键不影响同连接后续请求免验。
+        flow.metadata.pop("proxyauth", None)
 
 
 class FerretServerPlayback(ServerPlayback):

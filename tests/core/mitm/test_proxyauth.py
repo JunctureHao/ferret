@@ -255,6 +255,30 @@ class ProxyAuthAddonTests(unittest.TestCase):
         self._addon().requestheaders(later)
         self.assertIsNone(later.response)
 
+    def test_the_scrubber_also_covers_the_connect_branch(self) -> None:
+        """#45：CONNECT 不走 requestheaders，凭证得由 http_connect 钩子抹。
+
+        上游 ``authenticate_http`` 认证成功即写 ``metadata["proxyauth"]``（用户名
+        +明文密码）；这条流不再经过任何 requestheaders 钩子，没人抹就原样进详情
+        面板与存盘。同连接后续免验不受影响（原生弱键表持的是元组本身）。
+        """
+        self.master.options.update(proxyauth="alice:secret")
+        scrubber = ProxyAuthScrubAddon()
+
+        connect = flow_in_mode("regular", scheme="https")
+        connect.request.headers["Proxy-Authorization"] = BASIC
+        self._addon().http_connect(connect)
+        self.assertIn("proxyauth", connect.metadata)  # 前置：原生确实写了
+
+        scrubber.http_connect(connect)
+
+        self.assertNotIn("proxyauth", connect.metadata)
+        # 免验表不受影响：同连接的后续请求不再被挑战。
+        later = flow_in_mode("regular", scheme="https")
+        later.client_conn = connect.client_conn
+        self._addon().requestheaders(later)
+        self.assertIsNone(later.response)
+
     def test_replayed_flows_are_never_challenged(self) -> None:
         """compose / 重放不受挑战（``proxyauth.py:80-81``）—— 否则内部构造的
         请求会被自己的认证挡回来。"""
