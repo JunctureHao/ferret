@@ -663,6 +663,29 @@ class ApplyResponseEditTests(unittest.TestCase):
         kept = response_of(self.flow).headers.get_all("Set-Cookie")
         self.assertEqual(kept, ["a=1", "b=2"])
 
+    def test_a_none_content_leaves_the_body_and_length_alone(self) -> None:
+        """``content=None`` = 体没动过（issues #89）：HEAD/304 这类无正文响应的
+        Content-Length 是「对应表示」的长度，`response.content = b""` 会把它清成
+        0 —— 未编辑整段跳过，源站的长度语义原样保留。头表跟真实面板一样带着
+        原来的 Content-Length。"""
+        response_of(self.flow).raw_content = b""
+        apply_response_edit(
+            self.flow,
+            self.edit(
+                headers=[("Content-Type", "text/plain"), ("Content-Length", "12345")],
+                content=None,
+            ),
+        )
+        response = response_of(self.flow)
+        self.assertEqual(response.headers["Content-Length"], "12345")
+        self.assertEqual(response.get_content(strict=False), b"")
+
+    def test_an_empty_content_still_rewrites_the_length(self) -> None:
+        """``content=b""`` 是显式的「体改成空」：长度归零，与 None 两回事。"""
+        response_of(self.flow).headers["Content-Length"] = "12345"
+        apply_response_edit(self.flow, self.edit(content=b""))
+        self.assertEqual(response_of(self.flow).headers["Content-Length"], "0")
+
     def test_out_of_range_status_codes_are_rejected(self) -> None:
         for status_code in (0, 99, 600, -1):
             with self.subTest(status_code=status_code):
