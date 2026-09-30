@@ -22,8 +22,8 @@ from mitmproxy.http import Response
 from mitmproxy.test import tflow
 from PySide6.QtCore import (
     QItemSelectionModel,
-    QPoint,
     QObject,
+    QPoint,
     Signal,
 )
 from PySide6.QtWidgets import QApplication
