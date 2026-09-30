@@ -11,11 +11,14 @@
 """
 
 import os
+import typing
 import unittest
+import unittest.mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QTableWidget
+from PySide6.QtCore import QObject, QPoint
+from PySide6.QtWidgets import QApplication, QLineEdit, QTableWidget
 
 from ferret.apps.common.edit.syntax import Language
 from ferret.apps.common.edit.widgets import (
@@ -377,6 +380,98 @@ class JsonDualPanelTests(unittest.TestCase):
         self.assertEqual(seen, [])
         self.panel.text.code_widget.setPlainText('{"a": 2}')
         self.assertTrue(seen)
+
+
+
+class _MenuStub(QObject):
+    """替身菜单：真 `RoundMenu.exec` 会弹出非阻塞菜单，离线测试没人点它。
+
+    必须是 `QObject`：菜单动作把菜单当 parent 构造，QAction 拒绝 MagicMock。
+    """
+
+    created: typing.ClassVar[list] = []
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.actions: list = []
+        _MenuStub.created.append(self)
+
+    def addAction(self, action) -> None:
+        self.actions.append(action)
+
+    def exec(self, pos) -> None:
+        pass
+
+
+class ActiveEditorCommitTests(unittest.TestCase):
+    """读数据前先提交打开着的单元格编辑器（issues #86）。
+
+    工具栏按钮只有 TabFocus、点击不抢焦点，delegate 编辑器会一直开着 ——
+    之前逐格读回的是旧值，切文本页把旧值搬过去，切回表格页再覆盖掉新值。
+    """
+
+    def _open_editor(self, table: ItemTableWidget):
+        item = table.item(0, 1)
+        assert item is not None
+        table.editItem(item)
+        editor = table.viewport().focusWidget()
+        assert isinstance(editor, QLineEdit)  # delegate 给文本格的默认编辑器
+        editor.setText("new")
+        return editor
+
+    def test_items_commit_an_open_editor(self) -> None:
+        panel = ItemTableToolWidget(True)
+        self.addCleanup(panel.deleteLater)
+        panel.set_items([("X-Key", "old")])
+        self._open_editor(panel._table_widget)
+        self.assertEqual(panel.items(), [("X-Key", "new")])
+
+    def test_switching_pages_round_trips_the_open_edit(self) -> None:
+        """编辑到一半点「文本模式」：新值跟过去；切回表格页不被旧值覆盖。"""
+        panel = ItemDualPanel(True)
+        self.addCleanup(panel.deleteLater)
+        panel.set_items([("X-Key", "old")])
+        panel.stack.setCurrentWidget(panel.table)
+        self._open_editor(panel.table._table_widget)
+
+        panel._show_text_page()
+        self.assertIn("new", panel.text.text())
+        panel._show_table_page()
+        self.assertEqual(panel.items(), [("X-Key", "new")])
+
+    def test_committing_without_an_editor_is_a_no_op(self) -> None:
+        panel = ItemTableToolWidget(True)
+        self.addCleanup(panel.deleteLater)
+        panel.set_items([("A", "1")])
+        panel._table_widget.commit_active_editor()
+        self.assertEqual(panel.items(), [("A", "1")])
+
+
+class ContextMenuTests(unittest.TestCase):
+    """右键菜单构造（issues #51）：BaseAction 的第三位置参数是 parent（QObject），
+    把槽方法塞进去构造即 TypeError —— 可编辑键值表的右键从未成功弹出过。"""
+
+    def test_the_menu_constructs_with_action_and_remove(self) -> None:
+        panel = ItemTableToolWidget(True)
+        self.addCleanup(panel.deleteLater)
+        panel.set_items([("A", "1")])
+        panel._table_widget.selectRow(0)
+        with unittest.mock.patch(
+            "ferret.apps.common.edit.widgets.RoundMenu", _MenuStub
+        ):
+            panel._show_context_menu(QPoint(5, 5))
+        self.assertEqual(len(_MenuStub.created), 1)
+        self.assertEqual(len(_MenuStub.created[0].actions), 2)
+
+    def test_a_read_only_table_shows_no_menu(self) -> None:
+        panel = ItemTableToolWidget(False)
+        self.addCleanup(panel.deleteLater)
+        panel.set_items([("A", "1")])
+        with unittest.mock.patch(
+            "ferret.apps.common.edit.widgets.RoundMenu", _MenuStub
+        ):
+            panel._show_context_menu(QPoint(5, 5))
+        self.assertEqual(_MenuStub.created, [])
 
 
 if __name__ == "__main__":

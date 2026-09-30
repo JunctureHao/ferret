@@ -143,6 +143,9 @@ class ItemTableWidget(TableWidget):
         self._editable = editable
         # 程序化填表期间要屏蔽 itemChanged，否则每建一个单元格都当成"用户编辑"。
         self._loading = False
+        # commitData 的重入闸：commit 会触发 itemChanged → 上层读 items() →
+        # 再 commit，没有这道闸就是无限递归。
+        self._committing = False
         self._init_table()
         self.itemChanged.connect(self._on_item_changed)
 
@@ -257,6 +260,26 @@ class ItemTableWidget(TableWidget):
         if self._loading:
             return
         self.items_changed.emit()
+
+    def commit_active_editor(self) -> None:
+        """把正在编辑的单元格提交进表格，调用方随后读到的才是当前值。
+
+        工具栏按钮只有 TabFocus、点击不抢焦点，delegate 编辑器会一直开着 ——
+        此时逐格读回的是**上一次提交**的旧值，刚输入的内容对外不可见，切页
+        回来还会被旧值覆盖。`focusWidget()` 找到挂在 viewport 上的编辑器后走
+        `commitData`（QAbstractItemView 的 protected 槽，子类可用）；没有编辑器
+        时是无害空操作。
+        """
+        if self._committing:
+            return
+        editor = self.viewport().focusWidget()
+        if editor is None or editor is self.viewport():
+            return
+        self._committing = True
+        try:
+            self.commitData(editor)
+        finally:
+            self._committing = False
 
 
 class SortState(Enum):
@@ -385,7 +408,11 @@ class ItemTableToolWidget(SimpleCardWidget):
     # —— 数据获取 ——
 
     def items(self) -> list[tuple[str, str]]:
-        """当前键值对（含用户编辑），顺序即行序。表格是唯一真相，逐格读回。"""
+        """当前键值对（含用户编辑），顺序即行序。表格是唯一真相，逐格读回。
+
+        读之前先提交打开着的单元格编辑器：编辑器开着时逐格读回的是旧值（#86）。
+        """
+        self._table_widget.commit_active_editor()
         return self._table_widget.rows()
 
     @Slot()
@@ -405,13 +432,18 @@ class ItemTableToolWidget(SimpleCardWidget):
     def _show_context_menu(self, pos):
         if not self._editable:
             return
+        # BaseAction 的第三个位置参数是 parent（QObject）——把槽方法塞进去构造
+        # 即 TypeError，右键菜单从未成功弹出过。parent 显式给表，动作再 connect。
         menu = RoundMenu(parent=self._table_widget)
-        menu.addAction(BaseAction(FluentIcon.ADD, self.tr("新增行"), self.add_row))
+        add = BaseAction(FluentIcon.ADD, self.tr("新增行"), parent=self._table_widget)
+        add.triggered.connect(self.add_row)
+        menu.addAction(add)
         remove = BaseAction(
             FluentIcon.DELETE,
             self.tr("删除选中行"),
-            self.remove_selected_rows,
+            parent=self._table_widget,
         )
+        remove.triggered.connect(self.remove_selected_rows)
         remove.setEnabled(bool(self._table_widget.selectedIndexes()))
         menu.addAction(remove)
         viewport = self._table_widget.viewport()
