@@ -13,7 +13,9 @@
 心跳流又改回空表。
 """
 
+import gzip
 import unittest
+import zlib
 
 from ferret.core.mitm import (
     DEFAULT_EVENT,
@@ -23,6 +25,7 @@ from ferret.core.mitm import (
     is_event_stream,
     parse_sse,
 )
+from ferret.core.mitm.sse import _SseTap
 
 
 class ContentTypeTests(unittest.TestCase):
@@ -364,6 +367,88 @@ class FeederTests(unittest.TestCase):
         events = self.feed_all(["retry: 100\r"])
 
         self.assertEqual(events[0].retry, 100)
+
+
+class _TapHarness:
+    """收集 `_SseTap` 产出的事件与收尾信号，供 gzip 测试喂 chunk。"""
+
+    def __init__(self, content_encoding: str) -> None:
+        self.events: list[SseEvent] = []
+        self.ended = 0
+        self.tap = _SseTap(
+            "utf-8",
+            content_encoding,
+            on_events=self.events.extend,
+            on_end=lambda: setattr(self, "ended", self.ended + 1),
+        )
+
+
+class GzipTapTests(unittest.TestCase):
+    """tee 侧的 Content-Encoding 剥离（issues #12）：stream callable 拿到的是
+    未解压的转发 chunk，不剥就喂解析只会得到乱码或空事件。"""
+
+    def test_a_gzip_stream_yields_events(self) -> None:
+        harness = _TapHarness("gzip")
+        whole = gzip.compress(b"data: hello\n\ndata: world\n\n")
+        # 切三段喂入，模拟 TCP 分块（切点与块边界无关）。
+        for chunk in (whole[:5], whole[5:20], whole[20:]):
+            harness.tap.tee(chunk)
+        harness.tap.tee(b"")
+        self.assertEqual([e.data for e in harness.events], ["hello", "world"])
+        self.assertEqual(harness.ended, 1)
+
+    def test_a_gzip_chunk_split_inside_a_block_is_reassembled(self) -> None:
+        harness = _TapHarness("x-gzip")
+        whole = gzip.compress(b"event: tick\ndata: 42\n\n")
+        for i in range(0, len(whole), 3):
+            harness.tap.tee(whole[i : i + 3])
+        harness.tap.tee(b"")
+        self.assertEqual([(e.event, e.data) for e in harness.events], [("tick", "42")])
+
+    def test_multi_member_gzip_keeps_parsing_across_members(self) -> None:
+        harness = _TapHarness("gzip")
+        harness.tap.tee(gzip.compress(b"data: one\n\n"))
+        harness.tap.tee(gzip.compress(b"data: two\n\n"))
+        harness.tap.tee(b"")
+        self.assertEqual([e.data for e in harness.events], ["one", "two"])
+
+    def test_a_deflate_stream_yields_events(self) -> None:
+        harness = _TapHarness("deflate")
+        compressor = zlib.compressobj()
+        body = compressor.compress(b"data: z\n\n") + compressor.flush()
+        harness.tap.tee(body)
+        harness.tap.tee(b"")
+        self.assertEqual([e.data for e in harness.events], ["z"])
+
+    def test_a_raw_deflate_stream_falls_back_and_yields_events(self) -> None:
+        """"deflate" 常被服务器发成裸 deflate：zlib 包试错一次换 -15 重放。"""
+        harness = _TapHarness("deflate")
+        compressor = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+        body = compressor.compress(b"data: raw\n\n") + compressor.flush()
+        harness.tap.tee(body)
+        harness.tap.tee(b"")
+        self.assertEqual([e.data for e in harness.events], ["raw"])
+
+    def test_the_tee_returns_the_wire_bytes_untouched(self) -> None:
+        """转发侧不受影响：tee 恒原样返回 chunk（客户端照收压缩字节）。"""
+        harness = _TapHarness("gzip")
+        chunk = gzip.compress(b"data: x\n\n")
+        self.assertEqual(harness.tap.tee(chunk), chunk)
+
+    def test_an_unsupported_encoding_degrades_to_no_parsing(self) -> None:
+        """br / zstd 标准库解不了：不产乱码事件、转发照常、流末正常收尾。"""
+        harness = _TapHarness("br")
+        chunk = bytes([0x1B, 0x2D, 0x00]) + b"fake-brotli"
+        self.assertEqual(harness.tap.tee(chunk), chunk)
+        harness.tap.tee(b"")
+        self.assertEqual(harness.events, [])
+        self.assertEqual(harness.ended, 1)
+
+    def test_a_plain_stream_behaves_as_before(self) -> None:
+        harness = _TapHarness("identity")
+        harness.tap.tee(b"data: a\n\n")
+        harness.tap.tee(b"")
+        self.assertEqual([e.data for e in harness.events], ["a"])
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ callable 再转发），tee 出数据自己攒 body、增量解析、逐事件�
 from __future__ import annotations
 
 import codecs
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -251,6 +252,94 @@ def parse_sse(text: str) -> list[SseEvent]:
 # ———————————————————————— tee 层 ————————————————————————
 
 
+# wbits=32+15 让 zlib 自识别 gzip / zlib 包头；试错失败换裸 deflate（-15）重放。
+_AUTO_WBITS = 32 + zlib.MAX_WBITS
+_RAW_WBITS = -zlib.MAX_WBITS
+_PLAIN_ENCODINGS = frozenset({"", "identity"})
+_KNOWN_ENCODINGS = frozenset({"gzip", "x-gzip", "deflate"}) | _PLAIN_ENCODINGS
+
+
+class _ChunkDecoder:
+    """「线上 chunk → 解析层输入」的 Content-Encoding 剥离层（issues #12）。
+
+    mitmproxy 的 stream callable 拿到的是**未解压**的转发 chunk，事件解析前要
+    自己剥 Content-Encoding；转发侧不受影响（tee 恒原样返回 chunk）。gzip /
+    deflate 增量解压：wbits 自动识别 gzip 与 zlib 包头（"deflate" 该是 zlib
+    包，但不少服务器发裸 deflate —— 试错一次换 -15 并从攒下的前缀重放），
+    gzip 多成员连着解。br / zstd 标准库没有解压器 —— 解不出来还硬喂只会产出
+    乱码事件，诚实降级成「不解析」（`decode` 恒回 ``None``）。
+    """
+
+    __slots__ = ("_dead", "_decompressor", "_prefix", "_wbits")
+
+    def __init__(self, content_encoding: str) -> None:
+        self._dead = False
+        # 首次成功解压前攒下的原始前缀：deflate 换形态时从这里重放（SSE 流开头
+        # 才判得出形态，前缀很短），成功之后只喂增量。
+        self._prefix: bytearray | None = bytearray()
+        name = content_encoding.strip().lower()
+        if name in _PLAIN_ENCODINGS:
+            self._wbits = 0
+            self._decompressor = None
+        elif name in _KNOWN_ENCODINGS:
+            self._wbits = _AUTO_WBITS
+            self._decompressor = zlib.decompressobj(_AUTO_WBITS)
+        else:
+            self._wbits = 0
+            self._decompressor = None
+            self._dead = True
+
+    def decode(self, chunk: bytes) -> bytes | None:
+        """一段线上字节 → 明文；``None`` 表示这段放弃解析（照常转发）。"""
+        if self._dead:
+            return None
+        if self._decompressor is None:
+            return chunk
+        if self._prefix is not None:
+            self._prefix += chunk
+            data = bytes(self._prefix)
+        else:
+            data = chunk
+        out = bytearray()
+        try:
+            while True:
+                out += self._decompressor.decompress(data)
+                if not self._decompressor.eof:
+                    break
+                # gzip 多成员：本成员收尾，剩余字节（可能为空）换新解压器接着解。
+                data = self._decompressor.unused_data
+                self._decompressor = zlib.decompressobj(self._wbits)
+                if not data:
+                    break
+        except zlib.error:
+            if self._prefix is not None and self._wbits == _AUTO_WBITS:
+                # deflate 双形态：zlib 包解不动，按裸 deflate 从前缀重来一遍。
+                self._wbits = _RAW_WBITS
+                self._decompressor = zlib.decompressobj(_RAW_WBITS)
+                try:
+                    out += self._decompressor.decompress(bytes(self._prefix))
+                except zlib.error:
+                    self._dead = True
+                    return None
+            else:
+                # 中途的坏字节救不回来：余流放弃解析，转发不受影响。
+                self._dead = True
+                return None
+        self._prefix = None
+        return bytes(out)
+
+    def flush(self) -> bytes | None:
+        """流末：吐出解压器里剩余的字节。``None`` 语义同 `decode`。"""
+        if self._dead:
+            return None
+        if self._decompressor is None:
+            return b""
+        try:
+            return self._decompressor.flush()
+        except zlib.error:
+            return None
+
+
 class _SseTap:
     """一条流的 tee 状态：增量解码器 + feeder + 攒 body 的缓冲。
 
@@ -262,6 +351,7 @@ class _SseTap:
     def __init__(
         self,
         charset: str,
+        content_encoding: str,
         on_events: Callable[[list[SseEvent]], None],
         on_end: Callable[[], None],
     ) -> None:
@@ -272,6 +362,17 @@ class _SseTap:
             # 比整条流不显示强（和 §2「解码一律 strict=False」同一个道理）。
             decoder_factory = codecs.getincrementaldecoder("utf-8")
         self._decoder = decoder_factory(errors="replace")
+        self._chunk_decoder = _ChunkDecoder(content_encoding)
+        if self._chunk_decoder is not None and content_encoding.strip().lower() not in (
+            _KNOWN_ENCODINGS
+        ):
+            # br / zstd 等：标准库解不了，事件解析降级关闭（转发照常，见
+            # `_ChunkDecoder`）。不吭声的话用户只会看到「事件页空的」，没法查。
+            log.info(
+                "SSE 流带 Content-Encoding: %s，无法增量解压，事件解析关闭"
+                "（转发不受影响）",
+                content_encoding,
+            )
         self._feeder = SseFeeder()
         self._on_events = on_events
         self._on_end = on_end
@@ -292,16 +393,25 @@ class _SseTap:
                 )
             else:
                 self.buf += chunk
-        events = self._feeder.feed(self._decoder.decode(chunk))
-        if events:
-            self._on_events(events)
+        # 先剥 Content-Encoding 再文本解码：stream callable 拿到的是未解压的
+        # 转发 chunk（issues #12）。``None`` = 解不出来，这段放弃解析。
+        plain = self._chunk_decoder.decode(chunk)
+        if plain is not None:
+            events = self._feeder.feed(self._decoder.decode(plain))
+            if events:
+                self._on_events(events)
         return chunk
 
     def _flush(self) -> None:
-        events = [
-            *self._feeder.feed(self._decoder.decode(b"", final=True)),
-            *self._feeder.flush(),
-        ]
+        tail = self._chunk_decoder.flush()
+        if tail is None:
+            events: list[SseEvent] = []
+        else:
+            events = [
+                *self._feeder.feed(self._decoder.decode(tail)),
+                *self._feeder.feed(self._decoder.decode(b"", final=True)),
+                *self._feeder.flush(),
+            ]
         if events:
             self._on_events(events)
         self._on_end()
@@ -345,6 +455,9 @@ class FerretSseAddon:
             # charset 单独拆出来：整串 content-type（带参数）喂给 codecs 会
             # LookupError，而 `_SseTap` 只认编码名。
             _charset_of(response.headers.get("content-type", "")),
+            # Content-Encoding 也得单独给：stream callable 收到的是未解压的
+            # 转发 chunk（issues #12），tee 侧自己剥。
+            response.headers.get("content-encoding", "identity"),
             on_events=lambda events, fid=flow.id: self._record_events(fid, events),
             on_end=lambda fid=flow.id: self._finish(fid),
         )
