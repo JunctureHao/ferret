@@ -94,11 +94,45 @@ class RingBufferHandler(logging.Handler):
         return items if n is None else items[-n:]
 
 
+class _UpstreamFaultForwarder(logging.Handler):
+    """根 logger 上的上游故障转发器（#16）。
+
+    ferret 树 ``propagate=False`` 换来的隔离有代价：``mitmproxy.*`` 与其他第三方
+    logger 的记录传播到根 logger 后无处可去——原生 ``LegacyLogEvents`` 泵已被
+    ``FerretMaster`` 构造函数卸掉（理由见 core/mitm/master.py），根上又没有别的
+    handler，WARNING+ 只剩 ``lastResort`` 往 stderr 一条路，打包 windowed 模式下
+    连这条都没有。上游故障（proxyserver 实例启动失败、master 的 "Unhandled error
+    in task"、tlsconfig/serverplayback/certs 的告警）因此整类丢失。
+
+    本 handler 挂在**根** logger 上，把 WARNING+ 转发进 ferret 的同一批 sink
+    （环形缓冲 / ferret.log / 控制台）：
+
+    - 不重复：ferret 树不传播，自身记录永远到不了根，只会被自己的 handler 处理一次；
+    - 不放噪：级别闸钉在 WARNING——第三方 INFO/DEBUG（hpack、mode_servers 的通道
+      lifecycle 等）进不来。上游 ALERT(=INFO+1) 只有 CLI addon（cut/console）在用，
+      Ferret 不装它们，不做特判；
+    - 必须**复用** ferret 那三个 handler 实例而非另开一套：两个 RotatingFileHandler
+      写同一个 ferret.log，轮转时会互相改名/漏写，文件必然撕裂。
+    """
+
+    def __init__(self, targets: list[logging.Handler]) -> None:
+        super().__init__(level=logging.WARNING)
+        self._targets = targets
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # Handler.handle 会按目标自己的级别/过滤器闸再走一遍并加锁，逐个转发即可。
+        for target in self._targets:
+            target.handle(record)
+
+
 # ── 模块级单例 ──
 _emitter: LogEmitter | None = None
 _handler: RingBufferHandler | None = None
+# 根 logger 上的上游故障转发器（#16）：None = 尚未挂。留着模块级引用便于测试复位。
+_root_forwarder: _UpstreamFaultForwarder | None = None
 # handler 挂在 ferret 这棵独立的树上：业务子 logger 归属 ferret.* 可命中，
 # 而第三方库（hpack/mitmproxy.proxy.* 等）不在树下，自然被隔离，不会冒出噪音。
+# 代价（上游故障丢失）由 _UpstreamFaultForwarder 在根 logger 上补齐。
 _logger = logging.getLogger("ferret")
 
 
@@ -108,7 +142,7 @@ def init_logging() -> None:
     必须在 QApplication 存在后调用（``LogEmitter`` 是 QObject）。
     """
 
-    global _emitter, _handler
+    global _emitter, _handler, _root_forwarder
     if _emitter is not None:
         return
 
@@ -130,6 +164,9 @@ def init_logging() -> None:
     file_handler.setFormatter(FerretFormatter(_FMT))
     _logger.addHandler(file_handler)
 
+    # 根 logger 上的转发器与 ferret 树共用这批 sink（#16），故先攒齐。
+    targets: list[logging.Handler] = [_handler, file_handler]
+
     # 终端输出：让 `uv run ferret` 的控制台实时滚动日志（UI 面板/文件不受影响）。
     # Windows 控制台下 sys.stdout 默认 errors="backslashreplace"，特殊字符不会抛错；
     # Nuitka windowed 模式下 sys.stdout 为 None，自动跳过。
@@ -137,6 +174,11 @@ def init_logging() -> None:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(FerretFormatter(_FMT))
         _logger.addHandler(console_handler)
+        targets.append(console_handler)
+
+    # 上游故障通道（#16）：mitmproxy.* 与根 logger 的 WARNING+ 也进同一批 sink。
+    _root_forwarder = _UpstreamFaultForwarder(targets)
+    logging.getLogger().addHandler(_root_forwarder)
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
