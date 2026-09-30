@@ -75,20 +75,31 @@ class SystemProxyService:
         snapshot: ProxySnapshot | None = None
         stale = self._read_journal()
         if stale is not None:
-            stale_endpoint, stale_snapshot = stale
-            if not self._backend.owns(stale_endpoint):
-                # 系统代理已经不指向残留地址（用户或别的工具改过），journal 作废。
+            stale_endpoint, stale_snapshot, stale_applied = stale
+            if stale_applied and not self._backend.owns(stale_endpoint):
+                # 已生效的 journal 却不再指着那个端点：系统代理被用户或别的工具
+                # 改过，journal 作废。「作废」语义只对确认生效过的 journal 成立；
+                # pending 的走下面恢复/顶上分支。
                 self._clear_journal()
             elif self._backend.restore(stale_snapshot):
-                # 这次恢复下来了：journal 清掉，按正常 attach 取当前快照。
+                # 这次恢复下来了：journal 清掉，按正常 attach 取当前快照。pending
+                # 的 journal 也进这条（set 从未生效时系统多半就停在快照态，恢复是
+                # 幂等空写；系统停在上一代死代理上时这步把它救回来）。
                 self._clear_journal()
             else:
                 # 还是恢复不下来：把旧快照顶到这次 attach 的「上次状态」上继续用，
                 # journal 重写后仍带它 —— 用户原配置在恢复成功之前绝不落袋。
+                # pending 的 journal 走到这里同样是这个语义：owns 不匹配不能当
+                # 「外部改动」删掉它，否则唯一存着原配置的 journal 没了，下一次
+                # snapshot() 就把残留死代理存成恢复目标（#72 复核重开的路径）。
                 snapshot = stale_snapshot
         if snapshot is None:
             snapshot = self._backend.snapshot()
-        self._write_journal(endpoint, snapshot)
+        # journal 先以 **pending** 落盘再动系统：set 成功但进程随即死掉的窗口里，
+        # 盘上已经有可恢复的账（顺序不能反，反了会留一个「系统被改、journal 没有」
+        # 的不可恢复态）。set 确认生效后再翻成 applied；翻牌前崩溃 = journal 还是
+        # pending 而系统已指新端点，owns 命中，恢复语义不受影响。
+        self._write_journal(endpoint, snapshot, applied=False)
         try:
             applied = self._backend.set(endpoint)
         except Exception as exc:  # noqa: BLE001
@@ -103,6 +114,9 @@ class SystemProxyService:
             if apply_error is not None:
                 raise RuntimeError(ERR_SET_FAILED) from apply_error
             raise RuntimeError(ERR_SET_FAILED)
+        # set 确认生效：journal 翻成 applied。留在 pending 的话，这次失败痕迹会
+        # 让下一次 attach 误判「set 从未生效」——语义上没错但账不干净。
+        self._write_journal(endpoint, snapshot, applied=True)
         self._snapshot = snapshot
         self._endpoint = endpoint
 
@@ -138,9 +152,12 @@ class SystemProxyService:
         # journal，所有权协议交给锁文件裁决。
         if not self._acquire_ownership():
             return True
-        endpoint, snapshot = state
+        endpoint, snapshot, applied = state
         try:
-            if not self._backend.owns(endpoint):
+            if applied and not self._backend.owns(endpoint):
+                # 已生效却不再指着那个端点：外部改动，作废（与 attach 侧同一既定
+                # 语义）。pending 的 journal 不走这里 —— set 从未确认生效，它的
+                # 快照可能是用户原配置的唯一副本（#72），恢复成功前不能删。
                 self._clear_journal()
                 return True
             if not self._backend.restore(snapshot):
@@ -188,7 +205,9 @@ class SystemProxyService:
         if fd is not None:
             os.close(fd)
 
-    def _write_journal(self, endpoint: ProxyEndpoint, snapshot: ProxySnapshot) -> None:
+    def _write_journal(
+        self, endpoint: ProxyEndpoint, snapshot: ProxySnapshot, *, applied: bool
+    ) -> None:
         path = self._journal_path
         if not isinstance(path, Path):
             return
@@ -197,11 +216,16 @@ class SystemProxyService:
         data = {
             "endpoint": {"host": endpoint.host, "port": endpoint.port},
             "snapshot": snapshot.values,
+            # 两阶段标记（#72）：False = journal 落了盘但 set 还没确认生效，这种
+            # journal 的 owns 不匹配**不能**按「外部改动」作废——系统很可能只是
+            # 停在 attach 前的旧端点上。老版本 journal 没有这个键，读侧按 True
+            # 处理（旧语义不变，不做磁盘迁移）。
+            "applied": applied,
         }
         tmp.write_text(json.dumps(data, ensure_ascii=True), encoding="utf-8")
         os.replace(tmp, path)
 
-    def _read_journal(self) -> tuple[ProxyEndpoint, ProxySnapshot] | None:
+    def _read_journal(self) -> tuple[ProxyEndpoint, ProxySnapshot, bool] | None:
         path = self._journal_path
         if not isinstance(path, Path) or not path.exists():
             return None
@@ -211,6 +235,7 @@ class SystemProxyService:
             return (
                 ProxyEndpoint(str(endpoint_data["host"]), int(endpoint_data["port"])),
                 ProxySnapshot(dict(data["snapshot"])),
+                bool(data.get("applied", True)),
             )
         except (OSError, ValueError, KeyError, TypeError):
             self._clear_journal()

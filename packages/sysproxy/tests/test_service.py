@@ -19,11 +19,17 @@ class FakeBackend(SystemProxyBackend):
         self.restore_calls = 0
         self.fail_set = False
         self.fail_restore = False
+        # set 在写入系统之前就失败（真实 Windows 的 OpenKey / 首次 SetValueEx
+        # 失败）：current 不动。默认 FakeBackend.set 是「先改 current 再返回
+        # 失败」，盖不住这条路径（#72 复核重开的正是它）。
+        self.fail_set_before_write = False
 
     def snapshot(self) -> ProxySnapshot:
         return ProxySnapshot({"current": self.current})
 
     def set(self, endpoint: ProxyEndpoint) -> bool:
+        if self.fail_set_before_write:
+            return False
         self.current = endpoint.address
         return not self.fail_set
 
@@ -217,6 +223,94 @@ class SystemProxyServiceTests(unittest.TestCase):
             second.attach("127.0.0.1", 8081)
             self.assertTrue(second.detach())
             self.assertEqual(backend.current, "original")
+
+    def test_set_failure_before_write_then_retry_keeps_original_snapshot(self) -> None:
+        """#72 复核重开的主路径：set 未写入系统就失败、回滚也失败，重试不丢原快照。
+
+        journal 在 set 前就以 pending 落盘（端点已是新端点）；set 失败后系统仍指
+        旧端点。修复前下一次 attach 把 owns 不匹配当「外部改动」删 journal，唯一
+        存着原配置的快照没了，残留死代理被 snapshot() 存成恢复目标——最终系统
+        停在死代理上。
+        """
+        backend = FakeBackend()
+        with TemporaryDirectory() as directory:
+            journal = Path(directory) / "proxy.json"
+            first = SystemProxyService(backend, journal_path=journal)
+            first.attach("127.0.0.1", 8080)
+            first._release_ownership()
+
+            backend.fail_restore = True
+            second = SystemProxyService(backend, journal_path=journal)
+            self.assertFalse(second.recover())
+
+            # set 未写入 + 回滚失败：journal 保持 pending（新端点 + 原快照）。
+            backend.fail_set_before_write = True
+            with self.assertRaises(RuntimeError):
+                second.attach("127.0.0.1", 8081)
+            self.assertEqual(backend.current, "127.0.0.1:8080")
+            state = json.loads(journal.read_text(encoding="utf-8"))
+            self.assertEqual(state["snapshot"]["current"], "original")
+            self.assertFalse(state["applied"])
+
+            # 恢复权限后重试：系统必须回到 original，而不是 8080 那个死代理。
+            backend.fail_restore = False
+            backend.fail_set_before_write = False
+            second.attach("127.0.0.1", 8081)
+            self.assertTrue(second.detach())
+            self.assertEqual(backend.current, "original")
+            self.assertFalse(journal.exists())
+
+    def test_recover_with_a_pending_journal_restores_or_keeps_it(self) -> None:
+        """#72：pending journal（set 从未确认生效）不许按「外部改动」作废。
+
+        恢复得下来 → 清掉；恢复不下来 → 保留 journal 返回 False，等权限回来
+        再试。修复前 recover 对 owns 不匹配一律清 journal。
+        """
+        backend = FakeBackend()
+        with TemporaryDirectory() as directory:
+            journal = Path(directory) / "proxy.json"
+            backend.fail_restore = True
+            backend.fail_set_before_write = True
+            first = SystemProxyService(backend, journal_path=journal)
+            with self.assertRaises(RuntimeError):
+                first.attach("127.0.0.1", 8080)
+            # journal pending（8080, original）；系统仍在 original —— set 没写进去。
+
+            backend.fail_set_before_write = False
+            second = SystemProxyService(backend, journal_path=journal)
+            self.assertFalse(second.recover())
+            self.assertTrue(journal.exists())
+            state = json.loads(journal.read_text(encoding="utf-8"))
+            self.assertEqual(state["snapshot"]["current"], "original")
+
+            backend.fail_restore = False
+            third = SystemProxyService(backend, journal_path=journal)
+            self.assertTrue(third.recover())
+            self.assertEqual(backend.current, "original")
+            self.assertFalse(journal.exists())
+
+    def test_a_legacy_journal_without_applied_keeps_external_change_semantics(
+        self,
+    ) -> None:
+        """老版本写的 journal 没有 applied 键：按已生效读，外部改动作废语义不变。"""
+        backend = FakeBackend()
+        with TemporaryDirectory() as directory:
+            journal = Path(directory) / "proxy.json"
+            journal.write_text(
+                json.dumps(
+                    {
+                        "endpoint": {"host": "127.0.0.1", "port": 8080},
+                        "snapshot": {"current": "original"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            backend.current = "user-change"
+
+            recovered = SystemProxyService(backend, journal_path=journal)
+            self.assertTrue(recovered.recover())
+            self.assertEqual(backend.current, "user-change")
+            self.assertFalse(journal.exists())
 
     def test_service_does_not_import_the_host_or_qt(self) -> None:
         """零依赖是这个包存在的意义：源码里不许出现宿主与 Qt 的 import。"""
