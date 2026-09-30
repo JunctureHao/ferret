@@ -472,6 +472,24 @@ class FerretInterceptTests(unittest.TestCase):
         self.addon.process_flow(flow)
         self.assertTrue(flow.intercepted)
 
+    def test_done_releases_and_kills_everything_still_held(self) -> None:
+        """#43：Master 收尾时断点账本必须清空，别把 intercepted 死行留给下一代。
+
+        与 `GatewayL7Addon` 的 done 同款回归：被拦流的 wait_for_resume 任务随旧
+        loop 消亡，账不清就永远挂在 held 上。
+        """
+        self.arm_filter(EXAMPLE_FILTER)
+        flow = flow_at()
+        self.addon.process_flow(flow)
+        self.assertTrue(flow.intercepted)
+        self.assertEqual(self.state.held_count, 1)
+
+        self.addon.done()
+
+        self.assertEqual(self.state.held_count, 0)
+        self.assertFalse(flow.intercepted)
+        self.assertIsNotNone(flow.error)
+
 
 class InterceptMasterWiringTests(unittest.TestCase):
     def setUp(self) -> None:

@@ -426,6 +426,16 @@ class FerretIntercept(Intercept):
         if self.should_intercept(f):
             self.state.arm(f)
 
+    def done(self) -> None:
+        """Master 要停了：账上挂着的断点全部放行并断连（#43）。
+
+        与 ``GatewayL7Addon.done`` 同一个坑、同一个修法：跨代共用 View 时不清账
+        会留 intercepted 死行，被拦流的 ``wait_for_resume`` 任务随旧 loop 一起消亡
+        —— 放行 + kill 的顺序约束见 ``InterceptState._release``。原生 ``Intercept``
+        没有 done，这份清账职责在我们这边。
+        """
+        self.state.release_all(kill=True)
+
 
 # —— 界面 → flow 的写回 ——
 
