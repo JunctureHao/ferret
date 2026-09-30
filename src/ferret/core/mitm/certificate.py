@@ -611,6 +611,11 @@ def run_certutil(args: Sequence[str]) -> int:
     certutil 的输出是本地化的（本机打印中文），所以**唯一可以分支的信号是退出码**，
     绝不解析 stdout 文本。
     """
+    # GUI 进程自身没有控制台，Windows 给控制台子进程（certutil.exe）自动分配
+    # 新控制台窗口——就是「进证书页闪一个 cmd」的来源；`capture_output` 只重定向
+    # 管道、拦不住窗口创建。CREATE_NO_WINDOW 只在 Windows 平台存在，非 Windows
+    # 上拿 0 即可（那里 certutil 本来就找不到，走 FileNotFoundError 分支）。
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         completed = subprocess.run(
             ["certutil", *args],
@@ -618,6 +623,7 @@ def run_certutil(args: Sequence[str]) -> int:
             text=True,
             errors="replace",
             check=False,
+            creationflags=no_window,
         )
     except OSError as exc:  # FileNotFoundError 也是 OSError
         raise CertutilUnavailable(
