@@ -638,9 +638,14 @@ class FerretRewriteAddon:
         """``re.sub(subject, template, pretty_url)`` → ``request.url``。
 
         scheme / host / port / Host 头随 url setter 自动更新 —— 这也是不自造
-        重定向的理由之一（`RewriteRule.template` 的注释）。
+        重定向的理由之一（``RewriteRule.template`` 的注释）。恒等替换不回写
+        （#44，上游 mapremote 同款守卫）：替换前后一个字节都没变时，setter 的
+        副作用（重建 authority、归一 Host 大小写）纯属折腾，直接跳过。
         """
-        flow.request.url = entry.url.sub(entry.rule.template, flow.request.pretty_url)
+        url = flow.request.pretty_url
+        new_url = entry.url.sub(entry.rule.template, url)
+        if url != new_url:
+            flow.request.url = new_url
 
     def _map_local(self, flow: HTTPFlow, entry: CompiledRewrite, url: str) -> None:
         """文件映射：现读本地文件直接作答，请求不出网（对齐原生 MapLocal）。"""

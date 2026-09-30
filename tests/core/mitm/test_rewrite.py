@@ -433,6 +433,24 @@ class RewriteEndToEndTests(unittest.TestCase):
         self.addon.request(flow)
         self.assertEqual(flow.request.pretty_url, "https://c.com/x")
 
+    def test_an_identity_map_remote_replacement_does_not_touch_the_request(self) -> None:
+        """#44：替换前后一字不差就不回写。
+
+        url setter 会走一遍 parse 重赋 scheme/host/port/path，Host 大小写被归一
+        （`API.Example.com` → `api.example.com`）—— 恒等替换的这种副作用纯属
+        折腾，上游 mapremote 同款守卫。对照组是上面那些真的改了 URL 的用例。
+        """
+        self.push(rule(RewriteLogic.REGEX, r"^(.*)$", r""))
+        flow = flow_to("http://api.example.com/v1")
+        # url setter 自己会把 host 归一，所以直接赋 host 保住大小写再验。
+        flow.request.host = "API.Example.com"
+        before = flow.request.pretty_url
+
+        self.addon.request(flow)
+
+        self.assertEqual(flow.request.host, "API.Example.com")
+        self.assertEqual(flow.request.pretty_url, before)
+
     def test_the_master_switch_disables_every_rule(self) -> None:
         self.push(kind_rule(RewriteKind.REPLACE_REQUEST, method="POST"), enabled=False)
         flow = flow_to(URL)
