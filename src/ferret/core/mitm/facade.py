@@ -12,6 +12,7 @@ from PySide6.QtCore import QCoreApplication
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import (
+    Flow,
     FlowReadException,
     HTTPFlow,
     OptionsError,
@@ -1182,12 +1183,25 @@ class MitmFacade:
 
         async def load() -> int:
             recording = master.options.save_stream_file
+            in_flight: set[Flow] | None = None
             if recording:
+                # 暂停写盘只有原生的「停止」通道可走（save_stream_file=None →
+                # Save.done()），而 done() 会把在途流按**当前**状态冲进文件，随后
+                # 流收尾再写一条同 id 的完整记录 —— 录制文件里留下未完成+完成双条，
+                # 会话打开时 View.add 只收首条，展示的永远是没响应的那条（#79）。
+                # 把 active_flows 暂时摘空让这次冲刷冲个寂寞：在途流留在恢复后的
+                # 集合里，收尾时由 Save.response 按完整状态写一次；导入期间就收尾
+                # 的（stream 为 None，save_flow 早退不清集合）由 stop 的 done() 补写。
+                # 导入的历史流经 master.load_flow 走完整事件序，但 stream 已关，
+                # 不会混进录制文件。
+                in_flight = master.save.active_flows
+                master.save.active_flows = set()
                 master.options.update(save_stream_file=None)
             try:
                 return await master.readfile.load_flows_from_path(str(path))
             finally:
-                if recording:
+                if in_flight is not None:
+                    master.save.active_flows = in_flight
                     # Save.done() 已关文件；原样恢复普通路径会以 wb 重开并截断。
                     # 原生 "+" 前缀表示追加；保留已有前缀，连续导入也能续写同一文件。
                     if not recording.startswith("+"):

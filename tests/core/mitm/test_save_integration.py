@@ -182,6 +182,28 @@ class RecordingImportTests(unittest.TestCase):
             second_paths.append(flow.request.path)
         self.assertEqual(second_paths, ["/again"])
 
+    def test_importing_with_a_flow_in_flight_records_it_once_and_complete(self) -> None:
+        """#79：导入触发暂停冲刷，在途流不能按「未完成」先写一条。
+
+        修复前磁盘上是同 id 的未完成+完成两条，会话打开时 View.add 只收
+        首条，展示的永远是没有响应的那条。
+        """
+        in_flight = tflow.tflow()
+        in_flight.request.path = "/in-flight"
+        self._call(lambda: self.master.load_flow(in_flight))
+
+        self.assertEqual(self.facade.load_flow_file(self.history), 1)
+
+        in_flight.response = tflow.tresp()
+        self._call(lambda: self.master.load_flow(in_flight))
+        self.facade.stop_capture_recording()
+
+        flows = [
+            f for f in FlowFile.read(self.recording) if isinstance(f, HTTPFlow)
+        ]
+        self.assertEqual([f.request.path for f in flows], ["/before", "/in-flight"])
+        self.assertIsNotNone(flows[1].response)
+
 
 if __name__ == "__main__":
     unittest.main()
