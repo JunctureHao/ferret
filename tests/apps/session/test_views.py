@@ -37,14 +37,19 @@ class SessionViewerPageTests(unittest.TestCase):
     def test_viewer_uses_shared_flow_interaction(self) -> None:
         controller = SessionController()
         page = SessionViewerPage(controller)
-        self.assertIsInstance(page.splitter, FlowViewerPane)
-        self.assertIs(page.table, page.splitter.table)
-        self.assertIs(page.panel, page.splitter.panel)
+        # pane 懒构造：ensure 前不存在，ensure 后复用共享组件且别名一致。
+        self.assertIsNone(page.splitter)
+        splitter = page._ensure_viewer()
+        self.assertIsInstance(splitter, FlowViewerPane)
+        self.assertIs(page.splitter, splitter)
+        self.assertIs(page.table, splitter.table)
+        self.assertIs(page.panel, splitter.panel)
         page.close()
 
     def test_collapsed_single_click_does_not_open_detail(self) -> None:
         controller = SessionController()
         page = SessionViewerPage(controller)
+        splitter = page._ensure_viewer()
         page.resize(900, 600)
         page.show()
         self.app.processEvents()
@@ -54,25 +59,27 @@ class SessionViewerPageTests(unittest.TestCase):
             self.app.processEvents()
 
         set_data.assert_not_called()
-        self.assertEqual(page.splitter.sizes()[1], 0)
+        self.assertEqual(splitter.sizes()[1], 0)
         page.close()
 
     def test_detail_close_button_collapses_panel(self) -> None:
         controller = SessionController()
         page = SessionViewerPage(controller)
+        splitter = page._ensure_viewer()
+        panel = page.panel
         page.resize(900, 600)
         page.show()
         self.app.processEvents()
         # 4ee294f 起无流量时空态会隐藏详情面板，先恢复显示才能谈「展开后收起」。
-        page.panel.setVisible(True)
-        page.splitter.setSizes([450, 450])
+        panel.setVisible(True)
+        splitter.setSizes([450, 450])
         self.app.processEvents()
-        self.assertGreater(page.splitter.sizes()[1], 0)
+        self.assertGreater(splitter.sizes()[1], 0)
 
-        page.panel.res_pane.close_button.click()
+        panel.res_pane.close_button.click()
         self.app.processEvents()
 
-        self.assertEqual(page.splitter.sizes()[1], 0)
+        self.assertEqual(splitter.sizes()[1], 0)
         page.close()
 
 

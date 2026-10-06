@@ -470,12 +470,18 @@ class _SessionRowSource:
 
 
 class SessionViewerPage(QWidget):
-    """只读会话查看器"""
+    """只读会话查看器。
+
+    工具栏骨架常驻；`FlowViewerPane`（详情面板那一大家子 qfw 控件，几十 MB 量级）
+    推迟到首次 `_ensure_viewer` 才构造——打开会话前这个查看器永远不可见，启动没
+    必要为它常驻第二套 pane（捕获页已有第一套）。
+    """
 
     def __init__(self, controller: SessionController, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.vc: SessionViewController | None = None
+        self.splitter: FlowViewerPane | None = None
         self.__init_widget()
         self.__init_layout()
 
@@ -493,13 +499,6 @@ class SessionViewerPage(QWidget):
         self.export_btn.setIconSize(QSize(18, 18))
         self.export_btn.setToolTip(self.tr("导出会话"))
 
-        self.splitter = FlowViewerPane(
-            parent=self,
-            controller=None,
-            capabilities=READONLY_CAPABILITIES,
-        )
-        self.table = self.splitter.table
-        self.panel = self.splitter.panel
         self.back_btn.clicked.connect(self._go_back)
         self.export_btn.clicked.connect(self._on_export)
 
@@ -510,20 +509,38 @@ class SessionViewerPage(QWidget):
 
         toolbar = QWidget(self)
         toolbar.setFixedHeight(44)
-        tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(12, 6, 12, 6)
-        tb_layout.setSpacing(6)
-        tb_layout.addWidget(self.back_btn)
-        tb_layout.addWidget(self.name_label, 1)
-        tb_layout.addWidget(self.readonly_badge)
-        tb_layout.addSpacing(8)
-        # 分组模式切换按钮进这条统一工具栏（按钮实体归 splitter/pane 所有：翻转 /
-        # 图标文案 / 显隐都在那边，这里 addWidget 会顺带把它 reparent 过来显示）。
-        tb_layout.addWidget(self.splitter.mode_button)
-        tb_layout.addWidget(self.export_btn)
+        self._toolbar_layout = QHBoxLayout(toolbar)
+        self._toolbar_layout.setContentsMargins(12, 6, 12, 6)
+        self._toolbar_layout.setSpacing(6)
+        self._toolbar_layout.addWidget(self.back_btn)
+        self._toolbar_layout.addWidget(self.name_label, 1)
+        self._toolbar_layout.addWidget(self.readonly_badge)
+        self._toolbar_layout.addSpacing(8)
+        self._toolbar_layout.addWidget(self.export_btn)
 
         layout.addWidget(toolbar)
-        layout.addWidget(self.splitter, 1)
+        self._body_layout = layout
+
+    def _ensure_viewer(self) -> FlowViewerPane:
+        """首次使用才构造查看器本体；可无数据独立调用（测试与 load 共用入口）。
+
+        模式切换按钮此刻才归位工具栏：实体归 splitter/pane 所有（翻转 / 图标文案 /
+        显隐都在那边），插在导出按钮之前，addWidget 会顺带把它 reparent 过来显示。
+        """
+        if self.splitter is None:
+            splitter = FlowViewerPane(
+                parent=self,
+                controller=None,
+                capabilities=READONLY_CAPABILITIES,
+            )
+            self.table = splitter.table
+            self.panel = splitter.panel
+            self._toolbar_layout.insertWidget(
+                self._toolbar_layout.count() - 1, splitter.mode_button
+            )
+            self._body_layout.addWidget(splitter, 1)
+            self.splitter = splitter
+        return self.splitter
 
     def load(self, meta: SessionMeta, vc: SessionViewController):
         self.vc = vc
@@ -532,11 +549,12 @@ class SessionViewerPage(QWidget):
         flows = self.tr("{} 条").format(meta.flow_count)
         self.name_label.setText(f"{meta.name}  ·  {flows}  ·  ")
 
-        self.splitter.set_controller(vc)
+        splitter = self._ensure_viewer()
+        splitter.set_controller(vc)
         # 会话 flow 从文件读回、没有 mitm 线程：包一层就地折叠的数据源（快照在
         # GUI 线程生成，死对象直读安全，#90）。经 pane fan-out 同时喂平铺与连接
         # 树两个模型（树模式在会话页同样可用）。
-        self.splitter.set_source(_SessionRowSource(vc.view))
+        splitter.set_source(_SessionRowSource(vc.view))
 
     def _go_back(self):
         iface = self.parent()

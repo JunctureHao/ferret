@@ -97,8 +97,9 @@ class MainWindow(FluentWindow):
         )
         # 断点窗口是独立顶层窗口，构造时不能给 Qt 父对象（`qframelesswindow` 的
         # `updateFrameless()` 不补 `Qt.Window`，给了父对象就退化成子控件），所以它的
-        # 生命周期就靠这个属性持着 —— 丢了引用窗口会被 GC 掉。
-        self.intercept_window = InterceptWindow(self.intercept_controller)
+        # 生命周期就靠这个属性持着 —— 丢了引用窗口会被 GC 掉。它是懒构造的：有流量
+        # 被断点攥住才需要，触发器见 `__ensure_intercept_window`。
+        self.intercept_window: InterceptWindow | None = None
         self.certificate_controller = CertificateController(
             self, mitm=self.runtime.mitm
         )
@@ -211,9 +212,13 @@ class MainWindow(FluentWindow):
         self.captures_interface.add_to_mock_requested.connect(
             self.mock_controller.add_from_selection
         )
-        # 同上：断点页和断点窗口互不认识，两个方向都从这里接。
-        self.intercept_interface.queue_requested.connect(self.intercept_window.pop_up)
-        self.intercept_window.attention_requested.connect(self.__on_intercept_attention)
+        # 同上：断点页和断点窗口互不认识，两个方向都从这里接。窗口懒构造——
+        # 「拦截队列」先确保窗口存在再弹；流量攥住的第一批走 flows_changed 确保，
+        # 空→非空的弹窗边沿与托盘提醒仍由窗口自己判（构造函数会拉当前队列）。
+        self.intercept_interface.queue_requested.connect(self.__pop_intercept_window)
+        self.intercept_controller.flows_changed.connect(
+            self.__on_intercept_flows_changed
+        )
 
     def __on_page_changed(self, index: int) -> None:
         """titlebar 搜索槽路由（规格 §4.3 v3）：协议页显示 + 动作注入 / 其余隐藏。"""
@@ -243,6 +248,23 @@ class MainWindow(FluentWindow):
         hook = getattr(page, "search_focus_target", None)
         target = hook() if callable(hook) else None
         (target or page).setFocus()
+
+    def __ensure_intercept_window(self) -> InterceptWindow:
+        """首次需要时构造断点窗口，attention 接线随构造一并接上。"""
+        if self.intercept_window is None:
+            window = InterceptWindow(self.intercept_controller)
+            window.attention_requested.connect(self.__on_intercept_attention)
+            self.intercept_window = window
+        return self.intercept_window
+
+    @Slot(list)
+    def __on_intercept_flows_changed(self, flows: list) -> None:
+        """断点攥住流量：此刻才构造窗口。构造函数会拉当前队列，自动弹窗照常。"""
+        if flows:
+            self.__ensure_intercept_window()
+
+    def __pop_intercept_window(self) -> None:
+        self.__ensure_intercept_window().pop_up()
 
     @Slot(int)
     def __on_intercept_attention(self, count: int) -> None:
@@ -298,8 +320,10 @@ class MainWindow(FluentWindow):
         if complete:
             # hide 而不是 close：`closeEvent` 在队列非空时会弹确认框，而这里用户已经
             # 决定退出了，再问一遍「挂着的怎么办」只是噪音 —— 内核马上停，挂起的连接
-            # 跟着断，这就是退出该有的语义（本轮刻意不做超时自动放行）。
-            self.intercept_window.hide()
+            # 跟着断，这就是退出该有的语义（本轮刻意不做超时自动放行）。窗口可能
+            # 尚未懒构造过，判空跳过。
+            if self.intercept_window is not None:
+                self.intercept_window.hide()
         else:
             self.show()
             self.raise_()
@@ -330,8 +354,10 @@ class MainWindow(FluentWindow):
         if CONFIG.get(CONFIG.minimize_to_tray):
             event.ignore()
             # 断点窗口跟着一起收起来：主窗口都藏了还留一个飘在桌面上会很意外。挂起的
-            # 流量不会因此丢，从断点页的「拦截队列」还能把它叫回来。
-            self.intercept_window.hide()
+            # 流量不会因此丢，从断点页的「拦截队列」还能把它叫回来。窗口可能尚未
+            # 懒构造过，判空跳过。
+            if self.intercept_window is not None:
+                self.intercept_window.hide()
             self.hide()
         else:
             if self.shutdown():
