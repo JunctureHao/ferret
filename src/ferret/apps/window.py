@@ -4,7 +4,7 @@ from typing import cast
 
 from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QWidget
 from qfluentwidgets import (
     CheckableSystemTrayMenu,
     FluentIcon,
@@ -24,6 +24,7 @@ from ferret.apps.certificate.controllers import CertificateController
 from ferret.apps.certificate.views import CertificateInterface
 from ferret.apps.common.icon import BaseAction, BaseIcon
 from ferret.apps.common.info_bar import show_warning
+from ferret.apps.common.lazy_page import LazyPage
 from ferret.apps.common.search import SearchablePage, SearchHost, is_searchable
 from ferret.apps.common.window import center_window
 from ferret.apps.compose.controllers import ComposeController
@@ -70,41 +71,55 @@ class MainWindow(FluentWindow):
         # 规则控制器都建在 runtime.start() 之前：构造时就把已存规则交给 facade，
         # Master 起来时 _run_master 会在服务第一个请求前下发（脚本清单同理）。
         self.gateway_controller = GatewayController(self, mitm=self.runtime.mitm)
-        self.gateway_interface = GatewayInterface(
-            controller=self.gateway_controller, parent=self
-        )
         self.rewrite_controller = RewriteController(self, mitm=self.runtime.mitm)
-        self.rewrite_interface = RewriteInterface(
-            controller=self.rewrite_controller, parent=self
-        )
         self.mock_controller = MockController(self, mitm=self.runtime.mitm)
-        self.mock_interface = MockInterface(
-            controller=self.mock_controller, parent=self
-        )
         self.intercept_controller = InterceptController(self, mitm=self.runtime.mitm)
-        self.intercept_interface = InterceptInterface(
-            controller=self.intercept_controller, parent=self
-        )
         self.compose_controller = ComposeController(self, mitm=self.runtime.mitm)
-        self.compose_interface = ComposeInterface(
-            controller=self.compose_controller, parent=self
-        )
         self.scripts_controller = ScriptsController(self, mitm=self.runtime.mitm)
-        self.scripts_interface = ScriptsInterface(
-            controller=self.scripts_controller,
-            search_host=self.search_host,
-            parent=self,
+        self.certificate_controller = CertificateController(
+            self, mitm=self.runtime.mitm
+        )
+
+        # 七个子页懒构造（LazyPage 占位容器）：每页都是一整套 qfw 控件树（几十 MB
+        # 量级），首次切到才建。控制器先行保证规则下发时序；各页构造函数会拉控制器
+        # 当前状态（规则 / 池 / 脚本清单 / 证书态 / 断点队列），晚构造不会错过启动期
+        # 数据。objectName 由占位容器接管为路由键；断点页的 queue_requested 经
+        # on_ensure 补牵线（页和窗口互不认识，见 __connect_intercept_queue）。
+        self.gateway_interface = LazyPage(
+            lambda: GatewayInterface(controller=self.gateway_controller),
+            "GatewayInterface",
+        )
+        self.rewrite_interface = LazyPage(
+            lambda: RewriteInterface(controller=self.rewrite_controller),
+            "RewriteInterface",
+        )
+        self.mock_interface = LazyPage(
+            lambda: MockInterface(controller=self.mock_controller),
+            "MockInterface",
+        )
+        self.intercept_interface = LazyPage(
+            lambda: InterceptInterface(controller=self.intercept_controller),
+            "InterceptInterface",
+            on_ensure=self.__connect_intercept_queue,
+        )
+        self.compose_interface = LazyPage(
+            lambda: ComposeInterface(controller=self.compose_controller),
+            "ComposeInterface",
+        )
+        self.scripts_interface = LazyPage(
+            lambda: ScriptsInterface(
+                controller=self.scripts_controller, search_host=self.search_host
+            ),
+            "ScriptsInterface",
         )
         # 断点窗口是独立顶层窗口，构造时不能给 Qt 父对象（`qframelesswindow` 的
         # `updateFrameless()` 不补 `Qt.Window`，给了父对象就退化成子控件），所以它的
         # 生命周期就靠这个属性持着 —— 丢了引用窗口会被 GC 掉。它是懒构造的：有流量
         # 被断点攥住才需要，触发器见 `__ensure_intercept_window`。
         self.intercept_window: InterceptWindow | None = None
-        self.certificate_controller = CertificateController(
-            self, mitm=self.runtime.mitm
-        )
-        self.certificate_interface = CertificateInterface(
-            controller=self.certificate_controller, parent=self
+        self.certificate_interface = LazyPage(
+            lambda: CertificateInterface(controller=self.certificate_controller),
+            "CertificateInterface",
         )
 
         self.tray_icon = SystemTray(self)
@@ -212,17 +227,23 @@ class MainWindow(FluentWindow):
         self.captures_interface.add_to_mock_requested.connect(
             self.mock_controller.add_from_selection
         )
-        # 同上：断点页和断点窗口互不认识，两个方向都从这里接。窗口懒构造——
-        # 「拦截队列」先确保窗口存在再弹；流量攥住的第一批走 flows_changed 确保，
+        # 断点窗口懒构造的自动侧：流量攥住的第一批走 flows_changed 确保窗口存在，
         # 空→非空的弹窗边沿与托盘提醒仍由窗口自己判（构造函数会拉当前队列）。
-        self.intercept_interface.queue_requested.connect(self.__pop_intercept_window)
+        # 断点页的「拦截队列」走 on_ensure 补牵线——页本身也是懒构造的，见
+        # __connect_intercept_queue。
         self.intercept_controller.flows_changed.connect(
             self.__on_intercept_flows_changed
         )
 
     def __on_page_changed(self, index: int) -> None:
-        """titlebar 搜索槽路由（规格 §4.3 v3）：协议页显示 + 动作注入 / 其余隐藏。"""
+        """titlebar 搜索槽路由（规格 §4.3 v3）：协议页显示 + 动作注入 / 其余隐藏。
+
+        懒构造页在此同步 ensure：真实页随切页信号就地构造，随后的协议查询（鸭子
+        判定 + 委托）才有目标。
+        """
         page = self.stackedWidget.widget(index)
+        if isinstance(page, LazyPage):
+            page.ensure()
         if is_searchable(page):
             searchable = cast(SearchablePage, page)
             actions_hook = getattr(page, "search_actions", None)
@@ -248,6 +269,12 @@ class MainWindow(FluentWindow):
         hook = getattr(page, "search_focus_target", None)
         target = hook() if callable(hook) else None
         (target or page).setFocus()
+
+    def __connect_intercept_queue(self, page: QWidget) -> None:
+        """断点页 ensure 后补牵线：页不认识窗口，「拦截队列」先 ensure 再弹。"""
+        cast(InterceptInterface, page).queue_requested.connect(
+            self.__pop_intercept_window
+        )
 
     def __ensure_intercept_window(self) -> InterceptWindow:
         """首次需要时构造断点窗口，attention 接线随构造一并接上。"""
@@ -293,7 +320,7 @@ class MainWindow(FluentWindow):
         except (ValueError, RuntimeError) as exc:
             show_warning(self.tr("在 Compose 中编辑失败"), str(exc), self)
             return
-        self.compose_interface.prefill(edit)
+        self.compose_interface.ensure().prefill(edit)
         self.switchTo(self.compose_interface)
 
     @Slot()
