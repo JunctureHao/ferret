@@ -48,6 +48,7 @@ from ferret.core.mitm.modes import (
     wireguard_client_config,
 )
 from ferret.core.mitm.rewrite import RewriteRule
+from ferret.core.mitm.rows import FlowRow, flow_row
 from ferret.core.mitm.runtime import MitmRuntime
 from ferret.core.mitm.scripts import ScriptEntry, ScriptStatus
 from ferret.core.mitm.sse import SseEvent
@@ -958,24 +959,23 @@ class MitmFacade:
         }
         return self.runtime.call(collect) if self.runtime.is_running else collect()
 
-    def visible_http_flows(
+    def visible_flow_rows(
         self, flow_ids: Collection[str] | None = None
-    ) -> list[HTTPFlow]:
-        """**过滤后可见列表**的活引用，给流量表刷新行集用（`handle_refresh`）。
+    ) -> list[FlowRow]:
+        """**过滤后可见列表**的行快照，给流量表刷新行集用（`handle_refresh`）。
 
         与 `all_http_flows` 的两点分工，都不是可有可无的：
         * 迭代 ``self.view``（即 `View._view`，`set_filter` 之后只剩可见行），
           而那个走 `_store` 全量 —— 表格行集对应的就是可见列表，接全量会让
           显示过滤静默失效（过滤唯一的生效路径就是 refresh 重建行集）；
-        * 刻意不 `_snapshot()`：表格靠活引用与桥接信号送来的**同一实例**做身份
-          匹配（`handle_update` / `handle_remove` 反查行），换副本会让 refresh
-          之后到达的更新全部落空。迭代本身在 mitm 线程内完成（`runtime.call`），
-          Qt 线程只持有结果 —— 与信号路径交付活 flow 是同一种暴露。
+        * 在 mitm 线程内迭代**并当场折成 `FlowRow`**（#90）：跨线程交付的是
+          不可变快照，Qt 侧的 refresh 行集与桥接信号送来的行是同一套数据形状，
+          但都不再是活引用。
         """
         # 不记录的 Compose 在途时仍必须留在核心 View（提前移除会 kill），
         # 但刷新/切换过滤条件不能把它们重新带进表格。
         visible = lambda: [
-            f
+            flow_row(f)
             for f in self.view
             if isinstance(f, HTTPFlow)
             and compose_recording(f) is not False
@@ -986,7 +986,7 @@ class MitmFacade:
     def match_ids(self, matcher) -> set[str]:
         """在 mitm 线程内跑 matcher，返回命中的 flow.id 集（搜索高亮用）。
 
-        与 `visible_http_flows` 同一条「重活投 mitm 线程」的路：flowfilter 的
+        与 `visible_flow_rows` 同一条「重活投 mitm 线程」的路：flowfilter 的
         `~b`/`~bq`/`~bs` 算子会去读 flow 的 body，只有在 mitm 线程读才安全
         （AGENTS.md §3 红线）。Qt 侧拿到 id 集后只做 `flow.id in ids` 的 O(1) 查表。
 
@@ -1007,19 +1007,24 @@ class MitmFacade:
         else:
             self.view.set_filter(flow_filter)
 
-    def save_flows(self, flows: list[HTTPFlow], path: str | Path) -> int:
-        if self.runtime.is_running:
-            flow_ids = [flow.id for flow in flows]
+    def save_flows(self, flow_ids: Collection[str], path: str | Path) -> int:
+        """按 id 批量写 `.flow` 文件；快照在 mitm 线程内解析（#90）。
 
-            def snapshot() -> list[HTTPFlow]:
-                result = []
-                for flow_id in flow_ids:
-                    flow = self.view.get_by_id(flow_id)
-                    if isinstance(flow, HTTPFlow):
-                        result.append(_snapshot(flow))
-                return result
+        内核没在跑时从本 facade 的 View 取（死对象，直读安全）——只在测试/离线
+        装配里出现。
+        """
 
-            flows = self.runtime.call(snapshot)
+        def snapshot() -> list[HTTPFlow]:
+            result = []
+            for flow_id in flow_ids:
+                flow = self.view.get_by_id(flow_id)
+                if isinstance(flow, HTTPFlow):
+                    result.append(_snapshot(flow))
+            return result
+
+        flows = (
+            self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
+        )
         return FlowFile.write(path, flows)
 
     def get_httpie_command(self, flow_id: str) -> str:
@@ -1046,7 +1051,24 @@ class MitmFacade:
         """响应体的**解压后**字节；语义与 ``get_request_body`` 逐字相同。"""
         return self._export(flow_id, FlowExporter.response_body, b"")
 
-    def export_har(self, flows: list[HTTPFlow], path: str) -> None:
+    def export_har(self, flow_ids: Collection[str], path: str) -> None:
+        """按 id 批量导出 HAR；快照与写盘都在 mitm 线程内完成（#90）。
+
+        旧签名收 flow 对象、在**调用线程**上读字段导出——那是表格外的另一处
+        跨线程读，一并收进 id 寻址。内核没在跑时直读本 facade 的 View（死对象）。
+        """
+
+        def snapshot() -> list[HTTPFlow]:
+            result = []
+            for flow_id in flow_ids:
+                flow = self.view.get_by_id(flow_id)
+                if isinstance(flow, HTTPFlow):
+                    result.append(_snapshot(flow))
+            return result
+
+        flows = (
+            self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
+        )
         FlowExporter.save_har(flows, path)
 
     def _export(self, flow_id: str, exporter, default):
@@ -1060,6 +1082,15 @@ class MitmFacade:
         master = self.runtime.master
         if not self.runtime.is_running or master is None:
             raise RuntimeError(_not_running())
+        if (
+            self._recording_path is not None
+            and master.options.save_stream_file == str(self._recording_path)
+        ):
+            # 同一内核已指向同一录制文件时按幂等处理：抓包中重挂系统代理会再次
+            # 调进来（录制已与系统代理勾选解耦），原生 Save 换路径会先关旧流再
+            # 开新文件，把一段会话拆成两个 capture 文件。内核换血后 options 是
+            # 全新的（save_stream_file=None），落不到本分支，照常重开文件。
+            return self._recording_path
         path = _reserve_recording_path(datetime.now().astimezone())
         try:
             self.runtime.call(
@@ -1093,15 +1124,15 @@ class MitmFacade:
         return path
 
     def replay_flow(self, flow_id: str) -> None:
-        flow = self.get_flow(flow_id)
-        if flow is None:
-            raise ValueError(
-                QCoreApplication.translate("MitmFacade", "找不到指定的 Flow")
-            )
-        self.replay_flows([flow])
+        self.replay_flows([flow_id])
 
-    def replay_flows(self, flows: list[HTTPFlow]) -> None:
-        if not flows:
+    def replay_flows(self, flow_ids: Collection[str]) -> None:
+        """按 id 批量重发；解析与入队都在 mitm 线程内完成（#90）。
+
+        id 解析不到（流量已被删/清）时静默跳过，与 ``check()`` 的在途跳过同一
+        语义；全部落空才报错。
+        """
+        if not flow_ids:
             raise ValueError(
                 QCoreApplication.translate("MitmFacade", "没有可重发的 Flow")
             )
@@ -1116,7 +1147,10 @@ class MitmFacade:
 
         def enqueue() -> None:
             replay_flows: list[HTTPFlow] = []
-            for flow in flows:
+            for flow_id in flow_ids:
+                flow = self.view.get_by_id(flow_id)
+                if not isinstance(flow, HTTPFlow):
+                    continue
                 if master.client_playback.check(flow) is not None:
                     continue
                 replay = flow.copy()
@@ -1429,11 +1463,9 @@ class MitmFacade:
         else:
             clear()
 
-    def remove_flows(self, flows: list[HTTPFlow]) -> None:
-        flow_ids = [flow.id for flow in flows]
-
+    def remove_flows(self, flow_ids: Collection[str]) -> None:
         def remove() -> None:
-            self._remove_flow_ids(flow_ids)
+            self._remove_flow_ids(list(flow_ids))
 
         if self.runtime.is_running:
             self.runtime.call(remove)

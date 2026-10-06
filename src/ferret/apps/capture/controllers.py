@@ -19,6 +19,7 @@ from sysproxy import (
 from ferret.apps.capture.services import compile_filter
 from ferret.core.log import get_logger
 from ferret.core.mitm import (
+    FlowRow,
     HTTPFlow,
     MitmFacade,
     MitmRuntime,
@@ -554,8 +555,8 @@ class CaptureController(QObject):
     def total_count(self) -> int:
         return self._mitm.total_count(self._admitted_ids)
 
-    def visible_http_flows(self) -> list[HTTPFlow]:
-        return self._mitm.visible_http_flows(self._admitted_ids)
+    def visible_flow_rows(self) -> list[FlowRow]:
+        return self._mitm.visible_flow_rows(self._admitted_ids)
 
     def apply_filter(self, raw: str = "") -> None:
         raw = raw.strip()
@@ -589,9 +590,9 @@ class CaptureController(QObject):
             return set()
         return self._mitm.match_ids(matcher) & self._admitted_ids
 
-    def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
+    def save_flows(self, flow_ids: list[str], path: str) -> int:
         return self._mitm.save_flows(
-            [flow for flow in flows if flow.id in self._admitted_ids], path
+            [fid for fid in flow_ids if fid in self._admitted_ids], path
         )
 
     def get_httpie_command(self, flow_id: str) -> str:
@@ -612,16 +613,16 @@ class CaptureController(QObject):
     def get_response_body(self, flow_id: str) -> bytes:
         return self._mitm.get_response_body(flow_id)
 
-    def export_har(self, flows: list[HTTPFlow], path: str) -> None:
+    def export_har(self, flow_ids: list[str], path: str) -> None:
         self._mitm.export_har(
-            [flow for flow in flows if flow.id in self._admitted_ids], path
+            [fid for fid in flow_ids if fid in self._admitted_ids], path
         )
 
     def replay_flow(self, flow_id: str) -> None:
         self._mitm.replay_flow(flow_id)
 
-    def replay_flows(self, flows: list[HTTPFlow]) -> None:
-        self._mitm.replay_flows(flows)
+    def replay_flows(self, flow_ids: list[str]) -> None:
+        self._mitm.replay_flows(flow_ids)
 
     def load_replay_file(self, path: Path | str) -> None:
         self._mitm.replay_file(path)
@@ -641,9 +642,9 @@ class CaptureController(QObject):
         self._mitm.clear_flows(self._admitted_ids)
         self._admitted_ids.clear()
 
-    def remove_flows(self, flows: list[HTTPFlow]) -> None:
+    def remove_flows(self, flow_ids: list[str]) -> None:
         self._mitm.remove_flows(
-            [flow for flow in flows if flow.id in self._admitted_ids]
+            [fid for fid in flow_ids if fid in self._admitted_ids]
         )
 
     def unmarked_flow_count(self) -> int:
@@ -666,17 +667,27 @@ class CaptureController(QObject):
         return self.is_capturing
 
     def _attach_system_proxy(self) -> None:
-        """Arm the capture session once the kernel is up: attach proxy, open the gate.
+        """Arm the capture session once the kernel is up: record, attach proxy, open the gate.
 
         通道接通已在 ``start_capture`` / 重挂路径里完成（boot 时就带着 mode 列表），
-        这里负责剩下的两步：按勾选挂系统代理、开写入闸门。挂代理失败不撤通道 ——
-        本地重定向 / WireGuard 与注册表互不相干，会话保持 FAILED 让用户重试。
+        这里负责剩下的步骤：开磁盘录制、按勾选挂系统代理、开写入闸门。磁盘录制
+        随会话启停、不随系统代理勾选（2026-10-06 决议：local / WireGuard / reverse
+        / SOCKS5 / 手工接入统一自动落盘），录制失败同样以 FAILED 收场。挂代理
+        失败不撤通道 —— 本地重定向 / WireGuard 与注册表互不相干，会话保持
+        FAILED 让用户重试。
         """
         if not self._pending_attach or not self._runtime.is_running:
             return
+        try:
+            self._mitm.start_capture_recording()
+        except Exception as exc:
+            log.exception("failed to start capture recording")
+            self._pending_attach = False
+            self._last_error = self.tr("启动录制失败：{error}").format(error=exc)
+            self._set_capture_state(CaptureState.FAILED)
+            return
         if self.system_proxy_enabled():
             try:
-                self._mitm.start_capture_recording()
                 # 必须是环回，不是 listen_host：绑定 0.0.0.0 时把 `0.0.0.0:8080` 写进
                 # 系统代理，Windows 会拿它当目标地址去连，抓包会整体失效。local 的
                 # WinDivert 过滤器放行全部环回流量，所以这个地址也保证不会被
@@ -862,23 +873,25 @@ class CaptureController(QObject):
         ):
             self._on_runtime_failed(self.tr("mitmproxy 内核已停止"))
 
-    def _on_flow_added(self, flow: object) -> None:
+    def _on_flow_added(self, row: object) -> None:
         """只展示已经入账的流；过滤器重建可见行时不重新决定是否录入。"""
-        if not isinstance(flow, HTTPFlow) or flow.id not in self._admitted_ids:
+        if not isinstance(row, FlowRow) or not row.is_http:
             return
-        self.flow_added.emit(flow)
+        if row.id not in self._admitted_ids:
+            return
+        self.flow_added.emit(row)
 
-    def _on_flow_stored(self, flow: object) -> None:
-        if self._recording and isinstance(flow, HTTPFlow):
-            self._admitted_ids.add(flow.id)
+    def _on_flow_stored(self, row: object) -> None:
+        if self._recording and isinstance(row, FlowRow) and row.is_http:
+            self._admitted_ids.add(row.id)
 
-    def _on_compose_flow_stored(self, flow: object) -> None:
-        if isinstance(flow, HTTPFlow):
-            self._admitted_ids.add(flow.id)
+    def _on_compose_flow_stored(self, row: object) -> None:
+        if isinstance(row, FlowRow) and row.is_http:
+            self._admitted_ids.add(row.id)
 
-    def _on_flow_discarded(self, flow: object) -> None:
-        if isinstance(flow, HTTPFlow):
-            self._admitted_ids.discard(flow.id)
+    def _on_flow_discarded(self, row: object) -> None:
+        if isinstance(row, FlowRow):
+            self._admitted_ids.discard(row.id)
 
     def set_flow_comment(self, flow_id: str, comment: str) -> None:
         self._mitm.set_flow_comment(flow_id, comment)

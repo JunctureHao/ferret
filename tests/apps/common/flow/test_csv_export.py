@@ -167,8 +167,11 @@ class ExportCsvMenuTests(unittest.TestCase):
 
         from mitmproxy.test import tflow
 
-        # 真 flow：__default_file_name 会读 request / timestamp_created，thin stub 不够。
-        self.flows = [tflow.tflow(resp=True), tflow.tflow(resp=True)]
+        from ferret.core.mitm import flow_row
+
+        # 真 flow：__default_file_name 会读 method / host / timestamp_created，
+        # thin stub 不够。菜单选区收行快照（#90），在内核侧同位置折叠。
+        self.flows = [flow_row(tflow.tflow(resp=True)), flow_row(tflow.tflow(resp=True))]
         details = {
             self.flows[0].id: {"Method": "GET", "Host": "a.com", "Status Code": 200},
             self.flows[1].id: {"Method": "POST", "Host": "b.com", "Status Code": 201},

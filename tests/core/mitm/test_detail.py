@@ -282,9 +282,10 @@ class DurationFieldTests(unittest.TestCase):
         """详情页总时长与表格 Time 列（`FlowTableModel._duration_ms`）同一条减法。
 
         延迟 import：本文件其余用例刻意不碰 apps 层，这一条钉的是「两处同源」，
-        必须拿真的表格算法对一遍。
+        必须拿真的表格算法对一遍（表格侧读的是行快照折好的时间戳标量）。
         """
         from ferret.apps.common.flow.models import FlowTableModel
+        from ferret.core.mitm import flow_row
 
         flow = tflow.tflow(resp=True)
         assert flow.response is not None
@@ -292,7 +293,7 @@ class DurationFieldTests(unittest.TestCase):
         flow.response.timestamp_end = 100.412
         data = build_flow_detail(flow)
 
-        self.assertEqual(data["duration_ms"], FlowTableModel._duration_ms(flow))
+        self.assertEqual(data["duration_ms"], FlowTableModel._duration_ms(flow_row(flow)))
         self.assertAlmostEqual(data["duration_ms"], 412.0, places=3)
 
 

@@ -45,6 +45,7 @@ from ferret.core.mitm.modes import (
     validate_mode_specs,
 )
 from ferret.core.mitm.rewrite import RewriteRule, RewriteRuleSet
+from ferret.core.mitm.rows import flow_row
 from ferret.core.mitm.scripts import ScriptEntry
 from ferret.core.mitm.view import FerretView
 from ferret.core.mitm.wsframe import latest_frame, ws_close
@@ -233,8 +234,9 @@ class MitmRuntimeState(StrEnum):
 class UiBridgeAddon:
     """Forward the native View signals and the websocket hooks across the boundary.
 
-    View 的新增信号按 Compose 记录选择分流，判断留在 mitm 线程，Qt 不读活 flow
-    的 metadata。其余 View 信号直接转发；websocket 那三个钩子由本类实现 ——
+    View 的新增信号按 Compose 记录选择分流，判断留在 mitm 线程；所有流量信号在
+    emit 前先折成 ``FlowRow`` 行快照（#90），Qt 侧不持有活 flow 引用。其余 View
+    信号直接转发；websocket 那三个钩子由本类实现 ——
     `View` 一个 websocket 钩子都没有（它只有 `requestheaders` / `error` / `response` /
     `tcp_*` / `udp_*` / `update`），所以帧到达这件事没有任何原生信号可借。这与本类
     已经带着 `flow_suspended` / `flow_intercepted` 两个 ferret 自有信号是同一类问题：
@@ -253,11 +255,15 @@ class UiBridgeAddon:
         self._master = master
         self._generation = generation
         self._connected = True
+        # 每个发射点先在 mitm 线程上把活 flow 折成 `FlowRow` 再 emit——跨线程
+        # 边界上过的只有不可变快照，Qt 侧读行字段不再触碰内核线程的对象。
         self._on_add = self._forward_add
-        self._on_update = lambda flow: bridge.flow_updated.emit(flow)
-        self._on_remove = lambda flow, index: bridge.flow_removed.emit(flow, index)
+        self._on_update = lambda flow: bridge.flow_updated.emit(flow_row(flow))
+        self._on_remove = lambda flow, index: bridge.flow_removed.emit(
+            flow_row(flow), index
+        )
         self._on_refresh = lambda: bridge.view_refreshed.emit()
-        self._on_store_remove = lambda flow: bridge.flow_discarded.emit(flow)
+        self._on_store_remove = lambda flow: bridge.flow_discarded.emit(flow_row(flow))
         self._store_add = getattr(view, "sig_store_add", None)
         if self._store_add is not None:
             self._store_add.connect(self._forward_store)
@@ -268,18 +274,20 @@ class UiBridgeAddon:
         view.sig_view_refresh.connect(self._on_refresh)
 
     def _forward_add(self, flow: Flow) -> None:
+        row = flow_row(flow)
         record = compose_recording(flow)
         if record is True:
-            self._bridge.compose_flow_added.emit(flow)
+            self._bridge.compose_flow_added.emit(row)
         elif record is None:
-            self._bridge.flow_added.emit(flow)
+            self._bridge.flow_added.emit(row)
 
     def _forward_store(self, flow: Flow) -> None:
+        row = flow_row(flow)
         record = compose_recording(flow)
         if record is True:
-            self._bridge.compose_flow_stored.emit(flow)
+            self._bridge.compose_flow_stored.emit(row)
         elif record is None:
-            self._bridge.flow_stored.emit(flow)
+            self._bridge.flow_stored.emit(row)
 
     def running(self) -> None:
         if not self._master.proxyserver.listen_addrs():
@@ -708,6 +716,9 @@ class MitmRuntime(QObject):
     failed = Signal(str)
     stopped = Signal()
 
+    # 流量行信号全部携带 `FlowRow` 行快照（core/mitm/rows.py）：mitm 线程在 emit
+    # 前把活 flow 折成不可变标量集，Qt 侧不持有内核线程的活引用（#90，mitmweb
+    # `flow_to_json` 的同款边界位置）。
     flow_added = Signal(object)
     # 显式选择记录的 Compose 新增行：独立于抓包写入闸门，仍遵循原生 View 过滤。
     compose_flow_added = Signal(object)
@@ -1946,18 +1957,19 @@ class MitmRuntime(QObject):
 
         挂起（出）发生在 `request`，而 `View` 只有 `requestheaders` / `response` /
         `error` 几个钩子 —— 不自己发一次，流量表那一行不会重绘、「挂起中」标记就
-        永远不上屏。跨线程 emit 走 Qt 的队列连接，和 `UiBridgeAddon` 同一条路子。
+        永远不上屏。跨线程 emit 走 Qt 的队列连接，和 `UiBridgeAddon` 同一条路子；
+        发的是行快照（本回调跑在 mitm 线程，折叠就地进行）。
         """
-        self.flow_suspended.emit(flow)
+        self.flow_suspended.emit(flow_row(flow))
 
     def _on_flow_intercepted(self, flow: Any) -> None:
         """Republish a breakpoint hold/release from the mitm thread as a Qt signal.
 
         与 `_on_flow_suspended` 同一个理由：请求期拦截发生在 `request` 钩子，而
         `View` 只在 `requestheaders` / `response` / `error` 上更新行，不自己补发
-        一次「已拦截」就永远不上屏。
+        一次「已拦截」就永远不上屏。载荷同 #90 约定：行快照。
         """
-        self.flow_intercepted.emit(flow)
+        self.flow_intercepted.emit(flow_row(flow))
 
     def _set_state(self, state: MitmRuntimeState) -> None:
         if state == self._state:

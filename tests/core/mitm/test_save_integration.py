@@ -194,6 +194,29 @@ class RecordingImportTests(unittest.TestCase):
             second_paths.append(flow.request.path)
         self.assertEqual(second_paths, ["/again"])
 
+    def test_repeated_start_on_the_same_kernel_reuses_the_recording_file(self) -> None:
+        """录制已与系统代理勾选解耦：抓包中重挂代理会再次调 start，同内核同文件
+        幂等返回，不把一段会话拆成两个 capture 文件（原生 Save 换路径会关旧流）。"""
+        again = self.facade.start_capture_recording()
+        self.assertEqual(again, self.recording)
+        self._record("/after-restart")
+        self.assertEqual(self._recorded_paths(), ["/before", "/after-restart"])
+
+    def test_start_after_the_stream_was_reset_opens_a_fresh_file(self) -> None:
+        """内核换血后 options 全新（save_stream_file=None）：旧路径是陈账，录制
+        重开新文件，不复用死内核留下的路径。"""
+        self.master.options.update(save_stream_file=None)
+        self.assertIsNone(self.master.save.stream)
+        second = self.facade.start_capture_recording()
+        self.addCleanup(self.facade.stop_capture_recording)
+        self.assertNotEqual(second, self.recording)
+        self._record("/fresh")
+        fresh_paths = []
+        for flow in FlowFile.read(second):
+            assert isinstance(flow, HTTPFlow)
+            fresh_paths.append(flow.request.path)
+        self.assertEqual(fresh_paths, ["/fresh"])
+
     def test_import_id_collection_excludes_other_async_tasks(self) -> None:
         imported_ids: set[str] = set()
         external = tflow.tflow(resp=True)

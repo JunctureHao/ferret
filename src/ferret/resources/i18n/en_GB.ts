@@ -199,7 +199,7 @@
     <message>
         <location filename="../../apps/capture/controllers.py" line="42"/>
         <location filename="../../apps/capture/controllers.py" line="403"/>
-        <location filename="../../apps/capture/controllers.py" line="799"/>
+        <location filename="../../apps/capture/controllers.py" line="809"/>
         <source>恢复原系统代理失败</source>
         <translation>Failed to restore the original system proxy</translation>
     </message>
@@ -255,7 +255,12 @@
         <translation>Failed to stop capture channels: {error}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/controllers.py" line="863"/>
+        <location filename="../../apps/capture/controllers.py" line="685"/>
+        <source>启动录制失败：{error}</source>
+        <translation>Failed to start recording: {error}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/capture/controllers.py" line="873"/>
         <source>mitmproxy 内核已停止</source>
         <translation>The mitmproxy core has stopped</translation>
     </message>
@@ -4312,53 +4317,53 @@
     </message>
     <message>
         <location filename="../../core/mitm/facade.py" line="885"/>
-        <location filename="../../core/mitm/facade.py" line="1099"/>
+        <location filename="../../core/mitm/facade.py" line="1108"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1106"/>
+        <location filename="../../core/mitm/facade.py" line="1115"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1111"/>
-        <location filename="../../core/mitm/facade.py" line="1189"/>
+        <location filename="../../core/mitm/facade.py" line="1120"/>
+        <location filename="../../core/mitm/facade.py" line="1198"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1131"/>
+        <location filename="../../core/mitm/facade.py" line="1140"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1156"/>
+        <location filename="../../core/mitm/facade.py" line="1165"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1158"/>
+        <location filename="../../core/mitm/facade.py" line="1167"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1162"/>
+        <location filename="../../core/mitm/facade.py" line="1171"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1205"/>
+        <location filename="../../core/mitm/facade.py" line="1214"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1305"/>
+        <location filename="../../core/mitm/facade.py" line="1314"/>
         <source>无法读取 Flow 文件：{}</source>
         <translation>Cannot read flow file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1363"/>
+        <location filename="../../core/mitm/facade.py" line="1372"/>
         <source>无法写入文件：{}</source>
         <translation>Cannot write file: {}</translation>
     </message>

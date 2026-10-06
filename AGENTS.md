@@ -46,8 +46,8 @@ mitmproxy Master 在独立 asyncio 线程，GUI 在主线程：
 2. Qt 侧操作 mitm 流量与规则经 `MitmFacade`，`apps/` 不直接调用 `runtime.call`；控制器可持 runtime 管理生命周期、读取运行状态并连接信号。
 3. 流量事件经 `UiBridgeAddon`、运行状态经 runtime 转 Qt Signal，勿自行轮询 core View。
 
-- ❌ 在 Qt 线程直接操作 master/view、修改活 flow，或对活 flow 构建详情/解码 body；这些经 facade 投到 mitm 线程。表格通过桥接信号 / `visible_http_flows()` 获取的活引用仅供只读展示与身份匹配，勿擅自换成副本。
-- 完整快照经 `all_http_flows()` / `intercepted_flows()` 获取；内部的 `core/mitm/facade.py::_snapshot` 是模块函数，负责保留 `flow.id`，勿自行 `flow.copy()`。回放创建新流量时仍应生成新 id。
+- ❌ 在 Qt 线程直接操作 master/view、修改活 flow，或对活 flow 构建详情/解码 body；这些经 facade 投到 mitm 线程。跨线程交付的流量行一律是 `core/mitm/rows.py::FlowRow` 不可变快照（桥接信号与 `visible_flow_rows()` 都在内核侧折好，mitmweb `flow_to_json` 同款边界）；勿把活引用加回信号载荷或导出/删除/回放 API（这些一律按 flow.id 寻址）。新增改变行内容的内核侧变更路径必须经既有收口重发快照，漏发＝表格显示过期。
+- 完整对象快照经 `all_http_flows()` / `intercepted_flows()` 获取（导出与断点窗口专用）；内部的 `core/mitm/facade.py::_snapshot` 是模块函数，负责保留 `flow.id`，勿自行 `flow.copy()`。回放创建新流量时仍应生成新 id。
 - ❌ 使用 `ctx`。需 master/options 用手上的 `runtime.master`，仍须遵守线程边界；`ctx` 不进 `bindings.__all__`。
 - ❌ 跨层 import mitmproxy。业务源码只有 `core/mitm/bindings.py` 可直接 import mitmproxy；`core/mitm/*` 从 bindings 引入，其余用 `from ferret.core.mitm import`（历史例外见 §4）。
 - ❌ 向 master 追加 mitmproxy 命令行 addon（comment/cut/export/script 等），GUI 自行实现等效能力。

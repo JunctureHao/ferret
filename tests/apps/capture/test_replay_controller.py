@@ -110,11 +110,15 @@ class CaptureControllerReplayTests(unittest.TestCase):
             flow.request.url = f"https://example.com/{index}"
         invalid = make_http_flow()
         invalid.live = True
+        # 载荷是 id 列表（#90）：四条都先入 View，无效那条在内核侧被 check 跳过。
+        self.runtime.view.add([*flows, invalid])
 
         with patch.object(
             self.runtime.master.client_playback, "start_replay"
         ) as start_replay:
-            self.controller.replay_flows([*flows, invalid])
+            self.controller.replay_flows(
+                [flow.id for flow in flows] + [invalid.id]
+            )
 
         replay_flows = start_replay.call_args[0][0]
         self.assertEqual(

@@ -84,7 +84,7 @@ from ferret.apps.common.flow.protocols import (
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.core.log import get_logger
-from ferret.core.mitm import HTTPFlow
+from ferret.core.mitm import FlowRow
 
 log = get_logger("flow")
 
@@ -422,20 +422,20 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         没有 controller 只发生在裸构造 `FlowViewerPane()` 的场合（测试）——
         此时没有任何流量可查，空字典就是正确答案。
         """
-        flow = self.source_model.get_flow(row)
-        if flow is None or self.controller is None:
+        snapshot = self.source_model.get_row(row)
+        if snapshot is None or self.controller is None:
             return {}
-        return self.controller.flow_detail(flow.id)
+        return self.controller.flow_detail(snapshot.id)
 
-    def get_selected_flows(self) -> list[HTTPFlow]:
-        """获取当前选中的 flow 对象列表(单选/多选通用)"""
-        flows = []
+    def get_selected_rows(self) -> list[FlowRow]:
+        """获取当前选中的行快照列表(单选/多选通用)"""
+        rows = []
         for index in self.selectionModel().selectedRows():
             source_index = self.proxy_model.mapToSource(index)
-            flow = self.source_model.get_flow(source_index.row())
-            if flow:
-                flows.append(flow)
-        return flows
+            row = self.source_model.get_row(source_index.row())
+            if row:
+                rows.append(row)
+        return rows
 
     @Slot()
     def __on_selection_changed(self, selected):
@@ -468,8 +468,8 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         source_index = self.proxy_model.mapToSource(index)
         row = source_index.row()
         row_data = self.row_detail(row)  # ← 就来自这里
-        selected_flows = self.get_selected_flows()
-        self.context_menu.update_context(row, row_data, selected_flows)
+        selected_rows = self.get_selected_rows()
+        self.context_menu.update_context(row, row_data, selected_rows)
         self.context_menu.exec(self.viewport().mapToGlobal(pos))
 
     @Slot()
@@ -500,9 +500,9 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
     @Slot()
     def remove_selected(self) -> None:
         """删除当前选中的 flow（单选/多选同一条路）。"""
-        flows = self.get_selected_flows()
-        if flows:
-            self.source_model.remove_flows(flows)
+        rows = self.get_selected_rows()
+        if rows:
+            self.source_model.remove_flows([row.id for row in rows])
 
     def set_source(self, source) -> None:
         """注入数据源（满足 FlowSource 协议：View 本体或其适配器）"""
@@ -667,7 +667,7 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
     """按客户端连接分组的树视图（平铺 `FlowDataTable` 的树孪生）。
 
     与平铺表格并列，公共 API（set_source / on_flow_* / set_highlight_ids /
-    get_selected_flows / stats_updated…）对齐，好让 `FlowViewerPane` 一层 fan-out
+    get_selected_rows / stats_updated…）对齐，好让 `FlowViewerPane` 一层 fan-out
     同时喂两个模型。统计走自有通道：shown = 可见子流数（连接节点不计入），
     非 `proxy.rowCount()`（那是顶层连接数，见方案 §4.3）。
     """
@@ -765,17 +765,17 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
             return {}
         return self.controller.flow_detail(flow.id)
 
-    def get_selected_flows(self) -> list[HTTPFlow]:
-        """选区 → flow 列表：连接节点展开为其全部子流（parent→children 映射）。"""
-        flows: list[HTTPFlow] = []
+    def get_selected_rows(self) -> list[FlowRow]:
+        """选区 → 行快照列表：连接节点展开为其全部子行（parent→children 映射）。"""
+        rows: list[FlowRow] = []
         seen: set[str] = set()
         for index in self.selectionModel().selectedRows():
             source_index = self.proxy_model.mapToSource(index)
-            for flow in self.source_model.flows_under(source_index):
-                if flow.id not in seen:
-                    seen.add(flow.id)
-                    flows.append(flow)
-        return flows
+            for row in self.source_model.flows_under(source_index):
+                if row.id not in seen:
+                    seen.add(row.id)
+                    rows.append(row)
+        return rows
 
     @Slot()
     def __on_selection_changed(self, selected):
@@ -792,8 +792,8 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
         if not self.selectionModel().isSelected(index):
             self.setCurrentIndex(index)
         row_data = self._detail_for(index)
-        selected_flows = self.get_selected_flows()
-        self.context_menu.update_context(-1, row_data, selected_flows)
+        selected_rows = self.get_selected_rows()
+        self.context_menu.update_context(-1, row_data, selected_rows)
         self.context_menu.exec(self.viewport().mapToGlobal(pos))
 
     @Slot()
@@ -817,9 +817,9 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
 
     @Slot()
     def remove_selected(self) -> None:
-        flows = self.get_selected_flows()
+        flows = self.get_selected_rows()
         if flows:
-            self.source_model.remove_flows(flows)
+            self.source_model.remove_flows([row.id for row in flows])
 
     def set_source(self, source) -> None:
         self.source_model.set_source(source)

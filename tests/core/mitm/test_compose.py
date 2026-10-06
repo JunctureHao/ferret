@@ -300,14 +300,14 @@ class ComposeLiveTests(unittest.TestCase):
         self.assertEqual(self.results, [])
         self.assertEqual(self.recorded, [])
         self.assertEqual(self.captured, [])
-        self.assertEqual(self.facade.visible_http_flows(), [])
+        self.assertEqual(self.facade.visible_flow_rows(), [])
         self.assertEqual(self.facade.total_count(), 0)
         matcher = parse_filter("~http")
         assert matcher is not None
         self.assertEqual(self.facade.match_ids(matcher), set())
         # 改过滤器触发刷新，也不能把等待响应的隐藏条目带进表格。
         self.facade.set_filter(matcher)
-        self.assertEqual(self.facade.visible_http_flows(), [])
+        self.assertEqual(self.facade.visible_flow_rows(), [])
 
         self.server.response_released.set()
         self.assertTrue(wait_until(lambda: self.results))
@@ -316,7 +316,7 @@ class ComposeLiveTests(unittest.TestCase):
         self.assertEqual(result.error, "")
         self.assertEqual(result.detail["Status Code"], 200)
         self.assertEqual(self.facade.all_http_flows(), [])
-        self.assertEqual(self.facade.visible_http_flows(), [])
+        self.assertEqual(self.facade.visible_flow_rows(), [])
         self.assertEqual(self.facade.total_count(), 0)
         self.assertEqual(self.facade.match_ids(matcher), set())
         self.assertEqual(self.recorded, [])
@@ -368,7 +368,7 @@ class ComposeLiveTests(unittest.TestCase):
         self.assertTrue(wait_until(self.server.request_received.is_set))
         self.app.processEvents()
         self.assertEqual(self.recorded, [])
-        self.assertEqual(self.facade.visible_http_flows(), [])
+        self.assertEqual(self.facade.visible_flow_rows(), [])
         self.assertEqual(self.facade.total_count(), 1)
 
         self.server.response_released.set()
@@ -380,7 +380,7 @@ class ComposeLiveTests(unittest.TestCase):
         self.assertEqual(self.captured, [])
         self.assertEqual(len(self.results), 1)
         self.assertEqual(
-            [flow.id for flow in self.facade.visible_http_flows()], [flow_id]
+            [row.id for row in self.facade.visible_flow_rows()], [flow_id]
         )
 
 

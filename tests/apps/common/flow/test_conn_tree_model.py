@@ -13,10 +13,14 @@ from ferret.apps.common.flow.models import (
     FlowConnProxyModel,
     FlowConnTreeModel,
 )
+from ferret.core.mitm import flow_row
 
 
 class _ListSource:
-    """FlowSource 最小替身：只暴露协议三方法（迭代 / clear / remove）。"""
+    """FlowSource 最小替身：只暴露协议三方法（迭代 / clear / remove）。
+
+    #90 之后迭代产出的是 `FlowRow` 行快照、remove 收 id 列表。
+    """
 
     def __init__(self, flows: list) -> None:
         self.flows = list(flows)
@@ -30,8 +34,8 @@ class _ListSource:
         self.cleared = True
         self.flows.clear()
 
-    def remove(self, flows) -> None:
-        self.removed.extend(flows)
+    def remove(self, flow_ids) -> None:
+        self.removed.extend(flow_ids)
 
 
 class FlowConnTreeModelTests(unittest.TestCase):
@@ -50,7 +54,8 @@ class FlowConnTreeModelTests(unittest.TestCase):
         flow.response.timestamp_end = 100.0 + duration_ms / 1000  # type: ignore
         flow.request.raw_content = b"req"
         flow.response.raw_content = b"response"  # type: ignore
-        return flow
+        # 模型的行集是行快照（#90）：测试在内核侧同位置折叠后喂给模型。
+        return flow_row(flow)
 
     def model_with(self, *flows) -> FlowConnTreeModel:
         model = FlowConnTreeModel(None)  # type: ignore
@@ -73,10 +78,10 @@ class FlowConnTreeModelTests(unittest.TestCase):
         self.assertEqual(model.rowCount(node_b), 1)
 
     def test_missing_conn_id_falls_into_a_single_unknown_group(self) -> None:
+        # flow.client_conn.id 为空：折叠时（flow_row）落 UNKNOWN 兜底组，
+        # 两条空 id 归并成一个节点，不崩不丢流。
         one = self.flow_on("")
         two = self.flow_on("")
-        one.client_conn.id = ""
-        two.client_conn.id = ""
         model = self.model_with(one, two)
         self.assertEqual(model.rowCount(), 1)
         self.assertEqual(model.rowCount(model.index(0, 0, QModelIndex())), 2)

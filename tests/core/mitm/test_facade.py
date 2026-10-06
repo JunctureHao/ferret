@@ -44,25 +44,26 @@ class SnapshotIdentityTests(unittest.TestCase):
         snapshot = self.facade.all_http_flows()
         self.assertEqual([f.id for f in snapshot], [self.flow.id])
 
-    def test_visible_flows_follow_the_filter_and_stay_live(self) -> None:
-        """流量表刷新行集的数据源契约：跟过滤器走、且是活引用。
+    def test_visible_rows_follow_the_filter_and_carry_snapshot_fields(self) -> None:
+        """流量表刷新行集的数据源契约：跟过滤器走、载荷是不可变行快照（#90）。
 
-        这两头钉的是 `visible_http_flows` 与 `all_http_flows` 的分工：接后者
-        （`_store` 全量）会让显示过滤静默失效；套 `_snapshot()` 会让 refresh 之后
-        的 `handle_update` 按身份反查落空（信号送来的是活对象，行里躺着副本）。
+        这两头钉的是 `visible_flow_rows` 与 `all_http_flows` 的分工：接后者
+        （`_store` 全量）会让显示过滤静默失效；快照在内核侧折好，Qt 侧不再收
+        活引用——显示字段与桥接信号送来的行是同一套数据形状。
         """
         other = tflow.tflow(resp=True)
         other.request.host = "elsewhere.example"
         self.facade.view.add([other])
         self.facade.set_filter(flowfilter.parse("~d address"))
 
-        visible = self.facade.visible_http_flows()
+        visible = self.facade.visible_flow_rows()
 
-        self.assertEqual([f.id for f in visible], [self.flow.id])
+        self.assertEqual([row.id for row in visible], [self.flow.id])
         # 全量不受过滤影响（导出/保存走的就是它，那是正确的语义）。
         self.assertEqual(len(self.facade.all_http_flows()), 2)
-        # 活引用：表格靠它与桥接信号送来的同一实例做身份匹配。
-        self.assertIs(visible[0], self.flow)
+        # 快照形状：id 与展示标量齐备，且不因过滤器重建而失真。
+        self.assertEqual(visible[0].host, "address")
+        self.assertEqual(visible[0].status_code, 200)
 
     def test_intercepted_flows_keep_their_id(self) -> None:
         """断点页写回的唯一凭据。id 一换，改和放行全都找不到人。"""

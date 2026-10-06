@@ -39,7 +39,7 @@ from ferret.apps.common.flow.protocols import (
     CAPTURE_CAPABILITIES,
     READONLY_CAPABILITIES,
 )
-from ferret.core.mitm import MARKER_DEFAULT, emoji
+from ferret.core.mitm import MARKER_DEFAULT, emoji, flow_row
 
 
 class EmojiTableTests(unittest.TestCase):
@@ -343,11 +343,12 @@ class ContextMenuMarkTests(unittest.TestCase):
 
     @staticmethod
     def _flows(*marks: str) -> list:
+        # 菜单选区收行快照（#90）：在内核侧同位置折叠后再交给菜单。
         flows = []
         for mark in marks:
             flow = tflow.tflow(resp=True)
             flow.marked = mark
-            flows.append(flow)
+            flows.append(flow_row(flow))
         return flows
 
     def _select(self, flows: list) -> None:

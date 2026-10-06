@@ -59,7 +59,7 @@ class CaptureAdmissionTests(unittest.TestCase):
         stopped = self.add("stopped.test")
         self.controller.apply_filter("")
         self.assertEqual(
-            {flow.id for flow in self.controller.visible_http_flows()},
+            {row.id for row in self.controller.visible_flow_rows()},
             {shown.id, hidden.id},
         )
         self.assertEqual(self.model.rowCount(), 2)

@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -40,6 +41,7 @@ from ferret.apps.session.models import (
     SessionMeta,
     SessionTableModel,
 )
+from ferret.core.mitm import FlowRow, flow_row
 
 
 class SessionsInterface(QWidget):
@@ -441,6 +443,32 @@ class SessionListPage(QWidget):
         return super().eventFilter(obj, event)
 
 
+class _SessionRowSource:
+    """会话页的 FlowSource：把文件读回的死 flow 就地折成行快照（#90）。
+
+    没有内核线程 competing，折叠在 GUI 线程直接做；remove 按 id 反查回死
+    flow 再交给 View（mitmproxy View.remove 只认 flow 对象）。
+    """
+
+    def __init__(self, view) -> None:
+        self._view = view
+
+    def __iter__(self) -> Iterator[FlowRow]:
+        return iter(flow_row(flow) for flow in self._view)
+
+    def clear(self) -> None:
+        self._view.clear()
+
+    def remove(self, flow_ids) -> None:
+        flows = [
+            flow
+            for fid in flow_ids
+            if (flow := self._view.get_by_id(fid)) is not None
+        ]
+        if flows:
+            self._view.remove(flows)
+
+
 class SessionViewerPage(QWidget):
     """只读会话查看器"""
 
@@ -505,9 +533,10 @@ class SessionViewerPage(QWidget):
         self.name_label.setText(f"{meta.name}  ·  {flows}  ·  ")
 
         self.splitter.set_controller(vc)
-        # 会话 flow 从文件读回、没有 mitm 线程：View 本体直接当数据源，无需适配。
-        # 经 pane fan-out 同时喂平铺与连接树两个模型（树模式在会话页同样可用）。
-        self.splitter.set_source(vc.view)
+        # 会话 flow 从文件读回、没有 mitm 线程：包一层就地折叠的数据源（快照在
+        # GUI 线程生成，死对象直读安全，#90）。经 pane fan-out 同时喂平铺与连接
+        # 树两个模型（树模式在会话页同样可用）。
+        self.splitter.set_source(_SessionRowSource(vc.view))
 
     def _go_back(self):
         iface = self.parent()

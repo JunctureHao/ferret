@@ -166,7 +166,8 @@ class MitmRuntimeGatewayTests(unittest.TestCase):
         self.runtime.flow_suspended.connect(seen.append)
         flow = tflow.tflow()
         self.runtime._on_flow_suspended(flow)
-        self.assertEqual(seen, [flow])
+        # 载荷是行快照（#90）：id 随快照过边界，活 flow 不再跨线程。
+        self.assertEqual([row.id for row in seen], [flow.id])
 
 
 class MitmFacadeGatewayTests(unittest.TestCase):
@@ -231,7 +232,7 @@ class MitmFacadeGatewayTests(unittest.TestCase):
             original(flows),
         )
 
-        self.facade.remove_flows([flow])
+        self.facade.remove_flows([flow.id])
 
         self.assertEqual(seen, [False])
         self.assertEqual(self.state.suspended_count, 0)
@@ -240,7 +241,7 @@ class MitmFacadeGatewayTests(unittest.TestCase):
     def test_remove_flows_only_releases_the_named_flows(self) -> None:
         kept = self.suspended_flow()
         removed = self.suspended_flow()
-        self.facade.remove_flows([removed])
+        self.facade.remove_flows([removed.id])
         self.assertEqual(self.state.suspended_count, 1)
         self.assertTrue(kept.intercepted)
 

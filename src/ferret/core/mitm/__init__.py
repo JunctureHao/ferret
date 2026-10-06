@@ -118,6 +118,7 @@ from ferret.core.mitm.rewrite import (
     rewrite_rules_from_config,
     rewrite_rules_to_config,
 )
+from ferret.core.mitm.rows import FlowRow, flow_row
 from ferret.core.mitm.runtime import (
     ANTICACHE_OPTIONS,
     PROTOCOL_OPTIONS,
@@ -208,6 +209,7 @@ __all__ = [
     "Flow",
     "FlowExporter",
     "FlowFile",
+    "FlowRow",
     "GatewayField",
     "GatewayLayer",
     "GatewayLogic",
@@ -258,6 +260,7 @@ __all__ = [
     "escape_literal",
     "escape_template",
     "export_format",
+    "flow_row",
     "gateway_rules_from_block_config",
     "gateway_rules_from_config",
     "gateway_rules_to_config",

@@ -29,7 +29,7 @@ from ferret.apps.common.flow.protocols import (
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success, show_warning
 from ferret.core.log import get_logger
-from ferret.core.mitm import HTTPFlow
+from ferret.core.mitm import FlowRow
 
 log = get_logger("flow")
 
@@ -61,7 +61,9 @@ class FlowContextMenu(RoundMenu):
         self.row_index = -1  # 初始化一个无效行号
         self.row_data = {}
         self.main_window = parent.window()
-        self.flows: list[HTTPFlow] = []
+        # 选区快照（FlowRow）：菜单只读 id / marked / has_response 标量，
+        # 活 flow 引用不进菜单（#90）。
+        self.flows: list[FlowRow] = []
 
         self.__init_widget()
         self.__init_action()
@@ -71,18 +73,18 @@ class FlowContextMenu(RoundMenu):
         self,
         row_index: int,
         row_data: dict,
-        selected_flows: list[HTTPFlow],
+        selected_rows: list[FlowRow],
     ):
         """统一的数据更新入口
 
         Args:
             row_index: 行索引
             row_data: 行数据字典
-            selected_flows: 当前选中的 Flow 列表（保持表格选中顺序）
+            selected_rows: 当前选中的行快照列表（保持表格选中顺序）
         """
         self.row_index = row_index
         self.row_data = row_data
-        self.flows = selected_flows or []
+        self.flows = selected_rows or []
         self._refresh_replay_label()
         count = len(self.flows)
         self.delete_action.setText(
@@ -97,9 +99,7 @@ class FlowContextMenu(RoundMenu):
         # 「加入 Mock 响应」要求选区每一条都带响应（无响应源流回不了任何东西，
         # 原生 next_flow 会跳过它们）；单选文案不带条数，多选带。
         if self.capabilities.can_mock:
-            mockable = bool(self.flows) and all(
-                flow.response is not None for flow in self.flows
-            )
+            mockable = bool(self.flows) and all(row.has_response for row in self.flows)
             self.add_to_mock_action.setEnabled(mockable)
             self.add_to_mock_action.setText(
                 self.tr("加入 Mock 响应")
@@ -283,11 +283,7 @@ class FlowContextMenu(RoundMenu):
         if not self.controller or not self.flows:
             return
         current = next(
-            (
-                getattr(flow, "marked", "") or ""
-                for flow in self.flows
-                if getattr(flow, "marked", "")
-            ),
+            (row.marked for row in self.flows if row.marked),
             "",
         )
         dialog = MarkerPickerDialog(current=current, parent=self.main_window)
@@ -309,9 +305,9 @@ class FlowContextMenu(RoundMenu):
             return
         self._marker_failed = 0
         self._marker_reason = ""
-        for flow in self.flows:
-            shortcode = "" if getattr(flow, "marked", "") else ":default:"
-            self.__apply_marker_to(flow, shortcode)
+        for row in self.flows:
+            shortcode = "" if row.marked else ":default:"
+            self.__apply_marker_to(row, shortcode)
         self.__report_marker_failures()
 
     @Slot()
@@ -325,14 +321,14 @@ class FlowContextMenu(RoundMenu):
         """把同一短码写满选区（逐条写回；失败的挑出来汇总，不中断其余）。"""
         self._marker_failed = 0
         self._marker_reason = ""
-        for flow in self.flows:
-            self.__apply_marker_to(flow, shortcode)
+        for row in self.flows:
+            self.__apply_marker_to(row, shortcode)
         self.__report_marker_failures()
 
-    def __apply_marker_to(self, flow: HTTPFlow, shortcode: str) -> None:
+    def __apply_marker_to(self, row: FlowRow, shortcode: str) -> None:
         """写单条；失败只记账不抛出 —— 批量操作的半截失败不该拖死整批。"""
         try:
-            self.controller.set_flow_marked(flow.id, shortcode)
+            self.controller.set_flow_marked(row.id, shortcode)
         except (ValueError, RuntimeError) as exc:
             self._marker_failed += 1
             self._marker_reason = str(exc)
@@ -381,7 +377,7 @@ class FlowContextMenu(RoundMenu):
     @Slot()
     def __on_add_to_mock_triggered(self):
         """发出「加入 Mock 响应」请求，载荷是选区内带响应流的 id 列表。"""
-        flow_ids = [flow.id for flow in self.flows if flow.response is not None]
+        flow_ids = [row.id for row in self.flows if row.has_response]
         if flow_ids:
             self.add_to_mock_requested.emit(flow_ids)
 
@@ -389,15 +385,15 @@ class FlowContextMenu(RoundMenu):
     def __on_client_replay_triggered(self):
         """重放当前选中的请求（支持单选/多选）。
 
-        多选时直接调用 ``controller.replay_flows(self.flows)``，保持选中
-        顺序；单选时回退到 ``replay_flow(flow_id)`` 兼容旧调用方。两种路径
-        最终都通过 ``ClientPlayback.start_replay`` 入队。
+        多选时按选区顺序把 id 列表交给 ``controller.replay_flows``（内核侧
+        按 id 解析，#90）；单选时回退到 ``replay_flow(flow_id)`` 兼容旧调用方。
+        两种路径最终都通过 ``ClientPlayback.start_replay`` 入队。
         """
         if not self.controller:
             return
         try:
             if len(self.flows) > 1:
-                self.controller.replay_flows(self.flows)
+                self.controller.replay_flows([row.id for row in self.flows])
                 return
             flow_id = self.row_data.get("id", "")
             if flow_id:
@@ -745,8 +741,8 @@ class FlowExportMenu(RoundMenu):
 
         选区来自 ``FlowContextMenu.flows``（和"重发"同一份数据，保持表格选中
         顺序），选 1 条就是 1 条，选 N 条就是 N 条，全部写进同一个文件。
-        ``FlowExporter.save_har`` 和 ``FlowFile.write`` 都不依赖 ``ctx``，所以抓包
-        页和只读会话页（无 master）走同一条路径。
+        载荷是 id 列表：HAR 快照与 Flow 快照都由控制器在内核侧解析（#90），
+        只读会话页（死 flow）在自己的线程解析，同一条路径。
         """
         if not self.controller:
             show_warning(self.tr("警告"), self.tr("控制器不可用"), self.main_window)
@@ -760,6 +756,7 @@ class FlowExportMenu(RoundMenu):
                 self.main_window,
             )
             return
+        flow_ids = [row.id for row in flows]
 
         if kind == "har":
             title = self.tr("导出 HAR")
@@ -785,9 +782,9 @@ class FlowExportMenu(RoundMenu):
 
         try:
             if kind == "har":
-                self.controller.export_har(flows, path)
+                self.controller.export_har(flow_ids, path)
             else:
-                self.controller.save_flows(flows, path)
+                self.controller.save_flows(flow_ids, path)
         except Exception as exc:  # noqa: BLE001
             show_error(self.tr("导出失败"), str(exc), self.main_window)
             return
@@ -827,11 +824,11 @@ class FlowExportMenu(RoundMenu):
                 return
             save_selected_keys(keys)
 
-            # 每条流量问一趟详情字典。取不到（controller 拿不到活 flow）就跳过这条，
+            # 每条流量问一趟详情字典。取不到（controller 拿不到该行）就跳过这条，
             # 而不是让整张表塌掉 —— 抽取本就是尽力而为的读操作。
             details = []
-            for flow in flows:
-                detail = self.controller.flow_detail(flow.id)
+            for row in flows:
+                detail = self.controller.flow_detail(row.id)
                 if detail:
                     details.append(detail)
             if not details:
@@ -882,17 +879,17 @@ class FlowExportMenu(RoundMenu):
             dialog.deleteLater()
 
     @staticmethod
-    def __default_file_name(flows: list[HTTPFlow], suffix: str) -> str:
+    def __default_file_name(rows: list[FlowRow], suffix: str) -> str:
         """单选用 方法_主机，多选用 时间戳_条数，再滤掉 Windows 非法字符。"""
-        if len(flows) == 1:
-            request = flows[0].request
-            host = request.pretty_host or request.host or "unknown"
-            name = f"{request.method}_{host}"
+        if len(rows) == 1:
+            host = rows[0].host or "unknown"
+            name = f"{rows[0].method or 'GET'}_{host}"
         else:
             stamp = time.strftime(
-                "%Y%m%d_%H%M%S", time.localtime(flows[0].timestamp_created)
+                "%Y%m%d_%H%M%S",
+                time.localtime(rows[0].timestamp_created or time.time()),
             )
-            name = f"flows_{stamp}_{len(flows)}flows"
+            name = f"flows_{stamp}_{len(rows)}flows"
         return re.sub(r'[\\/:*?"<>|]', "_", name) + suffix
 
 
@@ -944,10 +941,10 @@ class FlowMarkMenu(RoundMenu):
         self.toggle_action.triggered.connect(self.toggle_requested.emit)
         self.clear_action.triggered.connect(self.clear_requested.emit)
 
-    def refresh_context(self, flows: list[HTTPFlow]) -> None:
+    def refresh_context(self, rows: list[FlowRow]) -> None:
         """按选区快照刷新启用态：「清除标记」在整选区无标记时置灰
         （点了也是空转）；「设置」「切换」恒可用。"""
-        self.clear_action.setEnabled(any(getattr(flow, "marked", "") for flow in flows))
+        self.clear_action.setEnabled(any(row.marked for row in rows))
 
 
 class FlowSubViewMenu(RoundMenu):

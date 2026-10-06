@@ -105,11 +105,22 @@ class SessionViewController(QObject):
             return FlowExporter.httpie_command(flow)
         return ""
 
-    def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
+    def save_flows(self, flow_ids: list[str], path: str) -> int:
+        """按 id 解析本会话 View 里的死 flow 再写文件（会话页没有 mitm 线程）。"""
+        flows = [
+            flow
+            for fid in flow_ids
+            if isinstance(flow := self._view.get_by_id(fid), HTTPFlow)
+        ]
         return FlowFile.write(path, flows)
 
-    def export_har(self, flows: list[HTTPFlow], path: str) -> None:
-        # save_har 是纯函数、不读 ctx，所以只读会话页没有 master 也能导出。
+    def export_har(self, flow_ids: list[str], path: str) -> None:
+        """save_flows 同款：死 flow 就地解析，save_har 是纯函数、不读 ctx。"""
+        flows = [
+            flow
+            for fid in flow_ids
+            if isinstance(flow := self._view.get_by_id(fid), HTTPFlow)
+        ]
         FlowExporter.save_har(flows, path)
 
 

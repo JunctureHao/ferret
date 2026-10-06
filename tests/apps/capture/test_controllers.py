@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 
 from ferret.apps.capture.controllers import CaptureController, CaptureState
-from ferret.core.mitm import MitmRuntimeState, View
+from ferret.core.mitm import MitmRuntimeState, View, flow_row
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST
 from ferret.core.settings import CONFIG
 
@@ -426,6 +426,60 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertFalse(proxy.attached)
         self.assertFalse(facade.recording)
 
+    def test_recording_starts_without_the_system_proxy_checkbox(self) -> None:
+        """磁盘录制随会话启停，不随系统代理勾选：不勾代理的五通道同样自动落盘。"""
+        controller, runtime, facade, proxy = self.make_controller()
+        CONFIG.set(CONFIG.system_proxy_enabled, False)
+
+        controller.start_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.RUNNING)
+        self.assertTrue(facade.recording)
+        self.assertTrue(controller.recording)
+        self.assertFalse(proxy.attached)
+        self.assertTrue(runtime.channels_engaged)
+
+        controller.stop_capture()
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
+        self.assertFalse(facade.recording)
+
+    def test_recording_start_failure_fails_the_session_without_the_proxy(self) -> None:
+        """录制起步失败同样以 FAILED 收场并给出可重试入口，代理未勾选也如此。"""
+        controller, _, facade, proxy = self.make_controller()
+        CONFIG.set(CONFIG.system_proxy_enabled, False)
+
+        with patch.object(
+            facade, "start_capture_recording", side_effect=OSError("disk full")
+        ):
+            controller.start_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+        self.assertIn("disk full", controller.last_error)
+        self.assertFalse(proxy.attached)
+        self.assertFalse(controller.recording)
+        self.assertFalse(facade.recording)
+
+        controller.start_capture()
+        self.assertEqual(controller.capture_state, CaptureState.RUNNING)
+
+    def test_attaching_the_proxy_mid_session_keeps_the_recording(self) -> None:
+        """先不勾代理开会话，中途勾上：代理照常挂上，录制不被拆成两段。"""
+        controller, _, facade, proxy = self.make_controller()
+        CONFIG.set(CONFIG.system_proxy_enabled, False)
+        controller.start_capture()
+        self.assertTrue(facade.recording)
+
+        controller.update_channels(
+            use_system_proxy=True,
+            use_local=True,
+            local_spec="",
+            use_wireguard=False,
+        )
+
+        self.assertTrue(proxy.attached)
+        self.assertEqual(controller.capture_state, CaptureState.RUNNING)
+        self.assertTrue(controller.recording)
+
     def test_stop_with_failed_detach_still_tears_down_recording_and_channels(
         self,
     ) -> None:
@@ -678,22 +732,22 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller.flow_updated.connect(updated.append)
 
         flow = tflow.tflow()
-        runtime.flow_stored.emit(flow)
-        runtime.flow_added.emit(flow)
-        runtime.flow_updated.emit(object())
+        runtime.flow_stored.emit(flow_row(flow))
+        runtime.flow_added.emit(flow_row(flow))
+        runtime.flow_updated.emit(flow_row(flow))
         self.assertEqual(added, [])
         self.assertEqual(len(updated), 1)
 
         controller.start_capture()
         flow = tflow.tflow()
-        runtime.flow_stored.emit(flow)
-        runtime.flow_added.emit(flow)
+        runtime.flow_stored.emit(flow_row(flow))
+        runtime.flow_added.emit(flow_row(flow))
         self.assertEqual(len(added), 1)
 
         controller.stop_capture()
         flow = tflow.tflow()
-        runtime.flow_stored.emit(flow)
-        runtime.flow_added.emit(flow)
+        runtime.flow_stored.emit(flow_row(flow))
+        runtime.flow_added.emit(flow_row(flow))
         self.assertEqual(len(added), 1)
 
     def test_recorded_compose_flows_pass_once_without_changing_capture_state(
@@ -735,7 +789,7 @@ class CaptureControllerStateTests(unittest.TestCase):
                 self.assertEqual(controller.capture_state, expected_state)
                 before = capture_state()
                 previous_count = len(added)
-                flow = tflow.tflow()
+                flow = flow_row(tflow.tflow())
 
                 runtime.compose_flow_stored.emit(flow)
                 runtime.compose_flow_added.emit(flow)

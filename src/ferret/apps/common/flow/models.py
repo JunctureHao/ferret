@@ -29,14 +29,7 @@ from ferret.apps.common.flow.fields import (
 )
 from ferret.apps.common.flow.marks import emoji_font, marker_glyph
 from ferret.core.log import get_logger
-from ferret.core.mitm import (
-    GATEWAY_METADATA_KEY,
-    SUSPEND_POLICIES,
-    GatewayPolicy,
-    HTTPFlow,
-    human,
-    wire_size,
-)
+from ferret.core.mitm import SUSPEND_POLICIES, FlowRow, GatewayPolicy, human
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 log = get_logger("flow")
@@ -49,12 +42,12 @@ DURATION_MS_ROLE = int(Qt.ItemDataRole.UserRole) + 5
 SIZE_BYTES_ROLE = int(Qt.ItemDataRole.UserRole) + 6
 SORT_ROLE = int(Qt.ItemDataRole.UserRole) + 7
 # 「这一行是否命中当前搜索表达式」——搜索高亮模式用。命中判定在 mitm 线程算好
-# 一份 flow.id 集回推（见 set_highlight_ids），Qt 侧只做 O(1) 查表，绘制时不读活
-# flow 任何字段（避开 AGENTS.md §3 的线程红线）。
+# 一份 flow.id 集回推（见 set_highlight_ids），Qt 侧只做 O(1) 查表。
 HIGHLIGHT_ROLE = int(Qt.ItemDataRole.UserRole) + 8
 
-# 网关往 flow.metadata 里写的是策略名（`str(GatewayPolicy)`）。这里只认字符串、
-# 不导 apps/gateway —— apps/common 不该认识具体页面。
+# 网关往 flow.metadata 里写的是策略名（`str(GatewayPolicy)`）；行快照把它折成
+# `gateway_policy` 标量带过来。这里只认字符串、不导 apps/gateway —— apps/common
+# 不该认识具体页面。
 _SUSPEND_MARKS: frozenset[str] = frozenset(str(policy) for policy in SUSPEND_POLICIES)
 
 # 文案在这里只做标记、不求值 —— 模块级求值赶在翻译器安装之前（`core/application.py`
@@ -78,39 +71,40 @@ _GATEWAY_TOOLTIPS: dict[str, str] = {
 }
 
 
-def is_suspended(flow: HTTPFlow) -> bool:
+def is_suspended(row: FlowRow) -> bool:
     """这条流量此刻是否停着不动 —— 网关挂起或断点拦下都算。
 
-    两个来源都要认：网关放行时 addon 会把 metadata 标记摘掉，断点则由原生
-    `flow.intercepted` 表示（`resume()` 会清成 False），所以两边都是实时状态。
-    断点还会拦网关挂起以外的流量，只看 metadata 会让「拦截队列」里明明钉着的那条
-    在流量表里显示成「等待中」。
+    两个来源都要认：网关放行时 addon 会把 metadata 标记摘掉（快照随之不再带
+    `gateway_policy`），断点则由原生 `flow.intercepted` 表示（`resume()` 会清成
+    False）。两个状态都随每次变更重新折进行快照，所以照旧是实时状态。断点还会
+    拦网关挂起以外的流量，只看网关标记会让「拦截队列」里明明钉着的那条在流量表
+    里显示成「等待中」。
     """
-    if flow.intercepted:
+    if row.intercepted:
         return True
-    return flow.metadata.get(GATEWAY_METADATA_KEY) in _SUSPEND_MARKS
+    return row.gateway_policy in _SUSPEND_MARKS
 
 
-def gateway_note(flow: HTTPFlow) -> str:
+def gateway_note(row: FlowRow) -> str:
     """Status 列的悬浮补充说明；没被网关或断点动过就是空串。
 
     返回的是**不带括号**的短句，加括号由调用点负责 —— 中文用全角括号、英文用半角，
     早先把括号写进文案里，单独显示时还得 `strip("（）")` 把它抠掉，换个语言就漏。
     """
     translate = QCoreApplication.translate
-    policy = flow.metadata.get(GATEWAY_METADATA_KEY)
+    policy = row.gateway_policy
     if policy:
         # 网关的挂起标记比断点更具体（能说清是请求还是响应停住了），优先用它。
         note = _GATEWAY_TOOLTIPS.get(policy)
         if note is None:
             return translate("FlowTableModel", "已被网关处理")
         return translate("FlowTableModel", note)
-    if flow.intercepted:
-        # 断点不写 metadata，只能问原生状态。
+    if row.intercepted:
+        # 断点不写 metadata，只能看快照带过来的原生状态。
         return translate("FlowTableModel", "断点拦下，等你处理")
     # blocklisted 是原生 BlockList addon 的标记。网关已经取代了它，只有从旧会话
     # 文件读回来的 flow 才会带（metadata 随 flow 一起存档）。
-    if flow.metadata.get("blocklisted"):
+    if row.blocklisted:
         return translate("FlowTableModel", "已被屏蔽规则拦截")
     return ""
 
@@ -118,14 +112,16 @@ def gateway_note(flow: HTTPFlow) -> str:
 class FlowSource(Protocol):
     """流量表的数据源：形状即 mitmproxy ``View``（Sequence + clear + remove）。
 
-    抓包路径用适配器包住 facade（迭代/写都投 mitm 线程执行，见
-    `apps/capture/views.py::_CaptureFlowSource`）；会话路径直接传 View 本体 ——
-    那批 flow 从文件读回、没有 mitm 线程，直用安全。model 自己不碰线程策略。
+    行集是 `FlowRow` 快照而非 flow 对象（#90）：抓包路径用适配器包住 facade
+    （迭代/写都投 mitm 线程执行，快照在内核侧折好，见
+    `apps/capture/views.py::_CaptureFlowSource`）；会话路径包住自己的 View ——
+    那批 flow 从文件读回、没有 mitm 线程，在 GUI 线程就地折叠同样安全。
+    model 自己不碰线程策略。
     """
 
-    def __iter__(self) -> Iterator[HTTPFlow]: ...
+    def __iter__(self) -> Iterator[FlowRow]: ...
     def clear(self) -> None: ...
-    def remove(self, flows: Sequence[HTTPFlow]) -> None: ...
+    def remove(self, flow_ids: Sequence[str]) -> None: ...
 
 
 class FlowTableModel(QAbstractTableModel):
@@ -138,11 +134,12 @@ class FlowTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._headers = list(self.HEADERS)
         self._source: FlowSource | None = None
-        # 稳定行号列表：model 自己的"行号→flow"映射，不依赖 View 的 SortedList
+        # 稳定行号列表：model 自己的"行号→行快照"映射，不依赖 View 的 SortedList
         # 排序位置（并发重排会导致插入声明位置与取数位置失配 → 空行/错数据）。
-        # 数据源只作为 flow 存储/过滤后端，行号由此列表自治。
-        self._rows: list[HTTPFlow] = []
-        self._row_by_identity: dict[int, int] = {}
+        # 数据源只作为行快照存储/过滤后端，行号由此列表自治。行按 flow.id 寻址
+        # （与连接树同键），更新到达时整体替换快照。
+        self._rows: list[FlowRow] = []
+        self._row_by_id: dict[str, int] = {}
         # 搜索高亮模式下命中当前表达式的 flow.id 集（在 mitm 线程算好后回推）。
         self._highlight_ids: set[str] = set()
 
@@ -196,9 +193,9 @@ class FlowTableModel(QAbstractTableModel):
         flow = self._rows[row]
         column_name = self._headers[col]
 
-        # 高亮命中：任何流量类型都只查一份 id 集（O(1)），不读活 flow 字段 ——
-        # 每格都返回同值，委托据此给命中行整行铺底。放在类型分流之前，非 HTTP 行
-        # 也能正确回 False（其 id 本就不会进命中集）。
+        # 高亮命中：任何流量类型都只查一份 id 集（O(1)），每格都返回同值，委托
+        # 据此给命中行整行铺底。放在类型分流之前，非 HTTP 行也能正确回 False
+        # （其 id 本就不会进命中集）。
         if role == HIGHLIGHT_ROLE:
             return flow.id in self._highlight_ids
 
@@ -207,28 +204,22 @@ class FlowTableModel(QAbstractTableModel):
         if column_name == "#":
             if role == Qt.ItemDataRole.DisplayRole:
                 return row + 1
-            if role == SORT_ROLE and isinstance(flow, HTTPFlow):
+            if role == SORT_ROLE:
                 return row + 1
         return flow_cell(flow, column_name, role)
 
     @staticmethod
-    def _host(flow: HTTPFlow) -> str:
-        return getattr(flow.request, "pretty_host", None) or flow.request.host
+    def _host(row: FlowRow) -> str:
+        return row.host
 
     @classmethod
-    def _host_with_port(cls, flow: HTTPFlow) -> str:
-        host = cls._host(flow)
-        port = getattr(flow.request, "port", None)
-        return f"{host}:{port}" if port else host
+    def _host_with_port(cls, row: FlowRow) -> str:
+        host = row.host
+        return f"{host}:{row.port}" if row.port else host
 
     @staticmethod
-    def _mime(flow: HTTPFlow) -> str:
-        value = ""
-        if flow.response is not None:
-            value = flow.response.headers.get("Content-Type", "")
-        if not value:
-            value = flow.request.headers.get("Content-Type", "")
-        return value.split(";", 1)[0].strip()
+    def _mime(row: FlowRow) -> str:
+        return row.resp_mime or row.req_mime
 
     @staticmethod
     def _mime_label(mime: str) -> str:
@@ -254,21 +245,21 @@ class FlowTableModel(QAbstractTableModel):
         return value.split("/", 1)[-1].upper()
 
     @staticmethod
-    def _size_bytes(flow: HTTPFlow) -> int:
+    def _size_bytes(row: FlowRow) -> int:
         """Size 列的字节数 —— 请求体 + 响应体的**线上**字节（压缩后）。
 
-        和详情面板的「线上」行同走 `wire_size()`，两处数字才必然一致。
+        和详情面板的「线上」行同走 `wire_size()`，两处数字才必然一致；字节在
+        内核侧折叠快照时算好（`req_wire` / `resp_wire`），Qt 侧只做加法。
         """
-        return wire_size(flow.request) + wire_size(flow.response)
+        return row.req_wire + row.resp_wire
 
     @staticmethod
-    def _duration_ms(flow: HTTPFlow) -> float | None:
-        if flow.response is None or flow.request.timestamp_start is None:
+    def _duration_ms(row: FlowRow) -> float | None:
+        if not row.has_response or row.req_start is None:
             return None
-        end = flow.response.timestamp_end
-        if end is None:
+        if row.resp_end is None:
             return None
-        return max(0.0, (end - flow.request.timestamp_start) * 1000)
+        return max(0.0, (row.resp_end - row.req_start) * 1000)
 
     @staticmethod
     def _method_kind(method: str) -> str:
@@ -284,14 +275,16 @@ class FlowTableModel(QAbstractTableModel):
         return "neutral"
 
     @staticmethod
-    def _status_kind(flow: HTTPFlow) -> str:
-        if is_suspended(flow):
+    def _status_kind(row: FlowRow) -> str:
+        if is_suspended(row):
             return "pending"
-        if flow.error:
+        if row.error_msg:
             return "error"
-        if flow.response is None:
+        if not row.has_response:
             return "pending"
-        code = flow.response.status_code
+        code = row.status_code
+        if code is None:
+            return "pending"
         if 200 <= code < 300:
             return "success"
         if 300 <= code < 400:
@@ -316,7 +309,7 @@ class FlowTableModel(QAbstractTableModel):
         return QColor(colors.get(kind, colors["neutral"]))
 
     @staticmethod
-    def _size_tooltip(flow: HTTPFlow) -> str:
+    def _size_tooltip(row: FlowRow) -> str:
         """Size 列的口径说明 —— 这一列量的是**线上**字节，压缩后。
 
         列宽只放得下一个总数，而「384b」到底是压缩前还是压缩后，差一个 gzip 就差
@@ -329,28 +322,26 @@ class FlowTableModel(QAbstractTableModel):
         note = translate("FlowTableModel", "报文体的线上字节（压缩后）")
         return "\n".join(
             (
-                f"{request}: {human.pretty_size(wire_size(flow.request))}",
-                f"{response}: {human.pretty_size(wire_size(flow.response))}",
+                f"{request}: {human.pretty_size(row.req_wire)}",
+                f"{response}: {human.pretty_size(row.resp_wire)}",
                 note,
             )
         )
 
     @classmethod
-    def _time_tooltip(cls, flow: HTTPFlow) -> str:
-        start = flow.request.timestamp_start
-        end = flow.response.timestamp_end if flow.response else None
+    def _time_tooltip(cls, row: FlowRow) -> str:
         start_text = (
-            datetime.fromtimestamp(start, tz=UTC)
+            datetime.fromtimestamp(row.req_start, tz=UTC)
             .astimezone()
             .isoformat(timespec="milliseconds")
-            if start
+            if row.req_start
             else "—"
         )
         end_text = (
-            datetime.fromtimestamp(end, tz=UTC)
+            datetime.fromtimestamp(row.resp_end, tz=UTC)
             .astimezone()
             .isoformat(timespec="milliseconds")
-            if end
+            if row.resp_end
             else "—"
         )
         # 标签单独取：lupdate 的 Python 解析器不往 f-string 里看，写成
@@ -359,7 +350,7 @@ class FlowTableModel(QAbstractTableModel):
         started = translate("FlowTableModel", "开始")
         ended = translate("FlowTableModel", "结束")
         elapsed = translate("FlowTableModel", "耗时")
-        duration_text = format_duration(cls._duration_ms(flow)) or "—"
+        duration_text = format_duration(cls._duration_ms(row)) or "—"
         return "\n".join(
             (
                 f"{started}: {start_text}",
@@ -371,42 +362,42 @@ class FlowTableModel(QAbstractTableModel):
     # ------------------------------------------------------------------
     # 数据变化处理（由 View 桥接信号驱动）
     # ------------------------------------------------------------------
-    def _row_of(self, flow: HTTPFlow) -> int:
-        """在稳定行号列表中查找 flow 的索引（不依赖 View 排序位置）"""
-        return self._row_by_identity.get(id(flow), -1)
+    def _row_of(self, row: FlowRow) -> int:
+        """在稳定行号列表中查找快照所属行的索引（按 flow.id，不依赖 View 排序）"""
+        return self._row_by_id.get(row.id, -1)
 
     def _reindex(self) -> None:
-        # Keep the existing identity contract: a stale snapshot is not a live row.
-        self._row_by_identity = {id(flow): row for row, flow in enumerate(self._rows)}
+        self._row_by_id = {item.id: row for row, item in enumerate(self._rows)}
 
-    def handle_add(self, flow: HTTPFlow) -> None:
-        """处理 View 新增 flow：追加到末尾，行号由 _rows 自治"""
+    def handle_add(self, row: FlowRow) -> None:
+        """处理桥接信号送来的新增行快照：追加到末尾，行号由 _rows 自治"""
         if not self._source:
             return
-        if id(flow) in self._row_by_identity:
+        if row.id in self._row_by_id:
             return  # 防重复
-        row = len(self._rows)
-        self.beginInsertRows(QModelIndex(), row, row)
-        self._rows.append(flow)
-        self._row_by_identity[id(flow)] = row
+        index = len(self._rows)
+        self.beginInsertRows(QModelIndex(), index, index)
+        self._rows.append(row)
+        self._row_by_id[row.id] = index
         self.endInsertRows()
 
-    def handle_update(self, flow: HTTPFlow) -> None:
-        """处理 View 更新 flow"""
-        row = self._row_of(flow)
-        if row < 0:
+    def handle_update(self, row: FlowRow) -> None:
+        """处理更新：按 id 整体替换该行快照，再刷整行"""
+        index = self._row_of(row)
+        if index < 0:
             return
-        start_idx = self.index(row, 0)
-        end_idx = self.index(row, self.columnCount() - 1)
+        self._rows[index] = row
+        start_idx = self.index(index, 0)
+        end_idx = self.index(index, self.columnCount() - 1)
         self.dataChanged.emit(start_idx, end_idx)
 
-    def handle_remove(self, flow: HTTPFlow, index: int) -> None:
-        """处理 View 移除 flow：按 flow 反查 _rows 下标，避免 View 源索引错位"""
-        row = self._row_of(flow)
-        if row < 0:
+    def handle_remove(self, row: FlowRow, index: int) -> None:
+        """处理移除：按快照 id 反查 _rows 下标，避免 View 源索引错位"""
+        position = self._row_of(row)
+        if position < 0:
             return
-        self.beginRemoveRows(QModelIndex(), row, row)
-        self._rows.pop(row)
+        self.beginRemoveRows(QModelIndex(), position, position)
+        self._rows.pop(position)
         self._reindex()
         self.endRemoveRows()
 
@@ -439,13 +430,13 @@ class FlowTableModel(QAbstractTableModel):
         """清空表格内容"""
         self.beginResetModel()
         self._rows.clear()
-        self._row_by_identity.clear()
+        self._row_by_id.clear()
         self.endResetModel()
         if self._source:
             self._source.clear()
 
-    def get_flow(self, row: int) -> HTTPFlow | None:
-        """根据行号获取原始 HTTPFlow"""
+    def get_row(self, row: int) -> FlowRow | None:
+        """根据行号获取行快照"""
         if 0 <= row < len(self._rows):
             return self._rows[row]
         return None
@@ -454,124 +445,123 @@ class FlowTableModel(QAbstractTableModel):
         """删除指定行"""
         if not self._source or not (0 <= row < len(self._rows)):
             return
-        flow = self._rows[row]
-        self._source.remove([flow])
+        self._source.remove([self._rows[row].id])
 
-    def remove_flows(self, flows: list[HTTPFlow]) -> None:
-        """批量删除：一次 remove 调用，逐行移除走 View 的 flow_removed 信号回路。"""
-        if not self._source or not flows:
+    def remove_flows(self, flow_ids: list[str]) -> None:
+        """批量删除：一次 remove 调用（按 id 寻址），逐行移除走桥接信号回路。"""
+        if not self._source or not flow_ids:
             return
-        self._source.remove(flows)
+        self._source.remove(flow_ids)
 
 
-def flow_cell(flow: HTTPFlow, column_name: str, role: int):
+def flow_cell(row: FlowRow, column_name: str, role: int):
     """FlowTableModel 与 FlowConnTreeModel 子行共用的单元格渲染。
 
     覆盖除 ``#`` 列外的所有列：``#`` 依赖模型形状（平铺给全局行号、树给组内序号），
     由各模型自算；HIGHLIGHT_ROLE 命中集也各自持有，均不进这里。翻译 context 一律
     钉死 "FlowTableModel"——本函数是从 `FlowTableModel.data` 抽出的纯搬迁，改 context
-    会让既有译文对不上号（`self.tr` 的隐式 context 正是类名）。
+    会让既有译文对不上号（`self.tr` 的隐式 context 正是类名）。入参是行快照：
+    渲染只读 Qt 侧自己的不可变数据，不再触碰任何 flow 对象。
     """
     translate = QCoreApplication.translate
 
-    if not isinstance(flow, HTTPFlow):
+    if not row.is_http:
         if role == Qt.ItemDataRole.DisplayRole:
             if column_name == "Method":
-                return type(flow).__name__.replace("Flow", "").upper()
+                return row.type_label
             return ""
         return None
 
     if role == Qt.ItemDataRole.DisplayRole:
         if column_name == "Mark":
-            return marker_glyph(flow.marked)
+            return marker_glyph(row.marked)
         if column_name == "Method":
-            return flow.request.method
+            return row.method
         if column_name == "URL":
-            return flow.request.pretty_url
+            return row.url
         if column_name == "Status":
             # 挂起优先于响应码：挂起（入）时响应已经回来了，但客户端一个字节
             # 都没拿到，显示 200 会骗人。真实码进悬浮提示。
-            if is_suspended(flow):
+            if is_suspended(row):
                 return translate("FlowTableModel", "挂起中")
-            if flow.error:
+            if row.error_msg:
                 return "Error"
-            if flow.response is None:
+            if not row.has_response:
                 return translate("FlowTableModel", "等待中")
-            return flow.response.status_code
+            return row.status_code
         if column_name == "Type":
-            return FlowTableModel._mime_label(FlowTableModel._mime(flow))
+            return FlowTableModel._mime_label(FlowTableModel._mime(row))
         if column_name == "Size":
-            return human.pretty_size(FlowTableModel._size_bytes(flow))
+            return human.pretty_size(FlowTableModel._size_bytes(row))
         if column_name == "Time":
-            return format_duration(FlowTableModel._duration_ms(flow))
+            return format_duration(FlowTableModel._duration_ms(row))
         return ""
     if role == SORT_ROLE:
         if column_name == "Mark":
             # 短码字符串本身：空串与有值天然分堆，同类短码聚族。
-            return flow.marked
+            return row.marked
         if column_name == "Method":
-            return flow.request.method.upper()
+            return row.method.upper()
         if column_name == "URL":
-            return flow.request.pretty_url.lower()
+            return row.url.lower()
         if column_name == "Status":
-            if is_suspended(flow):
+            if is_suspended(row):
                 return -1
-            if flow.error:
+            if row.error_msg:
                 return 600
-            return flow.response.status_code if flow.response else -1
+            return row.status_code if row.has_response else -1
         if column_name == "Type":
-            return FlowTableModel._mime(flow).lower()
+            return FlowTableModel._mime(row).lower()
         if column_name == "Size":
-            return FlowTableModel._size_bytes(flow)
+            return FlowTableModel._size_bytes(row)
         if column_name == "Time":
-            duration = FlowTableModel._duration_ms(flow)
+            duration = FlowTableModel._duration_ms(row)
             return duration if duration is not None else -1.0
 
     if role == METHOD_ROLE:
-        return flow.request.method.upper()
+        return row.method.upper()
     if role == STATUS_KIND_ROLE:
-        return FlowTableModel._status_kind(flow)
+        return FlowTableModel._status_kind(row)
     if role == FULL_URL_ROLE:
-        return flow.request.pretty_url
+        return row.url
     if role == MIME_ROLE:
-        return FlowTableModel._mime(flow)
+        return FlowTableModel._mime(row)
     if role == DURATION_MS_ROLE:
-        return FlowTableModel._duration_ms(flow)
+        return FlowTableModel._duration_ms(row)
     if role == SIZE_BYTES_ROLE:
-        return FlowTableModel._size_bytes(flow)
+        return FlowTableModel._size_bytes(row)
     if role == Qt.ItemDataRole.ToolTipRole:
         if column_name == "Mark":
             # 认不出图形的人悬浮看短码原文；未标记不弹空提示。
-            return flow.marked or None
+            return row.marked or None
         if column_name == "URL":
-            return flow.request.pretty_url
+            return row.url
         if column_name == "Status":
-            note = gateway_note(flow)
+            note = gateway_note(row)
             suffix = f" ({note})" if note else ""
-            if flow.error:
-                msg = flow.error.msg if flow.error else "Flow error"
-                return f"{msg}{suffix}"
-            if flow.response:
-                status = f"{flow.response.status_code} {flow.response.reason}"
+            if row.error_msg:
+                return f"{row.error_msg}{suffix}"
+            if row.has_response:
+                status = f"{row.status_code} {row.reason}"
                 return f"{status}{suffix}"
             if note:
                 return note
         if column_name == "Type":
-            return FlowTableModel._mime(flow) or translate(
+            return FlowTableModel._mime(row) or translate(
                 "FlowTableModel", "未知内容类型"
             )
         if column_name == "Size":
-            return FlowTableModel._size_tooltip(flow)
+            return FlowTableModel._size_tooltip(row)
         if column_name == "Time":
-            return FlowTableModel._time_tooltip(flow)
+            return FlowTableModel._time_tooltip(row)
 
     if role == Qt.ItemDataRole.ForegroundRole and column_name == "Status":
-        return FlowTableModel._semantic_color(FlowTableModel._status_kind(flow))
+        return FlowTableModel._semantic_color(FlowTableModel._status_kind(row))
 
     if role == Qt.ItemDataRole.FontRole and column_name == "Mark":
         # emoji-first 字体，让 ✈ ♉ 这类文本态符号也画成彩色（见 marks.py）；
         # delegate 靠 FontRole 生效，设在视图上会被盖掉。行高 34px，字号取 18。
-        if flow.marked:
+        if row.marked:
             return emoji_font(18)
         return None
 
@@ -582,52 +572,40 @@ def flow_cell(flow: HTTPFlow, column_name: str, role: int):
     return None
 
 
-# 老会话文件、非常规通道可能缺 client_conn.id —— 统一归入这个兜底组，不崩不丢流。
-_UNKNOWN_CONN_ID = "__ferret_unknown_conn__"
-
-
-def _conn_id(flow) -> str:
-    """flow 的分组键：客户端物理连接 id；缺失回落兜底组。"""
-    cc = getattr(flow, "client_conn", None)
-    cid = getattr(cc, "id", None) if cc is not None else None
-    return cid or _UNKNOWN_CONN_ID
+def _conn_id(row: FlowRow) -> str:
+    """flow 的分组键：客户端物理连接 id；缺失回落兜底组（折叠已在内核侧完成）。"""
+    return row.conn_id
 
 
 class _ConnNode:
     """一条客户端物理连接的聚合节点（连接树的顶层节点）。
 
-    `flows` 保持到达序（append），排序交给代理；聚合值都从活 flow 现算、不缓存——
-    子流 update（pending→完成）后聚合要跟着变，缓存反而要额外失效逻辑。读的都是
-    标量字段（时间戳 / client_conn 握手信息），与平铺模型 data() 同属既有可接受折中。
+    `flows` 保持到达序（append），排序交给代理；聚合值都从**行快照**现算、不缓存
+    ——子流 update（pending→完成）后聚合要跟着变，缓存反而要额外失效逻辑。快照
+    替换按 id 整体进行，聚合读到的永远是同一次变更的一致标量集。
     """
 
     __slots__ = ("conn_id", "flows")
 
     def __init__(self, conn_id: str) -> None:
         self.conn_id = conn_id
-        self.flows: list[HTTPFlow] = []
+        self.flows: list[FlowRow] = []
 
     def size_bytes(self) -> int:
-        return sum(
-            FlowTableModel._size_bytes(f) for f in self.flows if isinstance(f, HTTPFlow)
-        )
+        return sum(FlowTableModel._size_bytes(f) for f in self.flows)
 
     def _starts(self) -> list[float]:
         out: list[float] = []
         for f in self.flows:
-            if isinstance(f, HTTPFlow) and f.request.timestamp_start:
-                out.append(f.request.timestamp_start)
+            if f.req_start:
+                out.append(f.req_start)
         return out
 
     def _ends(self) -> list[float]:
         out: list[float] = []
         for f in self.flows:
-            if (
-                isinstance(f, HTTPFlow)
-                and f.response is not None
-                and f.response.timestamp_end
-            ):
-                out.append(f.response.timestamp_end)
+            if f.resp_end:
+                out.append(f.resp_end)
         return out
 
     def span_ms(self) -> float | None:
@@ -644,37 +622,23 @@ class _ConnNode:
     def hosts(self) -> list[str]:
         seen: list[str] = []
         for f in self.flows:
-            if isinstance(f, HTTPFlow):
-                host = FlowTableModel._host_with_port(f)
-                if host and host not in seen:
-                    seen.append(host)
+            host = FlowTableModel._host_with_port(f)
+            if host and host not in seen:
+                seen.append(host)
         return seen
 
     def client_address(self) -> str:
         for f in self.flows:
-            cc = getattr(f, "client_conn", None)
-            peer = getattr(cc, "peername", None) if cc is not None else None
-            if peer:
-                try:
-                    return f"{peer[0]}:{peer[1]}"
-                except (IndexError, TypeError):
-                    return str(peer)
+            if f.client_peername:
+                return f.client_peername
         return ""
 
     def transport_label(self) -> str:
         for f in self.flows:
-            cc = getattr(f, "client_conn", None)
-            if cc is None:
-                continue
-            alpn = getattr(cc, "alpn", None)
-            if alpn:
-                try:
-                    return bytes(alpn).decode("ascii", "replace")
-                except (UnicodeDecodeError, TypeError):
-                    pass
-            tls = getattr(cc, "tls_version", None)
-            if tls:
-                return str(tls)
+            if f.client_alpn:
+                return f.client_alpn
+            if f.client_tls:
+                return f.client_tls
         return "TCP"
 
     def conn_label(self) -> str:
@@ -697,7 +661,8 @@ class FlowConnTreeModel(QAbstractItemModel):
 
     结构自治（沿用平铺模型 `_rows` 自治的教训——不依赖 View 的 SortedList 位置）：
     `_nodes` 顶层顺序（新连接 append），`_by_conn` conn_id→节点，`_by_flow`
-    flow.id→节点（update/remove O(1) 反查）。子行渲染委托 `flow_cell`，与平铺共用。
+    flow.id→节点（update/remove O(1) 反查）。子行渲染委托 `flow_cell`，与平铺共用；
+    子行存的是行快照，更新按 id 整体替换。
     """
 
     HEADERS = FlowTableModel.HEADERS
@@ -803,16 +768,16 @@ class FlowConnTreeModel(QAbstractItemModel):
         child_row = index.row()
         if not (0 <= child_row < len(node.flows)):
             return None
-        flow = node.flows[child_row]
+        row = node.flows[child_row]
         if role == HIGHLIGHT_ROLE:
-            return flow.id in self._highlight_ids
+            return row.id in self._highlight_ids
         # 子行的 `#` 列 = 组内序号（父节点则是子流计数，见 _conn_data）。
         if column_name == "#":
             if role == Qt.ItemDataRole.DisplayRole:
                 return child_row + 1
-            if role == SORT_ROLE and isinstance(flow, HTTPFlow):
+            if role == SORT_ROLE:
                 return child_row + 1
-        return flow_cell(flow, column_name, role)
+        return flow_cell(row, column_name, role)
 
     def _conn_data(self, node: _ConnNode, column_name: str, role: int):
         if role == HIGHLIGHT_ROLE:
@@ -867,25 +832,25 @@ class FlowConnTreeModel(QAbstractItemModel):
         self._by_flow = {}
         if not self._source:
             return
-        for flow in self._source:
-            self._append_flow(flow)
+        for row in self._source:
+            self._append_flow(row)
 
-    def _append_flow(self, flow: HTTPFlow) -> _ConnNode:
-        """把 flow 挂进对应节点（无信号，供全量重建复用）。"""
-        cid = _conn_id(flow)
+    def _append_flow(self, row: FlowRow) -> _ConnNode:
+        """把行快照挂进对应节点（无信号，供全量重建复用）。"""
+        cid = _conn_id(row)
         node = self._by_conn.get(cid)
         if node is None:
             node = _ConnNode(cid)
             self._nodes.append(node)
             self._by_conn[cid] = node
-        node.flows.append(flow)
-        self._by_flow[flow.id] = node
+        node.flows.append(row)
+        self._by_flow[row.id] = node
         return node
 
-    def handle_add(self, flow: HTTPFlow) -> None:
-        if not self._source or flow.id in self._by_flow:
+    def handle_add(self, row: FlowRow) -> None:
+        if not self._source or row.id in self._by_flow:
             return
-        cid = _conn_id(flow)
+        cid = _conn_id(row)
         node = self._by_conn.get(cid)
         if node is None:
             # 新连接：先在顶层插入空节点，再插首条子行（两段 begin/end 各自成对）。
@@ -899,24 +864,27 @@ class FlowConnTreeModel(QAbstractItemModel):
         parent_index = self.index(top_row, 0, QModelIndex())
         child_row = len(node.flows)
         self.beginInsertRows(parent_index, child_row, child_row)
-        node.flows.append(flow)
-        self._by_flow[flow.id] = node
+        node.flows.append(row)
+        self._by_flow[row.id] = node
         self.endInsertRows()
         if child_row > 0:
             # 已有连接下追加子流：父节点聚合列（#/Size/Time）跟着变。
             self._emit_conn_changed(top_row)
 
-    def handle_update(self, flow: HTTPFlow) -> None:
-        node = self._by_flow.get(flow.id)
+    def handle_update(self, row: FlowRow) -> None:
+        node = self._by_flow.get(row.id)
         if node is None:
             return
         try:
             top_row = self._nodes.index(node)
-            child_row = node.flows.index(flow)
-        except ValueError:
+            child_row = next(
+                i for i, item in enumerate(node.flows) if item.id == row.id
+            )
+        except (ValueError, StopIteration):
             return
         parent_index = self.index(top_row, 0, QModelIndex())
         last_col = self.columnCount() - 1
+        node.flows[child_row] = row
         self.dataChanged.emit(
             self.index(child_row, 0, parent_index),
             self.index(child_row, last_col, parent_index),
@@ -925,15 +893,17 @@ class FlowConnTreeModel(QAbstractItemModel):
         # 绝不整树 reset（否则展开状态丢失，见方案风险 1）。
         self._emit_conn_changed(top_row)
 
-    def handle_remove(self, flow: HTTPFlow, index: int) -> None:
-        # 签名与桥接对齐（views 传 (flow, index)），树按 flow 反查、忽略 index。
-        node = self._by_flow.pop(flow.id, None)
+    def handle_remove(self, row: FlowRow, index: int) -> None:
+        # 签名与桥接对齐（views 传 (row, index)），树按 id 反查、忽略 index。
+        node = self._by_flow.pop(row.id, None)
         if node is None:
             return
         try:
             top_row = self._nodes.index(node)
-            child_row = node.flows.index(flow)
-        except ValueError:
+            child_row = next(
+                i for i, item in enumerate(node.flows) if item.id == row.id
+            )
+        except (ValueError, StopIteration):
             return
         parent_index = self.index(top_row, 0, QModelIndex())
         self.beginRemoveRows(parent_index, child_row, child_row)
@@ -995,7 +965,7 @@ class FlowConnTreeModel(QAbstractItemModel):
                 return self._nodes[row]
         return None
 
-    def flow_at(self, index: QModelIndex | QPersistentModelIndex) -> HTTPFlow | None:
+    def flow_at(self, index: QModelIndex | QPersistentModelIndex) -> FlowRow | None:
         if not index.isValid():
             return None
         node = index.internalPointer()
@@ -1006,8 +976,8 @@ class FlowConnTreeModel(QAbstractItemModel):
             return node.flows[row]
         return None
 
-    def flows_under(self, index: QModelIndex | QPersistentModelIndex) -> list[HTTPFlow]:
-        """节点 → 全部子流；子行 → 该单条。删除 / 导出走这条 parent→children 展开。"""
+    def flows_under(self, index: QModelIndex | QPersistentModelIndex) -> list[FlowRow]:
+        """节点 → 全部子行；子行 → 该单条。删除 / 导出走这条 parent→children 展开。"""
         node = self.node_at(index)
         if node is not None:
             return list(node.flows)
@@ -1017,20 +987,10 @@ class FlowConnTreeModel(QAbstractItemModel):
     def connection_detail(self, node: _ConnNode) -> dict:
         """连接节点摘要字典（`kind == "connection"`），交详情面板只读渲染。
 
-        读的是 client_conn 标量握手信息（scalar 折中，见 _ConnNode docstring）；
-        握手期 alpn/tls 可能尚为 None，展示无害。
+        读的是行快照里折好的 client_conn 标量握手信息；握手期 alpn/tls 可能
+        尚为空串，展示无害。
         """
-        cc = None
-        for f in node.flows:
-            cc = getattr(f, "client_conn", None)
-            if cc is not None:
-                break
-        alpn = getattr(cc, "alpn", None) if cc is not None else None
-        if alpn:
-            try:
-                alpn = bytes(alpn).decode("ascii", "replace")
-            except (UnicodeDecodeError, TypeError):
-                alpn = str(alpn)
+        first: FlowRow | None = next(iter(node.flows), None)
         span = node.span_ms()
         starts = node._starts()
         return {
@@ -1039,10 +999,10 @@ class FlowConnTreeModel(QAbstractItemModel):
             "client": node.client_address(),
             "targets": node.hosts(),
             "transport": node.transport_label(),
-            "tls_version": getattr(cc, "tls_version", None) if cc else None,
-            "alpn": alpn or "",
-            "sni": getattr(cc, "sni", None) if cc else None,
-            "cipher": getattr(cc, "cipher", None) if cc else None,
+            "tls_version": first.client_tls or None if first else None,
+            "alpn": first.client_alpn if first else "",
+            "sni": first.client_sni or None if first else None,
+            "cipher": first.client_cipher or None if first else None,
             "flow_count": len(node.flows),
             "size": human.pretty_size(node.size_bytes()),
             "duration": format_duration(span) or "—",
@@ -1059,11 +1019,11 @@ class FlowConnTreeModel(QAbstractItemModel):
         if self._source:
             self._source.clear()
 
-    def remove_flows(self, flows: list[HTTPFlow]) -> None:
-        """批量删除：一次 remove 调用，逐行移除走 View 的 flow_removed 信号回路。"""
-        if not self._source or not flows:
+    def remove_flows(self, flow_ids: list[str]) -> None:
+        """批量删除：一次 remove 调用（按 id 寻址），逐行移除走桥接信号回路。"""
+        if not self._source or not flow_ids:
             return
-        self._source.remove(flows)
+        self._source.remove(flow_ids)
 
 
 def _fmt_ts(ts: float | None) -> str:

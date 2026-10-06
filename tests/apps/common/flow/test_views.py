@@ -241,7 +241,10 @@ class FlowContextMenuTests(unittest.TestCase):
     def _make_flow(self):
         from mitmproxy.test import tflow
 
-        return tflow.tflow(resp=True)
+        from ferret.core.mitm import flow_row
+
+        # 菜单选区收行快照（#90）：在内核侧同位置折叠。
+        return flow_row(tflow.tflow(resp=True))
 
     def test_capture_capabilities_show_replay_actions(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
