@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+# Windows runner 的 ANSI 默认编码无法解码 gh 的 UTF-8 JSON；统一 Python 管道与日志编码。
+env:
+  PYTHONUTF8: "1"
+
 # 同一分支串行发布，上传期间不自动取消，避免发布半套资产。
 concurrency:
   group: release-${{ github.ref }}

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import chdir
 from pathlib import Path
 from unittest.mock import patch
 
@@ -79,6 +81,48 @@ class ReleaseVersionTests(unittest.TestCase):
             ):
                 release_version.main()
             self.assertFalse(output.exists())
+
+    def test_utf8_release_body_is_decoded_under_windows_ansi_locale(self):
+        payload = json.dumps(
+            [[{"tag_name": "v1.0.0", "body": "构建成功"}]], ensure_ascii=False
+        ).encode("utf-8")
+        run = subprocess.run
+
+        def query_releases(_command, **kwargs):
+            # A real child writes gh's UTF-8 bytes into subprocess's text pipe.
+            return run(
+                [
+                    sys.executable,
+                    "-c",
+                    f"import sys; sys.stdout.buffer.write({payload!r})",
+                ],
+                **kwargs,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pyproject.toml").write_text(
+                '[project]\nversion = "1.0.1"\n', encoding="utf-8"
+            )
+            output = root / "output"
+            with (
+                chdir(root),
+                patch.dict(
+                    os.environ,
+                    GITHUB_REPOSITORY="owner/repo",
+                    GITHUB_OUTPUT=str(output),
+                ),
+                patch.object(
+                    release_version.subprocess, "run", side_effect=query_releases
+                ),
+                # Windows runners default to cp1252 for redirected text streams.
+                patch("subprocess._text_encoding", return_value="cp1252"),
+            ):
+                release_version.main()
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "bump=true\nprevious=v1.0.0\nprevious_stable=v1.0.0\n",
+            )
 
     def test_packaging_dry_run_does_not_need_compiled_artifacts(self):
         result = subprocess.run(
