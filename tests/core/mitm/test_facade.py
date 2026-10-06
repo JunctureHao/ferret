@@ -262,8 +262,7 @@ class KillFlowTests(unittest.TestCase):
 
 class RemoveUnmarkedTests(unittest.TestCase):
     """`remove_unmarked_flows` 复用 `remove_flows` 的完整生命周期（放行 → 删），只是
-    受害者集合换成 store 里所有未标记 flow，对全部流量生效（`.plans/0-mark-filter-polish.md`
-    §2.3）。挂起中的未标记 flow 必须先放行，否则连接永久挂死在 wait_for_resume。"""
+    受害者集合换成 store 里所有未标记 flow，对全部流量生效（`docs/design.md#ui`）。挂起中的未标记 flow 必须先放行，否则连接永久挂死在 wait_for_resume。"""
 
     def setUp(self) -> None:
         self.runtime = _InlineRuntime()
@@ -528,6 +527,7 @@ class SseEventReadTests(unittest.TestCase):
         self.flow = tflow.tflow(resp=True)
         assert self.flow.response is not None
         self.flow.response.headers["content-type"] = "text/event-stream"
+        self.flow.response.raw_content = None
         self.runtime.view.add([self.flow])
         # 经 addon 自己的钩子把两块事件喂进存档（responseheaders + stream 转发约定）。
         self.runtime.master.sse.responseheaders(self.flow)

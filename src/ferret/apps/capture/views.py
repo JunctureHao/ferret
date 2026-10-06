@@ -101,7 +101,7 @@ class CapturesInterface(QWidget):
     # 右键「在 Compose 中编辑」向外转发（携带 flow id），由 MainWindow 提取并灌表单
     edit_in_compose_requested = Signal(str)
     # 右键「加入 Mock 响应」向外转发（携带 flow id 列表），由 MainWindow 接到
-    # MockController（.plans/0-server-playback.md §4.1）
+    # MockController（docs/design.md#mock）
     add_to_mock_requested = Signal(list)
 
     def __init__(
@@ -375,154 +375,166 @@ class CapturesInterface(QWidget):
             proxyauth_password=self.controller.proxyauth_password,
             wireguard_config=self.controller.wireguard_client_config,
         )
-        if not w.exec():
-            return
-        # 端口撞车前置（plans/reverse-mode.md §3）：把最常见的撞车在对话框侧
-        # 拦下，给中文文案；内核拒绝→回滚（plan §7）仍是兜底。注意 reverse 与
-        # regular 共用 listen_host，撞端口必炸；reverse_port 还可能与
-        # WIREGUARD_PORT（UDP 侧）撞（reverse https 是 BOTH）。
-        reverse_port = w.get_reverse_port()
-        listen_port = w.get_port()
-        if w.get_use_reverse() and reverse_port == listen_port:
-            show_warning(
-                self.tr("抓包设置未生效"),
-                self.tr("反向代理端口 {} 与系统代理监听端口撞车，请换一个。").format(
-                    reverse_port
-                ),
-                self.window(),
-            )
-            return
-        if (
-            w.get_use_reverse()
-            and w.get_use_wireguard()
-            and reverse_port == WIREGUARD_PORT
-        ):
-            show_warning(
-                self.tr("抓包设置未生效"),
-                self.tr(
-                    "反向代理端口 {} 与 WireGuard UDP 51820 撞车，请换一个。"
-                ).format(reverse_port),
-                self.window(),
-            )
-            return
-        # SOCKS5 端口撞车前置（与 reverse 同姿态）：socks5 与 regular 共用
-        # listen_host，撞端口必被内核查重拒。
-        socks5_port = w.get_socks5_port()
-        if w.get_use_socks5() and socks5_port == listen_port:
-            show_warning(
-                self.tr("抓包设置未生效"),
-                self.tr("SOCKS5 端口 {} 与系统代理监听端口撞车，请换一个。").format(
-                    socks5_port
-                ),
-                self.window(),
-            )
-            return
-        if w.get_use_socks5() and w.get_use_reverse() and socks5_port == reverse_port:
-            show_warning(
-                self.tr("抓包设置未生效"),
-                self.tr("SOCKS5 端口 {} 与反向代理端口撞车，请换一个。").format(
-                    socks5_port
-                ),
-                self.window(),
-            )
-            return
-        # 上游代理前置校验。自环是硬拦：原生 `proxyserver.server_connect` 的自连
-        # 守卫（proxyserver.py:376-395）虽有兜底，但它写的是 "Request destination
-        # unknown"，且要等到有流量才出现 —— 提交时就该说清楚。
-        upstream_on = w.get_use_upstream()
-        upstream_target = w.get_upstream_target()
-        if upstream_on and not upstream_target:
-            show_warning(
-                self.tr("抓包设置未生效"),
-                self.tr("勾选了上游代理但没填地址，请填写或取消勾选。"),
-                self.window(),
-            )
-            return
-        if upstream_on:
-            try:
-                loops_back = self.controller.upstream_targets_self(
-                    upstream_target,
-                    listen_host=w.get_listen_host(),
-                    listen_port=listen_port,
-                )
-            except ValueError as exc:
-                show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
+        try:
+            if not w.exec():
                 return
-            if loops_back:
+            # 端口撞车前置（docs/design.md#capture）：把最常见的撞车在对话框侧
+            # 拦下，给中文文案；内核拒绝→回滚（plan §7）仍是兜底。注意 reverse 与
+            # regular 共用 listen_host，撞端口必炸；reverse_port 还可能与
+            # WIREGUARD_PORT（UDP 侧）撞（reverse https 是 BOTH）。
+            reverse_port = w.get_reverse_port()
+            listen_port = w.get_port()
+            if w.get_use_reverse() and reverse_port == listen_port:
                 show_warning(
                     self.tr("抓包设置未生效"),
                     self.tr(
-                        "上游代理地址 {} 指回 ferret 自己的监听口，请换一个。"
-                    ).format(upstream_target),
+                        "反向代理端口 {} 与系统代理监听端口撞车，请换一个。"
+                    ).format(reverse_port),
                     self.window(),
                 )
                 return
-        # 凭证串台只警告不拦：这是原生 UpstreamAuth 分不开的行为（见
-        # core/mitm/runtime.py::_upstream_auth），用户知情后仍可能就是要这么用。
-        if upstream_on and w.get_upstream_username() and w.get_use_reverse():
-            show_warning(
-                self.tr("上游凭证会一并发给反代目标"),
-                self.tr(
-                    "内核对上游代理与反向代理用同一份凭证，反代目标也会收到认证头。"
-                ),
-                self.window(),
-            )
-        # 代理认证前置校验（.plans/proxyauth.md §5.4）。冒号是硬拦：原生
-        # SingleUser 与客户端侧 parse_http_basic_auth 都按 split(":") 切恰好两段
-        # （proxyauth.py:192-197 / :162-176），含冒号的凭证两端都对不上 ——
-        # runtime 里虽有兜底闸门，但那条路是静默停用，提交时就该说清楚。
-        if w.get_proxyauth_enabled():
-            if not w.get_proxyauth_username():
+            if (
+                w.get_use_reverse()
+                and w.get_use_wireguard()
+                and reverse_port == WIREGUARD_PORT
+            ):
                 show_warning(
                     self.tr("抓包设置未生效"),
-                    self.tr("勾选了代理认证但没填用户名，请填写或取消勾选。"),
+                    self.tr(
+                        "反向代理端口 {} 与 WireGuard UDP 51820 撞车，请换一个。"
+                    ).format(reverse_port),
                     self.window(),
                 )
                 return
-            if ":" in w.get_proxyauth_username() or ":" in w.get_proxyauth_password():
+            # SOCKS5 端口撞车前置（与 reverse 同姿态）：socks5 与 regular 共用
+            # listen_host，撞端口必被内核查重拒。
+            socks5_port = w.get_socks5_port()
+            if w.get_use_socks5() and socks5_port == listen_port:
                 show_warning(
                     self.tr("抓包设置未生效"),
-                    self.tr("代理认证的用户名和密码都不能含冒号，请去掉冒号后重试。"),
+                    self.tr("SOCKS5 端口 {} 与系统代理监听端口撞车，请换一个。").format(
+                        socks5_port
+                    ),
                     self.window(),
                 )
                 return
-        try:
-            # 顺序有讲究：先提交通道（校验失败就整体中止，且抓包中重启端点前
-            # 内核意图值必须先更新，否则重启会带上旧 spec），再提交端点/来源限制。
-            self.controller.update_channels(
-                use_system_proxy=w.get_use_system_proxy(),
-                use_local=w.get_use_local(),
-                local_spec=w.get_local_spec(),
-                use_wireguard=w.get_use_wireguard(),
-                use_reverse=w.get_use_reverse(),
-                reverse_target=w.get_reverse_target(),
-                reverse_port=reverse_port,
-                use_socks5=w.get_use_socks5(),
-                socks5_port=socks5_port,
-                use_upstream=upstream_on,
-                upstream_target=upstream_target,
-                upstream_username=w.get_upstream_username(),
-                upstream_password=w.get_upstream_password(),
+            if (
+                w.get_use_socks5()
+                and w.get_use_reverse()
+                and socks5_port == reverse_port
+            ):
+                show_warning(
+                    self.tr("抓包设置未生效"),
+                    self.tr("SOCKS5 端口 {} 与反向代理端口撞车，请换一个。").format(
+                        socks5_port
+                    ),
+                    self.window(),
+                )
+                return
+            # 上游代理前置校验。自环是硬拦：原生 `proxyserver.server_connect` 的自连
+            # 守卫（proxyserver.py:376-395）虽有兜底，但它写的是 "Request destination
+            # unknown"，且要等到有流量才出现 —— 提交时就该说清楚。
+            upstream_on = w.get_use_upstream()
+            upstream_target = w.get_upstream_target()
+            if upstream_on and not upstream_target:
+                show_warning(
+                    self.tr("抓包设置未生效"),
+                    self.tr("勾选了上游代理但没填地址，请填写或取消勾选。"),
+                    self.window(),
+                )
+                return
+            if upstream_on:
+                try:
+                    loops_back = self.controller.upstream_targets_self(
+                        upstream_target,
+                        listen_host=w.get_listen_host(),
+                        listen_port=listen_port,
+                    )
+                except ValueError as exc:
+                    show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
+                    return
+                if loops_back:
+                    show_warning(
+                        self.tr("抓包设置未生效"),
+                        self.tr(
+                            "上游代理地址 {} 指回 ferret 自己的监听口，请换一个。"
+                        ).format(upstream_target),
+                        self.window(),
+                    )
+                    return
+            # 凭证串台只警告不拦：这是原生 UpstreamAuth 分不开的行为（见
+            # core/mitm/runtime.py::_upstream_auth），用户知情后仍可能就是要这么用。
+            if upstream_on and w.get_upstream_username() and w.get_use_reverse():
+                show_warning(
+                    self.tr("上游凭证会一并发给反代目标"),
+                    self.tr(
+                        "内核对上游代理与反向代理用同一份凭证，反代目标也会收到认证头。"
+                    ),
+                    self.window(),
+                )
+            # 代理认证前置校验（docs/design.md#auth）。冒号是硬拦：原生
+            # SingleUser 与客户端侧 parse_http_basic_auth 都按 split(":") 切恰好两段
+            # （proxyauth.py:192-197 / :162-176），含冒号的凭证两端都对不上 ——
+            # runtime 里虽有兜底闸门，但那条路是静默停用，提交时就该说清楚。
+            if w.get_proxyauth_enabled():
+                if not w.get_proxyauth_username():
+                    show_warning(
+                        self.tr("抓包设置未生效"),
+                        self.tr("勾选了代理认证但没填用户名，请填写或取消勾选。"),
+                        self.window(),
+                    )
+                    return
+                if (
+                    ":" in w.get_proxyauth_username()
+                    or ":" in w.get_proxyauth_password()
+                ):
+                    show_warning(
+                        self.tr("抓包设置未生效"),
+                        self.tr(
+                            "代理认证的用户名和密码都不能含冒号，请去掉冒号后重试。"
+                        ),
+                        self.window(),
+                    )
+                    return
+            try:
+                # 顺序有讲究：先提交通道（校验失败就整体中止，且抓包中重启端点前
+                # 内核意图值必须先更新，否则重启会带上旧 spec），再提交端点/来源限制。
+                self.controller.update_channels(
+                    use_system_proxy=w.get_use_system_proxy(),
+                    use_local=w.get_use_local(),
+                    local_spec=w.get_local_spec(),
+                    use_wireguard=w.get_use_wireguard(),
+                    use_reverse=w.get_use_reverse(),
+                    reverse_target=w.get_reverse_target(),
+                    reverse_port=reverse_port,
+                    use_socks5=w.get_use_socks5(),
+                    socks5_port=socks5_port,
+                    use_upstream=upstream_on,
+                    upstream_target=upstream_target,
+                    upstream_username=w.get_upstream_username(),
+                    upstream_password=w.get_upstream_password(),
+                )
+                self.controller.update_proxy_settings(
+                    listen_host=w.get_listen_host(),
+                    listen_port=listen_port,
+                    block_global=w.get_block_global(),
+                    block_private=w.get_block_private(),
+                    proxyauth_enabled=w.get_proxyauth_enabled(),
+                    proxyauth_username=w.get_proxyauth_username(),
+                    proxyauth_password=w.get_proxyauth_password(),
+                )
+            except (RuntimeError, ValueError) as exc:
+                show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
+                return
+            # 监听端点也可能顺带变了（端口在对话框里可改），读回刷新。
+            self._ui_state = replace(
+                self._ui_state,
+                endpoint=self.controller.local_endpoint,
+                lan_exposed=self.controller.is_lan_exposed,
             )
-            self.controller.update_proxy_settings(
-                listen_host=w.get_listen_host(),
-                listen_port=listen_port,
-                block_global=w.get_block_global(),
-                block_private=w.get_block_private(),
-                proxyauth_enabled=w.get_proxyauth_enabled(),
-                proxyauth_username=w.get_proxyauth_username(),
-                proxyauth_password=w.get_proxyauth_password(),
-            )
-        except (RuntimeError, ValueError) as exc:
-            show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
-            return
-        # 监听端点也可能顺带变了（端口在对话框里可改），读回刷新。
-        self._ui_state = replace(
-            self._ui_state,
-            endpoint=self.controller.local_endpoint,
-            lan_exposed=self.controller.is_lan_exposed,
-        )
-        self._refresh_command_bar()
+            self._refresh_command_bar()
+        finally:
+            w.deleteLater()
 
     @Slot(int, int, int)
     def __on_stats_updated(self, total: int, shown: int, selected: int) -> None:
@@ -575,8 +587,11 @@ class CapturesInterface(QWidget):
         if self._ui_state.total_count <= 0:
             return
         dialog = ClearFlowsDialog(self._ui_state.total_count, self.window())
-        if dialog.exec():
-            self.content.clear_all()
+        try:
+            if dialog.exec():
+                self.content.clear_all()
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def __on_delete_unmarked_requested(self) -> None:
@@ -588,18 +603,21 @@ class CapturesInterface(QWidget):
         if unmarked <= 0:
             return
         dialog = ClearUnmarkedFlowsDialog(unmarked, self.window())
-        if not dialog.exec():
-            return
-        removed = self.controller.remove_unmarked_flows()
-        self._ui_state = replace(
-            self._ui_state, total_count=self.controller.total_count()
-        )
-        self._refresh_command_bar()
-        show_success(
-            self.tr("成功"),
-            self.tr("已删除 {} 条未标记流量").format(removed),
-            parent=self,
-        )
+        try:
+            if not dialog.exec():
+                return
+            removed = self.controller.remove_unmarked_flows()
+            self._ui_state = replace(
+                self._ui_state, total_count=self.controller.total_count()
+            )
+            self._refresh_command_bar()
+            show_success(
+                self.tr("成功"),
+                self.tr("已删除 {} 条未标记流量").format(removed),
+                parent=self,
+            )
+        finally:
+            dialog.deleteLater()
 
     def __handle_escape(self) -> None:
         # 表达式框在 titlebar 后，页内 Esc 只剩「收起详情面板」一级。
@@ -645,6 +663,7 @@ class CapturesInterface(QWidget):
             channels_summary=self._channels_summary(),
             channel_issue=self._channel_issue(),
             proxy_attached=self.controller.system_proxy_attached,
+            stop_failed=self.controller.stop_failed,
         )
         self.command_bar.set_state(self._ui_state)
         self.content.set_capture_context(
@@ -756,6 +775,8 @@ class CaptureUiState:
     # 系统代理注册表当前是否由我们挂着（转发 controller.system_proxy_attached）。
     # FAILED 且为真 = 停止失败（restore 没落下），主按钮显示「重试停止」一键重试。
     proxy_attached: bool = False
+    # 录制/通道清理失败同样需要重试停止，与代理当前是否附着无关。
+    stop_failed: bool = False
 
 
 class CaptureCommandBar(QWidget):
@@ -1040,9 +1061,10 @@ class CaptureCommandBar(QWidget):
                 True,
             ),
         }
-        if state.capture_state == CaptureState.FAILED and state.proxy_attached:
-            # 停止失败（restore 没落下、代理还挂着）：按钮往停止走一键重试，与
-            # toggle_capture 按 is_attached 的分流同一判据；其余 FAILED 仍是启动失败。
+        if state.capture_state == CaptureState.FAILED and (
+            state.proxy_attached or state.stop_failed
+        ):
+            # 与控制器使用相同判据：代理、文件或通道仍有待重试的清理。
             state_ui[CaptureState.FAILED] = (
                 FluentIcon.POWER_BUTTON,
                 self.tr("重试停止"),
@@ -1449,16 +1471,16 @@ class ProxyPortDialog(MessageBoxBase):
             use_local: 本地重定向通道是否启用
             local_spec: 本地重定向的进程过滤串
             use_wireguard: WireGuard 通道是否启用
-            use_reverse: 反向代理通道是否启用（.plans/reverse-mode.md）
+            use_reverse: 反向代理通道是否启用（docs/design.md#capture）
             reverse_target: 反向代理的目标 URL，如 https://example.com
             reverse_port: 反向代理的独立监听端口
-            use_socks5: SOCKS5 入站通道是否启用（.plans/0-socks5-channel.md）
+            use_socks5: SOCKS5 入站通道是否启用（docs/design.md#capture）
             socks5_port: SOCKS5 入站通道的独立监听端口
             use_upstream: 系统代理通道是否经上游代理出口（不是第五条通道）
             upstream_target: 上游代理地址，如 http://proxy.corp:8080
             upstream_username: 上游代理的 Basic 用户名（留空 = 不发认证头）
             upstream_password: 上游代理的 Basic 密码
-            proxyauth_enabled: 连接本代理是否需要认证（.plans/proxyauth.md）
+            proxyauth_enabled: 连接本代理是否需要认证（docs/design.md#auth）
             proxyauth_username: 代理认证用户名（必填且不得含冒号）
             proxyauth_password: 代理认证密码（可空，同样不得含冒号）
             wireguard_config: 取客户端配置文本的回调（None 表示按钮隐藏）
@@ -1571,7 +1593,7 @@ class ProxyPortDialog(MessageBoxBase):
         self.source_hint = CaptionLabel(self)
         self.source_hint.setWordWrap(True)
 
-        # —— 代理认证（原生 ProxyAuth addon，.plans/proxyauth.md）：与上面两个
+        # —— 代理认证（原生 ProxyAuth addon，docs/design.md#auth）：与上面两个
         # 「拒绝……」开关同属接入控制，所以同在分隔线以上。block_* 按来源 IP
         # 类别一刀切，挡不住「要放行手机、又不想放行同网段陌生人」—— 认证补的
         # 正是这个洞。整块随勾选显隐（同 upstream 的做法）。
@@ -1661,7 +1683,7 @@ class ProxyPortDialog(MessageBoxBase):
         self.wireguard_config_btn.setAccessibleName(self.tr("查看客户端配置"))
         self.wireguard_config_btn.setFixedSize(28, 26)
 
-        # —— 反向代理通道（.plans/reverse-mode.md）：勾选框 + 目标 URL + 监听端口 ——
+        # —— 反向代理通道（docs/design.md#capture）：勾选框 + 目标 URL + 监听端口 ——
         self.reverse_check = CheckBox(self.tr("反向代理"), self)
         # 整句 CA 说明进标题 tooltip（R3）：常态零 hint，只报端口冲突。
         self.reverse_check.setToolTip(
@@ -1683,7 +1705,7 @@ class ProxyPortDialog(MessageBoxBase):
         self.reverse_hint = CaptionLabel(self)
         self.reverse_hint.setWordWrap(True)
 
-        # —— SOCKS5 入站通道（.plans/0-socks5-channel.md）：勾选框 + 独立端口 ——
+        # —— SOCKS5 入站通道（docs/design.md#capture）：勾选框 + 独立端口 ——
         self.socks5_check = CheckBox(self.tr("SOCKS5 代理"), self)
         self.socks5_check.setToolTip(
             self.tr("仅支持 TCP；只认 SOCKS5 的客户端（移动端 App、部分 CLI）由此接入")
@@ -1830,7 +1852,7 @@ class ProxyPortDialog(MessageBoxBase):
         wg_layout.setSpacing(8)
         wg_layout.addLayout(wireguard_row)
 
-        # —— Card ④ 反向代理（.plans/reverse-mode.md §6 布局图）——
+        # —— Card ④ 反向代理（docs/design.md#capture 布局图）——
         # 目标 URL 与端口并成一行，整体包进 QWidget 随勾选显隐（R1）。
         self.reverse_params = QWidget(self)
         reverse_params_layout = QVBoxLayout(self.reverse_params)
@@ -1852,7 +1874,7 @@ class ProxyPortDialog(MessageBoxBase):
         reverse_layout.addWidget(self.reverse_check)
         reverse_layout.addWidget(self.reverse_params)
 
-        # —— Card ⑤ SOCKS5（.plans/0-socks5-channel.md §5 线框）——
+        # —— Card ⑤ SOCKS5（docs/design.md#capture 线框）——
         # 与 reverse 同姿态：参数区（端口 + hint）包进 QWidget 随勾选显隐。
         self.socks5_params = QWidget(self)
         socks5_params_layout = QVBoxLayout(self.socks5_params)
@@ -1924,7 +1946,7 @@ class ProxyPortDialog(MessageBoxBase):
         return self.wireguard_check.isChecked()
 
     def get_use_reverse(self) -> bool:
-        """是否启用反向代理通道（.plans/reverse-mode.md）。"""
+        """是否启用反向代理通道（docs/design.md#capture）。"""
         return self.reverse_check.isChecked()
 
     def get_reverse_target(self) -> str:
@@ -1936,7 +1958,7 @@ class ProxyPortDialog(MessageBoxBase):
         return self.reverse_port_spin.value()
 
     def get_use_socks5(self) -> bool:
-        """是否启用 SOCKS5 入站通道（.plans/0-socks5-channel.md）。"""
+        """是否启用 SOCKS5 入站通道（docs/design.md#capture）。"""
         return self.socks5_check.isChecked()
 
     def get_socks5_port(self) -> int:
@@ -1972,7 +1994,10 @@ class ProxyPortDialog(MessageBoxBase):
             )
             return
         dialog = WireGuardConfigDialog(config, self.window())
-        dialog.exec()
+        try:
+            dialog.exec()
+        finally:
+            dialog.deleteLater()
 
     def _toggle_process_list(self) -> None:
         self._process_list_expanded = not self._process_list_expanded
@@ -2038,10 +2063,10 @@ class ProxyPortDialog(MessageBoxBase):
         socks5_on = self.get_use_socks5()
         # reverse 启用时「绑定非环回」才会触发 block_private 让路（与内核
         # runtime._effective_block_private 同式：reverse_yield = use_reverse and
-        # listen_host == ANY_HOST，plans/reverse-mode.md §4）。reverse 绑环回
+        # listen_host == ANY_HOST，docs/design.md#capture）。reverse 绑环回
         # 时让路条件不成立，block_private 走原值，与本地客户端无关。
         reverse_yield = reverse_on and exposed
-        # socks5 绑局域网地址时同理让路（.plans/0-socks5-channel.md §2.3）。
+        # socks5 绑局域网地址时同理让路（docs/design.md#capture）。
         socks5_yield = socks5_on and exposed
 
         # R1：勾选即展开。未勾的卡就是一行 header，参数区整体收进壳里切换。

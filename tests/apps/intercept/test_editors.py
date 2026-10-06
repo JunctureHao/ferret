@@ -17,9 +17,11 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.test import tflow
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QTextCursor
+from PySide6.QtWidgets import QApplication, QLineEdit
 
-from ferret.apps.intercept.editors import RequestPanel
+from ferret.apps.intercept.editors import RequestPanel, ResponsePanel
+from ferret.core.mitm.intercept import apply_request_edit, apply_response_edit
 
 app = QApplication.instance() or QApplication([])
 
@@ -70,6 +72,21 @@ class BodyWritebackTests(unittest.TestCase):
 
 
 class UrlFidelityTests(unittest.TestCase):
+    def test_collecting_commits_the_active_parameter_editor(self):
+        panel = RequestPanel()
+        self.addCleanup(panel.deleteLater)
+        panel.load(_flow_with_query("https://api.test/q?a=old"))
+        panel.params_panel._show_table_page()
+        table = panel.params_panel.table._table_widget
+        item = table.item(0, 1)
+        assert item is not None
+        table.editItem(item)
+        editor = table.viewport().focusWidget()
+        assert isinstance(editor, QLineEdit)
+        editor.setText("new")
+        self.assertFalse(panel._params_dirty)
+        self.assertEqual(panel.edit().url, "https://api.test/q?a=new")
+
     def test_unedited_url_is_passed_through_verbatim(self):
         """未编辑保真（issues #78）：parse_qsl/urlencode 会把 `a%20b` 重排成
         `a+b`、丢掉无值键 —— 没动过的 URL 必须整串原样写回。"""
@@ -92,6 +109,112 @@ class UrlFidelityTests(unittest.TestCase):
         panel.load(_flow_with_query("https://api.test/q?keep=1"))
         panel.url_edit.setText("https://api.test/q?keep=1&new=1")
         self.assertEqual(panel.edit().url, "https://api.test/q?keep=1")
+
+
+class HeaderFidelityTests(unittest.TestCase):
+    def test_new_duplicate_header_does_not_inherit_original_raw_bytes(self):
+        for at_start in (False, True):
+            with self.subTest(at_start=at_start):
+                panel = RequestPanel()
+                self.addCleanup(panel.deleteLater)
+                flow = tflow.tflow()
+                flow.request.headers.fields = ((b"X-Bytes", b"caf\xe9"),)
+                panel.load(flow)
+                cursor = panel.headers_panel.text.code_widget.textCursor()
+                cursor.movePosition(
+                    QTextCursor.MoveOperation.Start
+                    if at_start
+                    else QTextCursor.MoveOperation.End
+                )
+                cursor.insertText("X-Bytes: caf\n" if at_start else "\nX-Bytes: caf")
+                apply_request_edit(flow, panel.edit())
+                expected = (
+                    ((b"X-Bytes", b"caf"), (b"X-Bytes", b"caf\xe9"))
+                    if at_start
+                    else ((b"X-Bytes", b"caf\xe9"), (b"X-Bytes", b"caf"))
+                )
+                self.assertEqual(flow.request.headers.fields, expected)
+
+    def test_deleting_identical_display_row_preserves_surviving_header_bytes(self):
+        for mode in ("table", "text"):
+            with self.subTest(mode=mode):
+                panel = RequestPanel()
+                self.addCleanup(panel.deleteLater)
+                flow = tflow.tflow()
+                flow.request.headers.fields = (
+                    (b"X-Bytes", b"caf\xe9"),
+                    (b"X-Bytes", b"caf\xff"),
+                )
+                panel.load(flow)
+                if mode == "table":
+                    panel.headers_panel._show_table_page()
+                    panel.headers_panel.table._table_widget.removeRow(0)
+                else:
+                    cursor = panel.headers_panel.text.code_widget.textCursor()
+                    cursor.movePosition(QTextCursor.MoveOperation.Start)
+                    cursor.movePosition(
+                        QTextCursor.MoveOperation.NextBlock,
+                        QTextCursor.MoveMode.KeepAnchor,
+                    )
+                    cursor.removeSelectedText()
+                apply_request_edit(flow, panel.edit())
+                self.assertEqual(
+                    flow.request.headers.fields, ((b"X-Bytes", b"caf\xff"),)
+                )
+
+    def test_untouched_request_and_response_headers_keep_obs_text(self):
+        for panel_type, attr in (
+            (RequestPanel, "request"),
+            (ResponsePanel, "response"),
+        ):
+            with self.subTest(attr=attr):
+                panel = panel_type()
+                self.addCleanup(panel.deleteLater)
+                flow = tflow.tflow(resp=True)
+                message = getattr(flow, attr)
+                original = ((b"X-Bytes", b"abc\xffxyz"), (b"X-Bytes", b"caf\xe9"))
+                message.headers.fields = original
+                panel.load(flow)
+                if isinstance(panel, RequestPanel):
+                    apply_request_edit(flow, panel.edit())
+                else:
+                    apply_response_edit(flow, panel.edit())
+                self.assertEqual(message.headers.fields, original)
+
+    def test_editing_another_header_keeps_the_unedited_raw_value(self):
+        panel = RequestPanel()
+        self.addCleanup(panel.deleteLater)
+        flow = tflow.tflow()
+        flow.request.headers.fields = ((b"X-Bytes", b"caf\xe9"), (b"X-Edit", b"old"))
+        panel.load(flow)
+        panel.headers_panel._show_table_page()
+        cell = panel.headers_panel.table._table_widget.item(1, 1)
+        assert cell is not None
+        cell.setText("新值")
+        apply_request_edit(flow, panel.edit())
+        self.assertEqual(
+            flow.request.headers.fields,
+            ((b"X-Bytes", b"caf\xe9"), (b"X-Edit", "新值".encode())),
+        )
+
+    def test_editing_one_duplicate_does_not_substitute_the_other_raw_value(self):
+        panel = RequestPanel()
+        self.addCleanup(panel.deleteLater)
+        flow = tflow.tflow()
+        flow.request.headers.fields = (
+            (b"X-Bytes", b"caf\xe9"),
+            (b"X-Bytes", b"caf\xff"),
+        )
+        panel.load(flow)
+        panel.headers_panel._show_table_page()
+        cell = panel.headers_panel.table._table_widget.item(0, 1)
+        assert cell is not None
+        cell.setText("new")
+        apply_request_edit(flow, panel.edit())
+        self.assertEqual(
+            flow.request.headers.fields,
+            ((b"X-Bytes", b"new"), (b"X-Bytes", b"caf\xff")),
+        )
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""主题切换棘轮止血补丁（阶段 1，方案见 `.plans/0-MEMORY_OPTIMIZATION_PLAN.executable.md` §3）。
+"""主题切换棘轮止血补丁（阶段 1，方案见 `docs/design.md#ui`）。
 
 qfluentwidgets 1.11.x 的 `style_sheet.updateStyleSheet()` 每次主题切换都对每个已登记控件
 调 `setStyleSheet(widget, 已存compose)`（`register=True` → `register(..., reset=True)`），把旧

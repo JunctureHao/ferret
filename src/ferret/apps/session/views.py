@@ -308,10 +308,13 @@ class SessionListPage(QWidget):
             flow_count=meta.flow_count,
             parent=self.window(),
         )
-        if dlg.exec():
-            new_name = dlg.get_name()
-            if new_name != meta.name:
-                self.controller.rename_session(old_id, dlg.get_name())
+        try:
+            if dlg.exec():
+                new_name = dlg.get_name()
+                if new_name != meta.name:
+                    self.controller.rename_session(old_id, dlg.get_name())
+        finally:
+            dlg.deleteLater()
 
     @Slot()
     def _on_delete(self):
@@ -325,8 +328,11 @@ class SessionListPage(QWidget):
             names = self.tr("选中 {} 个会话").format(len(metas))
 
         dlg = SessionDeleteDialog(names, self.window())
-        if dlg.exec():
-            self.controller.delete_sessions([m.session_id for m in metas])
+        try:
+            if dlg.exec():
+                self.controller.delete_sessions([m.session_id for m in metas])
+        finally:
+            dlg.deleteLater()
 
     @Slot(QPoint)
     def _on_context_menu(self, pos: QPoint):
@@ -341,10 +347,11 @@ class SessionListPage(QWidget):
         selected = self._selection_metas()
 
         menu = RoundMenu(parent=self)
-        menu.addAction(self._make_action(self.tr("打开"), self._open_selected))
+        menu.closedSignal.connect(menu.deleteLater)
+        menu.addAction(self._make_action(menu, self.tr("打开"), self._open_selected))
         # 重命名是单条语义：多选时菜单项置灰（工具栏按钮同一口径），
         # 点了没反应的死菜单项比没有更糟。
-        rename_action = self._make_action(self.tr("重命名"), self._on_rename)
+        rename_action = self._make_action(menu, self.tr("重命名"), self._on_rename)
         rename_action.setEnabled(len(selected) == 1)
         menu.addAction(rename_action)
         # 导出按选区分支：单条走存文件对话框，多条选一个目录按名字各落一个
@@ -352,6 +359,7 @@ class SessionListPage(QWidget):
         if len(selected) > 1:
             menu.addAction(
                 self._make_action(
+                    menu,
                     self.tr("导出 {} 个会话").format(len(selected)),
                     lambda: self._export_selected(selected),
                 )
@@ -359,23 +367,24 @@ class SessionListPage(QWidget):
         else:
             menu.addAction(
                 self._make_action(
-                    self.tr("导出 Flow"), lambda: self._export_session(meta)
+                    menu, self.tr("导出 Flow"), lambda: self._export_session(meta)
                 )
             )
         menu.addAction(
             self._make_action(
+                menu,
                 self.tr("在文件管理器中显示"),
                 lambda: self._show_in_explorer(meta),
             )
         )
         menu.addSeparator()
         menu.addAction(
-            self._make_action(self.tr("删除"), self._on_delete, FluentIcon.DELETE)
+            self._make_action(menu, self.tr("删除"), self._on_delete, FluentIcon.DELETE)
         )
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
-    def _make_action(self, text, callback, icon=None):
-        action = BaseAction(icon=icon, text=text, parent=self)
+    def _make_action(self, menu, text, callback, icon=None):
+        action = BaseAction(icon=icon, text=text, parent=menu)
         action.triggered.connect(callback)
         return action
 

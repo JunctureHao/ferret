@@ -13,7 +13,10 @@
 这里刻意不起代理：三个钩子都只读 `flow.websocket`，直接调用即可。
 """
 
+import os
 import unittest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.test import tflow
 from PySide6.QtCore import QCoreApplication

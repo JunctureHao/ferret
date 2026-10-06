@@ -1,4 +1,4 @@
-"""代理认证的内核侧验收（.plans/proxyauth.md §7）。
+"""代理认证的内核侧验收（docs/design.md#auth）。
 
 分三组，按「越靠近原生越不需要内核」排：
 
@@ -290,7 +290,7 @@ class ProxyAuthAddonTests(unittest.TestCase):
 
     def test_socks5_subnegotiation_follows_the_same_credential(self) -> None:
         """SOCKS5 入站通道（socks5@ spec）的用户名/密码子协商受同一份 proxyauth
-        凭证保护（.plans/0-socks5-channel.md §1 D3）。注意 regular 监听口**不**
+        凭证保护（docs/design.md#capture D3）。注意 regular 监听口**不**
         自带 SOCKS5 自动协商 —— Socks5Proxy 只被 Socks5Instance 挂载，该钩子存在
         只因 ProxyAuth addon 常驻。"""
         self.master.options.update(proxyauth="alice:secret")
@@ -526,6 +526,7 @@ class ProxyAuthKernelTests(unittest.TestCase):
         source.request.port = origin.port
         source.request.scheme = "http"
         source.request.path = "/probe"
+        source.request.content = b""
         assert source.response is not None
         source.response.content = b"MOCK-PRIVATE-PAYLOAD"
         runtime.call(lambda: master.server_playback.load_flows([source]))
@@ -535,6 +536,22 @@ class ProxyAuthKernelTests(unittest.TestCase):
         )
         self.assertTrue(response.startswith(b"HTTP/1.1 407"), response)
         self.assertNotIn(b"MOCK-PRIVATE-PAYLOAD", response)
+        self.assertEqual(origin.requests, [])
+
+        wrong = http_through(
+            runtime.listen_port,
+            f"http://127.0.0.1:{origin.port}/probe",
+            extra_headers=f"Proxy-Authorization: {WRONG}\r\n",
+        )
+        self.assertTrue(wrong.startswith(b"HTTP/1.1 407"), wrong)
+        self.assertNotIn(b"MOCK-PRIVATE-PAYLOAD", wrong)
+        allowed = http_through(
+            runtime.listen_port,
+            f"http://127.0.0.1:{origin.port}/probe",
+            extra_headers=f"Proxy-Authorization: {BASIC}\r\n",
+        )
+        self.assertTrue(allowed.startswith(b"HTTP/1.1 200"), allowed)
+        self.assertIn(b"MOCK-PRIVATE-PAYLOAD", allowed)
         self.assertEqual(origin.requests, [])
 
     def test_turning_the_credential_off_at_runtime_lifts_the_challenge(self) -> None:

@@ -1,4 +1,4 @@
-"""Tests for the anticache/anticomp synthesized switch (.plans/capture-preferences-page.md).
+"""Tests for the anticache/anticomp synthesized switch (docs/design.md#capture).
 
 错误模型照 `test_block.py`（同为 bool 选项）：传错类型 optmanager 抛 TypeError，
 不经 OptionsError —— `apply_anticache_plaintext` 的回滚分支据此写成「先回滚再

@@ -46,7 +46,7 @@ class FlowContextMenu(RoundMenu):
     # handler 只拿 id 去 facade 提取，活 flow 引用不进 Qt 槽。
     edit_in_compose_requested = Signal(str)
     # 「加入 Mock 响应」请求信号（携带 flow id 列表）。同样只带 id：副本由
-    # facade 在 mitm 线程上做（.plans/0-server-playback.md §3.2）。
+    # facade 在 mitm 线程上做（docs/design.md#mock）。
     add_to_mock_requested = Signal(list)
 
     def __init__(
@@ -106,7 +106,7 @@ class FlowContextMenu(RoundMenu):
                 if count <= 1
                 else self.tr("加入 Mock 响应 ({} 条)").format(count)
             )
-        # 杀死只接单行：多选批量断连语义太重，一期不做（plan: .plans/0-kill-flow.md）。
+        # 杀死只接单行：多选批量断连语义太重，一期不做（plan: docs/design.md#capture）。
         if self.capabilities.can_kill:
             self.kill_action.setEnabled(count == 1)
         # 「清除标记」在整选区无标记时置灰：点了也是空转，不如直接告诉用户没的搞。
@@ -238,17 +238,20 @@ class FlowContextMenu(RoundMenu):
         if not flow_id:
             return
         dialog = CommentDialog(self.row_data.get("comment", "") or "", self.main_window)
-        if not dialog.exec():
-            return
         try:
-            self.controller.set_flow_comment(flow_id, dialog.comment())
-            show_success(
-                self.tr("成功"),
-                self.tr("备注已保存"),
-                self.main_window,
-            )
-        except (ValueError, RuntimeError) as exc:
-            show_warning(self.tr("备注保存失败"), str(exc), self.main_window)
+            if not dialog.exec():
+                return
+            try:
+                self.controller.set_flow_comment(flow_id, dialog.comment())
+                show_success(
+                    self.tr("成功"),
+                    self.tr("备注已保存"),
+                    self.main_window,
+                )
+            except (ValueError, RuntimeError) as exc:
+                show_warning(self.tr("备注保存失败"), str(exc), self.main_window)
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def __on_delete_triggered(self):
@@ -288,9 +291,12 @@ class FlowContextMenu(RoundMenu):
             "",
         )
         dialog = MarkerPickerDialog(current=current, parent=self.main_window)
-        if not dialog.exec() or dialog.selected is None:
-            return
-        self.__apply_marker(dialog.selected)
+        try:
+            if not dialog.exec() or dialog.selected is None:
+                return
+            self.__apply_marker(dialog.selected)
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def __on_toggle_mark_triggered(self) -> None:
@@ -364,10 +370,13 @@ class FlowContextMenu(RoundMenu):
         """显示 URL 窗口"""
         url = self.row_data.get("URL", "No URL")
         msg = TextCopyDialog(url, "URL", self.main_window)
-        if msg.exec():
-            show_success(
-                self.tr("成功"), self.tr("URL 已复制到剪贴板"), self.main_window
-            )
+        try:
+            if msg.exec():
+                show_success(
+                    self.tr("成功"), self.tr("URL 已复制到剪贴板"), self.main_window
+                )
+        finally:
+            msg.deleteLater()
 
     @Slot()
     def __on_add_to_mock_triggered(self):
@@ -810,64 +819,67 @@ class FlowExportMenu(RoundMenu):
             return
 
         dialog = CsvFieldDialog(len(flows), load_selected_keys(), self.main_window)
-        if not dialog.exec():
-            return
-        keys = dialog.selected_keys()
-        if not keys:
-            return
-        save_selected_keys(keys)
+        try:
+            if not dialog.exec():
+                return
+            keys = dialog.selected_keys()
+            if not keys:
+                return
+            save_selected_keys(keys)
 
-        # 每条流量问一趟详情字典。取不到（controller 拿不到活 flow）就跳过这条，
-        # 而不是让整张表塌掉 —— 抽取本就是尽力而为的读操作。
-        details = []
-        for flow in flows:
-            detail = self.controller.flow_detail(flow.id)
-            if detail:
-                details.append(detail)
-        if not details:
-            show_warning(
-                self.tr("警告"),
-                self.tr("选中的流量暂无可导出的详情"),
+            # 每条流量问一趟详情字典。取不到（controller 拿不到活 flow）就跳过这条，
+            # 而不是让整张表塌掉 —— 抽取本就是尽力而为的读操作。
+            details = []
+            for flow in flows:
+                detail = self.controller.flow_detail(flow.id)
+                if detail:
+                    details.append(detail)
+            if not details:
+                show_warning(
+                    self.tr("警告"),
+                    self.tr("选中的流量暂无可导出的详情"),
+                    self.main_window,
+                )
+                return
+
+            text = build_csv(details, keys)
+
+            if dialog.result_action == "clip":
+                QApplication.clipboard().setText(text)
+                show_success(
+                    self.tr("成功"),
+                    self.tr("已复制 {} 行到剪贴板").format(len(details)),
+                    self.main_window,
+                )
+                return
+
+            path, _ = QFileDialog.getSaveFileName(
                 self.main_window,
+                self.tr("导出 CSV"),
+                self.__default_file_name(flows, ".csv"),
+                self.tr("CSV 文件 (*.csv)"),
             )
-            return
+            # 用户取消返回空串，必须挡在写之前（同 __export_file 的坑）。
+            if not path:
+                return
+            if not path.lower().endswith(".csv"):
+                path += ".csv"
 
-        text = build_csv(details, keys)
+            try:
+                # utf-8-sig：带 BOM，Excel 双击打开中文表头不乱码。newline="" 交给
+                # csv 已产好的行结束符，不让文本层二次转换。
+                Path(path).write_text(text, encoding="utf-8-sig", newline="")
+            except OSError as exc:
+                show_error(self.tr("导出失败"), str(exc), self.main_window)
+                return
 
-        if dialog.result_action == "clip":
-            QApplication.clipboard().setText(text)
             show_success(
                 self.tr("成功"),
-                self.tr("已复制 {} 行到剪贴板").format(len(details)),
+                self.tr("已导出 {} 条流量到 {}").format(len(details), Path(path).name),
                 self.main_window,
             )
-            return
-
-        path, _ = QFileDialog.getSaveFileName(
-            self.main_window,
-            self.tr("导出 CSV"),
-            self.__default_file_name(flows, ".csv"),
-            self.tr("CSV 文件 (*.csv)"),
-        )
-        # 用户取消返回空串，必须挡在写之前（同 __export_file 的坑）。
-        if not path:
-            return
-        if not path.lower().endswith(".csv"):
-            path += ".csv"
-
-        try:
-            # utf-8-sig：带 BOM，Excel 双击打开中文表头不乱码。newline="" 交给
-            # csv 已产好的行结束符，不让文本层二次转换。
-            Path(path).write_text(text, encoding="utf-8-sig", newline="")
-        except OSError as exc:
-            show_error(self.tr("导出失败"), str(exc), self.main_window)
-            return
-
-        show_success(
-            self.tr("成功"),
-            self.tr("已导出 {} 条流量到 {}").format(len(details), Path(path).name),
-            self.main_window,
-        )
+        finally:
+            dialog.deleteLater()
 
     @staticmethod
     def __default_file_name(flows: list[HTTPFlow], suffix: str) -> str:

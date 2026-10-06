@@ -5,7 +5,7 @@
 明文往返、gzip 解压（body ≠ 线上字节）、无体 / 挂起回 ``b""`` 而不是抛。
 
 `WindowsCurlQuotingTests` 另钉 curl 导出 Windows 引号改写的契约：POSIX 单引号
-参数表必须先还原再重加引号，内嵌单引号才不会把命令切碎（.plans/issues.md #10）。
+参数表必须先还原再重加引号，内嵌单引号才不会把命令切碎（docs/design.md#export #10）。
 `WindowsCurlReplayTests` 则按 issues #82 的验收口径，把导出命令放进**真实
 cmd.exe + 真实 curl.exe** 回放到环回服务器 —— 不以 shlex 自回读代替。
 """
@@ -121,9 +121,9 @@ class WindowsCurlQuotingTests(unittest.TestCase):
         ``&`` 翻到引号外，实测会被 cmd 当命令语法执行 —— 导出命令来自抓到的
         流量，这是一条真注入路径，必须补 ``^``。无空白 token 不加外引号，
         唯一的内嵌引号恰好把 ``&`` 罩进引号内，无需转义。"""
-        self.assertEqual(_to_windows_curl("curl -d 'a\"b&c'"), "curl -d a\\\"b&c")
+        self.assertEqual(_to_windows_curl("curl -d 'a\"b&c'"), 'curl -d a\\"b&c')
         self.assertEqual(
-            _to_windows_curl("curl -d '{\"note\": \"x&y\"}'"),
+            _to_windows_curl('curl -d \'{"note": "x&y"}\''),
             'curl -d "{\\"note\\": \\"x^&y\\"}"',
         )
         # 引号内的元字符本就是字面字符，补 ^ 反而会被 CRT 收进参数。
@@ -221,7 +221,7 @@ class WindowsCurlReplayTests(unittest.TestCase):
         # curl 会原样保留我们的大小写；比对走 lower，避免对 curl 的头名规范化做断言。
         self.assertIn(b"x-note: hello world & more", head.lower())
         self.assertIn(b"x-name: o'reilly/1.0", head.lower())
-        self.assertIn(b"x-meta: q\"1&2", head.lower())
+        self.assertIn(b'x-meta: q"1&2', head.lower())
         self.assertEqual(body, b'{"note": "x&y"}')
 
     def test_a_get_with_special_characters_replays_verbatim(self) -> None:

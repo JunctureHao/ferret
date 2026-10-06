@@ -1,4 +1,4 @@
-"""流列表列布局纯逻辑（.plans/0-flow-list-columns.md §6.1）。
+"""流列表列布局纯逻辑（docs/design.md#ui）。
 
 归一化与布局对象不碰 Qt / mitmproxy（`columns.py` 只 import QtCore 级翻译标记），
 所以这些用例**不起 QApplication**，直接钉纯逻辑：默认布局、必需列强制、未知/缺失
@@ -93,7 +93,16 @@ class RequiredColumnTests(unittest.TestCase):
 class OrderTests(unittest.TestCase):
     def test_index_forced_first(self) -> None:
         raw = default_layout().to_dict()
-        raw["order"] = ["url", "method", "index", "mark", "status", "type", "size", "time"]
+        raw["order"] = [
+            "url",
+            "method",
+            "index",
+            "mark",
+            "status",
+            "type",
+            "size",
+            "time",
+        ]
         layout = normalize(raw)
         self.assertEqual(layout.order[0], "index")
 

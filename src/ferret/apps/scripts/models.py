@@ -25,7 +25,7 @@ from ferret.core.mitm import (
 )
 from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 
-# 拖拽换序自带的 mime 类型。行序＝执行序（plans/scripts.md §3.2），所以拖动是
+# 拖拽换序自带的 mime 类型。行序＝执行序（docs/design.md#scripts），所以拖动是
 # 有语义的操作，不只是排版。
 ROW_MIME_TYPE = "application/x-ferret-script-row"
 
@@ -60,7 +60,7 @@ ORIGIN_ICONS: dict[str, FluentIconBase] = {
     SCRIPT_ORIGIN_NEW: FluentIcon.DOCUMENT,
 }
 
-# 脚本即代码（plans/scripts.md §4）：两个入口 —— 列表页横幅与新建对话框 ——
+# 脚本即代码（docs/design.md#scripts）：两个入口 —— 列表页横幅与新建对话框 ——
 # 共用这一句，所以同样存标记、用的时候求值。
 TRUST_WARNING = QT_TRANSLATE_NOOP("Scripts", "脚本以应用同等权限执行，仅加载可信来源。")
 
@@ -97,7 +97,7 @@ def script_name(entry: ScriptEntry) -> str:
 
 
 def status_summary(entry: ScriptEntry, status: ScriptStatus | None) -> str:
-    """行 tooltip：状态 + 错误首行（完整 traceback 在下方面板里看）。"""
+    """行 tooltip：状态 + 错误末行摘要（完整 traceback 在下方面板里看）。"""
     label = state_label(status)
     if status is not None and status.error:
         first = status.error.strip().splitlines()[-1]

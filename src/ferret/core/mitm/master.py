@@ -1,5 +1,7 @@
 """mitmproxy Master assembly used by Ferret."""
 
+from __future__ import annotations
+
 import asyncio
 
 from ferret.core.mitm.addons import (
@@ -22,13 +24,13 @@ from ferret.core.mitm.bindings import (
     Core,
     DisableH2C,
     DnsResolver,
+    Flow,
+    HTTPFlow,
     Master,
     NextLayer,
     Options,
     ProxyAuth,
     Proxyserver,
-    ReadFile,
-    Save,
     StickyAuth,
     StickyCookie,
     StripDnsHttpsRecords,
@@ -38,7 +40,14 @@ from ferret.core.mitm.bindings import (
 )
 from ferret.core.mitm.compose import ComposeAddon
 from ferret.core.mitm.intercept import FerretIntercept, InterceptState
+from ferret.core.mitm.io import (
+    FerretReadFile,
+    FerretSave,
+    flow_import,
+    imported_flow_ids,
+)
 from ferret.core.mitm.sse import FerretSseAddon
+from ferret.core.mitm.view import FerretView
 
 
 class FerretMaster(Master):
@@ -58,17 +67,17 @@ class FerretMaster(Master):
         # 后循环一关，应用里随便哪句 log 都会从 `Handler.emit` 里抛
         # `RuntimeError: Event loop is closed`（emit 不兜异常，直接穿透调用方）。
         self._legacy_log_events.uninstall()
-        self.view = view if view is not None else View()
+        self.view = view if view is not None else FerretView()
         self.proxyserver = Proxyserver()
-        self.readfile = ReadFile()
+        self.readfile = FerretReadFile()
         self.client_playback = ClientPlayback()
         self.gateway = GatewayState()
-        # 自研统一重写引擎（plans/rewrite-ui.md）：原生 MapRemote / MapLocal /
+        # 自研统一重写引擎（docs/design.md#rewrite）：原生 MapRemote / MapLocal /
         # ModifyBody / ModifyHeaders 四件退役，八个类型一个 addon、行序＝执行序。
         self.rewrite = FerretRewriteAddon()
-        # 用户脚本扩展（plans/scripts.md §3.2）：常驻无开关，空列表即全空转。
+        # 用户脚本扩展（docs/design.md#scripts）：常驻无开关，空列表即全空转。
         self.scripts = FerretScriptAddon()
-        # mock 响应池（.plans/0-server-playback.md）：原生 ServerPlayback 的 Ferret
+        # mock 响应池（docs/design.md#mock）：原生 ServerPlayback 的 Ferret
         # 子类，request 钩子按请求哈希命中已录响应直接顶回、不拨上游；空表零副作用，
         # 「开关」就是 flowmap 有没有货。池内容与旋钮由 runtime 播种 / facade 热更，
         # 装载只走方法调用（add_flows / load_flows），`server_replay` 选项那条带
@@ -87,7 +96,9 @@ class FerretMaster(Master):
         # （源码注释明确 stream 必须在 response 钩子之前换），链上这里照常能收到。
         # bridge 由 runtime 在挂 UiBridgeAddon 时注入（master 装配时还不认识它）。
         self.sse = FerretSseAddon()
-        self.save = Save()
+        self.view.sig_store_remove.connect(self.sse.flow_removed)
+        self.compose.on_cancel = self._cancel_compose
+        self.save = FerretSave()
         self.tls_config = FerretTlsConfig()
         self.cert_download = CertDownloadAddon(self.tls_config)
 
@@ -96,7 +107,7 @@ class FerretMaster(Master):
             # 位置对齐原生 default_addons()（core → block → strip_dns_https_records）：
             # Block 只挂 client_connected，必须在任何流量成形之前决定放不放这条连接。
             Block(),
-            # 下面两个是原生「兼容性垫片」，刻意无 UI 旋钮（.plans/2-protocol-switches.md
+            # 下面两个是原生「兼容性垫片」，刻意无 UI 旋钮（docs/design.md#capture
             # §0 的盘点结论，勿再当缺口提出）：
             # - StripDnsHttpsRecords 受 strip_ech 选项管（原生默认 True）：抹掉 DNS
             #   HTTPS 记录里的 ECH 配置是内核签出匹配证书的前提，关掉只会让 ECH 域名
@@ -109,7 +120,7 @@ class FerretMaster(Master):
             AntiComp(),
             self.client_playback,
             DisableH2C(),
-            # 代理认证（.plans/proxyauth.md）：位置对齐原生 default_addons() —— 紧挨
+            # 代理认证（docs/design.md#auth）：位置对齐原生 default_addons() —— 紧挨
             # proxyserver 之前。挂三个钩子（requestheaders / http_connect /
             # socks5_auth），`proxyauth` 选项为 None 时全部空转，故常驻无开关，
             # 开关在选项侧（MitmRuntime._effective_proxyauth）。
@@ -145,9 +156,9 @@ class FerretMaster(Master):
             # 脚本必须排在网关之后：绕行/仅允许命中时 AddonHalt 截断派发，脚本
             # 收不到用户明确说了不管的流量（与下面 intercept 同一语义）；也必须
             # 排在重写之后：脚本拿到的是重写**后**的报文，与 View/断点所见一致
-            # （钉死语义，见 plans/scripts.md §3.2）。
+            # （钉死语义，见 docs/design.md#scripts）。
             self.scripts,
-            # mock 响应池（.plans/0-server-playback.md D3）链位四条理由：
+            # mock 响应池（docs/design.md#mock）链位四条理由：
             # 1) 必须在网关**之后** —— 绕行/仅允许命中时 AddonHalt 截断派发，用户
             #    明确不管的流量不该被 mock（与下面 scripts / intercept 同一语义）。
             #    这也是它不能照抄原生链位（next_layer 之后、modify* 之前）的原因。
@@ -165,7 +176,7 @@ class FerretMaster(Master):
             # 被断点拦下来。位置对齐原生 console master（intercept → view）。
             self.intercept,
             self.view,
-            # 反向代理通道（.plans/reverse-mode.md §5）：reverse 流被 `isinstance(
+            # 反向代理通道（docs/design.md#capture）：reverse 流被 `isinstance(
             # ReverseMode)` 闸死，对非 reverse 流零副作用；位置在网关后、intercept
             # 前，命中绕行的流到不了它（AddonHalt 截断在前），与原生 default_addons()
             # 尾序（tlsconfig → upstream_auth → update_alt_svc）一致。常驻无开关。
@@ -186,6 +197,46 @@ class FerretMaster(Master):
             self.save,
             LogAddon(),
         )
+
+    async def load_flow(self, f: Flow) -> None:
+        imported = imported_flow_ids()
+        if imported is not None:
+            existing = self.view.get_by_id(f.id)
+            if existing is not None and existing is not f:
+                # Historical files can contain successive versions of one ID.
+                # Keep the last state in the original stored object, so the
+                # table and every native lifecycle hook share its identity.
+                # An archive must never overwrite a live request or breakpoint.
+                if (
+                    existing.live
+                    or existing.intercepted
+                    or type(existing) is not type(f)
+                ):
+                    return
+                previous = existing.get_state()
+                existing.set_state(f.get_state())
+                if isinstance(existing, HTTPFlow):
+                    # Admission is per record, not per ID: an earlier version
+                    # from this same file may already be in the import ledger.
+                    # Gateway BYPASS/ALLOW_ONLY can halt every View hook of the
+                    # new version; keep the previously admitted state then.
+                    admitted: set[str] = set()
+                    try:
+                        with flow_import(admitted):
+                            await super().load_flow(existing)
+                    finally:
+                        if existing.id not in admitted:
+                            existing.set_state(previous)
+                        imported.update(admitted)
+                    return
+                f = existing
+        await super().load_flow(f)
+
+    def _cancel_compose(self, flow: HTTPFlow) -> None:
+        self.gateway.release([flow.id])
+        self.intercept_state.release([flow.id])
+        self.sse.error(flow)
+        self.view.update([flow])
 
 
 CaptureMaster = FerretMaster

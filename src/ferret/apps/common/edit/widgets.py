@@ -318,6 +318,7 @@ class ItemTableToolWidget(SimpleCardWidget):
     """
 
     items_changed = Signal()
+    items_reset = Signal(object)
 
     def __init__(self, editable: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
@@ -404,6 +405,7 @@ class ItemTableToolWidget(SimpleCardWidget):
         self._sort_state = SortState.ORIGINAL
         self.sort_order_button.setIcon(FluentIcon.SCROLL)
         self.sort_order_button.setToolTip(self.tr("排序"))
+        self.items_reset.emit(self._original)
 
     # —— 数据获取 ——
 
@@ -433,15 +435,16 @@ class ItemTableToolWidget(SimpleCardWidget):
         if not self._editable:
             return
         # BaseAction 的第三个位置参数是 parent（QObject）——把槽方法塞进去构造
-        # 即 TypeError，右键菜单从未成功弹出过。parent 显式给表，动作再 connect。
+        # 即 TypeError。动作随临时菜单销毁，不能挂到长期存活的表格上。
         menu = RoundMenu(parent=self._table_widget)
-        add = BaseAction(FluentIcon.ADD, self.tr("新增行"), parent=self._table_widget)
+        menu.closedSignal.connect(menu.deleteLater)
+        add = BaseAction(FluentIcon.ADD, self.tr("新增行"), parent=menu)
         add.triggered.connect(self.add_row)
         menu.addAction(add)
         remove = BaseAction(
             FluentIcon.DELETE,
             self.tr("删除选中行"),
-            parent=self._table_widget,
+            parent=menu,
         )
         remove.triggered.connect(self.remove_selected_rows)
         remove.setEnabled(bool(self._table_widget.selectedIndexes()))
@@ -449,6 +452,8 @@ class ItemTableToolWidget(SimpleCardWidget):
         viewport = self._table_widget.viewport()
         if viewport is not None:
             menu.exec(viewport.mapToGlobal(pos))
+        else:
+            menu.deleteLater()
 
     # —— 复制 ——
 

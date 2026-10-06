@@ -1,14 +1,16 @@
 """UpdateController 的信号链测试：FunctionTask 后台编排 + 防重入
-（.plans/3-auto-update.md §5）。core.update 的三步在这里一律换成同步假实现，
+（docs/design.md#update）。core.update 的三步在这里一律换成同步假实现，
 验证的是「任务 → 信号 → 主线程」这条链，不是 velopack 本身（那归
 tests/core/test_update.py）。
 """
 
 from __future__ import annotations
 
+import gc
 import os
 import time
 import unittest
+import weakref
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -46,6 +48,17 @@ class UpdateControllerTestBase(unittest.TestCase):
 
 
 class CheckChainTests(UpdateControllerTestBase):
+    def test_finished_tasks_are_collectible(self) -> None:
+        self.patch_core(check=lambda: None)
+        refs = []
+        for _ in range(4):
+            self.controller.check()
+            refs.extend(weakref.ref(task) for task in self.controller._tasks)
+            self.assertTrue(wait_until(lambda: not self.controller.busy))
+        gc.collect()
+        self.assertTrue(refs)
+        self.assertTrue(all(ref() is None for ref in refs))
+
     def test_update_available_carries_handle_and_brief(self) -> None:
         handle = object()
         self.patch_core(check=lambda: (handle, _brief()))

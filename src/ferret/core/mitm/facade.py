@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Collection
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,6 @@ from PySide6.QtCore import QCoreApplication
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import (
-    Flow,
     FlowReadException,
     HTTPFlow,
     OptionsError,
@@ -38,7 +38,7 @@ from ferret.core.mitm.intercept import (
     build_request_edit,
     fake_response,
 )
-from ferret.core.mitm.io import FlowFile
+from ferret.core.mitm.io import FlowFile, flow_import
 from ferret.core.mitm.modes import (
     ensure_wireguard_conf,
     upstream_mode_spec,
@@ -120,7 +120,7 @@ class MitmFacade:
     def __init__(self, runtime: MitmRuntime) -> None:
         self.runtime = runtime
         self._recording_path: Path | None = None
-        # mock 池的托管文件在应用启动时读回（.plans/0-server-playback.md §3.3）：
+        # mock 池的托管文件在应用启动时读回（docs/design.md#mock）：
         # 反序列化出来的是死对象，与 sessions 加载 .flow 同一安全等级，不需要等
         # 内核起来。文件缺省/损坏都从空池起步（read_valid_prefix 容忍尾部截断），
         # 下一次池变更会把好内容写回去。
@@ -419,7 +419,7 @@ class MitmFacade:
         """Flip the anticache/anticomp switch; applied immediately when it runs."""
         self.runtime.apply_anticache_plaintext(enabled)
 
-    # —— 协议层（.plans/2-protocol-switches.md）——
+    # —— 协议层（docs/design.md#capture）——
 
     @property
     def http2_enabled(self) -> bool:
@@ -924,9 +924,9 @@ class MitmFacade:
     # —— SSE ——
 
     def sse_events(self, flow_id: str) -> list[SseEvent]:
-        """那条流迄今 tee 出的全部事件；不是事件流就是空表。
+        """那条流容量以内的最近事件；不是事件流就是空表。
 
-        数据在 `FerretSseAddon` 的存档里（恒存全量，显示上限归界面），所以内核
+        数据在 `FerretSseAddon` 的有界存档里，所以内核
         没跑时**没有**退化路径：addon 跟 master 一代一换，内核停了存档就没了，
         返回空表（历史流量走 `parse_sse(body)` 兑底那条路）。
         """
@@ -935,22 +935,32 @@ class MitmFacade:
             return []
         return self.runtime.call(lambda: master.sse.events(flow_id))
 
-    def total_count(self) -> int:
+    def total_count(self, flow_ids: Collection[str] | None = None) -> int:
         count = lambda: sum(
-            isinstance(flow, HTTPFlow) and compose_recording(flow) is not False
+            isinstance(flow, HTTPFlow)
+            and compose_recording(flow) is not False
+            and (flow_ids is None or flow.id in flow_ids)
             for flow in self.view._store.values()
         )
         return int(self.runtime.call(count)) if self.runtime.is_running else count()
 
-    def all_http_flows(self) -> list[HTTPFlow]:
+    def all_http_flows(self, flow_ids: Collection[str] | None = None) -> list[HTTPFlow]:
         snapshot = lambda: [
             _snapshot(flow)
             for flow in self.view._store.values()
-            if isinstance(flow, HTTPFlow)
+            if isinstance(flow, HTTPFlow) and (flow_ids is None or flow.id in flow_ids)
         ]
         return self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
 
-    def visible_http_flows(self) -> list[HTTPFlow]:
+    def http_flow_ids(self) -> set[str]:
+        collect = lambda: {
+            flow.id for flow in self.view._store.values() if isinstance(flow, HTTPFlow)
+        }
+        return self.runtime.call(collect) if self.runtime.is_running else collect()
+
+    def visible_http_flows(
+        self, flow_ids: Collection[str] | None = None
+    ) -> list[HTTPFlow]:
         """**过滤后可见列表**的活引用，给流量表刷新行集用（`handle_refresh`）。
 
         与 `all_http_flows` 的两点分工，都不是可有可无的：
@@ -967,7 +977,9 @@ class MitmFacade:
         visible = lambda: [
             f
             for f in self.view
-            if isinstance(f, HTTPFlow) and compose_recording(f) is not False
+            if isinstance(f, HTTPFlow)
+            and compose_recording(f) is not False
+            and (flow_ids is None or f.id in flow_ids)
         ]
         return self.runtime.call(visible) if self.runtime.is_running else visible()
 
@@ -1066,7 +1078,15 @@ class MitmFacade:
         path = self._recording_path
         master = self.runtime.master
         if self.runtime.is_running and master is not None:
-            self.runtime.call(lambda: master.options.update(save_stream_file=None))
+
+            def stop() -> None:
+                # configure() is dispatched through addon safecall, which logs
+                # and swallows I/O errors. Flush directly so a failed recording
+                # close reaches the caller and retains the stream for retry.
+                master.save.done()
+                master.options.update(save_stream_file=None)
+
+            self.runtime.call(stop)
         self._recording_path = None
         if path is not None and path.exists() and path.stat().st_size == 0:
             path.unlink(missing_ok=True)
@@ -1123,10 +1143,11 @@ class MitmFacade:
         content: bytes | str | None = None,
         *,
         record: bool = True,
+        timeout: float | None = None,
     ) -> str:
-        """编辑页「发送」：徒手造一条 flow 交给 `ClientPlayback` 发出，返回 flow id。
+        """编辑页「发送」：徒手造一条 flow 交给原生 ReplayHandler，返回 flow id。
 
-        与 `replay_flows` 同一条路（重写 / 网关 / 断点规则照常命中）。`record`
+        与 `replay_flows` 同一条原生路径（重写 / 网关生效，断点排除回放）。`record`
         决定是否进入流量列表，独立于抓包开关；不记录的请求在途时对表格隐藏，
         落地后由 `ComposeAddon` 从核心 View 摘除。
         响应 / 错误落地后经 `MitmRuntime.compose_result` 信号回报编辑页。
@@ -1149,13 +1170,17 @@ class MitmFacade:
             flow.metadata[COMPOSE_METADATA_KEY] = "1"
             flow.metadata[COMPOSE_RECORD_METADATA_KEY] = record
             flow.is_replay = "request"
-            master.compose.register(flow.id, keep=record)
-            # `start_replay` 自己会 backup / 清响应 / 入队；URL 不合法等构造错误
-            # 在这一步之前就已经抛出，登记表不会被弄脏。
-            master.client_playback.start_replay([flow])
+            # 构造验证已完成，ComposeAddon 持有原生 handler 的可取消任务。
+            master.compose.start(flow, master.options, keep=record, timeout=timeout)
             return flow.id
 
         return str(self.runtime.call(enqueue))
+
+    def cancel_custom_request(self, flow_id: str) -> bool:
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
+            return False
+        return bool(self.runtime.call(lambda: master.compose.cancel(flow_id)))
 
     def replay_file(self, path: Path | str) -> None:
         master = self.runtime.master
@@ -1170,7 +1195,9 @@ class MitmFacade:
             lambda: master.client_playback.load_file(str(path)), timeout=10.0
         )
 
-    def load_flow_file(self, path: Path | str) -> int:
+    def load_flow_file(
+        self, path: Path | str, *, imported_ids: set[str] | None = None
+    ) -> int:
         """Load historical flows through the native ReadFile addon."""
         master = self.runtime.master
         if not self.runtime.is_running or master is None:
@@ -1182,35 +1209,15 @@ class MitmFacade:
             )
 
         async def load() -> int:
-            recording = master.options.save_stream_file
-            in_flight: set[Flow] | None = None
-            if recording:
-                # 暂停写盘只有原生的「停止」通道可走（save_stream_file=None →
-                # Save.done()），而 done() 会把在途流按**当前**状态冲进文件，随后
-                # 流收尾再写一条同 id 的完整记录 —— 录制文件里留下未完成+完成双条，
-                # 会话打开时 View.add 只收首条，展示的永远是没响应的那条（#79）。
-                # 把 active_flows 暂时摘空让这次冲刷冲个寂寞：在途流留在恢复后的
-                # 集合里，收尾时由 Save.response 按完整状态写一次；导入期间就收尾
-                # 的（stream 为 None，save_flow 早退不清集合）由 stop 的 done() 补写。
-                # 导入的历史流经 master.load_flow 走完整事件序，但 stream 已关，
-                # 不会混进录制文件。
-                in_flight = master.save.active_flows
-                master.save.active_flows = set()
-                master.options.update(save_stream_file=None)
-            try:
+            # Do not pause the shared Save stream: unrelated network tasks can
+            # complete during ReadFile's awaits. Only this task's historical
+            # lifecycle hooks are excluded by FerretSave.
+            with flow_import(imported_ids):
                 return await master.readfile.load_flows_from_path(str(path))
-            finally:
-                if in_flight is not None:
-                    master.save.active_flows = in_flight
-                    # Save.done() 已关文件；原样恢复普通路径会以 wb 重开并截断。
-                    # 原生 "+" 前缀表示追加；保留已有前缀，连续导入也能续写同一文件。
-                    if not recording.startswith("+"):
-                        recording = f"+{recording}"
-                    master.options.update(save_stream_file=recording)
 
         return int(self.runtime.call(load, timeout=30.0))
 
-    # —— mock 响应池（原生 ServerPlayback，.plans/0-server-playback.md）——
+    # —— mock 响应池（原生 ServerPlayback，docs/design.md#mock）——
     # 池的权威副本在 `runtime.mock_pool`，addon 的 flowmap 由本方法组负责同步
     # （增量变更 add_flows、删减/开关 load_flows 整表重建）。所有**变更**都要求
     # 内核在跑（副本必须在 mitm 线程上做）；删减/清空在内核没跑时也对池内死对象
@@ -1303,8 +1310,7 @@ class MitmFacade:
     def remove_mock_flows(self, entry_ids: list[str]) -> int:
         """按池条目 id（= 来源流量 id）删除，返回删除数。
 
-        原生没有逐条移除，走 `load_flows` 整表重建（重算哈希，开销与池大小线性，
-        池是几十条的量级，无所谓）。
+        素材池与运行队列分别删除，不能从素材池重建并复活已消费的条目。
         """
         runtime = self.runtime
         doomed = set(entry_ids)
@@ -1317,7 +1323,7 @@ class MitmFacade:
             runtime.mock_pool = kept
             master = runtime.master
             if runtime.is_running and master is not None and runtime.mock_enabled:
-                master.server_playback.load_flows(list(kept))
+                master.server_playback.remove_entries(doomed)
             self._persist_mock_pool()
             return removed
 
@@ -1403,8 +1409,11 @@ class MitmFacade:
             return dict(runtime.call(build))
         return build()
 
-    def clear_flows(self) -> None:
+    def clear_flows(self, flow_ids: Collection[str] | None = None) -> None:
         def clear() -> None:
+            if flow_ids is not None:
+                self._remove_flow_ids(list(flow_ids))
+                return
             # 清空之后挂起中的行就没了，界面上再也找不到它 —— 顺手放行，别留下一批
             # 看不见、又一直钉着连接的流量。
             master = self.runtime.master
@@ -1431,19 +1440,23 @@ class MitmFacade:
         else:
             remove()
 
-    def unmarked_flow_count(self) -> int:
+    def unmarked_flow_count(self, flow_ids: Collection[str] | None = None) -> int:
         """store 里未标记流量的条数。「删除未标记」确认框的计数：与
         `remove_unmarked_flows` 同一套过滤口径（不看类型、只看 marked），
         数字对不上就会删多。"""
 
         def count() -> int:
-            return sum(1 for f in self.view._store.values() if not f.marked)
+            return sum(
+                1
+                for f in self.view._store.values()
+                if not f.marked and (flow_ids is None or f.id in flow_ids)
+            )
 
         if self.runtime.is_running:
             return int(self.runtime.call(count))
         return count()
 
-    def remove_unmarked_flows(self) -> int:
+    def remove_unmarked_flows(self, flow_ids: Collection[str] | None = None) -> int:
         """删除 store 里所有未标记流量（对齐原生 `view.clear_unmarked`，
         addons/view.py:369），返回删除数供界面播报。
 
@@ -1453,9 +1466,13 @@ class MitmFacade:
         """
 
         def remove() -> int:
-            flow_ids = [f.id for f in self.view._store.values() if not f.marked]
-            self._remove_flow_ids(flow_ids)
-            return len(flow_ids)
+            doomed = [
+                f.id
+                for f in self.view._store.values()
+                if not f.marked and (flow_ids is None or f.id in flow_ids)
+            ]
+            self._remove_flow_ids(doomed)
+            return len(doomed)
 
         if self.runtime.is_running:
             return int(self.runtime.call(remove))

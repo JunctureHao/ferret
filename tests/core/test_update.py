@@ -1,5 +1,5 @@
 """core/update.py 的单元测试：velopack 是原生 pyd 且依赖安装目录，一律用
-``sys.modules`` 注入的替身（.plans/3-auto-update.md §5）。不碰真实网络。
+``sys.modules`` 注入的替身（docs/design.md#update）。不碰真实网络。
 
 替身注入后必须 ``importlib.reload(update_core)`` —— 模块顶层 ``import velopack``
 在首次导入时绑定，reload 才会拾取替身；tearDown 恢复真身同样靠 reload。

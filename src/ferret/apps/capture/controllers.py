@@ -12,6 +12,7 @@ from sysproxy import (
     ERR_OWNER_ACTIVE,
     ERR_RESTORE_FAILED,
     ERR_SET_FAILED,
+    ERR_STATE_IO_FAILED,
     SystemProxyService,
 )
 
@@ -40,6 +41,9 @@ _SYSTEM_PROXY_ERRORS = {
     ERR_INVALID_ADDRESS: QT_TRANSLATE_NOOP("CaptureController", "无效的系统代理地址"),
     ERR_RESTORE_FAILED: QT_TRANSLATE_NOOP("CaptureController", "恢复原系统代理失败"),
     ERR_SET_FAILED: QT_TRANSLATE_NOOP("CaptureController", "设置系统代理失败"),
+    ERR_STATE_IO_FAILED: QT_TRANSLATE_NOOP(
+        "CaptureController", "读取或保存系统代理恢复状态失败"
+    ),
     ERR_OWNER_ACTIVE: QT_TRANSLATE_NOOP(
         "CaptureController",
         "另一个正在运行的 Ferret 实例已接管系统代理，请先在那边停止抓包",
@@ -119,7 +123,7 @@ class CaptureController(QObject):
     channels_changed = Signal()
     # 原生过滤表达式非法时把 parse 错误原文回传给过滤面板（原文直显不译，
     # `parse_filter` 的 ValueError 消息是任意英文，做不了常量映射，见
-    # `.plans/0-mark-filter-polish.md` §1.3）。
+    # `docs/design.md#ui`）。
     filterExpressionRejected = Signal(str)
 
     def __init__(
@@ -147,8 +151,10 @@ class CaptureController(QObject):
         self._capture_state = CaptureState.STOPPED
         self._last_error = ""
         self._pending_attach = False
+        self._stop_failed = False
         # 外部流量的写入闸门默认关，点开始抓包才开；Compose 显式记录走独立信号。
         self._recording = False
+        self._admitted_ids: set[str] = set()
         # 通道健康检查（异步启动失败只能延迟读 channel_health）的最近结果。
         self._channel_errors: dict[str, str] = {}
         # 健康检查改为周期轮询（#15）：通道实例的失败可能晚到（UAC 弹窗挂了几秒
@@ -162,7 +168,10 @@ class CaptureController(QObject):
         self._last_valid_raw_filter = ""
 
         runtime.flow_added.connect(self._on_flow_added)
-        runtime.compose_flow_added.connect(self.flow_added)
+        runtime.compose_flow_added.connect(self._on_flow_added)
+        runtime.flow_stored.connect(self._on_flow_stored)
+        runtime.compose_flow_stored.connect(self._on_compose_flow_stored)
+        runtime.flow_discarded.connect(self._on_flow_discarded)
         runtime.flow_updated.connect(self.flow_updated)
         # 挂起/放行也当成一次更新：网关挂起发生在 `request`，而 `View` 没有这个钩子，
         # 不借道 flow_updated 那一行的「挂起中」永远不上屏。
@@ -339,6 +348,10 @@ class CaptureController(QObject):
         """
         if self._capture_state in (CaptureState.STARTING, CaptureState.RUNNING):
             return
+        if self.stop_failed:
+            self.stop_capture()
+            if self.stop_failed:
+                return
         if port is not None and port != self.current_port:
             if self._runtime.is_running:
                 self._runtime.restart(listen_port=port)
@@ -379,27 +392,43 @@ class CaptureController(QObject):
         # 这里是即刻停表）。
         self._channel_timer.stop()
         # detach 幂等安全：从未挂载时 service 内部短路返回 True，不碰注册表。
-        self._system_proxy.detach()
+        errors: list[str] = []
+        try:
+            self._system_proxy.detach()
+        except Exception as exc:
+            log.exception("failed to restore system proxy")
+            errors.append(self.tr("恢复原系统代理失败：{error}").format(error=exc))
+        else:
+            if self._system_proxy.is_attached:
+                errors.append(self.tr("恢复原系统代理失败"))
         try:
             self._mitm.stop_capture_recording()
-        except Exception:
+        except Exception as exc:
             log.exception("failed to stop capture recording")
+            errors.append(self.tr("停止录制失败：{error}").format(error=exc))
         self._set_recording(False)
         # 通道回落：OS 级截流停止（上游只清截流配置，守护进程驻留 → 重开免 UAC）。
         # 只动接通位，use_local/use_wireguard 意图值原样保留。
         try:
             self._mitm.disengage_channels()
-        except (RuntimeError, TimeoutError, ValueError):
+        except (RuntimeError, TimeoutError, ValueError) as exc:
             log.exception("failed to drop capture channels")
-        # restore 失败时 service 仍持有端点（is_attached 为真）：会话以 FAILED 收场
-        # 而非 STOPPED —— 注册表还指着我们，「已停止」不能假报，再点一次停止会在
-        # 上面重试 detach。录制与通道的回落不因 detach 失败而短路，否则会留下
-        # 「闸门还开着、通道还接着」的半开会话。
-        if self._system_proxy.is_attached:
-            self._last_error = self.tr("恢复原系统代理失败")
+            errors.append(self.tr("停止抓包通道失败：{error}").format(error=exc))
+        # 代理、文件与通道独立清理。任一步失败都保留停止重试义务，不能因代理
+        # 已恢复就假报 STOPPED，或让下一次按钮操作误建一个新的录制会话。
+        self._stop_failed = bool(errors)
+        self._last_error = "\n".join(errors)
+        if self._stop_failed:
             self._set_capture_state(CaptureState.FAILED)
             return
         self._set_capture_state(CaptureState.STOPPED)
+
+    @property
+    def stop_failed(self) -> bool:
+        return self._stop_failed or (
+            self._capture_state == CaptureState.FAILED
+            and self._system_proxy.is_attached
+        )
 
     def shutdown(self) -> None:
         self.stop_capture()
@@ -485,8 +514,11 @@ class CaptureController(QObject):
         if (wanted_host, wanted_port) == (self.current_host, self.current_port):
             return
         was_capturing = self._capture_state == CaptureState.RUNNING
-        if was_capturing:
+        if was_capturing or self.stop_failed:
             self.stop_capture()
+            if self.stop_failed:
+                raise RuntimeError(self._last_error)
+        if was_capturing:
             # stop_capture 把会话接通位落下了；重启前先抬回去，内核才会在启动的
             # Options 里带上通道（ready 之后 _attach_system_proxy 只补挂代理）。
             try:
@@ -520,10 +552,10 @@ class CaptureController(QObject):
         return self._mitm.sse_events(flow_id)
 
     def total_count(self) -> int:
-        return self._mitm.total_count()
+        return self._mitm.total_count(self._admitted_ids)
 
     def visible_http_flows(self) -> list[HTTPFlow]:
-        return self._mitm.visible_http_flows()
+        return self._mitm.visible_http_flows(self._admitted_ids)
 
     def apply_filter(self, raw: str = "") -> None:
         raw = raw.strip()
@@ -555,10 +587,12 @@ class CaptureController(QObject):
         except ValueError as exc:
             self.filterExpressionRejected.emit(str(exc))
             return set()
-        return self._mitm.match_ids(matcher)
+        return self._mitm.match_ids(matcher) & self._admitted_ids
 
     def save_flows(self, flows: list[HTTPFlow], path: str) -> int:
-        return self._mitm.save_flows(flows, path)
+        return self._mitm.save_flows(
+            [flow for flow in flows if flow.id in self._admitted_ids], path
+        )
 
     def get_httpie_command(self, flow_id: str) -> str:
         return self._mitm.get_httpie_command(flow_id)
@@ -579,7 +613,9 @@ class CaptureController(QObject):
         return self._mitm.get_response_body(flow_id)
 
     def export_har(self, flows: list[HTTPFlow], path: str) -> None:
-        self._mitm.export_har(flows, path)
+        self._mitm.export_har(
+            [flow for flow in flows if flow.id in self._admitted_ids], path
+        )
 
     def replay_flow(self, flow_id: str) -> None:
         self._mitm.replay_flow(flow_id)
@@ -591,28 +627,37 @@ class CaptureController(QObject):
         self._mitm.replay_file(path)
 
     def load_flow_file(self, path: Path | str) -> int:
-        return self._mitm.load_flow_file(path)
+        imported: set[str] = set()
+        try:
+            return self._mitm.load_flow_file(path, imported_ids=imported)
+        finally:
+            # Explicit imports remain visible even while capture is stopped.
+            # The native load task reports its own IDs; concurrent network
+            # traffic must not be mistaken for part of this import.
+            self._admitted_ids.update(imported)
+            self.view_refreshed.emit()
 
     def clear_flows(self) -> None:
-        self._mitm.clear_flows()
+        self._mitm.clear_flows(self._admitted_ids)
+        self._admitted_ids.clear()
 
     def remove_flows(self, flows: list[HTTPFlow]) -> None:
-        self._mitm.remove_flows(flows)
+        self._mitm.remove_flows(
+            [flow for flow in flows if flow.id in self._admitted_ids]
+        )
 
     def unmarked_flow_count(self) -> int:
         """未标记流量条数（「删除未标记」确认框的计数，与删除同一套口径）。"""
-        return self._mitm.unmarked_flow_count()
+        return self._mitm.unmarked_flow_count(self._admitted_ids)
 
     def remove_unmarked_flows(self) -> int:
         """删除全部未标记流量（含被当前过滤式遮住的），返回删除数。"""
-        return self._mitm.remove_unmarked_flows()
+        return self._mitm.remove_unmarked_flows(self._admitted_ids)
 
     def toggle_capture(self) -> bool:
-        # FAILED 且代理仍挂着我们 = 停止失败（detach 没落下），往停止走一键重试；
-        # 其余 FAILED 是启动失败，往开始走。判据读 service 事实，不另设状态位。
+        # 文件/通道清理失败也必须先重试停止，即使代理已经恢复。
         if self._capture_state == CaptureState.RUNNING or (
-            self._capture_state == CaptureState.FAILED
-            and self._system_proxy.is_attached
+            self._capture_state == CaptureState.FAILED and self.stop_failed
         ):
             self.stop_capture()
             return False
@@ -818,15 +863,22 @@ class CaptureController(QObject):
             self._on_runtime_failed(self.tr("mitmproxy 内核已停止"))
 
     def _on_flow_added(self, flow: object) -> None:
-        """外部流量的写入闸门：关着时不录入新行。
-
-        只挡新增：已有行的更新（响应到达、拦截标记等）照常转发 —— 表里已存在的
-        内容永远保持鲜活。Compose 的记录选择已在 mitm 线程判定，选择记录的
-        新增经 compose_flow_added 独立转发，不受此闸门约束，也不改变抓包状态。
-        """
-        if not self._recording:
+        """只展示已经入账的流；过滤器重建可见行时不重新决定是否录入。"""
+        if not isinstance(flow, HTTPFlow) or flow.id not in self._admitted_ids:
             return
         self.flow_added.emit(flow)
+
+    def _on_flow_stored(self, flow: object) -> None:
+        if self._recording and isinstance(flow, HTTPFlow):
+            self._admitted_ids.add(flow.id)
+
+    def _on_compose_flow_stored(self, flow: object) -> None:
+        if isinstance(flow, HTTPFlow):
+            self._admitted_ids.add(flow.id)
+
+    def _on_flow_discarded(self, flow: object) -> None:
+        if isinstance(flow, HTTPFlow):
+            self._admitted_ids.discard(flow.id)
 
     def set_flow_comment(self, flow_id: str, comment: str) -> None:
         self._mitm.set_flow_comment(flow_id, comment)

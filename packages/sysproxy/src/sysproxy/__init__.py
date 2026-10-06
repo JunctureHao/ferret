@@ -10,6 +10,7 @@ from sysproxy.service import (
     ERR_OWNER_ACTIVE,
     ERR_RESTORE_FAILED,
     ERR_SET_FAILED,
+    ERR_STATE_IO_FAILED,
     SystemProxyService,
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     "ERR_OWNER_ACTIVE",
     "ERR_RESTORE_FAILED",
     "ERR_SET_FAILED",
+    "ERR_STATE_IO_FAILED",
     "ProxyEndpoint",
     "ProxySnapshot",
     "SystemProxyBackend",

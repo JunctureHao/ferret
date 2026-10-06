@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -28,7 +29,7 @@ class AutoSaveSettingsTests(unittest.TestCase):
 
 
 class ProtocolSwitchCardTests(unittest.TestCase):
-    """协议层两开关的卡片绑定与热更接线（.plans/2-protocol-switches.md §2.4）。"""
+    """协议层两开关的卡片绑定与热更接线（docs/design.md#capture）。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -42,6 +43,38 @@ class ProtocolSwitchCardTests(unittest.TestCase):
         """卡片走 configItem 自动落盘，绑定错了开关就是摆设。"""
         self.assertIs(self.settings.http2_card.configItem, CONFIG.http2_enabled)
         self.assertIs(self.settings.http3_card.configItem, CONFIG.http3_enabled)
+
+    def test_each_hot_apply_failure_is_visible_and_keeps_saved_intent(self) -> None:
+        cases = (
+            (
+                "__on_sticky_session_changed",
+                "set_sticky_session",
+                CONFIG.sticky_session_enabled,
+            ),
+            (
+                "__on_anticache_plaintext_changed",
+                "set_anticache_plaintext",
+                CONFIG.anticache_plaintext,
+            ),
+            ("__on_protocol_changed", "set_protocol_options", CONFIG.http2_enabled),
+            (
+                "__on_dns_use_hosts_changed",
+                "set_dns_options",
+                CONFIG.dns_use_hosts_file,
+            ),
+        )
+        for callback, setter, item in cases:
+            with self.subTest(callback=callback):
+                value = CONFIG.get(item)
+                facade = Mock()
+                getattr(facade, setter).side_effect = RuntimeError("apply rejected")
+                self.settings._mitm = facade
+                with patch("ferret.apps.settings.views.show_warning") as warning:
+                    getattr(self.settings, "_SettingsInterface" + callback)(value)
+                warning.assert_called_once()
+                self.assertIn("apply rejected", warning.call_args.args[1])
+                self.assertEqual(CONFIG.get(item), value)
+        self.settings._mitm = None
 
     def test_flipping_the_config_pushes_both_switches_at_once(self) -> None:
         """valueChanged → 整体重推两项（快照原子），内核没接时（_mitm None）静默。"""
@@ -70,7 +103,7 @@ class ProtocolSwitchCardTests(unittest.TestCase):
 
 
 class UpdateCardTests(unittest.TestCase):
-    """「关于与更新」组的卡片绑定与自动检查闸门（.plans/3-auto-update.md §2）。"""
+    """「关于与更新」组的卡片绑定与自动检查闸门（docs/design.md#update）。"""
 
     @classmethod
     def setUpClass(cls) -> None:

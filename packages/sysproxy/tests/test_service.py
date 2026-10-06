@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import unittest
 from pathlib import Path
@@ -45,6 +47,114 @@ class FakeBackend(SystemProxyBackend):
 
 
 class SystemProxyServiceTests(unittest.TestCase):
+    def test_applied_journal_write_failure_still_allows_detach(self) -> None:
+        backend = FakeBackend()
+        with TemporaryDirectory() as directory:
+            journal = Path(directory) / "proxy.json"
+            service = SystemProxyService(backend, journal_path=journal)
+            self.addCleanup(service._release_ownership)
+            write = service._write_journal
+
+            def fail_confirmation(endpoint, snapshot, *, applied):
+                if applied:
+                    raise PermissionError("confirmation denied")
+                write(endpoint, snapshot, applied=applied)
+
+            with (
+                patch.object(service, "_write_journal", side_effect=fail_confirmation),
+                self.assertRaises(RuntimeError),
+            ):
+                service.attach("127.0.0.1", 8080)
+            self.assertTrue(service.is_attached)
+            self.assertEqual(backend.current, "127.0.0.1:8080")
+            self.assertFalse(json.loads(journal.read_text())["applied"])
+            self.assertTrue(service.detach())
+            self.assertEqual(backend.current, "original")
+            self.assertEqual(backend.restore_calls, 1)
+            self.assertFalse(journal.exists())
+
+    def test_snapshot_and_initial_journal_errors_never_change_system_proxy(
+        self,
+    ) -> None:
+        for failing_method in ("snapshot", "_write_journal", "_acquire_ownership"):
+            with self.subTest(failing_method=failing_method):
+                backend = FakeBackend()
+                service = SystemProxyService(backend)
+                target = backend if failing_method == "snapshot" else service
+                with (
+                    patch.object(target, failing_method, side_effect=PermissionError()),
+                    patch.object(backend, "set", wraps=backend.set) as set_proxy,
+                    self.assertRaises(RuntimeError),
+                ):
+                    service.attach("127.0.0.1", 8080)
+                set_proxy.assert_not_called()
+                self.assertFalse(service.is_attached)
+                self.assertIsNone(service._lock_fd)
+
+    def test_unreadable_journal_survives_recover_and_attach(self) -> None:
+        backend = FakeBackend()
+        with TemporaryDirectory() as directory:
+            journal = Path(directory) / "proxy.json"
+            first = SystemProxyService(backend, journal_path=journal)
+            first.attach("127.0.0.1", 8080)
+            first._release_ownership()
+            original = journal.read_bytes()
+            second = SystemProxyService(backend, journal_path=journal)
+            with patch.object(Path, "read_text", side_effect=PermissionError()):
+                self.assertFalse(second.recover())
+                with self.assertRaises(RuntimeError):
+                    second.attach("127.0.0.1", 8081)
+            self.assertEqual(journal.read_bytes(), original)
+            self.assertEqual(backend.current, "127.0.0.1:8080")
+            self.assertIsNone(second._lock_fd)
+            self.assertTrue(second.recover())
+
+    def test_recovery_reads_the_journal_only_after_acquiring_ownership(self) -> None:
+        backend = FakeBackend()
+        with TemporaryDirectory() as directory:
+            journal = Path(directory) / "proxy.json"
+            first = SystemProxyService(backend, journal_path=journal)
+            self.addCleanup(first._release_ownership)
+            first.attach("127.0.0.1", 8080)
+            recovery = SystemProxyService(backend, journal_path=journal)
+            acquire = recovery._acquire_ownership
+
+            def replace_journal_before_acquiring():
+                self.assertTrue(first.detach())
+                backend.current = "new-user-proxy"
+                replacement = SystemProxyService(backend, journal_path=journal)
+                try:
+                    replacement.attach("127.0.0.1", 8080)
+                finally:
+                    replacement._release_ownership()
+                return acquire()
+
+            with patch.object(
+                recovery,
+                "_acquire_ownership",
+                side_effect=replace_journal_before_acquiring,
+            ):
+                self.assertTrue(recovery.recover())
+            self.assertEqual(backend.current, "new-user-proxy")
+            self.assertFalse(journal.exists())
+            self.assertIsNone(recovery._lock_fd)
+
+    def test_unlink_failure_preserves_detach_obligation_for_retry(self) -> None:
+        backend = FakeBackend()
+        with TemporaryDirectory() as directory:
+            journal = Path(directory) / "proxy.json"
+            service = SystemProxyService(backend, journal_path=journal)
+            service.attach("127.0.0.1", 8080)
+            self.addCleanup(service._release_ownership)
+            with patch.object(service, "_clear_journal", side_effect=PermissionError()):
+                self.assertFalse(service.detach())
+            self.assertTrue(service.is_attached)
+            self.assertTrue(journal.exists())
+            self.assertTrue(service.detach())
+            self.assertFalse(service.is_attached)
+            self.assertFalse(journal.exists())
+            self.assertEqual(backend.current, "original")
+
     def test_attach_and_detach_restore_original_proxy(self) -> None:
         backend = FakeBackend()
         service = SystemProxyService(backend, journal_path=None)
@@ -338,9 +448,14 @@ class SystemProxyServiceTests(unittest.TestCase):
 
 class FakeWinreg:
     HKEY_CURRENT_USER = object()
+    KEY_SET_VALUE = 2
+    REG_DWORD = 4
+    REG_SZ = 1
 
     def __init__(self, values: dict[str, object]) -> None:
         self.values = values
+        self.fail_read = False
+        self.fail_write: str | None = None
 
     def OpenKey(self, *_args):
         return self
@@ -352,12 +467,121 @@ class FakeWinreg:
         return None
 
     def QueryValueEx(self, _key, name: str):
+        if self.fail_read:
+            raise PermissionError(name)
         if name not in self.values:
             raise FileNotFoundError(name)
         return self.values[name], 0
 
+    def SetValueEx(self, _key, name, _reserved, _kind, value):
+        if self.fail_write == name:
+            raise PermissionError(name)
+        self.values[name] = value
+
+    def DeleteValue(self, _key, name):
+        if name not in self.values:
+            raise FileNotFoundError(name)
+        del self.values[name]
+
 
 class WindowsSystemProxyBackendTests(unittest.TestCase):
+    def test_recover_persists_a_partial_restore_across_another_restart(self) -> None:
+        original = {
+            "ProxyEnable": 0,
+            "ProxyServer": "old",
+            "ProxyOverride": "local-domain",
+            "AutoConfigURL": "https://example.test/proxy.pac",
+            "AutoDetect": 1,
+        }
+        backend = WindowsSystemProxyBackend()
+        registry = FakeWinreg(dict(original))
+        with (
+            TemporaryDirectory() as directory,
+            patch.object(backend, "_winreg", return_value=registry),
+            patch.object(backend, "_refresh"),
+        ):
+            journal = Path(directory) / "proxy.json"
+            first = SystemProxyService(backend, journal_path=journal)
+            first.attach("127.0.0.1", 8080)
+            first._release_ownership()
+            registry.fail_write = "ProxyOverride"
+            second = SystemProxyService(backend, journal_path=journal)
+            self.assertFalse(second.recover())
+            self.assertFalse(backend.owns(ProxyEndpoint("127.0.0.1", 8080)))
+            self.assertTrue(journal.exists())
+            registry.fail_write = None
+            third = SystemProxyService(backend, journal_path=journal)
+            self.assertTrue(third.recover())
+            self.assertEqual(registry.values, original)
+            self.assertFalse(journal.exists())
+
+    def test_read_failure_does_not_discard_the_only_recovery_snapshot(self) -> None:
+        for operation in ("detach", "recover", "attach"):
+            with self.subTest(operation=operation), TemporaryDirectory() as directory:
+                backend = WindowsSystemProxyBackend()
+                registry = FakeWinreg({"ProxyEnable": 0, "ProxyServer": "old"})
+                with (
+                    patch.object(backend, "_winreg", return_value=registry),
+                    patch.object(backend, "_refresh"),
+                ):
+                    journal = Path(directory) / "proxy.json"
+                    service = SystemProxyService(backend, journal_path=journal)
+                    service.attach("127.0.0.1", 8080)
+                    self.addCleanup(service._release_ownership)
+                    original = journal.read_bytes()
+                    if operation != "detach":
+                        service._release_ownership()
+                        service = SystemProxyService(backend, journal_path=journal)
+                    registry.fail_read = True
+                    if operation == "attach":
+                        with self.assertRaises(RuntimeError):
+                            service.attach("127.0.0.1", 8081)
+                    else:
+                        self.assertFalse(getattr(service, operation)())
+                    self.assertEqual(journal.read_bytes(), original)
+                    self.assertEqual(registry.values["ProxyServer"], "127.0.0.1:8080")
+                    registry.fail_read = False
+                    self.assertTrue(
+                        service.detach() if operation == "detach" else service.recover()
+                    )
+
+    def test_partial_restore_retries_all_values_even_after_endpoint_changed(
+        self,
+    ) -> None:
+        for restart in (False, True):
+            with self.subTest(restart=restart), TemporaryDirectory() as directory:
+                original = {
+                    "ProxyEnable": 1,
+                    "ProxyServer": "old-proxy:80",
+                    "ProxyOverride": "local-domain",
+                    "AutoConfigURL": "https://example.test/proxy.pac",
+                    "AutoDetect": 1,
+                }
+                backend = WindowsSystemProxyBackend()
+                registry = FakeWinreg(dict(original))
+                with (
+                    patch.object(backend, "_winreg", return_value=registry),
+                    patch.object(backend, "_refresh"),
+                ):
+                    journal = Path(directory) / "proxy.json"
+                    service = SystemProxyService(backend, journal_path=journal)
+                    service.attach("127.0.0.1", 8080)
+                    self.addCleanup(service._release_ownership)
+                    registry.fail_write = "ProxyOverride"
+                    self.assertFalse(service.detach())
+                    self.assertEqual(registry.values["ProxyServer"], "old-proxy:80")
+                    self.assertNotEqual(registry.values, original)
+                    self.assertFalse(json.loads(journal.read_text())["applied"])
+                    registry.fail_write = None
+                    if restart:
+                        service._release_ownership()
+                        service = SystemProxyService(backend, journal_path=journal)
+                        self.assertTrue(service.recover())
+                    else:
+                        self.assertTrue(service.detach())
+                    self.assertEqual(registry.values, original)
+                    self.assertFalse(journal.exists())
+
     def test_missing_auto_detect_value_is_treated_as_disabled(self) -> None:
         backend = WindowsSystemProxyBackend()
         winreg = FakeWinreg(

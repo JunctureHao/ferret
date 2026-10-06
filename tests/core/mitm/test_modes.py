@@ -1,7 +1,7 @@
 """Tests for capture channel specs (core/mitm/modes.py).
 
 四条通道的 spec 是界面与内核的唯一接口：这里守住拼装格式、坏值拦截、首槽的
-regular/upstream 二选一（上游代理不是第五条通道，见 .plans/upstream-mode.md）、
+regular/upstream 二选一（上游代理不是第五条通道，见 docs/design.md#capture）、
 WireGuard 客户端配置的生成格式（对齐上游 ``WireGuardServerInstance.client_conf``），
 以及 local 提权守护进程在内核停止/重启时的拆除时机。
 """
@@ -66,7 +66,7 @@ class CaptureModeSpecTests(unittest.TestCase):
         """首槽是常驻底盘：通道全关时 mode 也必须只剩它一条。
 
         内容二选一 —— 默认 regular，开了上游代理整条换成 ``upstream:<目标>``
-        （.plans/upstream-mode.md §3.3）。恒在的是**槽位**，不是 ``"regular"``
+        （docs/design.md#capture）。恒在的是**槽位**，不是 ``"regular"``
         这个字面量。
         """
         self.assertEqual(
@@ -428,7 +428,7 @@ class LocalTargetTests(unittest.TestCase):
 
 
 class ReverseModeSpecTests(unittest.TestCase):
-    """反向代理（.plans/reverse-mode.md）spec 组装与排他性的钉桩。"""
+    """反向代理（docs/design.md#capture）spec 组装与排他性的钉桩。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -527,7 +527,7 @@ class ReverseModeSpecTests(unittest.TestCase):
 
 
 class Socks5ModeSpecTests(unittest.TestCase):
-    """SOCKS5 入站通道（.plans/0-socks5-channel.md）spec 组装与排他性的钉桩。"""
+    """SOCKS5 入站通道（docs/design.md#capture）spec 组装与排他性的钉桩。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -588,7 +588,7 @@ class Socks5ModeSpecTests(unittest.TestCase):
 
 
 class UpstreamModeSpecTests(unittest.TestCase):
-    """上游代理（.plans/upstream-mode.md）：首槽替换而非追加通道。"""
+    """上游代理（docs/design.md#capture）：首槽替换而非追加通道。"""
 
     @classmethod
     def setUpClass(cls) -> None:

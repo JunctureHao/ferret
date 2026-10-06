@@ -210,7 +210,7 @@ class CaInfo:
         return self.subject == self.issuer
 
 
-# --- 上游信任库（.plans/upstream-tls.md）---
+# --- 上游信任库（docs/design.md#tls）---
 #
 # 原生 `ssl_verify_upstream_trusted_ca` 是**替换**语义而不是追加：
 # `net/tls.py::create_proxy_server_context` 只在 ca_path 与 ca_pemfile 双双为空时
@@ -308,6 +308,15 @@ def _prune_trusted_ca_bundles(directory: Path, keep: Path | None) -> None:
             pass
 
 
+def prune_trusted_ca_bundles(
+    committed_bundle: str | None, *, certs_dir: Path | None = None
+) -> None:
+    """Remove old bundles only after the kernel has committed its new option."""
+    keep = Path(committed_bundle) if committed_bundle else None
+    directory = certs_dir or (keep.parent if keep is not None else get_certs_dir())
+    _prune_trusted_ca_bundles(directory, keep)
+
+
 def build_trusted_ca_bundle(
     files: Sequence[str],
     *,
@@ -322,13 +331,12 @@ def build_trusted_ca_bundle(
 
     写盘失败才抛 `CertificateError`：那是「用户以为加上了、其实没加」的场景，
     必须说出来。写入走临时文件 + `os.replace`，半份 PEM 不会出现在目标路径上。
+    构建不删除旧产物：内核可能仍引用它，只有提交成功后才能清理。
     """
     directory = certs_dir if certs_dir is not None else get_certs_dir()
     summary = inspect_trusted_ca_files(files)
     bad = list(summary.bad)
     if not summary.good:
-        # 零产物：顺手把上一次的指纹文件清掉，别在证书目录里留孤儿。
-        _prune_trusted_ca_bundles(directory, keep=None)
         return None, bad
 
     chunks = [Path(certifi.where()).read_bytes()]
@@ -357,11 +365,10 @@ def build_trusted_ca_bundle(
                     "CertificateService", "上游信任库写入失败：{}"
                 ).format(exc)
             ) from exc
-    _prune_trusted_ca_bundles(directory, keep=target)
     return str(target), bad
 
 
-# --- mTLS 客户端证书（.plans/mtls-client-certs.md）---
+# --- mTLS 客户端证书（docs/design.md#tls）---
 #
 # 原生 `client_certs` 是**一个路径**：指到文件 = 对每个要客户端证书的上游都出示同一张；
 # 指到目录 = 按 SNI 找 `<主机名>.pem`，精确匹配、无通配、无兜底。这里只做只读盘点与
@@ -371,7 +378,7 @@ def build_trusted_ca_bundle(
 # PKCS#8 明文（PRIVATE KEY）、PKCS#8 加密（ENCRYPTED PRIVATE KEY）、传统格式
 # （RSA/EC/DSA PRIVATE KEY）。**加密的传统 PEM 不改块名**，靠块内的 Proc-Type 头标记
 # —— 所以「是不是加密私钥」只能真解一次才知道，不能拿字符串判（见
-# `_client_cert_key_error` 与 .plans/mtls-client-certs.md §2.4）。
+# `_client_cert_key_error` 与 docs/design.md#tls）。
 _PEM_KEY_BLOCK = re.compile(
     rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
     re.DOTALL,
@@ -466,7 +473,7 @@ def inspect_client_cert_file(path: str) -> ClientCertEntry:
 
     最后一判不能省：私钥与证书不配对时 `use_privatekey_file` 与
     `use_certificate_chain_file` **都不报错**，OpenSSL 只是静默丢掉那把私钥，最终表现
-    为一次「没出示证书」的失败握手，用户无从排查（见 .plans/mtls-client-certs.md §2.4）。
+    为一次「没出示证书」的失败握手，用户无从排查（见 docs/design.md#tls）。
     """
     target = Path(path).expanduser()
     name = target.name

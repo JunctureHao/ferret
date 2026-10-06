@@ -33,13 +33,13 @@ from ferret.core.mitm import (
 class ScriptEditorPanel(QWidget):
     """选中条目的正文面板。
 
-    两种来源同一个面板，差别只在**可写与否**（plans/scripts.md §3.4 那张表）：
+    两种来源同一个面板，差别只在**可写与否**（docs/design.md#scripts 那张表）：
     new 条目在应用内编辑、保存即重载；import 条目只读预览，改文件要去系统编辑器，
     回来点「重载」。只读预览不在表里，但表禁的是「内嵌编辑」——
     看一眼自己加载的是什么，比逼用户开外部编辑器有用。
 
     高亮用 `Language.TEXT`：`Language` 还没有 Python 分词器，补它是
-    plans/scripts.md §7 第 3 条的后续增量，不与本功能捆绑。
+    docs/design.md#scripts 第 3 条的后续增量，不与本功能捆绑。
     """
 
     save_requested = Signal(str, str)
@@ -87,7 +87,7 @@ class ScriptEditorPanel(QWidget):
             FluentIcon.DEVELOPER_TOOLS, self.tr("在编辑器中打开")
         )
 
-        # 加载失败时才出现；traceback 不译（plans/scripts.md §3.4）。
+        # 加载失败时才出现；traceback 不译（docs/design.md#scripts）。
         self.error_view = ToolPlainTextEdit(self)
         self.error_view.set_read_only(True)
         self.error_label = CaptionLabel(self.error_view)

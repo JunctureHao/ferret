@@ -24,9 +24,11 @@ from PySide6.QtCore import (
     QItemSelectionModel,
     QObject,
     QPoint,
+    Qt,
     Signal,
 )
-from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 from ferret.apps.intercept.dialogs import HeldFlowsChoice
 from ferret.apps.intercept.window import InterceptWindow
@@ -157,7 +159,9 @@ class ConstructionTests(InterceptWindowTestCase):
         self.assertEqual(win.flow_model.columnCount(), 3)
         for row in range(win.flow_model.rowCount()):
             for col in range(3):
-                self.assertIsNone(win.flow_table.indexWidget(win.flow_model.index(row, col)))
+                self.assertIsNone(
+                    win.flow_table.indexWidget(win.flow_model.index(row, col))
+                )
 
 
 class PopUpTests(InterceptWindowTestCase):
@@ -229,7 +233,9 @@ class PanelTests(InterceptWindowTestCase):
     def test_the_panel_follows_the_selection(self) -> None:
         """选谁就给谁的面板：请求期和响应期的流混在队列里各归各的。"""
         win = self.window()
-        self.controller.emit_flows([flow_to(), flow_to("http://cdn.example.com/a.js", resp=True)])
+        self.controller.emit_flows(
+            [flow_to(), flow_to("http://cdn.example.com/a.js", resp=True)]
+        )
         win.flow_table.selectRow(0)
         self.assertIs(win.editor_panel.currentWidget(), win.request_panel)
         win.flow_table.selectRow(1)
@@ -297,7 +303,9 @@ class PanelTests(InterceptWindowTestCase):
         win = self.window()
         self.controller.emit_flows([flow_to("https://api.example.com/v1?keep=1")])
         win.request_panel.params_panel.set_items([])
-        self.assertEqual(win.request_panel._merge_url(), "https://api.example.com/v1?keep=1")
+        self.assertEqual(
+            win.request_panel._merge_url(), "https://api.example.com/v1?keep=1"
+        )
 
     def test_the_status_bar_counts_and_enables_release_all(self) -> None:
         """批量放行有一个看得见的入口，跟着队列有无启停。"""
@@ -333,13 +341,44 @@ class CloseTests(InterceptWindowTestCase):
 
 
 class ActionTests(InterceptWindowTestCase):
+    def test_release_shortcut_commits_the_open_parameter_cell(self) -> None:
+        win = self.window()
+        self.controller.emit_flows([flow_to("https://api.test/?a=old")])
+        win.show()
+        win.activateWindow()
+        app.processEvents()
+        panel = win.request_panel.params_panel
+        panel._show_table_page()
+        table = panel.table._table_widget
+        table.editItem(table.item(0, 1))
+        editor = table.viewport().focusWidget()
+        self.assertIsInstance(editor, QLineEdit)
+        editor.setText("new")
+        edits = []
+        with unittest.mock.patch.object(
+            self.controller,
+            "apply_request",
+            side_effect=lambda _id, edit, **kwargs: (
+                edits.append((edit, kwargs)) or True
+            ),
+        ):
+            QTest.keyClick(
+                editor, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier
+            )
+            QTest.keyRelease(editor, Qt.Key.Key_Control, Qt.KeyboardModifier.NoModifier)
+            app.processEvents()
+        self.assertEqual(len(edits), 1)
+        self.assertEqual(edits[0][0].url, "https://api.test/?a=new")
+        self.assertEqual(edits[0][1], {"release": True})
+
     def test_the_panel_release_button_writes_back_the_current_flow(self) -> None:
         """页头「放行」发的是信号，干活的是窗口：写回 + 放行一步到位。"""
         win = self.window()
         self.controller.emit_flows([flow_to()])
         win.request_panel.releaseRequested.emit()
         self.assertEqual(
-            self.controller.calls, [("apply_request", self.controller.flows[0].id, True)]
+            self.controller.calls,
+            [("apply_request", self.controller.flows[0].id, True)],
         )
 
     def test_the_panel_drop_button_only_drops_the_current_flow(self) -> None:
@@ -372,8 +411,9 @@ class ActionTests(InterceptWindowTestCase):
         )
 
 
-
 class _MenuStub(QObject):
+    closedSignal = Signal()
+
     """替身菜单：真 `RoundMenu.exec` 会弹出非阻塞菜单，离线测试没人点它。
 
     必须是 `QObject`：菜单动作把菜单当 parent 构造，QAction 拒绝 MagicMock。
@@ -417,9 +457,7 @@ class ContextMenuSelectionTests(InterceptWindowTestCase):
         win.flow_table.selectRow(0)
         win._on_flow_context_menu(self._pos_at_row(win, 1))
         self.assertEqual(len(_MenuStub.created), 1)
-        self.assertEqual(
-            [flow.id for flow in win._selected_flows()], [second.id]
-        )
+        self.assertEqual([flow.id for flow in win._selected_flows()], [second.id])
 
     def test_right_clicking_a_selected_row_keeps_the_multi_selection(self) -> None:
         win = self.window()
@@ -439,9 +477,7 @@ class ContextMenuSelectionTests(InterceptWindowTestCase):
         win = self.window()
         self.controller.emit_flows([flow_to()])
         win.flow_table.selectRow(0)
-        win._on_flow_context_menu(
-            QPoint(5, win.flow_table.viewport().height() + 50)
-        )
+        win._on_flow_context_menu(QPoint(5, win.flow_table.viewport().height() + 50))
         self.assertEqual(_MenuStub.created, [])
 
 

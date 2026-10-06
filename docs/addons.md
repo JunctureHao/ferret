@@ -2,7 +2,7 @@
 
 > 状态快照，实际装载以 `src/ferret/core/mitm/master.py` 为准。
 >
-> 图例：✅ 已实现　🟡 未实现（GUI 场景通常不需要）　❌ 未实现（功能缺口）
+> 图例：✅ 功能可用　🟡 GUI 场景不装载　❌ 不提供。表中功能可用不代表装载了同名命令行 addon；API 与 GUI 替代入口单独注明。
 
 ## 核心运行 Addon（已装载）
 
@@ -17,10 +17,9 @@
 | Save            | 保存流量文件           | ✅   |
 | FerretTlsConfig | 证书配置（自定义名称） | ✅   |
 | LogAddon        | 连接/HTTP 生命周期日志 | ✅   |
-| FlowExporter    | curl/httpie/raw 导出   | ✅   |
 | Compose         | 手工构造请求发送       | ✅   |
 | CertDownload    | 内置 CA 证书下载端点   | ✅   |
-| update_alt_svc  | 更新 alt-svc（仅反向代理模式生效，随 reverse 通道挂载） | ✅ |
+| update_alt_svc  | 更新 alt-svc（常驻，仅 reverse 模式生效） | ✅ |
 
 ## 流量修改类
 
@@ -34,7 +33,7 @@
 | anticomp                | 去除压缩头看明文          | ✅   |
 | block                   | 代理访问控制（按来源 IP） | ✅   |
 | gateway（网关）         | 屏蔽/拦截/绕行/仅允许     | ✅   |
-| cut                     | 截断大 body               | ❌   |
+| cut                     | 已移除的大正文截断功能    | ❌   |
 | disable_h2c             | 禁用 h2c 升级             | ✅   |
 | strip_dns_https_records | 剥离 DNS HTTPS 记录       | ✅   |
 
@@ -44,9 +43,9 @@
 | -------------- | ------------------------- | ---- |
 | serverplayback | 服务端重放（mock 整响应） | ✅   |
 | readfile       | 读取 .flow 文件重放       | ✅   |
-| savehar        | 导出 HAR                  | ✅   |
+| SaveHar API（未挂链） | 导出 HAR             | ✅   |
 | dumper         | 流式 dump 到文件          | ❌   |
-| export         | mitmproxy 自带导出命令    | ✅   |
+| export API（未挂链） | GUI 导出 curl/httpie/raw | ✅   |
 | asgiapp        | 内嵌 ASGI 应用            | ❌   |
 
 ## 认证 / 代理链
@@ -63,10 +62,10 @@
 | onboarding / onboardingapp | Web 引导页       | 🟡   |
 | termlog                    | 终端日志         | 🟡   |
 | command_history            | 命令历史         | 🟡   |
-| comment                    | 流量备注         | ✅   |
+| GUI 备注（不装 comment）   | 流量备注         | ✅   |
 | eventstore                 | 事件存储         | 🟡   |
 | browser                    | 打开浏览器       | 🟡   |
-| script                     | 加载 Python 脚本 | ✅   |
+| FerretScriptAddon          | 管理 Python 脚本，不装 CLI script | ✅ |
 | keepserving                | 保持运行         | 🟡   |
 | errorcheck                 | 错误检查         | 🟡   |
 | server_side_events         | SSE 不支持的告警 | 🟡   |
@@ -80,7 +79,8 @@
 老屏蔽页规则仅在升级时迁回网关（`core/mitm/blocklist.py` 只存兼容迁移）。
 原生 `ModifyHeaders` / `ModifyBody` / `MapLocal` / `MapRemote` 四件同样退役 —— 重写由
 自研统一引擎承载（`core/mitm/addons.py::FerretRewriteAddon`）：一个规则模型、
-行序＝执行序，并把「替换请求 / 替换响应」两个原生补不上的缺口补齐。
+同钩子内行序＝执行序；响应头在 responseheaders、响应体在 response。
+整包替换请求 / 响应也由该引擎执行。
 
 ## 协议支持（不是 addon，在代理层）
 
@@ -90,7 +90,8 @@
 | SSE             | 详情页「消息」按事件分行展示      | ✅   |
 | SSE（边收边显） | 事件随推送实时进表                | ✅   |
 
-SSE 的边收边显靠自研 tee：mitmproxy 对 SSE 零支持（原生两条路都不通 —— 默认缓冲端点不
-收尾看不到事件，开流式 body 又不入库），ferret 在 `responseheaders` 把 `response.stream`
+SSE 的边收边显靠自研 tee：mitmproxy 提供流式字节接口，Ferret 补充事件解析与档案。
+在 `responseheaders` 把 `response.stream`
 换成官方 callable，边转发边解析、事件经 Qt 信号实时进表；攒下的字节流末补回 body，响应
-体页 / 保存 / HAR 导出照常。设计取舍见 `core/mitm/sse.py` 的模块 docstring。
+体页 / 保存 / HAR 导出读取保留的正文。正文和事件分别限容量并记录截断状态；
+设计取舍见 `core/mitm/sse.py` 的模块 docstring。

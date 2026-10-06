@@ -1,4 +1,4 @@
-"""mTLS 客户端证书的内核侧验收（.plans/mtls-client-certs.md §6）。
+"""mTLS 客户端证书的内核侧验收（docs/design.md#tls）。
 
 分五组，按「越靠近原生越不需要内核」排：
 

@@ -21,7 +21,7 @@ from qfluentwidgets import CheckBox, ComboBox, PrimaryPushButton
 
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.compose.views import ComposeInterface
-from ferret.core.mitm import ComposeResult, RequestEdit
+from ferret.core.mitm import ComposeResult, RequestEdit, build_request_edit
 
 app = QApplication.instance() or QApplication([])
 
@@ -68,6 +68,26 @@ class ComposeInterfaceTestCase(unittest.TestCase):
 
 
 class ConstructionTests(ComposeInterfaceTestCase):
+    def test_prefill_preserves_untouched_raw_header_values(self) -> None:
+        flow = tflow.tflow()
+        flow.request.headers.fields = (
+            (b"X-Bytes", b"caf\xe9"),
+            (b"X-Bytes", b"\xff\xfe"),
+        )
+        self.page.prefill(build_request_edit(flow))
+        self.page._on_send()
+        headers = self.controller.calls[-1][3]
+        self.assertEqual(
+            tuple(
+                (
+                    key.encode("utf-8", "surrogateescape"),
+                    value.encode("utf-8", "surrogateescape"),
+                )
+                for key, value in headers
+            ),
+            flow.request.headers.fields,
+        )
+
     def test_the_request_side_has_three_tabs(self) -> None:
         self.assertEqual(
             list(self.page.request_panel.pivot.items),

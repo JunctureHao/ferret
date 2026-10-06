@@ -47,6 +47,7 @@ class SessionRepository:
             root = get_sessions_dir()
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self._counts: dict[Path, tuple[int, int, int, int]] = {}
 
     def _path(self, session_id: str) -> Path:
         name = Path(session_id).name
@@ -67,9 +68,22 @@ class SessionRepository:
         return [f for f in FlowFile.read_valid_prefix(path) if isinstance(f, HTTPFlow)]
 
     def _meta(
-        self, path: Path, source: SessionSource = SessionSource.CAPTURE
+        self,
+        path: Path,
+        source: SessionSource = SessionSource.CAPTURE,
+        *,
+        flow_count: int | None = None,
     ) -> SessionMeta:
         stat = path.stat()
+        signature = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+        cached = self._counts.get(path)
+        if flow_count is None:
+            flow_count = (
+                cached[3]
+                if cached and cached[:3] == signature
+                else FlowFile.count_http(path)
+            )
+            self._counts[path] = (*signature, flow_count)
         modified = datetime.fromtimestamp(stat.st_mtime).astimezone()
         created = datetime.fromtimestamp(stat.st_birthtime).astimezone()
         return SessionMeta(
@@ -79,7 +93,7 @@ class SessionRepository:
             path=path,
             created_at=created,
             modified_at=modified,
-            flow_count=len(self._read_http(path)),
+            flow_count=flow_count,
             file_size=stat.st_size,
             source=source,
         )
@@ -114,7 +128,7 @@ class SessionRepository:
                     "不能导入会话目录中的内部文件",
                 )
             )
-        if not self._read_http(source_path):
+        if not FlowFile.count_http(source_path):
             raise ValueError(
                 QCoreApplication.translate(
                     "SessionRepository", "该文件中没有可导入的 HTTP 流量"
@@ -122,11 +136,19 @@ class SessionRepository:
             )
         stem = normalize_session_name(name or source_path.stem)
         destination = self._unique_path(stem)
-        shutil.copy2(source_path, destination)
+        tmp = destination.with_suffix(".flow.tmp")
+        try:
+            shutil.copy2(source_path, tmp)
+            os.replace(tmp, destination)
+        finally:
+            tmp.unlink(missing_ok=True)
         return self._meta(destination, SessionSource.IMPORT)
 
     def list_all(self) -> list[SessionMeta]:
         sessions: list[SessionMeta] = []
+        self._counts = {
+            path: item for path, item in list(self._counts.items()) if path.exists()
+        }
         for path in self.root.glob("*.flow"):
             try:
                 if path.stat().st_size == 0:
@@ -166,6 +188,10 @@ class SessionRepository:
                 deduped[flow.id] = flow
             flows = list(deduped.values())
         return flows
+
+    def open(self, session_id: str) -> tuple[SessionMeta, list[HTTPFlow]]:
+        flows = self.load_flows(session_id)
+        return self._meta(self._path(session_id), flow_count=len(flows)), flows
 
     def rename(self, session_id: str, name: str) -> SessionMeta:
         source = self._path(session_id)

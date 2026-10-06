@@ -107,7 +107,7 @@ else:
 class _ColumnLayoutMixin(_MixinBase):
     """列布局应用（顺序 / 显隐 / 宽度 / Mark 固定宽 / 响应式），全按稳定 key。
 
-    平铺表格与连接树共用（`.plans/0-flow-list-columns.md` §4.2）。逻辑列/模型
+    平铺表格与连接树共用（`docs/design.md#ui`）。逻辑列/模型
     `_headers` 恒定不动，重排只经 `QHeaderView.moveSection`（纯视觉），排序天然跟随
     稳定逻辑列。子类须：声明 `column_layout_changed = Signal(object)`、提供
     `_column_header()` 返回其 `QHeaderView`、在视图初始化里调 `_init_columns(layout)`。
@@ -203,6 +203,7 @@ class _ColumnLayoutMixin(_MixinBase):
         # FlowDataTable/FlowConnTree，self.tr 的 runtime context 与 lupdate 静态提取的
         # mixin context 对不上会静默退回中文（§7）。用字面 context 让提取与查表一致。
         menu = RoundMenu(parent=self)
+        menu.closedSignal.connect(menu.deleteLater)
         settings_action = BaseAction(
             FluentIcon.SETTING,
             QCoreApplication.translate("FlowColumnMenu", "列设置…"),
@@ -221,8 +222,11 @@ class _ColumnLayoutMixin(_MixinBase):
 
     def _open_column_dialog(self) -> None:
         dialog = ColumnSettingsDialog(self._column_layout, self)
-        if dialog.exec():
-            self._commit_column_layout(dialog.result_layout())
+        try:
+            if dialog.exec():
+                self._commit_column_layout(dialog.result_layout())
+        finally:
+            dialog.deleteLater()
 
     def _reset_columns(self) -> None:
         self._commit_column_layout(default_layout())

@@ -63,7 +63,7 @@ def _safe_join(directory: str, *pathnames: str) -> str | None:
 # mitmproxy.addons.export 和 mitmproxy.master 在导入期拉进来。用桩顶替以配合
 # __main__.py 的 --nofollow-import-to，必须在任何 mitmproxy 导入之前完成。
 # 注意 maplocal / mapremote / modifybody / modifyheaders 四个模块**没有**随重写
-# 引擎自研（plans/rewrite-ui.md）而立桩：`mitmproxy.addons.__init__` 在导入期
+# 引擎自研（docs/design.md#rewrite）而立桩：`mitmproxy.addons.__init__` 在导入期
 # 无条件 import 它们，ferret 这边已经不再引用（重写引擎见 core/mitm/rewrite.py
 # 与 addons.py::FerretRewriteAddon），但桩掉它们需要连 addons.__init__ 一起桩，
 # 得不偿失。
@@ -75,7 +75,7 @@ def _safe_join(directory: str, *pathnames: str) -> str | None:
 # - werkzeug 见上面的 _safe_join。colorama / markupsafe 只有 werkzeug 引用，桩掉
 #   werkzeug 之后它们自然不可达，不必单独立桩。
 # - ldap3 / mitmproxy.utils.htpasswd 是 proxyauth 的两条弃用分支，见下面的就地注释。
-# script 保持不桩（脚本功能已落地 core/mitm/scripts.py，plans/scripts.md §4）：
+# script 保持不桩（脚本功能已落地 core/mitm/scripts.py，docs/design.md#scripts）：
 # 我们从不 import mitmproxy.addons.script，它必须留着不桩。
 # 也别顺手把 proxyauth 桩回去：它已经解桩装载（master.py 的 ProxyAuth()）。
 _STUBBED_MODULES: dict[str, dict[str, Any]] = {
@@ -140,6 +140,7 @@ from mitmproxy.addons.tlsconfig import TlsConfig
 from mitmproxy.addons.update_alt_svc import UpdateAltSvc
 from mitmproxy.addons.upstream_auth import UpstreamAuth
 from mitmproxy.addons.view import View
+from mitmproxy.dns import DNSFlow
 from mitmproxy.exceptions import (
     AddonHalt,
     CommandError,
@@ -156,12 +157,13 @@ from mitmproxy.master import Master
 # @lru_cache(256)，键里只有 client_cert 的**路径字符串** —— 路径不变、原地换掉证书
 # 文件内容，旧上下文会被继续复用；缓存又挂在模块上，跨 MitmRuntime.restart 存活，
 # 「停止抓包 → 换证书 → 重新开始」也清不掉。所以下发 client_certs 前后都得手动清。
-# 见 .plans/mtls-client-certs.md D4。
+# 见 docs/design.md#tls。
 from mitmproxy.net import tls as net_tls
 from mitmproxy.net.http import status_codes
 
 # ruff 默认 combine-as-imports = false，`as` 导入只能单独成句。
 from mitmproxy.net.http import url as http_url
+from mitmproxy.net.http.headers import infer_content_encoding
 from mitmproxy.net.http.http1.assemble import (
     assemble_request_head,
     assemble_response_head,
@@ -170,7 +172,9 @@ from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
 from mitmproxy.proxy.mode_servers import LocalRedirectorInstance
 from mitmproxy.proxy.mode_specs import ProxyMode, UpstreamMode
-from mitmproxy.utils import emoji, human
+from mitmproxy.tcp import TCPFlow
+from mitmproxy.udp import UDPFlow
+from mitmproxy.utils import emoji, human, signals
 from mitmproxy.websocket import WebSocketData, WebSocketMessage
 from mitmproxy_rs import process_info as rs_process_info
 from mitmproxy_rs import wireguard as rs_wireguard
@@ -201,6 +205,7 @@ __all__ = [
     "ClientPlayback",
     "CommandError",
     "Core",
+    "DNSFlow",
     "DisableH2C",
     "DnsResolver",
     "Flow",
@@ -228,7 +233,9 @@ __all__ = [
     "StickyAuth",
     "StickyCookie",
     "StripDnsHttpsRecords",
+    "TCPFlow",
     "TlsConfig",
+    "UDPFlow",
     "UpdateAltSvc",
     "UpstreamAuth",
     "UpstreamMode",
@@ -246,12 +253,14 @@ __all__ = [
     "hooks",
     "http_url",
     "human",
+    "infer_content_encoding",
     "io",
     "net_tls",
     "parse_filter",
     "rs_process_info",
     "rs_wireguard",
     "server_hooks",
+    "signals",
     "status_codes",
     "tlsconfig_module",
 ]

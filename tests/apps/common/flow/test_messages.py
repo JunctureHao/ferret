@@ -19,6 +19,7 @@
 
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -561,6 +562,14 @@ class NativeFlowTests(unittest.TestCase):
 
 
 class SseBubbleTests(unittest.TestCase):
+    def test_heartbeat_notes_share_the_display_limit(self) -> None:
+        with patch("ferret.apps.common.flow.messages.MESSAGE_ROW_LIMIT", 3):
+            for index in range(10):
+                self.pane.append_event(parse_sse(f": heartbeat-{index}\n\n")[0])
+        self.assertEqual(len(notes_of(self.pane)), 3)
+        self.assertEqual(notes_of(self.pane)[-1].label.text(), ": heartbeat-9")
+        self.assertEqual(self.pane.count, 10)
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
@@ -771,6 +780,15 @@ class OrderTests(unittest.TestCase):
         self.assertEqual(self.keys(), [0, 1, 2, 3])
         self.assertFalse(self.pane.stream.descending)
 
+    def test_sorting_does_not_duplicate_selection_notifications(self) -> None:
+        received = []
+        self.pane.stream.selectionChanged.connect(received.append)
+        for descending in (True, False, True, False):
+            self.pane.stream.set_descending(descending)
+        bubble = bubbles_of(self.pane)[0]
+        bubble.activated.emit(bubble.key)
+        self.assertEqual(received, [bubble.key])
+
     def test_toggling_rebuilds_in_reverse(self) -> None:
         self.pane.sort_btn.setChecked(True)
 
@@ -904,6 +922,7 @@ class ModeSelectionTests(unittest.TestCase):
         """表格双击传过来的可能只有几个键。"""
         self.pane.set_data({"Method": "GET", "URL": "https://x/y"})
         self.assertFalse(self.pane.applicable)
+
 
 class PlainTextRenderingTests(unittest.TestCase):
     """协议原文按纯文本承载（issues #87）：QLabel 默认 AutoText 会把 `<b>` 渲染成

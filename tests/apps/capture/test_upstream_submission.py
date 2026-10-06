@@ -1,4 +1,4 @@
-"""上游代理提交路径的前置校验（.plans/upstream-mode.md §7 第 12 条后半）。
+"""上游代理提交路径的前置校验（docs/design.md#capture 第 12 条后半）。
 
 `CapturesInterface.__show_proxy_port_dialog` 里有三道上游相关的闸门，语义各不
 相同，必须分开钉：
@@ -56,7 +56,7 @@ class FakeController:
         self.upstream_target = ""
         self.upstream_username = ""
         self.upstream_password = ""
-        # 代理认证三意图值（.plans/proxyauth.md）：对话框回填要读。
+        # 代理认证三意图值（docs/design.md#auth）：对话框回填要读。
         self.proxyauth_enabled = False
         self.proxyauth_username = ""
         self.proxyauth_password = ""
@@ -101,6 +101,9 @@ class FakeDialog:
 
     def exec(self) -> bool:
         return True
+
+    def deleteLater(self) -> None:
+        pass
 
     def _get(self, name, default):
         return FakeDialog.values.get(name, default)

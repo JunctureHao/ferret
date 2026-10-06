@@ -45,14 +45,17 @@ uv run ferret
 2. 到「证书」页安装 CA 证书：本机一键装入系统信任库；手机等设备连上代理后，
    通过内置下载端点获取并信任证书。
 3. 勾选「系统代理」让本机应用流量自动接入，或手动把客户端代理指向
-   `127.0.0.1:8080`。局域网设备把代理设为「本机局域网 IP : 8080」即可。
+   `127.0.0.1:8080`。局域网接入须先把监听地址从默认环回改为 `0.0.0.0`，
+   允许对应防火墙入站连接，再把设备代理设为「本机局域网 IP : 8080」。
+
+各通道设置、CA 信任、保存与更新说明见 [使用指南](docs/usage.md)。
 
 ## 开发
 
 ```sh
 uv run ferret                            # 运行
 uv run python -m unittest discover -s tests   # 测试
-ruff check .                             # 提交前门禁（静态检查）
+uvx ruff check .                         # 提交前门禁（静态检查）
 uvx ty check                             # 提交前门禁（类型检查）
 uv run python -m ferret.utils.scripts    # 改界面文案后重建翻译资源
 uv run python scripts/package.py         # Nuitka 编译 + velopack 打安装包
@@ -61,6 +64,8 @@ uv run python scripts/package.py         # Nuitka 编译 + velopack 打安装包
 - 打包细节与瘦身记录：[docs/packaging.md](docs/packaging.md)。
 - 内置 addon 与 mitmproxy 的功能对照、协议支持：[docs/addons.md](docs/addons.md)。
 - 开发约定（分层、桥接红线、i18n 规则）：[AGENTS.md](AGENTS.md)。
+- 开发决策与实现入口：[docs/design.md](docs/design.md)。
+- 各版本变更：[Releases](https://github.com/JunctureHao/ferret/releases)。
 
 ## License
 

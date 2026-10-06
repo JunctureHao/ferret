@@ -5,7 +5,7 @@
 OSError 弹窗，或者更糟：`../` 把文件写到托管目录外面。
 
 `ScriptRemoveDialog` 要钉的是默认值：「移除条目」与「删文件」是两件事，后者不可
-撤销，所以勾选框默认不勾（plans/scripts.md §3.4）。
+撤销，所以勾选框默认不勾（docs/design.md#scripts）。
 
 `MessageBoxBase` 会读 `parent.width()` 铺遮罩层，所以每个用例都得有宿主窗口。
 """

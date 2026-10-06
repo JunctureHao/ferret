@@ -1,6 +1,6 @@
 """User-script model layer and the module loader ported from mitmproxy.
 
-用户脚本扩展（plans/scripts.md）：ScriptEntry 是落盘模型（路径 + 启用位 +
+用户脚本扩展（docs/design.md#scripts）：ScriptEntry 是落盘模型（路径 + 启用位 +
 来源标记），装载/卸载/状态上报在 addons.py::FerretScriptAddon，钩子派发借
 原生 addonmanager 机制，不重写。
 
@@ -9,10 +9,11 @@
 `scripts_from_config` 吞掉，从不上界面（与 rewrite.py 同一条惯例）。
 
 `load_script_module` 是原生 `mitmproxy.addons.script.load_script` 的等价搬运
-（上游 BSD 许可证）：纯 importlib 逻辑照搬，分叉只有四处 ——
+（上游 BSD 许可证）：保留 importlib 逻辑，并适配以下差异 ——
 错误经参数传入的 `report` 回调上报（原生走 logging）；模块名用路径 md5
 （原生用 basename，同名脚本互相顶掉 sys.modules 里的槽位）；冻结环境提示
-换中文译文；装载一律现编源码、不碰 `__pycache__`（见 `_FreshSourceLoader`）。
+换中文译文；装载一律现编源码、不碰 `__pycache__`（见 `_FreshSourceLoader`）；
+执行前登记 sys.modules，以支持 dataclass 与模块内的前向类型引用。
 改装载语义之前先读上游源码再动。
 """
 
@@ -33,7 +34,7 @@ from typing import Any
 from PySide6.QtCore import QCoreApplication
 
 # 条目来源标记：只服务 UI 分叉（导入的外部文件 vs 应用内新建的托管文件），
-# core 装载一律不读它（plans/scripts.md §3.4）。
+# core 装载一律不读它（docs/design.md#scripts）。
 SCRIPT_ORIGIN_IMPORT = "import"
 SCRIPT_ORIGIN_NEW = "new"
 
@@ -164,14 +165,18 @@ def load_script_module(
         if spec is None:
             raise ImportError(f"无法为脚本创建加载规格: {path}")
         module = importlib.util.module_from_spec(spec)
+        # dataclasses / forward annotations resolve their defining module while
+        # the module body executes, just as they do during a normal import.
+        sys.modules[fullname] = module
         loader.exec_module(module)
         if not getattr(module, "name", None):
             module.name = path  # ty: ignore[unresolved-attribute]
         return module
     except BaseException as exc:  # noqa: BLE001
+        sys.modules.pop(fullname, None)
         if getattr(sys, "frozen", False):
             # Nuitka 打包后脚本由内置解释器执行，import 第三方包必炸（上游同款
-            # 提示，见 plans/scripts.md §4）。追加译文进异常消息，不吞原异常。
+            # 提示，见 docs/design.md#scripts）。追加译文进异常消息，不吞原异常。
             hint = QCoreApplication.translate(
                 "Scripts",
                 "注意：打包版本自带 Python 环境，脚本无法 import 额外安装的第三方包。",

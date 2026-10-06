@@ -1,4 +1,4 @@
-"""设置页的更新对话框：「发现新版本 → 下载 → 重启」三态（.plans/3-auto-update.md §2）。
+"""设置页的更新对话框：「发现新版本 → 下载 → 重启」三态（docs/design.md#update）。
 
 对话框只做展示与用户意图回收，任务编排全在 ``UpdateController``：状态迁移由外部
 调用 ``set_downloading`` / ``set_ready`` / ``set_failed`` 驱动。

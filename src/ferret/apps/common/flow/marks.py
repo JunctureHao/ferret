@@ -5,7 +5,7 @@
 映射到 ``"●"``），显示时经同一本字典翻译成 emoji 字符。写回与校验走
 `MitmFacade.set_flow_marked`，本模块只管「把 1843 个候选摆出来让人挑一个」。
 
-方案与决策见 `.plans/flow-mark.md`。
+方案与决策见 `docs/design.md#ui`。
 """
 
 from functools import cache
@@ -197,7 +197,9 @@ class _MarkerTileDelegate(ListItemDelegate):
 
         # glyph 层：emoji-first 字体，横向居中、块内偏上。
         painter.setFont(emoji_font(_TILE_GLYPH_PX))
-        painter.setPen(QColor(Qt.GlobalColor.white if isDarkTheme() else Qt.GlobalColor.black))
+        painter.setPen(
+            QColor(Qt.GlobalColor.white if isDarkTheme() else Qt.GlobalColor.black)
+        )
         glyph_rect = QRect(tile.x(), tile.y() + 6, tile.width(), 34)
         painter.drawText(
             glyph_rect,

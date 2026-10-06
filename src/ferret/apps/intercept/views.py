@@ -262,8 +262,11 @@ class InterceptInterface(QWidget):
     @Slot()
     def _on_add(self):
         dialog = InterceptRuleDialog(self.tr("新增断点规则"), parent=self.window())
-        if dialog.exec():
-            self.controller.add_rule(dialog.get_rule())
+        try:
+            if dialog.exec():
+                self.controller.add_rule(dialog.get_rule())
+        finally:
+            dialog.deleteLater()
 
     @Slot(QModelIndex)
     def _on_rule_activated(self, index: QModelIndex):
@@ -280,8 +283,11 @@ class InterceptInterface(QWidget):
         dialog = InterceptRuleDialog(
             self.tr("编辑断点规则"), rule=rule, parent=self.window()
         )
-        if dialog.exec():
-            self.controller.update_rule(rows[0], dialog.get_rule())
+        try:
+            if dialog.exec():
+                self.controller.update_rule(rows[0], dialog.get_rule())
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def _on_delete(self):
@@ -302,6 +308,7 @@ class InterceptInterface(QWidget):
         if not rows:
             return
         menu = RoundMenu(parent=self.rule_table)
+        menu.closedSignal.connect(menu.deleteLater)
         if len(rows) == 1:
             row = rows[0]
             rule = self.controller.rule_at(row)

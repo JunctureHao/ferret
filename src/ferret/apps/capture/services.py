@@ -11,8 +11,8 @@ from ferret.core.mitm import parse_filter
 def build_filter_expression(raw: str = "") -> str:
     """Wrap a user-authored flowfilter expression with the ``~http`` base.
 
-    过滤面板只产出**一条**原生 flowfilter 表达式（`.plans/0-filter-redesign.
-    expression-first.md`）：字段/逻辑/值那套弱结构化模型已退役，表达式即唯一事实源。
+    过滤面板只产出**一条**原生 flowfilter 表达式（`docs/design.md#ui`）：
+    字段/逻辑/值那套弱结构化模型已退役，表达式即唯一事实源。
 
     ``~http`` 底座不许丢：View 的基础过滤器（`runtime.py`）也以它开头，少了它 tcp/udp
     流量会直接涌进表格。raw 非空时整体加括号作最后一个原子拼入——flowfilter 里并列会

@@ -29,6 +29,9 @@ class FakeMaster:
 class FakeRuntime(QObject):
     flow_added = Signal(object)
     compose_flow_added = Signal(object)
+    flow_stored = Signal(object)
+    compose_flow_stored = Signal(object)
+    flow_discarded = Signal(object)
     flow_updated = Signal(object)
     flow_removed = Signal(object, int)
     view_refreshed = Signal()

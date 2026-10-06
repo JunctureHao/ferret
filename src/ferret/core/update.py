@@ -1,4 +1,4 @@
-"""应用内更新：velopack SDK 的薄封装（.plans/3-auto-update.md §3）。
+"""应用内更新：velopack SDK 的薄封装（docs/design.md#update）。
 
 边界约定：velopack 类型（``UpdateInfo`` 等）在本模块里是**不透明句柄** —— apps 层
 只在 ``check`` → ``download`` → ``apply_and_restart`` 之间透传，不读其属性；界面要

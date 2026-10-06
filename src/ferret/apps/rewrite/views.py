@@ -255,8 +255,11 @@ class RewriteInterface(QWidget):
     @Slot()
     def _on_add(self):
         dialog = RewriteRuleDialog(self.tr("新增重写规则"), parent=self.window())
-        if dialog.exec():
-            self.controller.add_rule(dialog.get_rule())
+        try:
+            if dialog.exec():
+                self.controller.add_rule(dialog.get_rule())
+        finally:
+            dialog.deleteLater()
 
     @Slot(QModelIndex)
     def _on_row_activated(self, index: QModelIndex):
@@ -273,8 +276,11 @@ class RewriteInterface(QWidget):
         dialog = RewriteRuleDialog(
             self.tr("编辑重写规则"), rule=rule, parent=self.window()
         )
-        if dialog.exec():
-            self.controller.update_rule(rows[0], dialog.get_rule())
+        try:
+            if dialog.exec():
+                self.controller.update_rule(rows[0], dialog.get_rule())
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def _on_delete(self):
@@ -295,6 +301,7 @@ class RewriteInterface(QWidget):
         if not rows:
             return
         menu = RoundMenu(parent=self.table)
+        menu.closedSignal.connect(menu.deleteLater)
         if len(rows) == 1:
             row = rows[0]
             rule = self.controller.rule_at(row)

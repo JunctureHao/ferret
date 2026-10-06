@@ -37,6 +37,7 @@ from ferret.apps.common.edit import (
     JsonDualPanel,
     Language,
 )
+from ferret.apps.common.edit.headers import HeaderDualPanel
 from ferret.apps.common.flow.detail import ResponsePane
 from ferret.apps.common.flow.fields import (
     Field,
@@ -252,7 +253,7 @@ class ComposeInterface(QWidget):
         self.request_panel.close_button.hide()
 
         self.params_card = ItemDualPanel(True, self)
-        self.headers_card = ItemDualPanel(True, self)
+        self.headers_card = HeaderDualPanel(True, self)
         self.body_panel = JsonDualPanel(self)
         self.body_kind_combo = ComboBox(self)
         self.body_kind_combo.addItems([kind for kind, _, _ in BODY_KINDS])
@@ -458,9 +459,10 @@ class ComposeInterface(QWidget):
         parse_qsl/urlencode 的重编码路径 —— `?q=a%20b&flag` 重排成 `q=a+b&flag=`
         会让签名类参数失效。编辑过才合并（端口规范见 `_merge_query`）。
         """
+        pairs = self.params_card.items()
         if not self._url_dirty and not self._params_dirty:
             return self.url_edit.text()
-        return self._merge_query(self.url_edit.text().strip(), self.params_card.items())
+        return self._merge_query(self.url_edit.text().strip(), pairs)
 
     def _set_method(self, method: str) -> None:
         """写入方法下拉。纯 ComboBox 有两个坑：setText 只改按钮字面、不动选中项，

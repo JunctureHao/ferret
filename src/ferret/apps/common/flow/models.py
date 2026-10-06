@@ -142,6 +142,7 @@ class FlowTableModel(QAbstractTableModel):
         # 排序位置（并发重排会导致插入声明位置与取数位置失配 → 空行/错数据）。
         # 数据源只作为 flow 存储/过滤后端，行号由此列表自治。
         self._rows: list[HTTPFlow] = []
+        self._row_by_identity: dict[int, int] = {}
         # 搜索高亮模式下命中当前表达式的 flow.id 集（在 mitm 线程算好后回推）。
         self._highlight_ids: set[str] = set()
 
@@ -150,6 +151,7 @@ class FlowTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._source = source
         self._rows = list(source)
+        self._reindex()
         self.endResetModel()
 
     def headerData(
@@ -371,20 +373,22 @@ class FlowTableModel(QAbstractTableModel):
     # ------------------------------------------------------------------
     def _row_of(self, flow: HTTPFlow) -> int:
         """在稳定行号列表中查找 flow 的索引（不依赖 View 排序位置）"""
-        try:
-            return self._rows.index(flow)
-        except ValueError:
-            return -1
+        return self._row_by_identity.get(id(flow), -1)
+
+    def _reindex(self) -> None:
+        # Keep the existing identity contract: a stale snapshot is not a live row.
+        self._row_by_identity = {id(flow): row for row, flow in enumerate(self._rows)}
 
     def handle_add(self, flow: HTTPFlow) -> None:
         """处理 View 新增 flow：追加到末尾，行号由 _rows 自治"""
         if not self._source:
             return
-        if flow in self._rows:
+        if id(flow) in self._row_by_identity:
             return  # 防重复
         row = len(self._rows)
         self.beginInsertRows(QModelIndex(), row, row)
         self._rows.append(flow)
+        self._row_by_identity[id(flow)] = row
         self.endInsertRows()
 
     def handle_update(self, flow: HTTPFlow) -> None:
@@ -403,12 +407,14 @@ class FlowTableModel(QAbstractTableModel):
             return
         self.beginRemoveRows(QModelIndex(), row, row)
         self._rows.pop(row)
+        self._reindex()
         self.endRemoveRows()
 
     def handle_refresh(self) -> None:
         """处理 View 整体刷新：同步重建 _rows"""
         self.beginResetModel()
         self._rows = list(self._source) if self._source else []
+        self._reindex()
         self.endResetModel()
 
     def set_highlight_ids(self, ids: set[str]) -> None:
@@ -433,6 +439,7 @@ class FlowTableModel(QAbstractTableModel):
         """清空表格内容"""
         self.beginResetModel()
         self._rows.clear()
+        self._row_by_identity.clear()
         self.endResetModel()
         if self._source:
             self._source.clear()
@@ -602,9 +609,7 @@ class _ConnNode:
 
     def size_bytes(self) -> int:
         return sum(
-            FlowTableModel._size_bytes(f)
-            for f in self.flows
-            if isinstance(f, HTTPFlow)
+            FlowTableModel._size_bytes(f) for f in self.flows if isinstance(f, HTTPFlow)
         )
 
     def _starts(self) -> list[float]:
@@ -762,9 +767,7 @@ class FlowConnTreeModel(QAbstractItemModel):
     ) -> int:
         return len(self._headers)
 
-    def flags(
-        self, index: QModelIndex | QPersistentModelIndex
-    ) -> Qt.ItemFlag:
+    def flags(self, index: QModelIndex | QPersistentModelIndex) -> Qt.ItemFlag:
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
         return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -781,6 +784,7 @@ class FlowConnTreeModel(QAbstractItemModel):
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         return None
+
     def data(
         self,
         index: QModelIndex | QPersistentModelIndex,
@@ -847,6 +851,7 @@ class FlowConnTreeModel(QAbstractItemModel):
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         return None
+
     # ------------------------------------------------------------------
     # 数据源与增量（由 View 桥接信号驱动，语义对齐平铺模型）
     # ------------------------------------------------------------------
@@ -1001,9 +1006,7 @@ class FlowConnTreeModel(QAbstractItemModel):
             return node.flows[row]
         return None
 
-    def flows_under(
-        self, index: QModelIndex | QPersistentModelIndex
-    ) -> list[HTTPFlow]:
+    def flows_under(self, index: QModelIndex | QPersistentModelIndex) -> list[HTTPFlow]:
         """节点 → 全部子流；子行 → 该单条。删除 / 导出走这条 parent→children 展开。"""
         node = self.node_at(index)
         if node is not None:

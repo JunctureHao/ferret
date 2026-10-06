@@ -1,6 +1,9 @@
 """Ferret's reusable mitmproxy addons."""
 
+from __future__ import annotations
+
 import mimetypes
+import sys
 import traceback
 import urllib.parse
 from collections.abc import Callable, Iterable
@@ -19,6 +22,7 @@ from ferret.core.mitm.bindings import (
     connection,
     hooks,
     human,
+    infer_content_encoding,
     safe_join,
     server_hooks,
     status_codes,
@@ -112,6 +116,14 @@ class FerretServerPlayback(ServerPlayback):
         if f.metadata.get(AUTH_CHALLENGED_METADATA_KEY):
             return
         super().request(f)
+
+    def remove_entries(self, entry_ids: set[str]) -> None:
+        """Remove only queued entries; consumed source material stays consumed."""
+        self.flowmap = {
+            key: remaining
+            for key, flows in self.flowmap.items()
+            if (remaining := [flow for flow in flows if flow.id not in entry_ids])
+        }
 
 
 class CertDownloadAddon:
@@ -473,7 +485,7 @@ class GatewayL7Addon:
 
 
 class FerretRewriteAddon:
-    """自研统一重写引擎（plans/rewrite-ui.md §5）：八个类型一个 addon。
+    """自研统一重写引擎（docs/design.md#rewrite）：八个类型一个 addon。
 
     原生 MapRemote / MapLocal / ModifyHeaders / ModifyBody 四件退役的动机与
     语义契约见 `core/mitm/rewrite.py` 的模块 docstring。这里只管执行：
@@ -506,6 +518,7 @@ class FerretRewriteAddon:
     def request(self, flow: HTTPFlow) -> None:
         if not self._enabled or flow.error or not flow.live:
             return
+        missing_local = False
         for entry in self._rules.entries():
             # 每条规则都对**当前** URL 重新匹配：重定向规则链式生效
             # （a→b 之后 b→c 照样命中），对齐原生 MapRemote 的逐条重读语义。
@@ -521,7 +534,7 @@ class FerretRewriteAddon:
                 elif kind == RewriteKind.MAP_REMOTE:
                     self._map_remote(flow, entry)
                 elif kind == RewriteKind.MAP_LOCAL:
-                    self._map_local(flow, entry, url)
+                    missing_local = self._map_local(flow, entry, url) or missing_local
                 elif kind == RewriteKind.REPLACE_REQUEST:
                     self._replace_request(flow, entry)
                 # 前面某条映射规则已经作答的流量不再整条替换。
@@ -529,6 +542,11 @@ class FerretRewriteAddon:
                     self._replace_response(flow, entry)
             except Exception as exc:  # noqa: BLE001
                 self._log.warning("重写规则执行失败，本条已跳过: %s", exc)
+        # A missing directory candidate does not preempt later rows. Successful
+        # local/response rules still win at their original position in the list.
+        if missing_local and flow.response is None:
+            flow.response = Response.make(404)
+            flow.metadata[REWRITE_ANSWERED_KEY] = "1"
 
     def responseheaders(self, flow: HTTPFlow) -> None:
         """响应头规则在头发出前作用（issues #37）。
@@ -604,14 +622,15 @@ class FerretRewriteAddon:
         headers.add(entry.header_name, value)
 
     def _modify_body(self, message, entry: CompiledRewrite) -> None:
-        """对 **utf-8 可解码**的体做正则替换，重新编码；二进制体跳过。"""
-        content = message.get_content(strict=False)
-        if content is None:
+        """Use mitmproxy's charset and compression handling for text bodies."""
+        text = message.get_text(strict=False)
+        if text is None:
             return
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError:
-            # 二进制体跳过：debug 日志落一条，不静默（plans/rewrite-ui.md §13）。
+        if any(
+            (ord(char) < 32 and char not in "\t\r\n") or 0xDC80 <= ord(char) <= 0xDCFF
+            for char in text
+        ):
+            # 二进制体跳过：debug 日志落一条，不静默（docs/design.md#rewrite）。
             self._log.debug(
                 "体正则规则跳过二进制体: %s",
                 entry.rule.target or "(整体替换)",
@@ -629,10 +648,19 @@ class FerretRewriteAddon:
         # 而界面帮助与自研契约都是「输入什么发什么」（上游 modifybody 也是用
         # lambda 关掉模板语义）。lambda repl 让 re.sub 原样取返回值。URL 重写
         # （MAP_REMOTE）保留模板语义，那是重定向的既有契约。
-        # 直接写 content：mitmproxy 自动重算 Content-Length；charset 保持原头不动。
-        message.content = entry.body.sub(lambda _match: replacement, text).encode(
-            "utf-8"
-        )
+        rewritten = entry.body.sub(lambda _match: replacement, text)
+        if rewritten != text:
+            # Use the same inference as get_text, including body BOM / HTML
+            # charset hints. set_text infers from headers alone and can add a
+            # second UTF-16 BOM or encode a sniffed body with another charset.
+            encoding = infer_content_encoding(
+                message.headers.get("content-type", ""),
+                message.get_content(strict=False) or b"",
+            )
+            try:
+                message.content = rewritten.encode(encoding)
+            except (UnicodeEncodeError, LookupError):
+                message.set_text(rewritten)
 
     def _map_remote(self, flow: HTTPFlow, entry: CompiledRewrite) -> None:
         """``re.sub(subject, template, pretty_url)`` → ``request.url``。
@@ -647,10 +675,10 @@ class FerretRewriteAddon:
         if url != new_url:
             flow.request.url = new_url
 
-    def _map_local(self, flow: HTTPFlow, entry: CompiledRewrite, url: str) -> None:
+    def _map_local(self, flow: HTTPFlow, entry: CompiledRewrite, url: str) -> bool:
         """文件映射：现读本地文件直接作答，请求不出网（对齐原生 MapLocal）。"""
         if flow.response is not None:
-            return
+            return False
         root = Path(entry.rule.replacement.strip()).expanduser()
         candidates = (
             [root] if root.is_file() else self._local_candidates(root, entry, url)
@@ -663,20 +691,19 @@ class FerretRewriteAddon:
                     "文件映射候选均不存在: %s",
                     ", ".join(str(c) for c in candidates),
                 )
-                flow.response = Response.make(404)
-                flow.metadata[REWRITE_ANSWERED_KEY] = "1"
-            return
+            return bool(candidates)
         try:
             contents = local_file.read_bytes()
         except OSError as exc:
             self._log.warning("文件映射读取失败: %s", exc)
-            return
+            return False
         headers = {}
         mimetype = mimetypes.guess_type(str(local_file))[0]
         if mimetype:
             headers["Content-Type"] = mimetype
         flow.response = Response.make(200, contents, headers)
         flow.metadata[REWRITE_ANSWERED_KEY] = "1"
+        return False
 
     @staticmethod
     def _local_candidates(root: Path, entry: CompiledRewrite, url: str) -> list[Path]:
@@ -735,14 +762,14 @@ class FerretRewriteAddon:
 
 
 class FerretScriptAddon:
-    """用户脚本扩展（plans/scripts.md §3.2）：装载/卸载自研，钩子派发借原生。
+    """用户脚本扩展（docs/design.md#scripts）：装载/卸载自研，钩子派发借原生。
 
     **只在 mitm 线程上被读写** —— 装载走 importlib、注册走 `master.addons`，
     两者都不是线程安全资源；下发经 `MitmRuntime.call` marshal 到 mitm 循环上，
     这里不需要锁。
 
     为什么不装原生 ScriptLoader / Script：`ctx` 红线、`script.run` 命令行件、
-    watcher 静默吞配置，四条理由见 plans/scripts.md §2。这里只做两件原生做不了
+    watcher 静默吞配置，四条理由见 docs/design.md#scripts。这里只做两件原生做不了
     的事：装载/卸载脚本模块、把异常翻译成状态快照；钩子怎么派发到脚本模块是
     `addonmanager` 的原生机制，不重写。
 
@@ -841,6 +868,7 @@ class FerretScriptAddon:
         if old_ns is not None:
             with addonmanager.safecall():
                 self._master.addons.remove(old_ns)
+            sys.modules.pop(old_ns.__name__, None)
         try:
             ns = load_script_module(entry.path, self._report_load_error)
         except Exception:  # noqa: BLE001
@@ -868,6 +896,7 @@ class FerretScriptAddon:
             )
             with addonmanager.safecall():
                 self._master.addons.remove(ns)
+            sys.modules.pop(ns.__name__, None)
             return
         self.loaded[entry.path] = ns
         self.statuses[entry.path] = ScriptStatus(ScriptState.LOADED)
@@ -878,6 +907,8 @@ class FerretScriptAddon:
         if ns is not None:
             with addonmanager.safecall():
                 self._master.addons.remove(ns)
+            if sys.modules.get(ns.__name__) is ns:
+                sys.modules.pop(ns.__name__)
 
     def _report_load_error(self, path: str, exc: BaseException) -> None:
         if isinstance(exc, FileNotFoundError):

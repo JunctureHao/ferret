@@ -1,4 +1,4 @@
-"""Mock 响应池（原生 ServerPlayback，.plans/0-server-playback.md）。
+"""Mock 响应池（原生 ServerPlayback，docs/design.md#mock）。
 
 三层各钉各的契约：装配（master 持有实例并在链上）、行为（命中注入 / 未命中
 策略 / 消耗与复用 / 哈希粒度热更）、facade（池副本的线程边界与托管文件回读）。

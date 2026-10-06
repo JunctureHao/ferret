@@ -6,7 +6,7 @@
    换序必须真的换序；而 `dropMimeData` 又刻意返回 False（数据的唯一权威副本在
    控制器手上，返回 True 会让 view 按 `InternalMove` 的约定把源行再删一遍）。
 2. **删文件只对 new 条目生效** —— import 条目引用的是用户自己的文件，混选时勾了
-   「同时删除文件」也不许碰（plans/scripts.md §3.4）。
+   「同时删除文件」也不许碰（docs/design.md#scripts）。
 """
 
 import os

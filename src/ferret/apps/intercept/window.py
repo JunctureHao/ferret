@@ -401,6 +401,7 @@ class InterceptWindow(FluentWidget):
         if not flows:
             return
         menu = RoundMenu(parent=self.flow_table)
+        menu.closedSignal.connect(menu.deleteLater)
         release_action = BaseAction(
             icon=FluentIcon.SEND, text=self.tr("放行"), parent=menu
         )
@@ -435,9 +436,12 @@ class InterceptWindow(FluentWidget):
     def _confirm_close(self) -> HeldFlowsChoice:
         """问一句「还挂着的怎么办」。抽成方法是为了测试能替掉，不必真跑 `exec()`。"""
         dialog = HeldFlowsCloseDialog(self.flow_model.rowCount(), self)
-        dialog.exec()
-        # 读 `choice` 而不是 `exec()` 的返回值：「保持挂起」也算关得掉。
-        return dialog.choice
+        try:
+            dialog.exec()
+            # 读 `choice` 而不是 `exec()` 的返回值：「保持挂起」也算关得掉。
+            return dialog.choice
+        finally:
+            dialog.deleteLater()
 
     def closeEvent(self, event):
         """队列非空就不许默默关掉。

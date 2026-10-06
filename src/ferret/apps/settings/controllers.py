@@ -1,4 +1,4 @@
-"""设置页控制器：目前只管应用内更新这一件事（.plans/3-auto-update.md §3）。
+"""设置页控制器：目前只管应用内更新这一件事（docs/design.md#update）。
 
 检查/下载是阻塞网络 IO，一律经 ``FunctionTask`` 挪出主线程；velopack 类型作为
 不透明句柄在 ``core.update`` 的三步之间透传，本层不读其属性。``apply`` 留在主
@@ -101,4 +101,8 @@ class UpdateController(QObject):
     def _on_task_finished(self, task: FunctionTask) -> None:
         self._busy = False
         self._tasks.discard(task)
+        self._download_info = None
+        task.signals.succeeded.disconnect()
+        task.signals.failed.disconnect()
+        task.signals.finished.disconnect()
         self.check_finished.emit()

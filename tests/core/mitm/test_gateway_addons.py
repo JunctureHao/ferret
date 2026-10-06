@@ -417,8 +417,8 @@ class FerretMasterGatewayWiringTests(unittest.TestCase):
 
         用户脚本 / mock 响应池 / 断点必须紧跟在它后面：绕行/仅允许命中时这条流量
         根本到不了这三层，用户明确说了不管的流量既不该被脚本改、也不该被 mock 顶
-        回、更不该被断点拦下来（plans/scripts.md §3.2 与
-        .plans/0-server-playback.md D3 把这三个槽位钉在这里）。
+        回、更不该被断点拦下来（docs/design.md#scripts 与
+        docs/design.md#mock 把这三个槽位钉在这里）。
         """
         start = self.names.index(GatewayL7Addon.__name__)
         self.assertEqual(
@@ -441,11 +441,17 @@ class FerretMasterGatewayWiringTests(unittest.TestCase):
         )
 
     def test_gateway_addons_precede_the_recorders(self) -> None:
-        for name in ("ReadFile", "Save", "LogAddon"):
-            with self.subTest(addon=name):
-                self.assertLess(
-                    self.names.index(GatewayL7Addon.__name__), self.names.index(name)
-                )
+        from ferret.core.mitm.addons import LogAddon
+        from ferret.core.mitm.bindings import ReadFile, Save
+
+        self.assertIsInstance(self.master.readfile, ReadFile)
+        self.assertIsInstance(self.master.save, Save)
+        addons = self.master.addons.chain
+        gateway = next(a for a in addons if isinstance(a, GatewayL7Addon))
+        logger = next(a for a in addons if isinstance(a, LogAddon))
+        for addon in (self.master.readfile, self.master.save, logger):
+            with self.subTest(addon=type(addon).__name__):
+                self.assertLess(addons.index(gateway), addons.index(addon))
 
 
 if __name__ == "__main__":

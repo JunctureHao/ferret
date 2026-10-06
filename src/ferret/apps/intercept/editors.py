@@ -11,6 +11,8 @@
 compose 页 `_collect_url` 同一条保真规则，端口规范也是同一套）。
 """
 
+from __future__ import annotations
+
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from PySide6.QtCore import QCoreApplication, Signal, Slot
@@ -25,6 +27,7 @@ from qfluentwidgets import (
 )
 
 from ferret.apps.common.edit import ItemDualPanel, JsonDualPanel, Language
+from ferret.apps.common.edit.headers import HeaderDualPanel
 from ferret.apps.common.http_methods import METHODS
 from ferret.apps.common.panel import TabPanel
 from ferret.core.mitm import HTTPFlow, RequestEdit, ResponseEdit
@@ -110,7 +113,7 @@ class PhasePanel(QWidget):
         )
         self.drop_button.clicked.connect(self.dropRequested)
 
-        self.headers_panel = ItemDualPanel(True, self)
+        self.headers_panel = HeaderDualPanel(True, self)
         self.body_panel = JsonDualPanel(self)
         self.body_hint = CaptionLabel(self)
         self.body_hint.setWordWrap(True)
@@ -202,6 +205,9 @@ class PhasePanel(QWidget):
             return None
         return text.encode("utf-8")
 
+    def _headers(self) -> list[tuple[str, str]]:
+        return self.headers_panel.items()
+
     def _update_header_count(self, count: int) -> None:
         """`请求头(N)` / `响应头(N)`：条数直接挂在标签上，与流量详情页同一语言。
 
@@ -288,7 +294,7 @@ class RequestPanel(PhasePanel):
         return RequestEdit(
             method=self.method_combo.currentText().strip(),
             url=self._merge_url(),
-            headers=self.headers_panel.items(),
+            headers=self._headers(),
             content=self._body_bytes(),
         )
 
@@ -296,9 +302,11 @@ class RequestPanel(PhasePanel):
         """参数页为 query 权威源；URL 与参数都没动过时整串原样返回（issues #78）：
         `?q=a%20b&flag` 经 parse_qsl/urlencode 会重排成 `q=a+b&flag=`，签名类
         参数就废了 —— 没改过的东西不该被「规范化」。"""
+        # Reading commits the active delegate before checking the dirty flag.
+        pairs = self.params_panel.items()
         if not self._url_dirty and not self._params_dirty:
             return self.url_edit.text()
-        return _merge_query(self.url_edit.text().strip(), self.params_panel.items())
+        return _merge_query(self.url_edit.text().strip(), pairs)
 
     def clear(self) -> None:
         self.method_combo.setCurrentText("GET")
@@ -358,7 +366,7 @@ class ResponsePanel(PhasePanel):
         text = self.code_edit.text().strip()
         return ResponseEdit(
             status_code=int(text) if text.isdigit() else 0,
-            headers=self.headers_panel.items(),
+            headers=self._headers(),
             content=self._body_bytes(),
         )
 

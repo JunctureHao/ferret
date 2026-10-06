@@ -1,4 +1,4 @@
-"""Titlebar 全局搜索：唯一搜索框 + 页面协议（.plans/0-titlebar-search.md §4 v3）。
+"""Titlebar 全局搜索：唯一搜索框 + 页面协议（docs/design.md#ui v3）。
 
 全局只有一个搜索框（`SearchHost.edit`，所有页面共用，固定宽 400）：六个纯文本页
 实现 `SearchablePage` 三方法，键入经 MainWindow 路由转发给当前页。捕获页**不换
@@ -61,9 +61,7 @@ class SearchHost(QWidget):
         self._search_icon = QAction(FluentIcon.SEARCH.icon(), self.tr("搜索"), self)
         # 主题切换后重上色：FluentIconEngine 在 icon() 时烘焙颜色，不重设就停留旧色。
         qconfig.themeChangedFinished.connect(self._refresh_theme_icon)
-        self.edit.addAction(
-            self._search_icon, QLineEdit.ActionPosition.LeadingPosition
-        )
+        self.edit.addAction(self._search_icon, QLineEdit.ActionPosition.LeadingPosition)
         self.edit.installEventFilter(self)
         self._page_actions: list[QAction] = []
 

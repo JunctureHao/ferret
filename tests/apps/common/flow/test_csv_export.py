@@ -1,4 +1,4 @@
-"""CSV 字段抽取（mitmproxy cut 的 GUI 等效物，规格 .plans/cut-csv-export.md）。
+"""CSV 字段抽取（mitmproxy cut 的 GUI 等效物，规格 docs/design.md#export）。
 
 纯函数 `build_csv` 不碰 Qt，先独立钉；对话框与菜单接线需要 QApplication，
 在 import PySide6 前设 offscreen（AGENTS §1）。

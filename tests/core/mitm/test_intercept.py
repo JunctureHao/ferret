@@ -513,12 +513,12 @@ class InterceptMasterWiringTests(unittest.TestCase):
         from ferret.core.mitm.addons import GatewayL7Addon
         from ferret.core.mitm.bindings import View
 
-        names = [type(a).__name__ for a in self.master.addons.chain]
+        addons = self.master.addons.chain
+        gateway = next(a for a in addons if isinstance(a, GatewayL7Addon))
+        self.assertIsInstance(self.master.view, View)
+        self.assertLess(addons.index(gateway), addons.index(self.master.intercept))
         self.assertLess(
-            names.index(GatewayL7Addon.__name__), names.index(FerretIntercept.__name__)
-        )
-        self.assertLess(
-            names.index(FerretIntercept.__name__), names.index(View.__name__)
+            addons.index(self.master.intercept), addons.index(self.master.view)
         )
 
     def test_the_intercept_option_exists_once_addons_are_loaded(self) -> None:

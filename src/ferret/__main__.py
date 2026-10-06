@@ -7,6 +7,7 @@
 # nuitka-project: --output-filename=Ferret
 # nuitka-project: --output-folder-name=Ferret
 # nuitka-project: --windows-icon-from-ico=src/ferret/resources/icon.ico
+# nuitka-project: --include-data-files=src/ferret/resources/fonts/OFL.txt=licenses/JetBrainsMono-OFL.txt
 # nuitka-project: --report=build/dist/{STAMP}/report.xml
 # nuitka-project: --msvc=latest
 # nuitka-project: --lto=no

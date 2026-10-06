@@ -1,4 +1,4 @@
-"""Tests for the http2/http3 protocol switches (.plans/2-protocol-switches.md).
+"""Tests for the http2/http3 protocol switches (docs/design.md#capture).
 
 错误模型照 `test_anticache.py`（同为 bool 选项）：传错类型 optmanager 抛 TypeError，
 不经 OptionsError —— `apply_protocol_options` 的回滚分支据此写成「先回滚再原样抛」。

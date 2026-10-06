@@ -1,4 +1,4 @@
-"""Mock 响应池的状态权威：CONFIG 读写 + facade 下发（.plans/0-server-playback.md）。
+"""Mock 响应池的状态权威：CONFIG 读写 + facade 下发（docs/design.md#mock）。
 
 池内容（flow 副本）由 facade 托管在 `runtime.mock_pool` + 池文件里，控制器只持有
 它的**纯数据快照**；旋钮的落盘与下发都从这里走（RewriteController 同款职责划分）。
@@ -97,9 +97,7 @@ class MockController(QObject):
         except (ValueError, RuntimeError, TimeoutError) as exc:
             self.operation_failed.emit(self.tr("导入失败"), str(exc))
             return
-        self.operation_succeeded.emit(
-            self.tr("已导入 {} 条 Mock 响应").format(added)
-        )
+        self.operation_succeeded.emit(self.tr("已导入 {} 条 Mock 响应").format(added))
         self.refresh()
 
     def remove_entries(self, entry_ids: list[str]) -> None:
@@ -131,9 +129,7 @@ class MockController(QObject):
         except (ValueError, RuntimeError, TimeoutError) as exc:
             self.operation_failed.emit(self.tr("导出失败"), str(exc))
             return
-        self.operation_succeeded.emit(
-            self.tr("已导出 {} 条 Mock 响应").format(count)
-        )
+        self.operation_succeeded.emit(self.tr("已导出 {} 条 Mock 响应").format(count))
 
     def set_enabled(self, enabled: bool) -> bool:
         if enabled == self._enabled:

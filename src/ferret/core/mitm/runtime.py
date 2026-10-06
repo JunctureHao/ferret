@@ -7,6 +7,7 @@ import inspect
 import ipaddress
 import socket
 from collections.abc import Callable
+from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import StrEnum
 from typing import Any
@@ -28,6 +29,7 @@ from ferret.core.mitm.certificate import (
     CertificateError,
     build_trusted_ca_bundle,
     client_certs_error,
+    prune_trusted_ca_bundles,
 )
 from ferret.core.mitm.compose import compose_recording
 from ferret.core.mitm.gateway import (
@@ -44,13 +46,14 @@ from ferret.core.mitm.modes import (
 )
 from ferret.core.mitm.rewrite import RewriteRule, RewriteRuleSet
 from ferret.core.mitm.scripts import ScriptEntry
+from ferret.core.mitm.view import FerretView
 from ferret.core.mitm.wsframe import latest_frame, ws_close
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
 
 log = get_logger("mitmproxy")
 
-# 固定会话（plans/sticky-session.md）：原生 StickyCookie / StickyAuth 两个 addon
+# 固定会话（docs/design.md#rewrite）：原生 StickyCookie / StickyAuth 两个 addon
 # 的选项名。过滤串恒为「全量」、刻意不暴露匹配条件 —— 一旦可配就退化成规则表，
 # 而它是「浏览器行为偏好」式的全局开关。开关状态不在这里：它只是 bool，直接
 # 存 MitmRuntime.sticky_session_enabled（配置落盘在 core/settings.py）。
@@ -83,7 +86,7 @@ def anticache_option_updates(enabled: bool) -> dict[str, bool]:
     return {"anticache": enabled, "anticomp": enabled}
 
 
-# 协议层两开关（.plans/2-protocol-switches.md）：原生 ``http2`` / ``http3`` 布尔
+# 协议层两开关（docs/design.md#capture）：原生 ``http2`` / ``http3`` 布尔
 # 选项（出厂默认 True）。与 sticky / anticache 那批「addon.load 才注册」的选项不同，
 # 它们在构造 ``Options`` 时就存在（mitmproxy/options.py 顶部注册）；仍统一走 Master
 # 建好后的播种器下发，与其他子项同一节奏、少一条特例。全局偏好、不随通道回滚
@@ -100,7 +103,7 @@ def protocol_option_updates(http2: bool, http3: bool) -> dict[str, bool]:
     return {"http2": http2, "http3": http3}
 
 
-# DNS 解析（.plans/dns-options.md）：原生 DnsResolver addon 的两个选项。仅对隧道内
+# DNS 解析（docs/design.md#capture）：原生 DnsResolver addon 的两个选项。仅对隧道内
 # DNS 生效（WireGuard 通道的 10.0.0.53）；不产生 DNSFlow 就没有代码路径碰到它，
 # 全局偏好、不随通道回滚（不进 _CHANNEL_INTENTS）。
 def dns_option_updates(
@@ -138,7 +141,7 @@ def _validate_dns_name_servers(items: list[str]) -> list[str]:
     return checked
 
 
-# 上游 TLS 信任（.plans/upstream-tls.md）：原生 tlsconfig 的三个选项。与 dns_* 相反，
+# 上游 TLS 信任（docs/design.md#tls）：原生 tlsconfig 的三个选项。与 dns_* 相反，
 # 它们都写在 `Options.__init__` 里、构造期就存在（tests/core/mitm/test_upstream_tls.py
 # 钉着这条差异），但仍走 `_apply_*` 播种 —— 合并产物要现算，且必须支持运行中热更。
 def ssl_option_updates(
@@ -254,6 +257,11 @@ class UiBridgeAddon:
         self._on_update = lambda flow: bridge.flow_updated.emit(flow)
         self._on_remove = lambda flow, index: bridge.flow_removed.emit(flow, index)
         self._on_refresh = lambda: bridge.view_refreshed.emit()
+        self._on_store_remove = lambda flow: bridge.flow_discarded.emit(flow)
+        self._store_add = getattr(view, "sig_store_add", None)
+        if self._store_add is not None:
+            self._store_add.connect(self._forward_store)
+        view.sig_store_remove.connect(self._on_store_remove)
         view.sig_view_add.connect(self._on_add)
         view.sig_view_update.connect(self._on_update)
         view.sig_view_remove.connect(self._on_remove)
@@ -266,11 +274,21 @@ class UiBridgeAddon:
         elif record is None:
             self._bridge.flow_added.emit(flow)
 
+    def _forward_store(self, flow: Flow) -> None:
+        record = compose_recording(flow)
+        if record is True:
+            self._bridge.compose_flow_stored.emit(flow)
+        elif record is None:
+            self._bridge.flow_stored.emit(flow)
+
     def running(self) -> None:
         if not self._master.proxyserver.listen_addrs():
-            raise RuntimeError(
-                QCoreApplication.translate("MitmRuntime", "代理端口监听失败")
+            self._bridge._master_start_failed.emit(
+                self._generation,
+                QCoreApplication.translate("MitmRuntime", "代理端口监听失败"),
             )
+            self._master.shutdown()
+            return
         self._bridge._master_running.emit(self._generation)
 
     def websocket_start(self, flow: HTTPFlow) -> None:
@@ -305,6 +323,9 @@ class UiBridgeAddon:
         if not self._connected:
             return
         self._connected = False
+        if self._store_add is not None:
+            self._store_add.disconnect(self._forward_store)
+        self._view.sig_store_remove.disconnect(self._on_store_remove)
         self._view.sig_view_add.disconnect(self._on_add)
         self._view.sig_view_update.disconnect(self._on_update)
         self._view.sig_view_remove.disconnect(self._on_remove)
@@ -583,6 +604,8 @@ class _MitmThread(QThread):
             # OptionsError 这支不是死代码：拼接链在 upstream_cert 关着时会被原生
             # Core.configure 拒掉（ssl_option_updates 已显式带上 True 防着它）。
             self._log_warning("上游 TLS 选项无法应用，已忽略: %s", exc)
+        else:
+            prune_trusted_ca_bundles(bundle)
 
     def _apply_client_certs(self, master: FerretMaster) -> None:
         """Seed the mTLS client-cert path before serving traffic (on the mitm loop).
@@ -688,6 +711,9 @@ class MitmRuntime(QObject):
     flow_added = Signal(object)
     # 显式选择记录的 Compose 新增行：独立于抓包写入闸门，仍遵循原生 View 过滤。
     compose_flow_added = Signal(object)
+    flow_stored = Signal(object)
+    compose_flow_stored = Signal(object)
+    flow_discarded = Signal(object)
     flow_updated = Signal(object)
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
@@ -709,6 +735,7 @@ class MitmRuntime(QObject):
 
     _master_created = Signal(int, object)
     _master_running = Signal(int)
+    _master_start_failed = Signal(int, str)
 
     def __init__(
         self,
@@ -759,14 +786,14 @@ class MitmRuntime(QObject):
         self.use_local = use_local
         self.local_spec = local_spec
         self.use_wireguard = use_wireguard
-        # reverse 三意图值（plans/reverse-mode.md §2/§3）：目标与端口落盘，激活
+        # reverse 三意图值（docs/design.md#capture）：目标与端口落盘，激活
         # 与否跟随 `use_reverse` + `channels_engaged` 两个开关。reverse 与
         # regular 共用 self.listen_host（spec 里的 @ 地址），spec 端口由调用方
         # 保证错开（对话框前置校验 + 内核查重兜底）。
         self.use_reverse = use_reverse
         self.reverse_target = reverse_target.strip()
         self.reverse_port = reverse_port
-        # SOCKS5 入站两意图值（.plans/0-socks5-channel.md）：独立端口的 SOCKS5 代理，
+        # SOCKS5 入站两意图值（docs/design.md#capture）：独立端口的 SOCKS5 代理，
         # 给只认 SOCKS5 的客户端接入。监听地址跟随全局 listen_host（D2），spec 必带
         # ``@``（与 reverse 同一动机：主动要独立端口，不带会回退全局 listen_port 与
         # regular 撞车被内核查重拒）。
@@ -783,7 +810,7 @@ class MitmRuntime(QObject):
         self.upstream_target = upstream_target.strip()
         self.upstream_username = upstream_username
         self.upstream_password = upstream_password
-        # 代理认证三意图值（.plans/proxyauth.md）：方向与 upstream_auth 正好相反
+        # 代理认证三意图值（docs/design.md#auth）：方向与 upstream_auth 正好相反
         # —— upstream_auth 管「ferret → 上游代理」的出站凭证，这里管「客户端 →
         # ferret」的入站挑战。两者互不相干，可以叠着用（手机认证到 ferret，
         # ferret 再认证到企业代理）。
@@ -798,7 +825,7 @@ class MitmRuntime(QObject):
         # True 才把启用的通道拼进 mode 列表。与上面三个**意图值**分开 —— 停止
         # 会话只动这一位，用户的通道偏好原样保留，下次点开始照旧拼装。
         self.channels_engaged = False
-        self.view = View()
+        self.view = FerretView()
         self.view.set_filter(parse_filter("~http"))
         self._state = MitmRuntimeState.STOPPED
         self._thread: _MitmThread | None = None
@@ -809,11 +836,11 @@ class MitmRuntime(QObject):
         self.gateway_enabled = False
         self.rewrite_rules: list[RewriteRule] = []
         # 重写总开关：关掉后自研件对所有流量一律不判（网关规则模式，见
-        # apply_rewrite_rules）。刻意**不落盘**（plans/rewrite-ui.md §8：
+        # apply_rewrite_rules）。刻意**不落盘**（docs/design.md#rewrite：
         # settings.py 零改动）—— 「临时下发空规则」的语义由这个内存位承担，不碰各行
         # 规则的 enabled 落盘值。类默认**关**：各功能一律默认不启用，由界面显式打开。
         self.rewrite_enabled = False
-        # 用户脚本清单（plans/scripts.md）：由控制器层在启动时从 CONFIG 播种，
+        # 用户脚本清单（docs/design.md#scripts）：由控制器层在启动时从 CONFIG 播种，
         # 构造器不读 CONFIG（与 rewrite/gateway 规则同一姿态）。
         self.scripts: list[ScriptEntry] = []
         # 脚本总开关：关掉后所有脚本一律不装载（FerretScriptAddon 的主闸，见
@@ -825,7 +852,7 @@ class MitmRuntime(QObject):
         # 还没打开界面、流量就先卡住了。开关由界面显式打开（见 core/settings.py 的
         # intercept_enabled）。
         self.intercept_enabled = False
-        # mock 响应池（.plans/0-server-playback.md）：池内 flow 副本 + 旋钮 +
+        # mock 响应池（docs/design.md#mock）：池内 flow 副本 + 旋钮 +
         # 总开关。三者的真实初值都由控制器层从 CONFIG / 池托管文件播种（与
         # rewrite/gateway 规则同一姿态，构造器不读 CONFIG）；池内 flow 只在
         # mitm 线程上做拷贝与变更（facade 的 mock 方法组），内核没跑时它们是
@@ -843,19 +870,19 @@ class MitmRuntime(QObject):
         # Accept-Encoding=identity），抓到的就不是客户端原件。种子与开关位置同
         # 固定会话（core/runtime.py::_build_mitm_runtime、apps/preferences）。
         self.anticache_plaintext = anticache_plaintext
-        # 协议层两开关（.plans/2-protocol-switches.md）：默认**开**（原生出厂姿态
+        # 协议层两开关（docs/design.md#capture）：默认**开**（原生出厂姿态
         # 就是全支持）；关掉是调试降级手段（h2 → HTTP/1.1、h3 → 回落 TCP），改变
         # 的是报文形态而不是「如实转发」，故默认值与 sticky / anticache 相反。
         # 真实值由 CONFIG 种子决定（core/runtime.py::_build_mitm_runtime），开关
         # 在设置页（apps/settings）。
         self.http2_enabled = http2_enabled
         self.http3_enabled = http3_enabled
-        # DNS 解析两意图值（.plans/dns-options.md）：全局偏好、不随通道回滚，
+        # DNS 解析两意图值（docs/design.md#capture）：全局偏好、不随通道回滚，
         # 故不进 _CHANNEL_INTENTS。类默认对齐原生出厂（[] = 系统 DNS、
         # True = 查 hosts），真实值由 CONFIG 种子决定（core/runtime.py）。
         self.dns_name_servers = list(dns_name_servers or [])
         self.dns_use_hosts_file = dns_use_hosts_file
-        # 上游 TLS 信任三意图值（.plans/upstream-tls.md）：四条通道共用同一条
+        # 上游 TLS 信任三意图值（docs/design.md#tls）：四条通道共用同一条
         # `tls_start_server`（QUIC 路另有分支但读同两个值），语义天然一致 ——
         # 不按通道分别下发，也不存在 block_private 那种让路需求，故不进
         # _CHANNEL_INTENTS。类默认一律取原生出厂（False / [] / False），真实值
@@ -865,7 +892,7 @@ class MitmRuntime(QObject):
         self.ssl_insecure = ssl_insecure
         self.ssl_trusted_ca_files = list(ssl_trusted_ca_files or [])
         self.add_upstream_certs_to_client_chain = add_upstream_certs_to_client_chain
-        # mTLS 客户端证书（.plans/mtls-client-certs.md）：与上面三项同属「四条通道
+        # mTLS 客户端证书（docs/design.md#tls）：与上面三项同属「四条通道
         # 共用一条 tls_start_server」的全局偏好，同样不进 _CHANNEL_INTENTS。存**用户
         # 给的原样路径**（可以带 ~）：原生 addons/core.py 与 tlsconfig.py 两处都自己
         # expanduser，我们展开了反而让这份内存副本与 options 对不上。
@@ -873,6 +900,7 @@ class MitmRuntime(QObject):
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
+        self._master_start_failed.connect(self._on_failed)
 
     @property
     def state(self) -> MitmRuntimeState:
@@ -965,7 +993,7 @@ class MitmRuntime(QObject):
         """
         reverse_yield = self.use_reverse and self.listen_host == ANY_HOST
         # socks5 绑 ANY_HOST 时局域网来源同被原生 Block 误杀，与 reverse 同式让路
-        # （.plans/0-socks5-channel.md §2.3）。
+        # （docs/design.md#capture）。
         socks5_yield = self.use_socks5 and self.listen_host == ANY_HOST
         return self.block_private and not (
             self.channels_engaged
@@ -1034,7 +1062,7 @@ class MitmRuntime(QObject):
         与 ``_effective_block_private`` 的让路名单差一个 **local**：原生 Block 对
         LocalMode 连接有豁免（``block.py:35``），ProxyAuth 没有，LocalMode 照样落
         401 分支。socks5 也不在让路名单里：SOCKS5 原生支持用户名/密码子协商
-        （method 0x02），能认证就不该撤防（.plans/0-socks5-channel.md §1 D3）。
+        （method 0x02），能认证就不该撤防（docs/design.md#capture D3）。
         """
         if not self.proxyauth_enabled or not self.proxyauth_username:
             return None
@@ -1172,10 +1200,6 @@ class MitmRuntime(QObject):
 
     def stop(self, timeout_ms: int = 5000) -> bool:
         thread = self._thread
-        if thread is None:
-            self._master = None
-            self._set_state(MitmRuntimeState.STOPPED)
-            return True
         # local 的提权守护进程是**进程外**服务，内核线程死了它还活着。正常停机
         # 路径由 Servers.update 的 stop 任务清截流配置；但事件循环关闭时挂起的
         # 任务会被静默丢弃——抓包中改端口/地址触发的 restart 必然如此。守护进程
@@ -1184,34 +1208,49 @@ class MitmRuntime(QObject):
         # 还活着在它上面同步拔掉截流，不依赖任何异步任务。内核从未跑成（端口
         # 被占、立即停止）时 call 没有循环可投，此刻本进程也没接过守护进程，
         # 跳过即可。
-        try:
-            self.call(self._disarm_local_redirector)
-        except (RuntimeError, TimeoutError):
-            pass
-        self._set_state(MitmRuntimeState.STOPPING)
-        thread.request_shutdown()
-        stopped = thread.wait(timeout_ms)
-        if not stopped:
-            log.error("mitmproxy runtime did not stop within %d ms", timeout_ms)
-            return False
-        if self._thread is thread:
-            self._thread = None
+        if thread is not None:
+            if self.is_running and self._master is not None and thread.loop is not None:
+                try:
+                    self.call(self._disarm_local_redirector)
+                except (OSError, RuntimeError, TimeoutError):
+                    # Keep the loop available for a retry instead of reporting
+                    # success while the process-external daemon still intercepts.
+                    log.exception(
+                        "failed to disarm the local redirector before shutdown"
+                    )
+                    return False
+            self._set_state(MitmRuntimeState.STOPPING)
+            thread.request_shutdown()
+            stopped = thread.wait(timeout_ms)
+            if not stopped:
+                log.error("mitmproxy runtime did not stop within %d ms", timeout_ms)
+                return False
+            if self._thread is thread:
+                self._thread = None
         self._master = None
+        try:
+            # A local startup already in flight may have armed the daemon after
+            # the first cleanup. Once the loop is gone, clear it synchronously;
+            # this also retries failures after a previous thread has exited.
+            self._disarm_local_redirector()
+        except (OSError, RuntimeError):
+            self._set_state(MitmRuntimeState.STOPPING)
+            log.exception("failed to disarm the local redirector after shutdown")
+            return False
         self._set_state(MitmRuntimeState.STOPPED)
         return True
 
     @staticmethod
     def _disarm_local_redirector() -> None:
-        """Runs on the mitm loop: clear the local redirector daemon's intercept spec.
+        """Clear the daemon's intercept spec on its live loop or after it has exited.
 
         除清 spec 外还要清掉 `_instance` 占位——这是上游 `_stop` 的簿记，丢了它
         新 Master 的 `_start` 会被 "Cannot spawn more than one local redirector"
-        护栏拒掉，local 通道在重启后静默死亡。`_server` 为 None 说明本进程从未
-        接过守护进程，直接跳过。
+        护栏拒掉，local 通道在重启后静默死亡。首次启动被取消时也会留下
+        `_instance`，即使 `_server` 尚未创建也必须清掉它。
         """
-        if LocalRedirectorInstance._server is None:
-            return
-        LocalRedirectorInstance._server.set_intercept("")
+        if LocalRedirectorInstance._server is not None:
+            LocalRedirectorInstance._server.set_intercept("")
         LocalRedirectorInstance._instance = None
 
     def restart(
@@ -1225,7 +1264,7 @@ class MitmRuntime(QObject):
             raise RuntimeError(
                 QCoreApplication.translate(
                     "MitmRuntime",
-                    "mitmproxy 内核停止超时，无法重启",
+                    "mitmproxy 内核尚未完全停止，无法重启",
                 )
             )
         self.start()
@@ -1416,8 +1455,7 @@ class MitmRuntime(QObject):
     def apply_mock_enabled(self, enabled: bool) -> None:
         """Store the mock master switch and push it to a running Master.
 
-        「开关」就是原生 addon 的 flowmap 有没有货（.plans/0-server-playback.md
-        D4）：开 = 全量池重新 `load_flows`，关 = `clear()`，不在 core 里另设 armed
+        「开关」就是原生 addon 的 flowmap 有没有货（docs/design.md#mock）：开 = 全量池重新 `load_flows`，关 = `clear()`，不在 core 里另设 armed
         标志。内核没跑只对齐内存副本（下次启动 `_apply_serverplayback` 播种）。
         """
         self.mock_enabled = enabled
@@ -1639,6 +1677,8 @@ class MitmRuntime(QObject):
             ) = previous
             raise
 
+        prune_trusted_ca_bundles(bundle)
+
     def apply_client_certs(self, *, path: str | None = None) -> None:
         """Store the mTLS client-certificate path and push it to a running Master.
 
@@ -1821,10 +1861,29 @@ class MitmRuntime(QObject):
         return True
 
     def call(self, callback: Callable[[], Any], *, timeout: float = 5.0) -> Any:
+        """Wait for a committed result or an acknowledged cancellation.
+
+        Once a synchronous callback starts it cannot be interrupted safely. Wait
+        for its result even beyond the deadline so callers cannot roll back their
+        memory while a late kernel commit is still possible. Awaitable callbacks
+        receive cancellation and finish their cleanup before this method returns.
+        """
+        return self._call(callback, timeout=timeout)
+
+    def _call(
+        self,
+        callback: Callable[[], Any],
+        *,
+        timeout: float = 5.0,
+        allow_starting: bool = False,
+    ) -> Any:
         thread = self._thread
         master = self._master
         loop = thread.loop if thread is not None else None
-        if not self.is_running or master is None or loop is None:
+        available = self.is_running or (
+            allow_starting and self._state is MitmRuntimeState.STARTING
+        )
+        if not available or master is None or loop is None:
             raise RuntimeError(
                 QCoreApplication.translate("MitmRuntime", "mitmproxy 内核未运行")
             )
@@ -1835,20 +1894,52 @@ class MitmRuntime(QObject):
         if current_loop is loop:
             raise RuntimeError("不能在 mitmproxy event loop 中同步调用")
 
-        async def invoke() -> Any:
-            result = callback()
-            if inspect.isawaitable(result):
-                return await result
-            return result
+        future: Future[Any] = Future()
+        task: asyncio.Task[None] | None = None
 
-        future = asyncio.run_coroutine_threadsafe(invoke(), loop)
+        async def invoke() -> None:
+            if not future.set_running_or_notify_cancel():
+                return
+            try:
+                result = callback()
+                if inspect.isawaitable(result):
+                    result = await result
+            except asyncio.CancelledError:
+                future.set_exception(
+                    TimeoutError(
+                        QCoreApplication.translate(
+                            "MitmRuntime", "mitmproxy 任务执行超时"
+                        )
+                    )
+                )
+            except BaseException as exc:  # noqa: BLE001
+                future.set_exception(exc)
+            else:
+                future.set_result(result)
+
+        def schedule() -> None:
+            nonlocal task
+            if not future.cancelled():
+                task = loop.create_task(invoke())
+
+        def cancel() -> None:
+            if task is not None and not task.done():
+                task.cancel()
+
+        loop.call_soon_threadsafe(schedule)
         try:
             return future.result(timeout=timeout)
         except FutureTimeoutError as exc:
-            future.cancel()
-            raise TimeoutError(
-                QCoreApplication.translate("MitmRuntime", "mitmproxy 任务执行超时")
-            ) from exc
+            if future.done():
+                # Completion can race the expired wait. Return the committed
+                # result (or the callback's own exception), never a stale timeout.
+                return future.result()
+            if future.cancel():
+                raise TimeoutError(
+                    QCoreApplication.translate("MitmRuntime", "mitmproxy 任务执行超时")
+                ) from exc
+            loop.call_soon_threadsafe(cancel)
+            return future.result()
 
     def _on_flow_suspended(self, flow: Any) -> None:
         """Republish a suspend/release from the mitm thread as a Qt signal.
@@ -1885,6 +1976,28 @@ class MitmRuntime(QObject):
             or self._state != MitmRuntimeState.STARTING
             or self._master is None
         ):
+            return
+        master = self._master
+        updates = {
+            "mode": self._mode_specs(),
+            "upstream_auth": self._upstream_auth(),
+            "block_global": self.block_global,
+            "block_private": self._effective_block_private(),
+            "proxyauth": self._effective_proxyauth(),
+        }
+
+        try:
+            # Startup options may predate the latest capture intent. Commit the
+            # mode/auth snapshot before announcing readiness; auxiliary listeners
+            # still start asynchronously and use the existing health monitor.
+            # Waiting for setup_servers here would block the GUI on a local UAC
+            # prompt and incorrectly cancel it after the ordinary call deadline.
+            self._call(lambda: master.options.update(**updates), allow_starting=True)
+        except Exception as exc:  # noqa: BLE001
+            thread = self._thread
+            if thread is not None:
+                thread.request_shutdown()
+            self._on_failed(generation, str(exc))
             return
         self._set_state(MitmRuntimeState.RUNNING)
         try:

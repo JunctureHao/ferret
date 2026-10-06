@@ -2,137 +2,95 @@
 
 基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS 流量抓包工具。
 改动代码前必须先遵守本文件；与代码冲突时以代码为准，并回改本文件里失真的那条规则。
+下文 `core/`、`apps/`、`utils/`、`resources/` 路径相对 `src/ferret/`，其余路径相对仓库根目录。
 
 ## 0. 本文件的维护规则（先读）
 
 - 本文件只收两类内容：**防错规则**（不写就会犯错）与**决策结论**（已定，勿推翻）。
-
-- 不写状态快照：版本号、文件清单、addon 清单、「已实现」列表、UI 布局描述一律不进本文件——它们的事实源是 `pyproject.toml`、`core/mitm/master.py`、`core/mitm/__init__.py` 与各子包 controllers/views 的 docstring 及代码注释，写副本必腐烂。
-
-- 新增一行前先问：**不写它，agent 会犯什么错？** 答不上来就不加。「为什么」优先写进代码注释（本仓库注释即档案），这里最多留一行结论 + 指针。
-
-- 全文预算 \~110 行；要加新的，先删或并旧的。
+- 不写状态快照：版本号、文件清单、addon 清单、「已实现」列表、UI 布局描述不进本文件；事实源是 `pyproject.toml`、`core/mitm/master.py`、`core/mitm/__init__.py` 与相关代码。
+- 新增前先问：**不写它，agent 会犯什么错？** 答不上来就不加。「为什么」优先写进代码注释，这里留结论 + 有效指针，勿复制实现细节。
+- 全文预算约 110 行；要加新的，先删或并旧的。
 
 ## 1. 技术栈与门禁
 
 - 依赖与版本以 `pyproject.toml` / `uv.lock` 为准；包管理用 **uv**。
-
-- GUI：控件优先 QFluentWidgets（图标 `FluentIcon`、主题 `isDarkTheme`），不退回原生 Qt 样式；语法高亮走自写 `apps/common/edit/syntax.py`，不引 pygments。
-
-- **提交前门禁必须绿**：`ruff check .` + `ty check`（uvx 临时装）。只格式化**自己改动的文件**，禁止全量 `ruff format .`；ruff 忽略用 `# noqa: CODE`，ty 用 `# ty: ignore[rule]`；保留 `from __future__ import annotations`。本机抓包时跑门禁加 `--system-certs`。
-
-- 测试：`python -m unittest discover -s tests`；碰 Qt 的测试文件在 import PySide6 前设 `os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")`；等信号 / 等内核就绪一律用 `tests/core/mitm/_qt.py` 的轮询原语，勿新写嵌套 `QEventLoop.exec` 等待（满载下有一次性竞态，机理见该模块 docstring）。
-
+- GUI：控件优先 QFluentWidgets（图标 `FluentIcon`、主题 `isDarkTheme`），不退回原生 Qt 样式；语法高亮走 `apps/common/edit/syntax.py`，不引 pygments。
+- **提交前门禁必须绿**：`uvx ruff check .` + `uvx ty check`。只格式化**自己改动的文件**，禁止全量 `ruff format .`；ruff 忽略用 `# noqa: CODE`，ty 用 `# ty: ignore[rule]`；保留 `from __future__ import annotations`。本机抓包时 uv / uvx 加 `--system-certs`。
+- 测试：`uv run python -m unittest discover -s tests`；碰 Qt 的测试在 import PySide6 前设 `os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")`；等信号 / 等内核就绪用 `tests/core/mitm/_qt.py` 的轮询原语，勿新写嵌套 `QEventLoop.exec` 等待。
 - 提交信息：`<type>(<scope>): <subject>`，type ∈ `feat/fix/docs/style/refactor/perf/test/build/ci/chore/revert`，scope ∈ `core/mitm/apps/utils`。
+- 打包：Nuitka，瘦身项统一在 `src/ferret/__main__.py` 顶部 `# nuitka-project:` 注释维护；**动打包 / 加第三方依赖 / 升级 mitmproxy 前必读 `docs/packaging.md`**。
 
-- 打包：Nuitka，瘦身项统一在 `src/ferret/__main__.py` 顶部 `# nuitka-project:` 注释维护；**动打包 / 加第三方依赖 / 升级 mitmproxy 前必读** **`docs/packaging.md`**。
+## 2. 复用入口与原生能力（勿重复造轮子）
 
-## 2. 原生能力优先（勿重复造轮子）
+复用以下入口并保留已有适配，不另造并行实现：
 
-以下一律用 mitmproxy 原生，不要自己实现：
-
-- Cookie / query：`flow.request.cookies` / `.query`（勿手拆 header）。
-
-- 解码 body：`message.get_text(strict=False)` / `get_content(strict=False)`（**别用** **`.text`** **/** **`.content`**，畸形编码会抛 `ValueError`）。
-
-- body 视图：`contentviews.prettify_message(message, flow)`。注意输出过 `escape_control_characters`；`syntax_highlight` 无 `json` 值（JSON 自报 `yaml`），见 `apps/common/flow/views.py::_body_lang`。
-
-- 字节大小：`human.pretty_size`（不自造 `format_bytes`）。
-
-- HAR 导出：`SaveHar().make_har`（纯函数）。
-
-- curl/httpie/raw 导出：`mitmproxy.addons.export` 模块级函数；唯一分叉 `core/mitm/export.py::curl_command`（Windows 引号），不要改回原生。
-
-- 重写：自研 `FerretRewriteAddon`（`core/mitm/addons.py`，规格 plans/rewrite-ui.md §5），八个类型一个 addon、行序＝执行序；规则模型/校验在 `core/mitm/rewrite.py`。下发走网关规则模式（内存副本＋`self.call` 换预编译快照，`options.update` 那条 spec 通道已拆除）；原生 MapRemote/MapLocal/ModifyHeaders/ModifyBody 已退役，勿复活。
-
-- 屏蔽 / 来源限制：`Block`（连接级）；L7 屏蔽（出）由网关承载，`BlockList` 仅存兼容迁移。
-
+- Cookie / query：`flow.request.cookies` / `.query`，勿手拆 header。
+- 解码 body：`message.get_text(strict=False)` / `get_content(strict=False)`；读取时别用 `.text` / `.content`，畸形编码会抛 `ValueError`。
+- body 视图：`contentviews.prettify_message(message, flow)`；注意输出经过 `escape_control_characters`，JSON 的 `syntax_highlight` 自报 `yaml`，映射见 `apps/common/flow/detail.py::_body_lang`。
+- 字节大小用 `human.pretty_size`；HAR 导出用 `SaveHar().make_har`；curl/httpie/raw 用 `mitmproxy.addons.export` 模块级函数，唯一分叉 `core/mitm/export.py::curl_command` 保留 Windows 引号适配。
+- 重写统一由 `core/mitm/addons.py::FerretRewriteAddon` 执行，模型/校验在 `core/mitm/rewrite.py`。**同钩子内行序＝执行序**；响应头在 `responseheaders`、响应体在 `response`，勿为统一行序推迟响应头修改。
+- 重写下发经 `core/mitm/runtime.py::apply_rewrite_rules` 保存内存副本、用 `self.call` 换预编译快照；勿恢复 `options.update` 的重写 spec 通道或原生 MapRemote/MapLocal/ModifyHeaders/ModifyBody。
+- 屏蔽 / 来源限制：连接级用原生 `Block`；L7 屏蔽（出）由网关承载，`BlockList` 仅供兼容迁移。
 - CA：`certs.CertStore.from_store` / `Cert` 字段 / `Cert.to_pem()`；系统信任库只走 Windows `certutil`。
-
-- 上游 TLS 校验/信任/拼接链：原生 `ssl_insecure` / `ssl_verify_upstream_trusted_ca` / `add_upstream_certs_to_client_chain`（`FerretTlsConfig` 已挂载），合并信任库走 `certificate.py::build_trusted_ca_bundle`（公共根+用户根、产物带内容指纹），不自建 TLS context；mTLS 走原生 `client_certs`（一个路径，目录模式按 `<主机名>.pem` 精确匹配），下发前后必须清 `net_tls.create_proxy_server_context` 的 lru_cache（键里只有路径字符串，且跨内核重启存活）；`confdir` 不接。
-
-- 反向代理模式：`mode_specs.ReverseMode` + `proxyserver.configure` 走原生 spec 通道，**不要**自实现 TCP/HTTP 转发；alt-svc 重写挂原生 `UpdateAltSvc`（仅 reverse 通道有效，master.py 挂载）。
-
-- mock 响应池：原生 `ServerPlayback`（.plans/1-server-playback.md），链位网关后、脚本与断点之间；装载只走 `add_flows` / `load_flows` 方法调用，**不碰** `server_replay` 选项文件通道（`configured` 单向闸）；池权威副本在 `runtime.mock_pool`，条目身份 = 来源流量 id（副本须在 mitm 线程上做、id 补回同 `_snapshot`）。
+- 上游 TLS 用原生 `ssl_insecure` / `ssl_verify_upstream_trusted_ca` / `add_upstream_certs_to_client_chain`；合并公共根与用户根走 `core/mitm/certificate.py::build_trusted_ca_bundle`，保留内容指纹，不自建 TLS context。
+- mTLS 用原生 `client_certs`（单一路径，目录按 `<主机名>.pem` 精确匹配）；热更成功后及内核启动时须清 TLS context 缓存，复用 `core/mitm/runtime.py::clear_proxy_server_context_cache`，避免同路径换证仍出示旧证；`confdir` 不接。
+- 反向代理用原生 `mode_specs.ReverseMode` / `proxyserver.configure`，勿自实现 TCP/HTTP 转发；保留 `UpdateAltSvc` 的 reverse 模式适配。
+- mock 响应池复用原生 `ServerPlayback` 的 `FerretServerPlayback` 子类，保留认证挑战时不作答的闸门；链位与覆盖语义以 `core/mitm/master.py` 注释为准。
+- mock 装载只走 `add_flows` / `load_flows`，不碰 `server_replay` 选项文件通道；权威副本在 `runtime.mock_pool`，条目 id 等于来源流量 id，复制须在 mitm 线程上保留 id（见 `core/mitm/facade.py`）。
 
 ## 3. 桥接红线（违反会崩溃/数据错乱）
 
-mitmproxy Master 在独立 asyncio 线程，Qt 在主线程。合法通道只有三条：
+mitmproxy Master 在独立 asyncio 线程，GUI 在主线程：
 
-1. `MitmRuntime.call(callback, timeout=5.0)` 投到 mitm 线程。
-2. Qt 侧一律经 `MitmFacade`（`apps/` 只持 facade，不直接调 `runtime.call`）。
-3. 事件经 `UiBridgeAddon` 转 Qt Signal，**不要自己 poll View**。
+1. `MitmRuntime.call(callback, timeout=5.0)` 将操作投到 mitm 线程。
+2. Qt 侧操作 mitm 流量与规则经 `MitmFacade`，`apps/` 不直接调用 `runtime.call`；控制器可持 runtime 管理生命周期、读取运行状态并连接信号。
+3. 流量事件经 `UiBridgeAddon`、运行状态经 runtime 转 Qt Signal，勿自行轮询 core View。
 
-禁止项：
-
-- ❌ 在 Qt 线程直接读写 flow/master/view。要快照走 `facade._snapshot()`（见 `all_http_flows` / `intercepted_flows`），**不要**直接 `flow.copy()`：原生 `Serializable.copy()` 会换掉 `flow.id`，而界面回头找真流量（`release_flows` / `apply_request_edits` / `save_flows`）全靠这个 id。
-
-- ❌ 使用 `ctx`。需 master/options 用手上的 `runtime.master`；`ctx` 不进 `bindings.__all__`。
-
-- ❌ 跨层 import mitmproxy。`from mitmproxy import ...` 只允许出现在 `core/mitm/bindings.py`；`core/mitm/*` 内部 `from ...bindings import`，其余一律 `from ferret.core.mitm import`。
-
+- ❌ 在 Qt 线程直接操作 master/view、修改活 flow，或对活 flow 构建详情/解码 body；这些经 facade 投到 mitm 线程。表格通过桥接信号 / `visible_http_flows()` 获取的活引用仅供只读展示与身份匹配，勿擅自换成副本。
+- 完整快照经 `all_http_flows()` / `intercepted_flows()` 获取；内部的 `core/mitm/facade.py::_snapshot` 是模块函数，负责保留 `flow.id`，勿自行 `flow.copy()`。回放创建新流量时仍应生成新 id。
+- ❌ 使用 `ctx`。需 master/options 用手上的 `runtime.master`，仍须遵守线程边界；`ctx` 不进 `bindings.__all__`。
+- ❌ 跨层 import mitmproxy。业务源码只有 `core/mitm/bindings.py` 可直接 import mitmproxy；`core/mitm/*` 从 bindings 引入，其余用 `from ferret.core.mitm import`（历史例外见 §4）。
 - ❌ 向 master 追加 mitmproxy 命令行 addon（comment/cut/export/script 等），GUI 自行实现等效能力。
-
-- ❌ 手动改 `Content-Length`——改 `flow.request.content` / `response.content` 后 mitmproxy 自动重算。
-
-- 三个地址不可混用：`listen_host`（bind 用）/ 本机接入恒 `127.0.0.1`（`MitmFacade.local_client_host`）/ 局域网展示地址（`detect_lan_address()`，只显示不写配置）。系统代理只写 `127.0.0.1`。
+- ❌ 手动改 `Content-Length`；写入 `flow.request.content` / `response.content` 后由 mitmproxy 自动重算。
+- 三个地址不可混用：`listen_host` 用于 bind；本机接入恒 `127.0.0.1`（`MitmFacade.local_client_host`）；`detect_lan_address()` 只用于局域网展示，不写配置。系统代理只写 `127.0.0.1`。
 
 ## 4. 分层与 import 门禁
 
-- `core/`：无 Qt；`network.py` 无 mitmproxy。系统代理是独立 workspace 成员 `packages/sysproxy`（零依赖、零 Qt）：不许 import ferret / PySide6、不自造默认目录，journal 路径由宿主注入；它只抛英文常量，展示边界在 `CaptureController._SYSTEM_PROXY_ERRORS` 翻译（包常量新增必须同步补映射，`tests/core/test_system_proxy.py` 钉着）。
-
-- `core/mitm/`：`bindings.py` 是唯一 mitmproxy 入口，对外 API 以 `__init__.py` 为准；会送到界面的异常文案（`certificate` / `facade` / `gateway` / `intercept` / `modes` / `rewrite` / `runtime`）用 `QCoreApplication.translate("<Ctx>", ...)` 包一层（不碰控件）；日志与 `from_dict` 校验消息不译（后者从不上界面）。
-
-- `apps/`：不直接 import mitmproxy 内部模块；后台任务统一 `apps/common/tasks.py::FunctionTask`（任务对象必须由调用方持有到 finished——没人持有时 Python 包装连同 signals 被 GC，worker 跑完成功信号也永远不到，机理见 `apps/settings/controllers.py` docstring）；编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel` / `ToolPlainTextEdit` / `JsonDualPanel`），不新造编辑器；方法词表 `apps/common/http_methods.py` 与断点共享。各子包职责与 UI 结构以自己的 controllers / views docstring 为准，本文件不复述。
-
-- `utils/`：不再新增依赖；`utils/http_parser.py` 现存一处对 `core/mitm/bindings` 的历史误引，勿模仿扩散（唯一例外，机理见 `core/mitm/detail.py` 注释）。
-
-- 新增文件按上面门禁归类即可，本文件不维护目录清单。
+- `core/` 不实现业务页面或控件；`core/application.py` 负责 Qt 应用启动与装配，配置、翻译及线程/信号基础设施可依赖 Qt。`core/network.py` 不依赖 mitmproxy。
+- `packages/sysproxy` 是零依赖、零 Qt 的独立 workspace 成员：不许 import ferret / PySide6，不自造默认目录，journal 路径由宿主注入；英文异常常量的展示翻译在 `apps/capture/controllers.py::_SYSTEM_PROXY_ERRORS`，新增常量须同步映射并过 `tests/core/test_system_proxy.py`。
+- `core/mitm/` 不依赖 QtWidgets；`bindings.py` 是唯一 mitmproxy 入口，对外 API 以 `__init__.py` 为准；送到界面的异常文案用 `QCoreApplication.translate("<Ctx>", ...)`，日志与不上界面的 `from_dict` 校验消息不译。
+- `apps/` 后台任务统一用 `apps/common/tasks.py::FunctionTask`，调用方必须持有任务到 finished，避免包装与 signals 被 GC（见 `apps/settings/controllers.py` docstring）。
+- 编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel` / `ToolPlainTextEdit` / `JsonDualPanel`），不新造编辑器；方法词表复用 `apps/common/http_methods.py`。
+- `utils/` 不再新增依赖；`utils/http_parser.py` 对 `core/mitm/bindings` 的历史误引勿扩散，机理见 `core/mitm/detail.py` 注释。
 
 ## 5. 技术决策（勿推翻；详细理由见对应代码注释）
 
-- **五通道抓包**：regular + local + wireguard + reverse + socks5 任意组合并存，经 `options.update(mode=[...])` 热更（官方 `proxyserver` 路径）。local spec 必须挂 `@127.0.0.1:0` 占位（上游 #7063 查重缺陷，上游修复后可整体移除）。reverse spec 必带 `reverse:https://target@host:port`，https 走 `BOTH`（TCP+UDP）防 alt-svc 落到裸 TCP 后通道对不上。socks5 是独立端口的 SOCKS5 入站（给只认 SOCKS5 的客户端接入），spec 必带 `socks5@host:port`（与 reverse 同动机：主动要独立端口，不带 `@` 回退全局 `listen_port` 与 regular 撞车被查重拒），监听地址跟随全局 `listen_host`；仅 TCP CONNECT（上游 `Socks5Proxy` 只实现 CONNECT，UDP ASSOCIATE 回 COMMAND_NOT_SUPPORTED），用户名/密码子协商受 `proxyauth` 同一份凭证保护、**不为之让路**。理由见 `.plans/0-socks5-channel.md`。
-
-- **上游代理不是第五条通道**：它替换 `mode[0]`（`regular` → `upstream:http://proxy:8080`），只改系统代理通道的**出口**；二者绝不并存（都回退全局 `listen_port`，同时在场被 `proxyserver` 地址查重拒）。spec **不带** `@`（与 reverse 正相反：那里要独立端口，这里要同一个，故系统代理/环回豁免/端口探测零改动），凭证**不进 spec**、走正交的 `upstream_auth` 选项（未生效时必须回 `None` 而非 `""`，校验正则 `.+:`）。**`upstream_auth` 非空时 reverse 通道的请求也会被补 `Authorization`**（原生一个 addon 服务两种模式，分不开）——既定语义不是 bug，闸门在选项侧，`tests/core/mitm/test_upstream.py` 钉着。四条边界不要在没有新需求时重开：local/wireguard/reverse 出口仍直连、裸 TCP/UDP 不经上游、凭证明文落盘（同 CA 私钥姿态）、只支持 HTTP(S) 不支持 SOCKS。理由见 `.plans/upstream-mode.md`。
-
-- **不做 transparent / tun**：Windows 上游明文 unsupported、需整进程管理员、重定向端口硬编码 8080、随包分发 WinDivert 1.3.0；tun 在 Rust 侧 Linux-only。
-
-- **启停语义**：应用启动零抓包动作；「开始」= 通道接通 + 系统代理 attach（按勾选）+ 开写入闸门，「停止」整体回落。通道**意图值**（`use_local` / `local_spec` / `use_wireguard`，落盘）与**接通位**（`set_channels_engaged`，不落盘）分离；外部流量写入闸门在控制器（`_on_flow_added`），Compose 显式记录独立于该闸门（`UiBridgeAddon` 分流），**不碰 core View**（intercept/compose 依赖）。
-
-- **守护进程拆除必须同步**：`MitmRuntime.stop` 在存活事件循环上同步 `_disarm_local_redirector`，`_run_master` 开场防御性再清一次（守护进程在进程外，内核停止会丢挂起任务，机理见 `runtime.py` 注释）。
-
-- **block\_private 为 wireguard / reverse / socks5 让路**：`_effective_block_private()` 在通道接通且 wireguard 或 reverse / socks5（且 `listen_host == ANY_HOST`）开启时强制 False，用户配置值保留、回落即恢复。
-
-- 通道实例启动失败（UAC 拒绝等）不被 `options.update` 同步抛出，只能延迟读 `channel_health`，控制器抓包中 1.5s 轮询一次。
-
-- `intercept_expression` 按 phase 分组后用**显式** **`&`** 挂 `~q` / `~s`，不能用并列——flowfilter 里并列优先级低于 `|`，会把整串段攥住。
-
-- 不引入 `mitmproxy_rs` 的 `certs` / `syntax_highlight`；`rs_*`（local / wireguard / process\_info）经 bindings 接入。
-
-- QR 编码用 `segno`（零二级依赖；qrcode 会把 colorama 拉回依赖树），矩阵经 `modes.qr_matrix`。
-
-- SSE 靠自研 tee（mitmproxy 对 SSE 零支持，两条原生路都不通），见 `core/mitm/sse.py`。
-
-- **数据目录只用 Roaming**（`get_config_dir` 走 `AppDataLocation`）：`AppConfigLocation`（Local）与 Velopack 安装根撞车（`PACK_ID` 同为 `Ferret`），覆盖重装/卸载会端掉 CA → STALE「证书失效」。旧根数据由 `settings.py::_migrate_legacy_config_dir` 一次性搬走，勿动 Velopack 文件。
-
-- 已删除勿复活：顶层 `application/` 包、`utils/proxy_manager.py`、自造 `format_bytes` / `compute_folds` / `mime_of`。
+- **五通道抓包**：regular + local + wireguard + reverse + socks5 可组合，经原生 `options.update(mode=[...])` 热更；模式串统一复用 `core/mitm/modes.py` 的构造函数。
+- local 保留 `@127.0.0.1:0` 查重占位；reverse / socks5 保留显式 `@host:port` 独立端口，监听地址跟随 `listen_host`；reverse 的 HTTPS 保留原生 TCP+UDP（`BOTH`）语义，勿裁成裸 TCP。
+- SOCKS5 入站仅支持 TCP CONNECT；认证用同一份 `proxyauth`，不因 SOCKS5 接通而关闭认证（见 `core/mitm/runtime.py::_effective_proxyauth`）。
+- **上游代理只替换 regular 的出口**：占 `mode[0]`，二者不并存；spec 不带 `@`、不含凭证，认证走 `upstream_auth`。关闭/无目标/无用户名时返回 `None`，不传空串（见 `core/mitm/runtime.py::_upstream_auth`）。
+- `upstream_auth` 非空时 reverse 请求也会被补 `Authorization`，保持既定语义与选项闸门（`tests/core/mitm/test_upstream.py`）。上游仅支持 HTTP(S)，其余通道出口仍直连，裸 TCP/UDP 不经上游，凭证按现有配置明文落盘。
+- **启停语义**：应用启动不接通抓包通道、不 attach 系统代理、不开写入闸门，但允许 regular 底座监听；「开始」接通选定通道、按勾选 attach 系统代理并开闸，「停止」回落会话，内核可继续供 Compose 使用。
+- 通道意图值落盘、`set_channels_engaged` 接通位不落盘；外部流量写入闸门在控制器 `_on_flow_added`，Compose 显式记录独立于该闸门，由 `UiBridgeAddon` 分流，勿改 core View 收录来控制界面记录。
+- **守护进程拆除必须同步**：`MitmRuntime.stop` 在存活事件循环上同步 `_disarm_local_redirector`，`_run_master` 开场防御性再清一次（见 `core/mitm/runtime.py`）。
+- 通道接通时，若 WireGuard 开启，或 reverse / socks5 开启且绑定 `ANY_HOST`，`block_private` 下发值强制 False；配置原值保留，撤下通道即恢复（见 `core/mitm/runtime.py::_effective_block_private`）。
+- 通道实例启动失败不会由 `options.update` 同步抛出；控制器抓包中须延迟检查 `channel_health`，不能把选项更新成功当成通道就绪。
+- `intercept_expression` 按 phase 分组后用显式 `&` 挂 `~q` / `~s`，勿用隐式并列；优先级陷阱见 `core/mitm/intercept.py`。
+- 不引入 `mitmproxy_rs` 的 `certs` / `syntax_highlight`；`rs_*` 能力经 bindings 接入。QR 用 `segno` / `core/mitm/modes.py::qr_matrix`，不引 qrcode。
+- SSE 保留 `core/mitm/sse.py` 的自研 tee，勿改为仅缓冲完整响应或丢弃流式 body。
+- **数据目录只用 Roaming**（`get_config_dir` / `AppDataLocation`）；勿改成与 Velopack 安装根冲突的 Local / `AppConfigLocation`，旧数据迁移复用 `core/settings.py::_migrate_legacy_config_dir`，勿动 Velopack 文件。
 
 ## 6. 功能边界
 
-- 实际装载的 addon 以 `core/mitm/master.py` 为准，本文件不维护清单。
-
-- 尚未实现（实现后更新本行）：——（serverplayback 已实现，见 §2 与 .plans/1-server-playback.md）
+- 不做 transparent / tun：保留 Windows 支持边界，不引入需整进程管理员的透明代理或 Linux-only tun。
+- 已删除勿复活：顶层 `application/` 包、`utils/proxy_manager.py`、自造 `format_bytes` / `compute_folds` / `mime_of`。
 
 ## 7. i18n（中文源 + `en_GB.qm`）
 
-- 源语言是简体中文：所有 `tr()` / `translate()` 字面量直接写中文，英文只进 `resources/i18n/en_GB.ts`；默认语言仍是简体中文；选中文不装业务翻译器（源文本直显），选 English 装 `en_GB.qm`。
-
-- 改任何文案后必须跑 `uv run python -m ferret.utils.scripts`（lupdate → lrelease → rcc 一条链，rcc 输出必须落 `core/resources_rc.py`）。少跑一步不报错，英文界面静默退回中文——`tests/core/test_i18n.py` 是守卫，跑它验证。lupdate 必须排除 `core/resources_rc.py`（3.6 MB 生成物会让它崩）；该文件是生成物勿手改（rcc 会把 mtime 编进资源表，diff 大是正常）。
-
-- lupdate 是静态扫描，两件事提取不到：**f-string 内部**（整句留外面、变量交给 `.format()`）与 **`tr(变量)`** **/** **`translate(变量, ...)`**（context 与源文本都得是字面量；唯一例外 `resolve_marker` 的共用查表器，context 由调用方给）。
-
-- 模块级与类体（含 `ClassVar`）不得求值翻译（翻译器那时还没装，求出的文案会永久冻结成中文）：存 `QT_TRANSLATE_NOOP("Ctx", "text")` 标记，到使用点用 `QCoreApplication.translate` / `resolve_marker` 求值（`utils/i18n.py`）。
-
-- 不拼句：每个分支写整句（`tr("{}失败").format(动作)` 换个语序就没法译）。
-
-- 日志与 `from_dict` 校验消息不译；语言名列表（settings 页）刻意不译。
+- 源语言是简体中文：`tr()` / `translate()` 字面量直接写中文，英文进 `resources/i18n/en_GB.ts`；默认中文且不装业务翻译器，English 装 `en_GB.qm`。
+- 修改界面文案或翻译后跑 `uv run python -m ferret.utils.scripts`（lupdate → lrelease → rcc），并验证 `tests/core/test_i18n.py`；`core/resources_rc.py` 是生成物，勿手改。
+- 修改资源流水线时保留 lupdate 排除 `core/resources_rc.py`、rcc 输出到该文件的约束；原因见 `utils/scripts.py` docstring。
+- 翻译调用不要嵌在 f-string 内，整句翻译后再 `.format()`；`tr()` / `translate()` 的 context 与源文本须为字面量，唯一例外是共用查表器 `resolve_marker`。
+- 模块级与类体（含 `ClassVar`）不得求值翻译；存 `QT_TRANSLATE_NOOP("Ctx", "中文源文本")` 标记，到使用点用 `QCoreApplication.translate` / `resolve_marker` 求值（`utils/i18n.py`）。
+- 不拼句：每个分支翻译完整句子，不用 `tr("{}失败").format(动作)` 拼装句子。
+- 日志与不上界面的 `from_dict` 校验消息不译；settings 页语言名列表刻意不译。

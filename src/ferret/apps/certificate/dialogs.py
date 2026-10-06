@@ -84,7 +84,7 @@ class RegenerateCertDialog(MessageBoxBase):
 
 
 class TrustedCaDialog(MessageBoxBase):
-    """额外信任的上游 CA 证书编辑框（.plans/upstream-tls.md §5）。
+    """额外信任的上游 CA 证书编辑框（docs/design.md#tls）。
 
     结构照 `DnsServersDialog`：一个 `PlainTextEdit`、每行一个路径、行内校验挡住
     「保存」。刻意**不**做「每行一个带减号按钮的列表控件」—— 路径是可粘贴、可批量
@@ -192,7 +192,7 @@ class TrustedCaDialog(MessageBoxBase):
 
 
 class ClientCertsDialog(MessageBoxBase):
-    """mTLS 客户端证书编辑框（.plans/mtls-client-certs.md §5.3）。
+    """mTLS 客户端证书编辑框（docs/design.md#tls）。
 
     页面上半部分讲「让别人信任 Ferret」、上游信任组讲「让 Ferret 信任别人」，
     这一个讲的是第三件事：**让上游相信 Ferret 是谁**。原生 `client_certs` 只有

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -23,6 +24,9 @@ ERR_RESTORE_FAILED = "Restoring the previous system proxy failed"
 ERR_SET_FAILED = "Setting the system proxy failed"
 #: 另一个存活实例还持有系统代理的所有权（锁文件被占），拒绝并发 attach。
 ERR_OWNER_ACTIVE = "Another running instance owns the system proxy"
+ERR_STATE_IO_FAILED = "Reading or saving system proxy recovery state failed"
+
+log = logging.getLogger(__name__)
 
 if sys.platform == "win32":
     import msvcrt
@@ -47,6 +51,7 @@ class SystemProxyService:
         self._journal_path = journal_path
         self._snapshot: ProxySnapshot | None = None
         self._endpoint: ProxyEndpoint | None = None
+        self._restore_pending = False
         # 锁文件句柄：attach 成功后一直持有，直到 detach。进程死亡时 OS 关句柄、
         # 锁自动释放 —— 这是「所有者还活着吗」的可靠判据，没有 PID 复用的误判。
         self._lock_fd: int | None = None
@@ -60,10 +65,22 @@ class SystemProxyService:
         return self._endpoint
 
     def attach(self, host: str, port: int) -> None:
+        try:
+            self._attach(host, port)
+        except OSError as exc:
+            if self._endpoint is None:
+                self._release_ownership()
+            raise RuntimeError(ERR_STATE_IO_FAILED) from exc
+
+    def _attach(self, host: str, port: int) -> None:
         if not host or not (1 <= int(port) <= 65535):
             raise ValueError(ERR_INVALID_ADDRESS)
         endpoint = ProxyEndpoint(host, port)
-        if self._endpoint == endpoint and self._backend.owns(endpoint):
+        if (
+            self._endpoint == endpoint
+            and not self._restore_pending
+            and self._backend.owns(endpoint)
+        ):
             return
         if self._endpoint is not None and not self.detach():
             raise RuntimeError(ERR_RESTORE_FAILED)
@@ -81,18 +98,14 @@ class SystemProxyService:
                 # 改过，journal 作废。「作废」语义只对确认生效过的 journal 成立；
                 # pending 的走下面恢复/顶上分支。
                 self._clear_journal()
-            elif self._backend.restore(stale_snapshot):
-                # 这次恢复下来了：journal 清掉，按正常 attach 取当前快照。pending
-                # 的 journal 也进这条（set 从未生效时系统多半就停在快照态，恢复是
-                # 幂等空写；系统停在上一代死代理上时这步把它救回来）。
-                self._clear_journal()
             else:
-                # 还是恢复不下来：把旧快照顶到这次 attach 的「上次状态」上继续用，
-                # journal 重写后仍带它 —— 用户原配置在恢复成功之前绝不落袋。
-                # pending 的 journal 走到这里同样是这个语义：owns 不匹配不能当
-                # 「外部改动」删掉它，否则唯一存着原配置的 journal 没了，下一次
-                # snapshot() 就把残留死代理存成恢复目标（#72 复核重开的路径）。
-                snapshot = stale_snapshot
+                # Persist the recovery obligation before the first registry write:
+                # restore can fail after changing the endpoint, making owns false.
+                self._write_journal(stale_endpoint, stale_snapshot, applied=False)
+                if self._backend.restore(stale_snapshot):
+                    self._clear_journal()
+                else:
+                    snapshot = stale_snapshot
         if snapshot is None:
             snapshot = self._backend.snapshot()
         # journal 先以 **pending** 落盘再动系统：set 成功但进程随即死掉的窗口里，
@@ -116,50 +129,67 @@ class SystemProxyService:
             raise RuntimeError(ERR_SET_FAILED)
         # set 确认生效：journal 翻成 applied。留在 pending 的话，这次失败痕迹会
         # 让下一次 attach 误判「set 从未生效」——语义上没错但账不干净。
-        self._write_journal(endpoint, snapshot, applied=True)
         self._snapshot = snapshot
         self._endpoint = endpoint
+        self._restore_pending = True
+        self._write_journal(endpoint, snapshot, applied=True)
+        self._restore_pending = False
 
     def detach(self) -> bool:
+        try:
+            return self._detach()
+        except OSError:
+            log.exception("system proxy recovery state could not be accessed")
+            return False
+
+    def _detach(self) -> bool:
         endpoint = self._endpoint
         snapshot = self._snapshot
-        self._endpoint = None
-        self._snapshot = None
         if endpoint is None or snapshot is None:
             self._release_ownership()
             return True
-        if not self._backend.owns(endpoint):
-            self._clear_journal()
-            self._release_ownership()
-            return True
-        if not self._backend.restore(snapshot):
-            # 恢复失败继续持有所有权与 journal：本实例还挂着，别的实例不许插手，
-            # 宿主可以重试 detach 或留到下次启动 recover 兜底。
-            self._endpoint = endpoint
-            self._snapshot = snapshot
-            return False
+        if self._restore_pending or self._backend.owns(endpoint):
+            self._write_journal(endpoint, snapshot, applied=False)
+            self._restore_pending = True
+            if not self._backend.restore(snapshot):
+                return False
         self._clear_journal()
+        self._endpoint = None
+        self._snapshot = None
+        self._restore_pending = False
         self._release_ownership()
         return True
 
     def recover(self) -> bool:
-        state = self._read_journal()
-        if state is None:
-            return True
+        try:
+            return self._recover()
+        except (OSError, ValueError, KeyError, TypeError):
+            # Unreadable/corrupt journals are not evidence of external changes.
+            # Preserve them and refuse a fresh snapshot until recovery is possible.
+            log.exception("system proxy recovery failed")
+            return False
+
+    def _recover(self) -> bool:
         # journal 还在只说明「有一份没恢复的快照」，不代表 owner 已死：另一个
         # 存活实例（比如同时开了两个 Ferret）正靠这份 journal 在自己 detach 时
         # 恢复用户配置（#73）。拿不到锁 = 有活着的所有者，跳过恢复且**保留**
         # journal，所有权协议交给锁文件裁决。
         if not self._acquire_ownership():
             return True
-        endpoint, snapshot, applied = state
         try:
+            # Read under the same lock as restore/delete. Another owner may have
+            # replaced the journal since recovery started, even at the same endpoint.
+            state = self._read_journal()
+            if state is None:
+                return True
+            endpoint, snapshot, applied = state
             if applied and not self._backend.owns(endpoint):
                 # 已生效却不再指着那个端点：外部改动，作废（与 attach 侧同一既定
                 # 语义）。pending 的 journal 不走这里 —— set 从未确认生效，它的
                 # 快照可能是用户原配置的唯一副本（#72），恢复成功前不能删。
                 self._clear_journal()
                 return True
+            self._write_journal(endpoint, snapshot, applied=False)
             if not self._backend.restore(snapshot):
                 return False
             self._clear_journal()
@@ -237,9 +267,8 @@ class SystemProxyService:
                 ProxySnapshot(dict(data["snapshot"])),
                 bool(data.get("applied", True)),
             )
-        except (OSError, ValueError, KeyError, TypeError):
-            self._clear_journal()
-            return None
+        except (ValueError, KeyError, TypeError) as exc:
+            raise OSError("Invalid system proxy recovery journal") from exc
 
     def _clear_journal(self) -> None:
         path = self._journal_path

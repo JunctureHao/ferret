@@ -449,6 +449,7 @@ class RewriteRuleDialog(MessageBoxBase):
     def _on_browse(self):
         """map_local 既能指向单个文件、也能指向整个目录，所以给两个入口。"""
         menu = RoundMenu(parent=self)
+        menu.closedSignal.connect(menu.deleteLater)
         file_action = BaseAction(
             icon=FluentIcon.DOCUMENT, text=self.tr("选择文件"), parent=menu
         )
@@ -528,9 +529,9 @@ class RewriteRuleDialog(MessageBoxBase):
         except ValueError as exc:
             # 文案单独取：lupdate 的 Python 解析器不往 f-string 里看。
             raise ValueError(
-                QCoreApplication.translate("RewriteRule", "状态码必须是整数：{}").format(
-                    text
-                )
+                QCoreApplication.translate(
+                    "RewriteRule", "状态码必须是整数：{}"
+                ).format(text)
             ) from exc
 
     def _validate(self):

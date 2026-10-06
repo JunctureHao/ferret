@@ -1,7 +1,7 @@
 """时序瀑布的推导：`phases()` 是纯函数，七种情形矩阵全部不起窗口直测。
 
 段值与泳道归属的口径全部对着 mitmproxy 12.2.3 的真实计时能力裁
-（出处 `.plans/timing-waterfall.md` §3）：
+（出处 `docs/design.md#export`）：
 
 - eager 下 HTTPS 的连接/TLS 早于请求 ⇒ ``lane="pre"``；明文与 compose 回放的
   连接嵌在等待里 ⇒ ``lane="nested"``。两种情形下总耗时都是**一次减法**
@@ -142,7 +142,9 @@ class PhasesTests(unittest.TestCase):
         send = by_key(model, "send")
         self.assertEqual(send.ms, 0.0)
 
-    def test_a_flow_without_a_server_connection_omits_the_connection_group(self) -> None:
+    def test_a_flow_without_a_server_connection_omits_the_connection_group(
+        self,
+    ) -> None:
         """`s0 is None`（网关拦下 / 未发出）：连接三段缺席，请求三段照常。"""
         model = phases(
             detail(

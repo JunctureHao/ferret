@@ -9,16 +9,17 @@ name: release
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 # GITHUB_TOKEN 默认只读；vpk 建 release / 传资产需要写权限
 permissions:
-  contents: write
+  contents: read
 
-# 快速连续 push 时只保留最新一次：旧构建即使发布成功也会被更高版本立刻覆盖
+# 同一分支串行发布，上传期间不自动取消，避免发布半套资产。
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # 每次 push 的 CI 门禁（AGENTS.md §1），顺带产出「是否发版」判定
@@ -34,50 +35,29 @@ jobs:
         with:
           enable-cache: true
 
-      - run: uv sync
+      - run: uv sync --locked
 
-      # 对比 pyproject 版本与 GitHub 最新 release：更高才发版。
-      # 首次发布（线上还没有 release）按 0 处理，必然触发；
-      # 用 venv 的 python（3.12.13 有 tomllib），runner 系统 python 不保证。
-      - name: compare version with latest release
+      # 预发布也参与 SemVer 比较；只有成功读取到空列表才按首次发布处理。
+      - name: compare version with published releases
         id: ver
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          BUMP="$(uv run --no-sync python - <<'PY'
-          import os, subprocess, sys, tomllib
-
-          repo = os.environ["GITHUB_REPOSITORY"]
-          new = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
-
-          def key(v):
-              base, _, pre = v.strip().lstrip("v").partition("-")
-              nums = tuple(int(x) for x in base.split("."))
-              # 预发版（如 -rc.1）排在同号正式版之前
-              return (nums, (0, pre) if pre else (1,))
-
-          try:
-              old = subprocess.run(
-                  ["gh", "api", f"repos/{repo}/releases/latest", "--jq", ".tag_name"],
-                  capture_output=True, text=True, check=True,
-              ).stdout.strip()
-          except (subprocess.CalledProcessError, FileNotFoundError):
-              old = "0"
-
-          bump = key(new) > key(old)
-          print(f"pyproject={new}  latest_release={old}  bump={bump}", file=sys.stderr)
-          print("true" if bump else "false")
-          PY
-          )"
-          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+        run: uv run --no-sync python scripts/release_version.py
 
       - run: uvx ruff check .
       - run: uvx ty check
-      - run: uv run python -m unittest discover -s tests
+      - run: uv run --no-sync python -m unittest discover -s tests
+      - run: uv run --no-sync python -m unittest discover -s packages/sysproxy/tests
 
   release:
     needs: gate
+    # 手动触发可来自不同分支，所有发布仍写同一个仓库更新源。
+    concurrency:
+      group: publish-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
     if: needs.gate.outputs.bump == 'true'
     runs-on: windows-latest
     timeout-minutes: 60 # Nuitka 全量编译（PySide6 + mitmproxy）约 15-30 分钟
@@ -91,38 +71,50 @@ jobs:
         with:
           enable-cache: true
 
-      - run: uv sync
+      - run: uv sync --locked
+
+      # 等待发布锁期间可能已有新版发布；锁内复查，旧 gate 结果不授权覆盖。
+      - name: recheck version after acquiring the publish lock
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run --no-sync python scripts/release_version.py
+
       # 本地 vpk 是全局 dotnet tool，不随仓库走；runner 上现装，.NET SDK 镜像自带
-      - run: dotnet tool install -g vpk
+      - if: steps.ver.outputs.bump == 'true'
+        run: dotnet tool install -g vpk
 
       # build/ 不进 git，CI 上是空目录 → 只出 full 包；先拉上一版 release 资产，
-      # vpk pack 才能生成 delta 增量包。首个版本没有上一版，允许失败继续。
+      # vpk pack 才能生成 delta 增量包；有正式版时下载失败必须可见。
       - name: fetch previous release for delta
-        continue-on-error: true
+        if: steps.ver.outputs.bump == 'true' && steps.ver.outputs.previous_stable != ''
         env:
           VPK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p build/releases
+          New-Item -ItemType Directory -Force -Path build/releases
           vpk download github --outputDir build/releases --repoUrl "${{ github.server_url }}/${{ github.repository }}"
 
       # 脚本内部把 GITHUB_TOKEN 转成 VPK_TOKEN 传给 vpk，不落命令行；
-      # repoUrl 从 pyproject [project.urls] 读取（git origin 兜底）。
+      # repoUrl 默认使用 core.meta.REPO_URL；--repo-url 可覆盖。
       # 默认直接 publish（draft 不进更新源）；tag v{version} 由 vpk 创建。
       - name: build & publish
+        if: steps.ver.outputs.bump == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uv run python scripts/package.py --upload
+        run: uv run --no-sync python scripts/package.py --upload --repo-url "${{ github.server_url }}/${{ github.repository }}"
 
       # vpk 不支持写 release body；发布完成后用 gh 把自上一版以来的提交清单
       # 补进去。vpk 的 tag 是发布时才在远端创建的、checkout 拿不到，所以本地
-      # 最高 v* tag 天然就是上一版。
+      # 上一版取自锁内复查结果，避免本地未发布 tag 混入。
       - name: attach changelog to release
+        if: steps.ver.outputs.bump == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS_RELEASE: ${{ steps.ver.outputs.previous }}
         shell: bash
         run: |
           VERSION="$(uv run --no-sync python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
-          PREV="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+          PREV="$PREVIOUS_RELEASE"
           if [ -z "$PREV" ]; then
             echo "没有上一版 tag，跳过变更说明"
             exit 0
@@ -139,6 +131,7 @@ jobs:
 
       # Release 之外再存一份产物，方便不入库查看 / 失败排查
       - uses: actions/upload-artifact@v4
+        if: steps.ver.outputs.bump == 'true'
         with:
           name: releases
           path: build/releases/

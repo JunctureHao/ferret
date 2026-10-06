@@ -53,6 +53,24 @@ class CertificateInterfaceTests(unittest.TestCase):
                 values.append(widget.text())
         return values
 
+    def test_tls_switch_failures_show_the_error_and_keep_intent(self) -> None:
+        for callback, attribute in (
+            (self.page._on_ssl_insecure_changed, "ssl_insecure"),
+            (self.page._on_upstream_chain_changed, "add_upstream_certs"),
+        ):
+            with self.subTest(attribute=attribute):
+                with (
+                    patch.object(
+                        self.controller,
+                        "set_upstream_tls",
+                        side_effect=RuntimeError("TLS rejected"),
+                    ),
+                    patch("ferret.apps.certificate.views.show_warning") as warning,
+                ):
+                    callback(True)
+                warning.assert_called_once()
+                self.assertIn("TLS rejected", warning.call_args.args[1])
+
     def drain(self, timeout_ms: int = 5000) -> None:
         self.assertTrue(
             wait_until(lambda: not self.controller.busy, timeout_ms=timeout_ms)

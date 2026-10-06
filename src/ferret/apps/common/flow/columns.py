@@ -1,4 +1,4 @@
-"""流列表列定义与布局归一化（.plans/0-flow-list-columns.md）。
+"""流列表列定义与布局归一化（docs/design.md#ui）。
 
 本模块是列自定义的**唯一事实源**，刻意保持轻：只 import 标准库与 QtCore 级的
 翻译标记，**不** import `models.py` / `core.mitm`（那条链拖进整个 mitmproxy）。
@@ -37,7 +37,9 @@ class ColumnDef(NamedTuple):
 
     key: str  # 稳定 key，存配置
     header: str  # _headers 分派串，flow_cell/_conn_data 按它分派
-    title_marker: str | None  # 显示标题标记（QT_TRANSLATE_NOOP，context FlowTableModel）
+    title_marker: (
+        str | None
+    )  # 显示标题标记（QT_TRANSLATE_NOOP，context FlowTableModel）
     default_visible: bool
     default_width: int
     required: bool  # 必需列：不可隐藏
@@ -47,7 +49,9 @@ class ColumnDef(NamedTuple):
 
 # 默认顺序＝HEADERS 顺序＝逻辑列顺序，三者恒等。改这里等于改默认布局。
 COLUMNS: tuple[ColumnDef, ...] = (
-    ColumnDef("index", "#", None, True, 80, required=True, pinned=True, fixed_width=False),
+    ColumnDef(
+        "index", "#", None, True, 80, required=True, pinned=True, fixed_width=False
+    ),
     ColumnDef(
         "mark",
         "Mark",
@@ -58,12 +62,38 @@ COLUMNS: tuple[ColumnDef, ...] = (
         pinned=False,
         fixed_width=True,
     ),
-    ColumnDef("method", "Method", None, True, 80, required=True, pinned=False, fixed_width=False),
-    ColumnDef("url", "URL", None, True, 420, required=True, pinned=False, fixed_width=False),
-    ColumnDef("status", "Status", None, True, 65, required=False, pinned=False, fixed_width=False),
-    ColumnDef("type", "Type", None, True, 100, required=False, pinned=False, fixed_width=False),
-    ColumnDef("size", "Size", None, True, 80, required=False, pinned=False, fixed_width=False),
-    ColumnDef("time", "Time", None, True, 80, required=False, pinned=False, fixed_width=False),
+    ColumnDef(
+        "method",
+        "Method",
+        None,
+        True,
+        80,
+        required=True,
+        pinned=False,
+        fixed_width=False,
+    ),
+    ColumnDef(
+        "url", "URL", None, True, 420, required=True, pinned=False, fixed_width=False
+    ),
+    ColumnDef(
+        "status",
+        "Status",
+        None,
+        True,
+        65,
+        required=False,
+        pinned=False,
+        fixed_width=False,
+    ),
+    ColumnDef(
+        "type", "Type", None, True, 100, required=False, pinned=False, fixed_width=False
+    ),
+    ColumnDef(
+        "size", "Size", None, True, 80, required=False, pinned=False, fixed_width=False
+    ),
+    ColumnDef(
+        "time", "Time", None, True, 80, required=False, pinned=False, fixed_width=False
+    ),
 )
 
 _BY_KEY: dict[str, ColumnDef] = {col.key: col for col in COLUMNS}
@@ -263,7 +293,8 @@ def save_layout(layout: ColumnLayout) -> None:
     """
     from ferret.core.settings import CONFIG
 
-    CONFIG.set(CONFIG.flow_columns, layout.to_dict())
+    CONFIG.set(CONFIG.flow_columns, layout.to_dict(), save=False)
+    CONFIG.defer_save()
 
 
 __all__ = [

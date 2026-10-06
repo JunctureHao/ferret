@@ -1,4 +1,4 @@
-"""DNS 解析选项的内核侧验收（.plans/dns-options.md §7）。
+"""DNS 解析选项的内核侧验收（docs/design.md#capture）。
 
 分三组，按「越靠近原生越不需要内核」排：
 

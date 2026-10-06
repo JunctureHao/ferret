@@ -1,13 +1,12 @@
 """手工构造请求并交由 mitmproxy 内核发出（编辑页「发送」的内核一侧）。
 
-和 `MitmFacade.replay_flows` 同源：`ClientPlayback.start_replay` 本来就接受任何
-「不在线、未拦截、请求完整」的 flow，并不在乎它是从列表里复制的还是徒手造的。
-区别只在三处：
+与列表回放复用原生 `ReplayHandler`。Compose 自己持有任务，才能逐条取消
+无期限响应并在停止内核时回报终态；HTTP 转发仍完全由原生处理。
 
 1. flow 由 `build_compose_flow` 从零构造（`Request.make` + 客户端连接桩）；
 2. `flow.metadata` 记录来源与本次发送的记录选择，`ComposeAddon` 按登记的 id 在
    `response` / `error` 钩子里认出这条流量、把结果快照经信号桥送回编辑页；
-3. 「进入流量列表」是一个选项：`View.requestheaders` 会无条件收录所有 flow，
+3. 「进入流量列表」是一个选项：核心 View 在请求重写和网关裁决后收录 flow，
    桥接与表格刷新按记录选择决定是否显示，已选择记录的流量独立于抓包开关。
    不入选的由 `ComposeAddon` 在响应/错误落地后从 View 里摘除（提前摘会被
    `View.remove` 的 kill 副作用杀掉这条 replay flow，见 `_finish` 注释）。
@@ -15,12 +14,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+
+from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm.bindings import (
     Flow,
     HTTPFlow,
+    Options,
+    ReplayHandler,
     Request,
     View,
     connection,
@@ -31,6 +35,7 @@ from ferret.core.mitm.detail import build_flow_detail
 # 来源标记用于元数据展示，是否入表由独立的布尔标记决定。
 COMPOSE_METADATA_KEY = "ferret.compose"
 COMPOSE_RECORD_METADATA_KEY = "ferret.compose.record"
+COMPOSE_TIMEOUT = 60.0
 
 
 def compose_recording(flow: Flow) -> bool | None:
@@ -73,7 +78,10 @@ def build_compose_flow(
         url,
         content or b"",
         # mitmproxy 12 的 Headers 只收 bytes；界面给的是 str，utf-8 转一层。
-        [(k.encode("utf-8"), v.encode("utf-8")) for k, v in header_pairs],
+        [
+            (k.encode("utf-8", "surrogateescape"), v.encode("utf-8", "surrogateescape"))
+            for k, v in header_pairs
+        ],
     )
     if user_host is not None:
         request.headers["Host"] = user_host
@@ -126,10 +134,106 @@ class ComposeAddon:
         # （与 `GatewayState.on_suspend_changed` 同一个模式）。
         self._view = view
         self._keep: dict[str, bool] = {}
+        self._flows: dict[str, HTTPFlow] = {}
+        self._tasks: dict[str, asyncio.Task[None]] = {}
         self.on_result: Callable[[ComposeResult], None] | None = None
+        self.on_cancel: Callable[[HTTPFlow], None] | None = None
 
     def register(self, flow_id: str, *, keep: bool) -> None:
         self._keep[flow_id] = keep
+
+    def start(
+        self,
+        flow: HTTPFlow,
+        options: Options,
+        *,
+        keep: bool,
+        timeout: float | None = None,
+    ) -> None:
+        """Run the native replay handler with an owned, cancellable lifetime."""
+        self.register(flow.id, keep=keep)
+        self._flows[flow.id] = flow
+        self._tasks[flow.id] = asyncio.create_task(
+            self._run(flow, options, COMPOSE_TIMEOUT if timeout is None else timeout),
+            name="compose request",
+        )
+        # Cancellation can occur before _run executes its first instruction.
+        self._tasks[flow.id].add_done_callback(
+            lambda _task, flow_id=flow.id: self._tasks.pop(flow_id, None)
+        )
+
+    async def _run(self, flow: HTTPFlow, options: Options, timeout: float) -> None:
+        handler = None
+        try:
+            handler = ReplayHandler(flow, options)
+            await asyncio.wait_for(handler.replay(), timeout)
+        except TimeoutError:
+            self._cancel_flow(flow)
+            self._finish(
+                flow,
+                error=QCoreApplication.translate("Compose", "请求超时，已取消发送"),
+            )
+        except asyncio.CancelledError:
+            self._cancel_flow(flow)
+            self._finish(
+                flow, error=QCoreApplication.translate("Compose", "请求已取消")
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._cancel_flow(flow)
+            self._finish(flow, error=str(exc))
+        finally:
+            # Flow.kill cannot abort an in-transit stream in native mitmproxy.
+            # Cancel the handler's actual transports, then await their cleanup.
+            if handler is not None:
+                transports = [
+                    transport.handler
+                    for transport in handler.transports.values()
+                    if transport.handler
+                ]
+                for task in transports:
+                    task.cancel()
+                if transports:
+                    await asyncio.gather(*transports, return_exceptions=True)
+            self._tasks.pop(flow.id, None)
+
+    def _cancel_flow(self, flow: HTTPFlow) -> None:
+        flow.resume()
+        if flow.killable:
+            flow.kill()
+        if self.on_cancel is not None:
+            self.on_cancel(flow)
+
+    def cancel(self, flow_id: str) -> bool:
+        if flow_id not in self._keep:
+            return False
+        flow = self._flows.get(flow_id)
+        if flow is not None:
+            self._cancel_flow(flow)
+            self._finish(
+                flow, error=QCoreApplication.translate("Compose", "请求已取消")
+            )
+        task = self._tasks.get(flow_id)
+        if task is not None:
+            task.cancel()
+        return True
+
+    async def done(self) -> None:
+        message = QCoreApplication.translate("Compose", "内核已停止，请求已取消")
+        for flow_id in list(self._keep):
+            flow = self._flows.get(flow_id)
+            if flow is not None:
+                self._cancel_flow(flow)
+                self._finish(flow, error=message)
+            else:
+                self._keep.pop(flow_id)
+                if self.on_result is not None:
+                    self.on_result(ComposeResult(flow_id, message, {}))
+        tasks = list(self._tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._tasks.clear()
 
     def response(self, flow: HTTPFlow) -> None:
         self._finish(flow)
@@ -137,15 +241,22 @@ class ComposeAddon:
     def error(self, flow: HTTPFlow) -> None:
         self._finish(flow)
 
-    def _finish(self, flow: HTTPFlow) -> None:
+    def _finish(self, flow: HTTPFlow, *, error: str = "") -> None:
         keep = self._keep.pop(flow.id, None)
         if keep is None:
             return
+        self._flows.pop(flow.id, None)
         callback = self.on_result
         if callback is not None:
-            callback(compose_result(flow))
+            try:
+                result = compose_result(flow)
+            except Exception as exc:  # noqa: BLE001
+                result = ComposeResult(flow.id, str(exc), {})
+            if error:
+                result.error = error
+            callback(result)
         if not keep:
-            # 「进入流量列表 = False」：View.requestheaders 无条件收录一切 flow，
+            # 「进入流量列表 = False」：核心 View 仍收录这些 flow，
             # 只能靠摘除对抗。但摘除**不能提前**（`View.remove` 会 kill 活着的
             # replay flow，error 会抢在响应前落地）—— 等到 response/error 落地、
             # replay 结束（`killable=False`）后再摘，remove 就只是安静移出列表。

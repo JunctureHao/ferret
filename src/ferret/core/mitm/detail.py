@@ -244,7 +244,7 @@ def _leaf_certificate_fields(cert) -> dict[str, Any]:
 def _chain_certificate_fields(index: int, cert) -> dict[str, Any]:
     """中间/根证书的判别性 5 项 —— 定位「哪一环过期 / 指纹错 / 信任链断在哪」。
 
-    不做全量：链可深到几十层，全量会让证书卡失控难扫（.plans/tls-detail.md §5）。
+    不做全量：链可深到几十层，全量会让证书卡失控难扫（docs/design.md#tls）。
     每张独立 try/except，坏一张不塌整链。
     """
     fields: dict[str, Any] = {}

@@ -1,20 +1,29 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
 import socket
+import tempfile
+import threading
 import unittest
+from concurrent.futures import Future
+from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from mitmproxy.proxy import mode_specs
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm import MitmRuntime, MitmRuntimeState
-from ferret.core.mitm.bindings import MitmLogHandler
+from ferret.core.mitm.bindings import LocalRedirectorInstance, MitmLogHandler
 from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.modes import REVERSE_DEFAULT_PORT, SOCKS5_DEFAULT_PORT
+from ferret.core.mitm.runtime import _MitmThread
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST
 
-from ._qt import start_runtime, wait_for_signal
+from ._qt import start_runtime, wait_for_signal, wait_ready, wait_until
 
 
 def free_port() -> int:
@@ -56,6 +65,212 @@ class MitmRuntimeTests(unittest.TestCase):
         QCoreApplication.processEvents()
         self.assertEqual(runtime.state, MitmRuntimeState.STOPPED)
         self.assertIsNone(runtime.master)
+
+
+class RuntimeRecoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = patch(
+            "ferret.core.mitm.runtime.get_certs_dir", return_value=Path(tmp.name)
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        cert_patcher = patch(
+            "ferret.core.mitm.certificate.get_certs_dir", return_value=Path(tmp.name)
+        )
+        cert_patcher.start()
+        self.addCleanup(cert_patcher.stop)
+
+    def _runtime(self, **kwargs) -> MitmRuntime:
+        runtime = MitmRuntime(listen_port=free_port(), **kwargs)
+        self.addCleanup(runtime.stop)
+        start_runtime(runtime)
+        return runtime
+
+    def test_all_listeners_failing_emits_failure_and_leaves_starting(self) -> None:
+        with socket.socket() as blocker:
+            blocker.bind(("127.0.0.1", 0))
+            blocker.listen()
+            runtime = MitmRuntime(listen_port=blocker.getsockname()[1])
+            self.addCleanup(runtime.stop)
+            errors = []
+            runtime.failed.connect(errors.append)
+            # Model the port becoming occupied after the early availability test.
+            with patch.object(_MitmThread, "_ensure_port_available"):
+                runtime.start()
+                self.assertTrue(
+                    wait_until(lambda: runtime.state is MitmRuntimeState.FAILED)
+                )
+                self.assertTrue(wait_until(lambda: runtime._thread is None))
+            self.assertTrue(errors)
+            self.assertIn("监听失败", errors[0])
+
+    def test_channel_intent_changed_after_options_construction_is_applied_before_ready(
+        self,
+    ) -> None:
+        options_constructed = threading.Event()
+        release_startup = threading.Event()
+        original = _MitmThread._apply_serverplayback
+
+        def pause_after_options(thread, master):
+            original(thread, master)
+            options_constructed.set()
+            if not release_startup.wait(5):
+                raise RuntimeError("test did not release startup")
+
+        runtime = MitmRuntime(
+            listen_port=free_port(), use_socks5=True, socks5_port=free_port()
+        )
+        self.addCleanup(runtime.stop)
+        self.addCleanup(release_startup.set)
+        with patch.object(_MitmThread, "_apply_serverplayback", pause_after_options):
+            runtime.start()
+            self.assertTrue(wait_until(options_constructed.is_set))
+            self.assertEqual(runtime.state, MitmRuntimeState.STARTING)
+            runtime.set_channels_engaged(True)
+            release_startup.set()
+            wait_ready(runtime)
+        master = runtime.master
+        assert master is not None
+        self.assertEqual(
+            runtime.call(lambda: master.options.mode), runtime._mode_specs()
+        )
+        self.assertTrue(
+            wait_until(lambda: runtime.channel_health().get("socks5") is True)
+        )
+        addresses = runtime.call(master.proxyserver.listen_addrs)
+        self.assertTrue(any(address[1] == runtime.socks5_port for address in addresses))
+
+    def test_a_started_synchronous_commit_returns_its_result_after_the_deadline(
+        self,
+    ) -> None:
+        runtime = self._runtime()
+        release = threading.Event()
+        finished = threading.Event()
+        timer = threading.Timer(0.08, release.set)
+        self.addCleanup(timer.cancel)
+        timer.start()
+
+        def commit():
+            self.assertTrue(release.wait(2))
+            finished.set()
+            return "committed"
+
+        self.assertEqual(runtime.call(commit, timeout=0.01), "committed")
+        self.assertTrue(finished.is_set())
+
+    def test_a_timed_out_queued_callback_never_runs_later(self) -> None:
+        runtime = self._runtime()
+        thread = runtime._thread
+        assert thread is not None and thread.loop is not None
+        blocking = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def occupy_loop():
+            blocking.set()
+            release.wait(2)
+
+        thread.loop.call_soon_threadsafe(occupy_loop)
+        self.assertTrue(blocking.wait(2))
+        commit = Mock()
+        with self.assertRaises(TimeoutError):
+            runtime.call(commit, timeout=0.01)
+        release.set()
+        runtime.call(lambda: None)
+        commit.assert_not_called()
+
+    def test_completion_racing_the_timeout_still_returns_the_committed_result(
+        self,
+    ) -> None:
+        runtime = self._runtime()
+
+        class CompletedAtDeadline(Future[object]):
+            def result(self, timeout: float | None = None) -> object:
+                value = super().result(timeout)
+                if timeout is not None:
+                    # Deterministically model completion between the expired
+                    # wait and the cancellation/rollback decision.
+                    raise TimeoutError("completion raced the deadline")
+                return value
+
+        with patch("ferret.core.mitm.runtime.Future", CompletedAtDeadline):
+            self.assertEqual(runtime.call(lambda: "committed"), "committed")
+
+    def test_async_timeout_waits_for_cancellation_cleanup(self) -> None:
+        runtime = self._runtime()
+        cleaned = threading.Event()
+
+        async def pending():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0.01)
+                cleaned.set()
+
+        with self.assertRaises(TimeoutError):
+            runtime.call(pending, timeout=0.02)
+        self.assertTrue(cleaned.is_set())
+
+    def test_cancelled_local_startup_placeholder_is_cleared_without_a_server(
+        self,
+    ) -> None:
+        # Exercise the native startup ordering with its asynchronous Rust factory
+        # replaced: no actual WinDivert service or UAC operation runs in this test.
+        instance = LocalRedirectorInstance(mode_specs.LocalMode.parse("local"), Mock())
+        server = Mock()
+        start = AsyncMock(side_effect=[asyncio.CancelledError(), server])
+        with (
+            patch.object(LocalRedirectorInstance, "_server", None),
+            patch.object(LocalRedirectorInstance, "_instance", None),
+            patch("mitmproxy_rs.local.start_local_redirector", start),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                asyncio.run(instance._start())
+            self.assertIs(LocalRedirectorInstance._instance, instance)
+            self.assertIsNone(LocalRedirectorInstance._server)
+            MitmRuntime._disarm_local_redirector()
+            self.assertIsNone(LocalRedirectorInstance._instance)
+            asyncio.run(instance._start())
+            server.set_intercept.assert_called_once()
+            MitmRuntime._disarm_local_redirector()
+
+    def test_shutdown_disarm_failure_is_logged_and_retryable(self) -> None:
+        runtime = self._runtime()
+        with (
+            patch.object(LocalRedirectorInstance, "_instance", object()),
+            patch.object(
+                runtime,
+                "_disarm_local_redirector",
+                side_effect=RuntimeError("disarm failed"),
+            ),
+            patch("ferret.core.mitm.runtime.log") as logger,
+        ):
+            self.assertFalse(runtime.stop())
+            self.assertTrue(runtime.is_running)
+        logger.exception.assert_called_once()
+        self.assertTrue(runtime.stop())
+
+    def test_final_disarm_failure_can_be_retried_after_the_thread_exits(self) -> None:
+        runtime = self._runtime()
+        server = Mock()
+        server.set_intercept.side_effect = [None, OSError("daemon unavailable"), None]
+        with (
+            patch.object(LocalRedirectorInstance, "_server", server),
+            patch("ferret.core.mitm.runtime.log") as logger,
+        ):
+            self.assertFalse(runtime.stop())
+            self.assertIsNone(runtime._thread)
+            self.assertEqual(runtime.state, MitmRuntimeState.STOPPING)
+            self.assertTrue(runtime.stop())
+            self.assertEqual(runtime.state, MitmRuntimeState.STOPPED)
+        self.assertEqual(server.set_intercept.call_count, 3)
+        logger.exception.assert_called_once()
 
 
 class ReverseChannelStateTests(unittest.TestCase):
@@ -124,7 +339,7 @@ class ReverseChannelStateTests(unittest.TestCase):
 
 
 class Socks5ChannelStateTests(unittest.TestCase):
-    """SOCKS5 入站两意图值与 engaged 闸门（.plans/0-socks5-channel.md）。
+    """SOCKS5 入站两意图值与 engaged 闸门（docs/design.md#capture）。
 
     与 reverse 同构，只是 socks5 spec 追加在 wireguard 之后、不替换首槽。让路判据
     在 ``EffectiveBlockPrivateTests`` 一同验，channel_health socks5 键在 test_facade
@@ -193,7 +408,7 @@ class Socks5ChannelStateTests(unittest.TestCase):
 
 
 class UpstreamIntentTests(unittest.TestCase):
-    """上游代理意图值、首槽替换与凭证拼装（.plans/upstream-mode.md §4.4）。
+    """上游代理意图值、首槽替换与凭证拼装（docs/design.md#capture）。
 
     上游**不是**第五条通道：它换掉 ``mode[0]``，凭证走另一条正交的
     ``upstream_auth`` 选项。这一组只验纯状态机，不跑真内核。
@@ -398,7 +613,7 @@ class EffectiveBlockPrivateTests(unittest.TestCase):
 
     def test_yield_only_when_socks5_enabled_and_bound_to_any(self) -> None:
         """socks5 与 reverse 同式：绑环回不让路，绑 ANY_HOST 才让路
-        （.plans/0-socks5-channel.md §2.3）。"""
+        （docs/design.md#capture）。"""
         loopback = self._runtime(listen_host=LOOPBACK_HOST, use_socks5=True)
         any_host = self._runtime(listen_host=ANY_HOST, use_socks5=True)
         self.assertTrue(loopback._effective_block_private())

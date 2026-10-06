@@ -65,6 +65,7 @@ from ferret.apps.certificate.dialogs import (
 )
 from ferret.apps.certificate.models import CertificateState, format_time, info_rows
 from ferret.apps.common.info_bar import show_error, show_success, show_warning
+from ferret.core.log import get_logger
 from ferret.core.mitm import (
     EXPORT_FORMATS,
     CertExportFormat,
@@ -405,7 +406,7 @@ class CertificateInterface(ScrollArea):
         self.detail_card = CertificateDetailCard(self.status_group)
         self.export_card = CertificateExportCard(self.status_group)
 
-        # 上游信任（.plans/upstream-tls.md §5）：本页讲的是「谁信任谁」，
+        # 上游信任（docs/design.md#tls）：本页讲的是「谁信任谁」，
         # 上半页是「让别人信任 Ferret」，这一组是「让 Ferret 信任别人」。
         # 卡 1 是「查看 + 编辑」入口，content 动态反映当前状态（见
         # `_refresh_trusted_ca_content`）；两个开关绑 configItem 自动落盘。
@@ -432,7 +433,7 @@ class CertificateInterface(ScrollArea):
         )
         self._refresh_trusted_ca_content()
 
-        # 客户端证书（.plans/mtls-client-certs.md §5）：上游信任组解决「Ferret 不信
+        # 客户端证书（docs/design.md#tls）：上游信任组解决「Ferret 不信
         # 服务器」，这一组解决反向的「服务器不信 Ferret」。一张卡就够 —— 原生
         # `client_certs` 只有一个路径参数，形态由它指向文件还是目录决定，没有可拆的
         # 独立开关；content 动态反映盘点结果（见 `_refresh_client_certs_content`）。
@@ -530,7 +531,7 @@ class CertificateInterface(ScrollArea):
         self.export_card.export_requested.connect(self._on_export)
 
         # 两个开关照 sticky / DNS-hosts 先例：接 configItem 的 valueChanged 而不是
-        # 卡片的 checkedChanged（配置项是唯一事实源），热更失败静默 —— 值已落盘，
+        # 卡片的 checkedChanged（配置项是唯一事实源），热更失败提示 —— 值已落盘，
         # 回拨开关反而让「配置说了什么」和「界面显示什么」分家。
         CONFIG.ssl_insecure.valueChanged.connect(self._on_ssl_insecure_changed)
         CONFIG.add_upstream_certs_to_client_chain.valueChanged.connect(
@@ -649,11 +650,11 @@ class CertificateInterface(ScrollArea):
 
     @Slot(bool)
     def _on_ssl_insecure_changed(self, enabled: bool) -> None:
-        """把「不校验上游」热更进内核；失败静默（语义同设置页那几个开关）。"""
+        """把「不校验上游」热更进内核；失败保留设置并提示。"""
         try:
             self.controller.set_upstream_tls(insecure=enabled)
-        except (ValueError, RuntimeError, TimeoutError):
-            pass
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            self._show_tls_apply_failure(exc)
         # 开关翻转会改变卡 1 的档位（信任库失效与否），无论热更成没成都要刷。
         self._refresh_trusted_ca_content()
         # 也会改变客户端证书卡的档位：「不校验上游 + 单文件全局出示」是叠加风险态。
@@ -661,31 +662,46 @@ class CertificateInterface(ScrollArea):
 
     @Slot(bool)
     def _on_upstream_chain_changed(self, enabled: bool) -> None:
-        """把「拼接上游证书链」热更进内核；失败静默。"""
+        """把「拼接上游证书链」热更进内核；失败保留设置并提示。"""
         try:
             self.controller.set_upstream_tls(add_upstream_certs=enabled)
-        except (ValueError, RuntimeError, TimeoutError):
-            pass
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            self._show_tls_apply_failure(exc)
+
+    def _show_tls_apply_failure(self, error: Exception) -> None:
+        get_logger("certificate").warning(
+            "Failed to apply saved TLS settings: %s", error
+        )
+        show_warning(
+            self.tr("TLS 设置未生效"),
+            self.tr("设置已保存，但应用到当前内核失败：{}。重启内核后将重试。").format(
+                error
+            ),
+            self.window(),
+        )
 
     @Slot()
     def _on_trusted_ca(self) -> None:
         """信任文件编辑框的提交链：先热更（含写盘），成功后才落盘。
 
-        与两个开关的「失败静默」刻意不同：这是用户填了一串路径、按了保存的显式
+        用户填入路径并保存后，只有内核确认生效才持久化文件列表。这是显式
         操作，没生效必须说，否则他会以为自签站点已经能抓了。
         """
         dialog = TrustedCaDialog(self.controller.trusted_ca_files, self.window())
-        if not dialog.exec():
-            return
-        files = dialog.get_files()
         try:
-            self.controller.set_upstream_tls(trusted_ca_files=files)
-        except (ValueError, RuntimeError, TimeoutError) as exc:
-            show_warning(self.tr("上游信任设置未生效"), str(exc), self.window())
-            return
-        # 必须传新 list：原地 mutate 再 set 静默不落盘（见 core/settings.py 的坑）。
-        CONFIG.set(CONFIG.ssl_trusted_ca_files, list(files))
-        self._refresh_trusted_ca_content()
+            if not dialog.exec():
+                return
+            files = dialog.get_files()
+            try:
+                self.controller.set_upstream_tls(trusted_ca_files=files)
+            except (ValueError, RuntimeError, TimeoutError) as exc:
+                show_warning(self.tr("上游信任设置未生效"), str(exc), self.window())
+                return
+            # 必须传新 list：原地 mutate 再 set 静默不落盘（见 core/settings.py 的坑）。
+            CONFIG.set(CONFIG.ssl_trusted_ca_files, list(files))
+            self._refresh_trusted_ca_content()
+        finally:
+            dialog.deleteLater()
 
     # --- 客户端证书（mTLS）---
 
@@ -748,21 +764,28 @@ class CertificateInterface(ScrollArea):
         （内核侧 `apply_client_certs` 负责清缓存）。
         """
         dialog = ClientCertsDialog(self.controller.client_certs_path, self.window())
-        if not dialog.exec():
-            return
-        path = dialog.get_path()
         try:
-            self.controller.set_client_certs(path)
-        except (ValueError, RuntimeError, TimeoutError) as exc:
-            show_warning(self.tr("客户端证书未生效"), str(exc), self.window())
-            return
-        CONFIG.set(CONFIG.client_certs_path, path)
-        self._refresh_client_certs_content()
+            if not dialog.exec():
+                return
+            path = dialog.get_path()
+            try:
+                self.controller.set_client_certs(path)
+            except (ValueError, RuntimeError, TimeoutError) as exc:
+                show_warning(self.tr("客户端证书未生效"), str(exc), self.window())
+                return
+            CONFIG.set(CONFIG.client_certs_path, path)
+            self._refresh_client_certs_content()
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def _on_regenerate(self) -> None:
-        if RegenerateCertDialog(self.window()).exec():
-            self.controller.regenerate()
+        dialog = RegenerateCertDialog(self.window())
+        try:
+            if dialog.exec():
+                self.controller.regenerate()
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def _on_open_dir(self) -> None:

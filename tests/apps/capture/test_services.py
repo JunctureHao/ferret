@@ -1,6 +1,6 @@
 """过滤面板的整条 flowfilter 表达式套上 `~http` 底座这一步。
 
-模型只有一条原生表达式（`.plans/0-filter-redesign.expression-first.md`）：字段/逻辑/值
+模型只有一条原生表达式（`docs/design.md#ui`）：字段/逻辑/值
 那套弱结构化翻译已退役。这里钉两件事：
 
 * **`~http` 底座不许丢**。View 的基础过滤器（`runtime.py`）也以它开头，少了它 tcp/udp
@@ -33,7 +33,9 @@ class FilterExpressionTests(unittest.TestCase):
 
     def test_a_bare_no_arg_flag_survives_the_wrap(self) -> None:
         """`(~websocket)` 解析失败，`( ~websocket )` 才过——括号内两侧的空格不能省。"""
-        self.assertEqual(build_filter_expression("~websocket"), "~http & ( ~websocket )")
+        self.assertEqual(
+            build_filter_expression("~websocket"), "~http & ( ~websocket )"
+        )
         self.assertIsNotNone(compile_filter("~websocket"))
 
 

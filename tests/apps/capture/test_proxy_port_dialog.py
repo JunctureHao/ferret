@@ -178,7 +178,7 @@ class WireGuardConfigDialogTests(unittest.TestCase):
 
 
 class UpstreamProxyBlockTests(unittest.TestCase):
-    """上游代理那一块（.plans/upstream-mode.md §7 第 12 条）。
+    """上游代理那一块（docs/design.md#capture 第 12 条）。
 
     它长在 Card ① 系统代理卡片**内部**，不是第五张卡片 —— 这是刻意的：上游是
     「系统代理这条通道的出口属性」，与监听地址端口同卡才不会被读成第五条抓包

@@ -139,7 +139,7 @@ _logger = logging.getLogger("ferret")
 def init_logging() -> None:
     """初始化全局日志设施（幂等，可重复调用）。
 
-    必须在 QApplication 存在后调用（``LogEmitter`` 是 QObject）。
+    在 QApplication 创建前初始化，让配置与启动故障也进入日志。
     """
 
     global _emitter, _handler, _root_forwarder

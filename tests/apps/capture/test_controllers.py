@@ -4,9 +4,11 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from mitmproxy.test import tflow
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 
@@ -19,6 +21,9 @@ from ferret.core.settings import CONFIG
 class FakeRuntime(QObject):
     flow_added = Signal(object)
     compose_flow_added = Signal(object)
+    flow_stored = Signal(object)
+    compose_flow_stored = Signal(object)
+    flow_discarded = Signal(object)
     flow_updated = Signal(object)
     flow_removed = Signal(object, int)
     view_refreshed = Signal()
@@ -57,7 +62,7 @@ class FakeRuntime(QObject):
         self.upstream_target = ""
         self.upstream_username = ""
         self.upstream_password = ""
-        # 代理认证三意图值（.plans/proxyauth.md）：独立开关，不随通道回滚。
+        # 代理认证三意图值（docs/design.md#auth）：独立开关，不随通道回滚。
         self.proxyauth_enabled = False
         self.proxyauth_username = ""
         self.proxyauth_password = ""
@@ -298,7 +303,7 @@ class FakeFacade:
         # 记账最近一次上屏的编译结果；apply_filter 的校验断言据此看「上没上屏」。
         self.applied_filter = matcher
 
-    def remove_unmarked_flows(self) -> int:
+    def remove_unmarked_flows(self, flow_ids=None) -> int:
         self.removed_unmarked_calls = getattr(self, "removed_unmarked_calls", 0) + 1
         return 3
 
@@ -310,9 +315,7 @@ class FakeFacade:
 
 
 class FakeSystemProxy:
-    def __init__(
-        self, *, fail_attach: bool = False, fail_detach: bool = False
-    ) -> None:
+    def __init__(self, *, fail_attach: bool = False, fail_detach: bool = False) -> None:
         self.fail_attach = fail_attach
         self.fail_detach = fail_detach
         self.attached = False
@@ -372,9 +375,7 @@ class CaptureControllerStateTests(unittest.TestCase):
         CONFIG.file = self._original_file
         self._config_dir.cleanup()
 
-    def make_controller(
-        self, *, fail_attach: bool = False, fail_detach: bool = False
-    ):
+    def make_controller(self, *, fail_attach: bool = False, fail_detach: bool = False):
         runtime = FakeRuntime()
         facade = FakeFacade(runtime)
         proxy = FakeSystemProxy(fail_attach=fail_attach, fail_detach=fail_detach)
@@ -482,6 +483,120 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertTrue(controller.toggle_capture())
         self.assertEqual(controller.capture_state, CaptureState.RUNNING)
 
+    def test_recording_stop_failure_stays_failed_and_toggle_retries_cleanup(
+        self,
+    ) -> None:
+        controller, runtime, facade, proxy = self.make_controller()
+        controller.start_capture()
+
+        with patch.object(
+            facade, "stop_capture_recording", side_effect=OSError("disk full")
+        ):
+            controller.stop_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+        self.assertIn("disk full", controller.last_error)
+        self.assertFalse(proxy.attached)
+        self.assertFalse(runtime.channels_engaged)
+        self.assertFalse(controller.recording)
+        self.assertTrue(facade.recording)
+
+        with patch.object(facade, "start_capture_recording") as start_recording:
+            self.assertFalse(controller.toggle_capture())
+        start_recording.assert_not_called()
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
+        self.assertFalse(facade.recording)
+        self.assertEqual(controller.last_error, "")
+
+    def test_channel_stop_failure_stays_failed_and_toggle_retries_cleanup(self) -> None:
+        controller, runtime, facade, proxy = self.make_controller()
+        controller.start_capture()
+
+        with patch.object(
+            facade, "disengage_channels", side_effect=RuntimeError("channel busy")
+        ):
+            controller.stop_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+        self.assertIn("channel busy", controller.last_error)
+        self.assertFalse(proxy.attached)
+        self.assertTrue(runtime.channels_engaged)
+        self.assertFalse(controller.recording)
+        self.assertFalse(facade.recording)
+
+        with patch.object(facade, "engage_channels") as engage:
+            self.assertFalse(controller.toggle_capture())
+        engage.assert_not_called()
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
+        self.assertFalse(runtime.channels_engaged)
+
+    def test_failed_stop_prevents_restarting_on_a_new_listen_port(self) -> None:
+        controller, runtime, facade, _proxy = self.make_controller()
+        controller.start_capture()
+
+        with (
+            patch.object(
+                facade, "stop_capture_recording", side_effect=OSError("disk full")
+            ),
+            self.assertRaisesRegex(RuntimeError, "disk full"),
+        ):
+            controller.update_proxy_settings(listen_port=8081)
+
+        self.assertEqual(runtime.restart_calls, 0)
+        self.assertEqual(controller.current_port, 8080)
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+
+    def test_detach_exception_does_not_skip_other_cleanup(self) -> None:
+        controller, runtime, facade, proxy = self.make_controller()
+        controller.start_capture()
+
+        with patch.object(proxy, "detach", side_effect=OSError("registry busy")):
+            controller.stop_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+        self.assertIn("registry busy", controller.last_error)
+        self.assertFalse(facade.recording)
+        self.assertFalse(runtime.channels_engaged)
+        self.assertFalse(controller.recording)
+        self.assertFalse(controller.toggle_capture())
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
+
+    def test_port_change_retries_prior_failed_cleanup_before_restarting(self) -> None:
+        controller, runtime, facade, _proxy = self.make_controller()
+        controller.start_capture()
+        with patch.object(
+            facade, "stop_capture_recording", side_effect=OSError("disk full")
+        ):
+            controller.stop_capture()
+            with self.assertRaisesRegex(RuntimeError, "disk full"):
+                controller.update_proxy_settings(listen_port=8081)
+        self.assertEqual(runtime.restart_calls, 0)
+        self.assertEqual(controller.current_port, 8080)
+
+        controller.update_proxy_settings(listen_port=8081)
+        self.assertEqual(runtime.restart_calls, 1)
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
+        self.assertFalse(runtime.channels_engaged)
+        self.assertFalse(facade.recording)
+
+    def test_direct_start_cannot_bypass_a_failed_proxy_restore(self) -> None:
+        controller, _runtime, facade, proxy = self.make_controller(fail_detach=True)
+        controller.start_capture()
+        controller.update_channels(
+            use_system_proxy=False,
+            use_local=True,
+            local_spec="",
+            use_wireguard=True,
+        )
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+
+        with patch.object(facade, "start_capture_recording") as start_recording:
+            controller.start_capture()
+        start_recording.assert_not_called()
+        self.assertEqual(controller.capture_state, CaptureState.FAILED)
+        self.assertTrue(proxy.attached)
+        self.assertFalse(controller.recording)
+
     def test_dialog_toggle_off_with_failed_detach_surfaces_failed(self) -> None:
         """对话框取消勾选遇 restore 失败：置 FAILED 留重试入口，会话其余部分照旧。"""
         controller, _, _, proxy = self.make_controller(fail_detach=True)
@@ -562,17 +677,23 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller.flow_added.connect(added.append)
         controller.flow_updated.connect(updated.append)
 
-        runtime.flow_added.emit(object())
+        flow = tflow.tflow()
+        runtime.flow_stored.emit(flow)
+        runtime.flow_added.emit(flow)
         runtime.flow_updated.emit(object())
         self.assertEqual(added, [])
         self.assertEqual(len(updated), 1)
 
         controller.start_capture()
-        runtime.flow_added.emit(object())
+        flow = tflow.tflow()
+        runtime.flow_stored.emit(flow)
+        runtime.flow_added.emit(flow)
         self.assertEqual(len(added), 1)
 
         controller.stop_capture()
-        runtime.flow_added.emit(object())
+        flow = tflow.tflow()
+        runtime.flow_stored.emit(flow)
+        runtime.flow_added.emit(flow)
         self.assertEqual(len(added), 1)
 
     def test_recorded_compose_flows_pass_once_without_changing_capture_state(
@@ -614,8 +735,9 @@ class CaptureControllerStateTests(unittest.TestCase):
                 self.assertEqual(controller.capture_state, expected_state)
                 before = capture_state()
                 previous_count = len(added)
-                flow = object()
+                flow = tflow.tflow()
 
+                runtime.compose_flow_stored.emit(flow)
                 runtime.compose_flow_added.emit(flow)
 
                 self.assertEqual(len(added), previous_count + 1)
@@ -778,7 +900,7 @@ class CaptureControllerStateTests(unittest.TestCase):
 
     def test_socks5_port_conflict_surfaces_as_displayable_message(self) -> None:
         """socks5 实例启动失败（端口被占）的 last_exception 是裸 OSError，文本里
-        不含通道名，按通用特征词映射成人话（.plans/0-socks5-channel.md §3.6）。"""
+        不含通道名，按通用特征词映射成人话（docs/design.md#capture）。"""
         controller, runtime, _, _ = self.make_controller()
         runtime.health = {"socks5": "[Errno 98] Address already in use"}
         controller.start_capture()
@@ -833,8 +955,7 @@ class CaptureControllerStateTests(unittest.TestCase):
 
 
 class ApplyFilterRawTests(unittest.TestCase):
-    """原生 flowfilter 表达式的唯一校验点在 controller（`.plans/0-mark-filter-polish.md`
-    §1.5）：合法上屏并清错误态，非法沿用上次有效结果并回传错误、绝不把半截表达式
+    """原生 flowfilter 表达式的唯一校验点在 controller（`docs/design.md#ui`）：合法上屏并清错误态，非法沿用上次有效结果并回传错误、绝不把半截表达式
     打到内核层。"""
 
     @classmethod
@@ -888,7 +1009,7 @@ class ApplyFilterRawTests(unittest.TestCase):
 
 class ApplyHighlightTests(unittest.TestCase):
     """搜索高亮：复用 flowfilter 的编译与校验，但命中集只回给调用方、不动 View 过滤
-    （`.plans/0-flow-search-highlight.md`）。空表达式空转，非法沿用错误契约回空集。"""
+    （`docs/design.md#ui`）。空表达式空转，非法沿用错误契约回空集。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -903,6 +1024,7 @@ class ApplyHighlightTests(unittest.TestCase):
     def test_a_valid_expression_returns_the_facade_match_set(self) -> None:
         controller, facade = self.make_controller()
         facade.match_result = {"id-a", "id-b"}
+        controller._admitted_ids.update(facade.match_result)
         errors: list[str] = []
         controller.filterExpressionRejected.connect(errors.append)
 

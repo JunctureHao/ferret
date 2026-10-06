@@ -264,11 +264,16 @@ class ChatStream(ScrollArea):
         """当前流里的全部气泡（含被过滤隐藏的）。测试与逐出逻辑用。"""
         return [w for w in self._widgets() if isinstance(w, Bubble)]
 
+    def message_count(self) -> int:
+        """气泡和心跳都占显示容量；末尾 stretch 不计数。"""
+        return self._layout.count() - 1
+
     # —— 修改 ——
 
     def add(self, bubble: Bubble) -> None:
         """追加一枚气泡（正序插尾、逆序插顶），按当前过滤词摆显隐。"""
         self._insert(bubble)
+        bubble.activated.connect(self._on_bubble_clicked)
         self._apply_filter_to(bubble)
 
     def add_note(self, note: SystemNote) -> None:
@@ -281,11 +286,11 @@ class ChatStream(ScrollArea):
 
     def evict_oldest(self) -> None:
         """从最旧一端移除一枚气泡（正序=头部，逆序=stretch 前的最后一枚）。"""
-        candidates = self.bubbles()
+        candidates = self._widgets()
         if not candidates:
             return
         oldest = candidates[0] if not self._descending else candidates[-1]
-        if oldest.key == self._selected_key:
+        if isinstance(oldest, Bubble) and oldest.key == self._selected_key:
             self._selected_key = None
             self.selectionChanged.emit(None)
         oldest.setParent(None)
@@ -352,7 +357,6 @@ class ChatStream(ScrollArea):
         else:
             # stretch 占着末位，插在它前面。
             self._layout.insertWidget(self._layout.count() - 1, bubble, 0, align)
-        bubble.activated.connect(self._on_bubble_clicked)
 
     def __bubble_width(self) -> int:
         """一枚气泡该多宽：视口可用宽的 72%，窄面板兜底（比例宽不足最小宽给

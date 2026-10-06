@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 from sysproxy import SystemProxyService
 
 from ferret.core.log import get_logger
@@ -18,6 +18,8 @@ log = get_logger("application")
 
 
 class ApplicationRuntime(QObject):
+    startup_error = Signal(str)
+
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.mitm_runtime = self._build_mitm_runtime()
@@ -28,6 +30,8 @@ class ApplicationRuntime(QObject):
             journal_path=get_config_dir() / "system-proxy-state.json"
         )
         self._shutdown = False
+        self.last_shutdown_error = ""
+        self.last_startup_error = ""
 
     def _build_mitm_runtime(self) -> MitmRuntime:
         """Seed the kernel from persisted settings.
@@ -95,19 +99,34 @@ class ApplicationRuntime(QObject):
 
     def start(self) -> None:
         self._shutdown = False
+        self.last_startup_error = ""
         if not self.system_proxy.recover():
             log.error("failed to recover system proxy from previous run")
+            self.last_startup_error = self.tr(
+                "未能恢复上次运行前的系统代理设置。恢复记录已保留，请检查系统权限后重试。"
+            )
+            self.startup_error.emit(self.last_startup_error)
         self.mitm_runtime.start()
 
     def shutdown(self) -> bool:
+        self.last_shutdown_error = ""
         if self._shutdown:
             return True
         if not self.system_proxy.detach():
+            self.last_shutdown_error = self.tr(
+                "系统代理恢复失败，恢复记录已保留。请检查系统权限后再次退出。"
+            )
             return False
         try:
             self.mitm.stop_capture_recording()
-        except Exception:
+        except Exception as exc:
             log.exception("failed to stop native flow recording")
+            self.last_shutdown_error = self.tr(
+                "停止流量录制失败：{}。请检查存储空间或权限后再次退出。"
+            ).format(exc)
+            return False
         runtime_stopped = self.mitm_runtime.stop()
+        if not runtime_stopped:
+            self.last_shutdown_error = self.tr("抓包内核尚未停止，请稍后再次退出。")
         self._shutdown = runtime_stopped
         return runtime_stopped

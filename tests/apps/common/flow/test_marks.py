@@ -1,4 +1,4 @@
-"""流量标记：emoji 字典 → 显示字符、选择对话框、右键菜单的批量写回（`.plans/flow-mark.md` §5）。
+"""流量标记：emoji 字典 → 显示字符、选择对话框、右键菜单的批量写回（`docs/design.md#ui`）。
 
 四层各钉一件事：
 
@@ -185,7 +185,7 @@ class MarkerPickerDialogTests(unittest.TestCase):
 
     def test_the_row_carries_glyph_and_shortcode_on_separate_roles(self) -> None:
         """两级列表项自绘从 `_GLYPH_ROLE` / `_SHORTCODE_ROLE` 分两路取数
-        （`.plans/0-mark-filter-polish.md` §4.1）；DisplayRole 仍留完整拼串供读屏。"""
+        （`docs/design.md#ui`）；DisplayRole 仍留完整拼串供读屏。"""
         dialog = MarkerPickerDialog(parent=self.parent)
         proxy = dialog.grid.model()
         assert proxy is not None
@@ -367,7 +367,7 @@ class ContextMenuMarkTests(unittest.TestCase):
         return [menu.view.item(i).text().strip() for i in range(menu.view.count())]
 
     def test_the_mark_submenu_sits_right_before_the_comment_entry(self) -> None:
-        """两个平铺项收进「标记」浮动子菜单（`.plans/0-mark-filter-polish.md` §3）；
+        """两个平铺项收进「标记」浮动子菜单（`docs/design.md#ui`）；
         标记 / 备注是人肉标注两件套，挨着放。"""
         self.assertIn(self.menu.mark_menu, self.menu._subMenus)
         texts = self._view_texts(self.menu)
@@ -483,7 +483,7 @@ class ContextMenuMarkTests(unittest.TestCase):
 
     def test_the_submenu_icons_are_distinct_within_the_popup_path(self) -> None:
         """同一弹出路径内图标语义一对一：清除标记避开 DELETE（撞删除流量）、切换
-        避开 SYNC（撞重发），设置保持 TAG（`.plans/0-mark-filter-polish.md` §4.3）。"""
+        避开 SYNC（撞重发），设置保持 TAG（`docs/design.md#ui`）。"""
         from qfluentwidgets import FluentIcon
 
         submenu = self.menu.mark_menu

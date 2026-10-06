@@ -53,7 +53,7 @@ def _to_windows_curl(command: str) -> str:
 
     必须先 ``shlex.split`` 按 POSIX 语义还原参数表、再逐参数重加引号：
     shlex.quote 对内嵌单引号用 ``'"'"'`` 续接，正则直改吃不下这种转义，
-    ``O'Reilly`` 之类整段被切碎（.plans/issues.md #10）。加引号按 MSVCRT
+    ``O'Reilly`` 之类整段被切碎（docs/design.md#export #10）。加引号按 MSVCRT
     argv 规则（curl.exe 的命令行即按它解析）：内嵌 ``"`` 转义成 ``\\"``、
     引号前反斜杠翻倍；单引号在 Windows 命令行里是字面字符，落进双引号即
     安全。

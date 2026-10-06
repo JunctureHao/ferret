@@ -94,7 +94,7 @@ def reverse_mode_spec(target: str, listen_host: str, listen_port: int) -> str:
 
 
 SOCKS5_DEFAULT_PORT = 1080
-"""SOCKS5 入站通道默认监听端口（SOCKS5 惯例端口，.plans/0-socks5-channel.md D1）。"""
+"""SOCKS5 入站通道默认监听端口（SOCKS5 惯例端口，docs/design.md#capture）。"""
 
 
 def socks5_mode_spec(listen_host: str, port: int) -> str:

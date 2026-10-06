@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import ipaddress
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QUrl, Slot
+from PySide6.QtCore import Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import (
@@ -32,8 +34,11 @@ from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.apps.settings.controllers import UpdateController
 from ferret.apps.settings.dialogs import UpdateDialog
 from ferret.core import update as update_core
+from ferret.core.log import get_logger
 from ferret.core.meta import REPO_URL
 from ferret.core.settings import CONFIG
+
+log = get_logger("settings")
 
 if TYPE_CHECKING:
     from ferret.apps.window import MainWindow
@@ -42,7 +47,7 @@ if TYPE_CHECKING:
 
 
 class DnsServersDialog(MessageBoxBase):
-    """自定义 DNS 服务器编辑对话框（.plans/dns-options.md §5.5）。
+    """自定义 DNS 服务器编辑对话框（docs/design.md#capture）。
 
     每行一个 IPv4 / IPv6 地址，空行忽略。行内校验给出「第 N 行」定位，提交链上
     `facade.set_dns_options` 的整批校验是兜底闸门（预校验挡住时到不了那里）。
@@ -131,11 +136,13 @@ class DnsServersDialog(MessageBoxBase):
 
 
 class SettingsInterface(ScrollArea):
+    update_restart_requested = Signal(object)
+
     def __init__(
         self,
-        parent: "MainWindow | None" = None,
+        parent: MainWindow | None = None,
         *,
-        mitm: "MitmFacade | None" = None,
+        mitm: MitmFacade | None = None,
     ) -> None:
         super().__init__(parent)
         self._mitm = mitm
@@ -150,7 +157,7 @@ class SettingsInterface(ScrollArea):
         # 本次检查是不是「启动自动检查」：自动入口失败/无更新一律静默。
         self._auto_check = False
 
-        # 关于与更新（.plans/3-auto-update.md §2）：版本展示 + 手动检查入口 +
+        # 关于与更新（docs/design.md#update）：版本展示 + 手动检查入口 +
         # 自动检查开关。关于类信息习惯置顶，故排在「个性化」之前。
         self.about_group = SettingCardGroup(
             title=self.tr("关于与更新"), parent=self.scroll_widget
@@ -247,7 +254,7 @@ class SettingsInterface(ScrollArea):
             texts=[self.tr("水平"), self.tr("垂直")],
             parent=self.main_panel_group,
         )
-        # 固定会话（plans/sticky-session.md）：全局行为偏好，不是规则 —— 刻意放
+        # 固定会话（docs/design.md#rewrite）：全局行为偏好，不是规则 —— 刻意放
         # 设置页主面板而不是重写页。默认关：开着时实时流量表见到的请求头已含
         # 代理补回的 Cookie / Authorization，抓包就不再是「如实转发原件」。
         self.sticky_session_card = SwitchSettingCard(
@@ -260,7 +267,7 @@ class SettingsInterface(ScrollArea):
             configItem=CONFIG.sticky_session_enabled,
             parent=self.main_panel_group,
         )
-        # 无缓存·明文（.plans/capture-preferences-page.md）：原生 anticache +
+        # 无缓存·明文（docs/design.md#capture）：原生 anticache +
         # anticomp 合成一个开关、同开同关。默认关：开着会改写请求头（删条件缓存
         # 头 + 改 Accept-Encoding=identity），抓到的就不是客户端原件。
         self.anticache_plaintext_card = SwitchSettingCard(
@@ -273,7 +280,7 @@ class SettingsInterface(ScrollArea):
             configItem=CONFIG.anticache_plaintext,
             parent=self.main_panel_group,
         )
-        # 协议层两开关（.plans/2-protocol-switches.md）：同为「代理行为偏好」，
+        # 协议层两开关（docs/design.md#capture）：同为「代理行为偏好」，
         # 排在无缓存·明文之后。默认开（原生出厂姿态）；关掉是调试降级手段，
         # 不改「如实转发」语义。h2c（明文升级）恒被剥离、与 http2 开关无关，
         # alt-svc 已缓存的客户端关掉 h3 后可能先试一次再回落 —— 文案都写明。
@@ -297,7 +304,7 @@ class SettingsInterface(ScrollArea):
             configItem=CONFIG.http3_enabled,
             parent=self.main_panel_group,
         )
-        # DNS 解析（.plans/dns-options.md）：同为「代理行为偏好」，故在主面板组尾。
+        # DNS 解析（docs/design.md#capture）：同为「代理行为偏好」，故在主面板组尾。
         # 卡 1 是「查看 + 编辑」入口，content 动态反映当前状态（见
         # _refresh_dns_servers_content）；卡 2 绑 configItem 自动落盘。
         # 两卡都只对 WireGuard 隧道内的 DNS 生效 —— regular 模式下客户端自解
@@ -385,12 +392,12 @@ class SettingsInterface(ScrollArea):
         # 协议层两开关：任一变动都整体重推两项（快照原子，与固定会话同一条路）。
         CONFIG.http2_enabled.valueChanged.connect(self.__on_protocol_changed)
         CONFIG.http3_enabled.valueChanged.connect(self.__on_protocol_changed)
-        # DNS：hosts 开关照 sticky 模式（valueChanged 热更，失败静默）；NS 列表
+        # DNS：hosts 开关照 sticky 模式（valueChanged 热更，失败保留设置并提示）；NS 列表
         # 走对话框提交链（校验通过才落盘，见 __on_dns_servers_clicked）。
         CONFIG.dns_use_hosts_file.valueChanged.connect(self.__on_dns_use_hosts_changed)
         self.dns_servers_card.clicked.connect(self.__on_dns_servers_clicked)
 
-        # 更新链（.plans/3-auto-update.md §2/§3）：卡片入口 → controller 编排 →
+        # 更新链（docs/design.md#update）：卡片入口 → controller 编排 →
         # 信号回来驱动卡片文案与 UpdateDialog 三态。
         self.update_card.clicked.connect(self.__on_update_card_clicked)
         self.update_controller.check_started.connect(self.__on_check_started)
@@ -399,11 +406,11 @@ class SettingsInterface(ScrollArea):
         self.update_controller.check_failed.connect(self.__on_check_failed)
         self.update_controller.update_available.connect(self.__on_update_available)
         self.update_controller.download_failed.connect(self.__on_download_failed)
-        self.update_controller.apply_failed.connect(self.__on_download_failed)
+        self.update_controller.apply_failed.connect(self.__on_apply_failed)
 
     @Slot(bool)
     def __on_sticky_session_changed(self, enabled: bool) -> None:
-        """把固定会话开关热更进内核；失败静默。
+        """把固定会话开关热更进内核；失败保留设置并提示。
 
         内核没跑时 `set_sticky_session` 只对齐内存副本（下次启动的种子会读到
         它），不会抛错；运行中下发失败（超时等）也不回拨开关 —— 开关已落盘，
@@ -414,22 +421,22 @@ class SettingsInterface(ScrollArea):
             return
         try:
             self._mitm.set_sticky_session(enabled)
-        except (ValueError, RuntimeError, TimeoutError):
-            pass
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            self._show_apply_failure(exc)
 
     @Slot(bool)
     def __on_anticache_plaintext_changed(self, enabled: bool) -> None:
-        """把无缓存·明文开关热更进内核；失败静默（语义同固定会话那条）。"""
+        """把无缓存·明文开关热更进内核；失败保留设置并提示。"""
         if self._mitm is None:
             return
         try:
             self._mitm.set_anticache_plaintext(enabled)
-        except (ValueError, RuntimeError, TimeoutError):
-            pass
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            self._show_apply_failure(exc)
 
     @Slot(bool)
     def __on_protocol_changed(self, _enabled: bool) -> None:
-        """把协议层开关热更进内核；失败静默（语义同固定会话那条）。
+        """把协议层开关热更进内核；失败保留设置并提示。
 
         两个开关各发各的 valueChanged，这里整体重推两项 —— 快照是原子的，
         分两条通道推只会多一次跨线程往返，还可能留下「h2 新的、h3 旧的」。
@@ -441,8 +448,18 @@ class SettingsInterface(ScrollArea):
                 http2=bool(CONFIG.get(CONFIG.http2_enabled)),
                 http3=bool(CONFIG.get(CONFIG.http3_enabled)),
             )
-        except (ValueError, RuntimeError, TimeoutError):
-            pass
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            self._show_apply_failure(exc)
+
+    def _show_apply_failure(self, error: Exception) -> None:
+        log.warning("Failed to apply saved settings: %s", error)
+        show_warning(
+            self.tr("设置未生效"),
+            self.tr("设置已保存，但应用到当前内核失败：{}。重启内核后将重试。").format(
+                error
+            ),
+            self.window(),
+        )
 
     def _current_dns_servers(self) -> list[str]:
         """当前自定义 DNS：优先内核内存副本（运行中热更后的真值），否则落盘值。"""
@@ -464,32 +481,35 @@ class SettingsInterface(ScrollArea):
 
     @Slot(bool)
     def __on_dns_use_hosts_changed(self, enabled: bool) -> None:
-        """把 hosts 查询开关热更进内核；失败静默（语义同固定会话那条）。"""
+        """把 hosts 查询开关热更进内核；失败保留设置并提示。"""
         if self._mitm is None:
             return
         try:
             self._mitm.set_dns_options(use_hosts_file=enabled)
-        except (ValueError, RuntimeError, TimeoutError):
-            pass
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            self._show_apply_failure(exc)
 
     @Slot()
     def __on_dns_servers_clicked(self) -> None:
         """NS 编辑对话框的提交链：先热更（内含校验，坏值不落盘），成功后落盘。"""
         dialog = DnsServersDialog(self._current_dns_servers(), self.window())
-        if not dialog.exec():
-            return
-        servers = dialog.get_servers()
         try:
-            if self._mitm is not None:
-                self._mitm.set_dns_options(name_servers=servers)
-        except (ValueError, RuntimeError, TimeoutError) as exc:
-            show_warning(self.tr("DNS 设置未生效"), str(exc), self.window())
-            return
-        # 必须传新 list：原地 mutate 再 set 静默不落盘（见 core/settings.py 的坑）。
-        CONFIG.set(CONFIG.dns_name_servers, list(servers))
-        self._refresh_dns_servers_content()
+            if not dialog.exec():
+                return
+            servers = dialog.get_servers()
+            try:
+                if self._mitm is not None:
+                    self._mitm.set_dns_options(name_servers=servers)
+            except (ValueError, RuntimeError, TimeoutError) as exc:
+                show_warning(self.tr("DNS 设置未生效"), str(exc), self.window())
+                return
+            # 必须传新 list：原地 mutate 再 set 静默不落盘（见 core/settings.py 的坑）。
+            CONFIG.set(CONFIG.dns_name_servers, list(servers))
+            self._refresh_dns_servers_content()
+        finally:
+            dialog.deleteLater()
 
-    # ── 应用内更新（.plans/3-auto-update.md §2/§3）──
+    # ── 应用内更新（docs/design.md#update）──
 
     def check_updates_auto(self) -> None:
         """启动自动检查入口：开关与形态闸门都收在这里，主窗口只管定时触发。"""
@@ -534,19 +554,24 @@ class SettingsInterface(ScrollArea):
             show_warning(self.tr("检查更新失败"), message, self.window())
 
     @Slot(object, object)
-    def __on_update_available(self, info: object, brief: "UpdateBrief") -> None:
+    def __on_update_available(self, info: object, brief: UpdateBrief) -> None:
         """发现新版本：自动/手动入口都弹同一个三态对话框。"""
         dialog = UpdateDialog(brief, self.window())
-        self._update_dialog = dialog
-        dialog.download_requested.connect(lambda: self.__start_download(dialog, info))
-        self.update_controller.download_progress.connect(dialog.set_progress)
-        self.update_controller.download_finished.connect(dialog.set_ready)
-        # accepted 且 ready = 用户点了「重启应用」；其余收场（稍后 / Esc）都不动。
-        if dialog.exec() and dialog.ready:
-            self.update_controller.apply_and_restart(info)
-        self.update_controller.download_progress.disconnect(dialog.set_progress)
-        self.update_controller.download_finished.disconnect(dialog.set_ready)
-        self._update_dialog = None
+        try:
+            self._update_dialog = dialog
+            dialog.download_requested.connect(
+                lambda: self.__start_download(dialog, info)
+            )
+            self.update_controller.download_progress.connect(dialog.set_progress)
+            self.update_controller.download_finished.connect(dialog.set_ready)
+            # accepted 且 ready = 用户点了「重启应用」；其余收场（稍后 / Esc）都不动。
+            if dialog.exec() and dialog.ready:
+                self.update_restart_requested.emit(info)
+        finally:
+            self.update_controller.download_progress.disconnect(dialog.set_progress)
+            self.update_controller.download_finished.disconnect(dialog.set_ready)
+            self._update_dialog = None
+            dialog.deleteLater()
 
     def __start_download(self, dialog: UpdateDialog, info: object) -> None:
         dialog.set_downloading()
@@ -554,9 +579,15 @@ class SettingsInterface(ScrollArea):
 
     @Slot(str)
     def __on_download_failed(self, message: str) -> None:
-        # 下载/应用失败的展示位在对话框上；框已关（Esc 走了）就静默。
+        # 下载失败的展示位在对话框上；框已关（Esc 走了）就静默。
         if self._update_dialog is not None:
             self._update_dialog.set_failed(message)
+
+    @Slot(str)
+    def __on_apply_failed(self, message: str) -> None:
+        # Applying starts after accept()/exec() has hidden the download dialog.
+        # Keep the failure visible after that one-shot dialog is disposed.
+        show_warning(self.tr("应用更新失败"), message, self.window())
 
     @Slot()
     def __show_restart_tooltip(self):

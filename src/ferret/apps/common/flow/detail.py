@@ -604,7 +604,7 @@ class FlowDataPanel(QWidget):
 
         # 「…」动作菜单已撤（复制 URL / 重发 / 备注）：三者的常驻入口都在表格
         # 右键菜单（URL 查看、重放、备注弹窗），面板内备注另有内联编辑页承担
-        # 日常编辑，走同一条写回通道。标记同理只在表格右键（plans/flow-mark.md D1）。
+        # 日常编辑，走同一条写回通道。标记同理只在表格右键（docs/design.md#ui）。
 
         self.detail_page = QWidget()
         # inverted=True：全局布局说的是「表格 vs 详情」的排布，内层分栏与它

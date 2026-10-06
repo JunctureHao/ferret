@@ -1,10 +1,17 @@
+from __future__ import annotations
+
+import json
 import logging
+import os
 import shutil
+import tempfile
+import uuid
+from copy import deepcopy
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QLocale, QStandardPaths
+from PySide6.QtCore import QCoreApplication, QLocale, QStandardPaths, QTimer
 from qfluentwidgets import (
     ConfigItem,
     ConfigSerializer,
@@ -85,6 +92,159 @@ class BoolConfigItem(ConfigItem):
 
 
 class Config(QConfig):
+    def __init__(self) -> None:
+        super().__init__()
+        self.load_warnings: list[tuple[str, str]] = []
+        self._save_timer: QTimer | None = None
+        self._save_pending = False
+
+    def defer_save(self) -> None:
+        """连续拖列宽等操作只在稳定 300 ms 后落盘，退出时可同步冲刷。"""
+        self._save_pending = True
+        app = QCoreApplication.instance()
+        if app is None:
+            return
+        if self._save_timer is None:
+            self._save_timer = QTimer(self)
+            self._save_timer.setSingleShot(True)
+            self._save_timer.setInterval(300)
+            self._save_timer.timeout.connect(self.save)
+            app.aboutToQuit.connect(self.flush_pending_save)
+        self._save_timer.start()
+
+    def flush_pending_save(self) -> None:
+        # A single-shot timer is already inactive while its callback runs. Keep
+        # the obligation separately so failed writes can be retried on exit.
+        if self._save_pending:
+            self.save()
+
+    def recovery_messages(self) -> list[str]:
+        """翻译器装好后再格式化启动诊断。"""
+        messages = []
+        for kind, detail in self.load_warnings:
+            if kind == "recovered":
+                message = QCoreApplication.translate(
+                    "Config", "配置文件损坏，已从备份恢复：{}"
+                )
+            elif kind == "backup":
+                message = QCoreApplication.translate(
+                    "Config",
+                    "无法修复配置文件，已使用备份内容继续运行；原文件将保留：{}",
+                )
+            elif kind == "field":
+                message = QCoreApplication.translate(
+                    "Config", "配置项 {} 无效，已使用默认值。"
+                )
+            else:
+                message = QCoreApplication.translate(
+                    "Config", "无法读取配置，已使用默认值；原文件将保留：{}"
+                )
+            messages.append(message.format(detail))
+        return messages
+
+    @staticmethod
+    def _read(path: Path) -> dict:
+        with path.open(encoding="utf-8") as stream:
+            data = json.load(stream)
+        if not isinstance(data, dict):
+            raise ValueError("Configuration root must be an object")  # noqa: TRY004
+        return data
+
+    @staticmethod
+    def _write(path: Path, data: dict) -> None:
+        """同目录暂存并替换；写入或替换失败时保留原文件。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temporary = Path(name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(data, stream, ensure_ascii=False, indent=4)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _preserve_corrupt(self, path: Path) -> None:
+        if path.exists():
+            shutil.copy2(
+                path, path.with_name(f"{path.name}.corrupt-{uuid.uuid4().hex}")
+            )
+
+    def save(self) -> None:
+        self._save_pending = True
+        if self._save_timer is not None:
+            self._save_timer.stop()
+        path = self.file
+        if path.exists():
+            try:
+                previous = self._read(path)
+            except (ValueError, UnicodeError):
+                # 没有有效备份时允许使用默认配置，但下次保存仍须留下坏文件供恢复。
+                self._preserve_corrupt(path)
+            else:
+                self._write(path.with_suffix(path.suffix + ".bak"), previous)
+        self._write(path, self.toDict())
+        self._save_pending = False
+
+    def load(self, file=None, config=None) -> None:
+        if config is not None and config is not self:
+            raise ValueError("Load configuration on its owning Config instance")
+        if file is not None:
+            self.file = Path(file)
+        if self._save_timer is not None:
+            self._save_timer.stop()
+        self._save_pending = False
+        self.load_warnings.clear()
+        try:
+            data = self._read(self.file)
+        except (OSError, ValueError, UnicodeError) as exc:
+            try:
+                data = self._read(self.file.with_suffix(self.file.suffix + ".bak"))
+            except (OSError, ValueError, UnicodeError) as backup_error:
+                data = {}
+                # A first launch with neither file present is not corruption.
+                kind = (
+                    ""
+                    if isinstance(exc, FileNotFoundError)
+                    and isinstance(backup_error, FileNotFoundError)
+                    else "defaults"
+                )
+            else:
+                try:
+                    self._preserve_corrupt(self.file)
+                    self._write(self.file, data)
+                except OSError:
+                    # Reading a usable backup and repairing the primary are
+                    # separate steps. Read-only storage must not discard the
+                    # recovered preferences for this run.
+                    kind = "backup"
+                else:
+                    kind = "recovered"
+            if kind:
+                self.load_warnings.append((kind, str(self.file)))
+                logging.getLogger("ferret.settings").warning(
+                    "Configuration %s: %s (%s)", kind, self.file, exc
+                )
+        for name in dir(type(self)):
+            item = getattr(type(self), name)
+            if not isinstance(item, ConfigItem):
+                continue
+            group = data.get(item.group, {})
+            if not isinstance(group, dict) or item.name not in group:
+                item.value = deepcopy(item.defaultValue)
+                continue
+            value = group[item.name]
+            try:
+                item.deserializeFrom(value)
+            except (ValueError, TypeError, KeyError):
+                item.value = deepcopy(item.defaultValue)
+                self.load_warnings.append(("field", item.key))
+                logging.getLogger("ferret.settings").warning(
+                    "Invalid configuration field: %s", item.key
+                )
+        self.theme = self.get(self.themeMode)
+
     # 应用主题：覆盖 qfluentwidgets 基类的出厂默认（Theme.LIGHT），改为跟随系统。
     # 键名 group/name 必须与基类一致（QFluentWidgets/ThemeMode），否则落盘与
     # 框架读取对不上。
@@ -171,7 +331,7 @@ class Config(QConfig):
         default=False,
     )
 
-    # 代理认证（原生 ProxyAuth addon，见 .plans/proxyauth.md）：和上面两个开关同属
+    # 代理认证（原生 ProxyAuth addon，见 docs/design.md#auth）：和上面两个开关同属
     # 「谁能用这个代理」。block_* 按来源 IP 类别一刀切，挡不住「要放行手机、但不想
     # 放行同网段陌生人」这种需求 —— 那正是这里补的洞。
     # 只对 regular / upstream 通道有效；local / wireguard / reverse 接通期间自动让路
@@ -230,7 +390,7 @@ class Config(QConfig):
         default=False,
     )
 
-    # 反向代理通道（.plans/reverse-mode.md）：把 ferret 架在目标服务前面，客户端
+    # 反向代理通道（docs/design.md#capture）：把 ferret 架在目标服务前面，客户端
     # 直连本监听口即被捕获。意图值落盘、接通位不落盘，与三条既有通道同一语义。
     # 默认关且目标为空——与 local/wireguard 不同，它需要一个显式目标才有意义。
     reverse_enabled = BoolConfigItem(
@@ -257,7 +417,7 @@ class Config(QConfig):
         default=8081,
     )
 
-    # SOCKS5 入站通道（.plans/0-socks5-channel.md）：独立端口的 SOCKS5 代理，给只认
+    # SOCKS5 入站通道（docs/design.md#capture）：独立端口的 SOCKS5 代理，给只认
     # SOCKS5 的客户端（移动端 App、部分 CLI）接入。意图值落盘、接通位不落盘，与
     # 四通道同一语义。默认关。监听地址跟随全局 listen_host（D2）。
     socks5_enabled = BoolConfigItem(
@@ -312,7 +472,7 @@ class Config(QConfig):
         default="",
     )
 
-    # DNS 解析两选项（.plans/dns-options.md）：原生 DnsResolver addon。仅对隧道内
+    # DNS 解析两选项（docs/design.md#capture）：原生 DnsResolver addon。仅对隧道内
     # DNS 生效（WireGuard 通道的 10.0.0.53）；regular 模式下客户端自解 DNS、选项
     # 管不到 —— 不产生 DNSFlow 就没有任何代码路径碰到它，故不设让路、常驻种子。
     # 自定义服务器列表，留空 = 跟随系统 DNS（原生默认 []）。和 gateway_rules 同
@@ -331,7 +491,7 @@ class Config(QConfig):
         default=True,
     )
 
-    # 上游 TLS 信任三选项（.plans/upstream-tls.md）：原生 tlsconfig 的 ssl_* 与
+    # 上游 TLS 信任三选项（docs/design.md#tls）：原生 tlsconfig 的 ssl_* 与
     # add_upstream_certs_to_client_chain，四条通道共用一条 tls_start_server，
     # 语义天然一致 —— 全局偏好，不设让路、不随通道回滚。
     # 不校验上游服务器证书（原生默认 False）。顺带打开不安全重协商
@@ -362,7 +522,7 @@ class Config(QConfig):
         default=False,
     )
 
-    # mTLS 客户端证书路径（.plans/mtls-client-certs.md）：空串 = 未启用。
+    # mTLS 客户端证书路径（docs/design.md#tls）：空串 = 未启用。
     # 存**一个** str 而不是列表 —— 原生 client_certs 就是一个路径，指到目录时按
     # SNI 找 `<主机名>.pem`（精确匹配、无通配、无兜底），多主机证书全在那个目录里，
     # Ferret 不替它记账。与上面三项同属「四条通道共用一条 tls_start_server」的全局
@@ -447,7 +607,7 @@ class Config(QConfig):
         default=False,
     )
 
-    # 协议层两开关（.plans/2-protocol-switches.md）：原生 http2 / http3 布尔选项。
+    # 协议层两开关（docs/design.md#capture）：原生 http2 / http3 布尔选项。
     # 默认**开**（对齐原生出厂）：全支持是正常姿态；关掉是调试降级手段（h2 →
     # HTTP/1.1 行式可读、h3 → 客户端回落 TCP 解决 QUIC/UDP 抓不到），不是「如实
     # 转发」问题，故默认值方向与 sticky / anticache 相反。开关方向不反转（呈现
@@ -481,7 +641,7 @@ class Config(QConfig):
         default=False,
     )
 
-    # mock 响应池（.plans/0-server-playback.md）：原生 ServerPlayback 的旋钮。
+    # mock 响应池（docs/design.md#mock）：原生 ServerPlayback 的旋钮。
     # 池内容不落 config.json（见 core/mitm/facade.py 的 mock 池托管文件），这里只
     # 存开关与匹配行为。默认全按「GUI mock 语义」取值，与原生出厂值两处刻意不同：
     # reuse=True（原生默认 False 是消耗式，池耗尽后未命中策略跟着失效、流量静默
@@ -555,7 +715,7 @@ class Config(QConfig):
         default={},
     )
 
-    # 启动后自动检查更新（.plans/3-auto-update.md §2）：只控制「启动那一次静默
+    # 启动后自动检查更新（docs/design.md#update）：只控制「启动那一次静默
     # 检查」，设置页的手动入口恒可用，不受此开关影响。BoolConfigItem 而非裸
     # validator=BoolValidator()：坏值回落本项默认（#88 的收口语义）。
     auto_check_update = BoolConfigItem(
@@ -629,14 +789,14 @@ def get_sessions_dir() -> Path:
 
 
 def get_scripts_dir() -> Path:
-    """应用内新建脚本的托管目录（plans/scripts.md §3.4；打包后路径稳定可写）。"""
+    """应用内新建脚本的托管目录（docs/design.md#scripts；打包后路径稳定可写）。"""
     directory = get_config_dir() / "scripts"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
 
 def get_mock_pool_file() -> Path:
-    """mock 响应池的托管 .flow 文件（.plans/0-server-playback.md §3.3）。
+    """mock 响应池的托管 .flow 文件（docs/design.md#mock）。
 
     池不落 config.json：单条流是完整报文，塞进 JSON 既大又得自己序列化；直接用
     原生 FlowFile（`core/mitm/io.py`）存 .flow，导入/导出与内核读同一条格式。

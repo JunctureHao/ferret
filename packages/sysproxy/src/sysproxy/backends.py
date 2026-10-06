@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
-import subprocess
 import sys
 from abc import ABC, abstractmethod
 
@@ -66,19 +65,13 @@ class WindowsSystemProxyBackend(SystemProxyBackend):
                 winreg.SetValueEx(
                     key, "ProxyServer", 0, winreg.REG_SZ, endpoint.address
                 )
-                winreg.SetValueEx(
-                    key, "ProxyOverride", 0, winreg.REG_SZ, "<-loopback>"
-                )
+                winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ, "<-loopback>")
                 with contextlib.suppress(FileNotFoundError):
                     winreg.DeleteValue(key, "AutoConfigURL")
                 winreg.SetValueEx(key, "AutoDetect", 0, winreg.REG_DWORD, 0)
             self._refresh()
-            with contextlib.suppress(OSError):
-                subprocess.run(
-                    ["CheckNetIsolation.exe", "LoopbackExempt", "-a", "-alluser"],
-                    capture_output=True,
-                    check=False,
-                )
+            # UWP exemptions are a separate, privileged per-application operation.
+            # Proxy attachment must not run the invalid blanket -alluser command.
             return True
         except OSError:
             return False
@@ -130,7 +123,7 @@ class WindowsSystemProxyBackend(SystemProxyBackend):
                 and not bool(auto_detect)
                 and not str(auto_config_url)
             )
-        except OSError:
+        except FileNotFoundError:
             return False
 
     @staticmethod

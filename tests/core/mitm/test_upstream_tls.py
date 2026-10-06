@@ -1,4 +1,4 @@
-"""上游 TLS 信任的内核侧验收（.plans/upstream-tls.md §6）。
+"""上游 TLS 信任的内核侧验收（docs/design.md#tls）。
 
 分五组，按「越靠近原生越不需要内核」排：
 
@@ -17,10 +17,13 @@
   未运行时只改副本、`ssl_insecure` 翻转不吃掉信任文件列表。
 """
 
+from __future__ import annotations
+
 import asyncio
 import functools
 import os
 import socket
+import ssl
 import tempfile
 import unittest
 from pathlib import Path
@@ -38,6 +41,7 @@ from ferret.core.mitm.certificate import (
     TRUSTED_CA_SUFFIX,
     SystemCertificateService,
     build_trusted_ca_bundle,
+    prune_trusted_ca_bundles,
 )
 from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.runtime import ssl_option_updates
@@ -257,15 +261,19 @@ class TrustedCaBundleTests(unittest.TestCase):
         """换根之后目录里只剩当前那一份，不攒孤儿。"""
         service = SystemCertificateService(self.source_dir)
         service.ensure()
-        self._build([str(service.cert_path)])
+        previous, _ = self._build([str(service.cert_path)])
         service.regenerate()
         current, _ = self._build([str(service.cert_path)])
+        self.assertTrue(Path(str(previous)).exists())
+        prune_trusted_ca_bundles(current, certs_dir=self.certs_dir)
         self.assertEqual(self._bundles(), [Path(str(current))])
 
     def test_clearing_the_list_prunes_every_artifact(self) -> None:
         pem = make_ca_pem(self.source_dir)
-        self._build([str(pem)])
+        previous, _ = self._build([str(pem)])
         self.assertEqual(self._build([]), (None, []))
+        self.assertTrue(Path(str(previous)).exists())
+        prune_trusted_ca_bundles(None, certs_dir=self.certs_dir)
         self.assertEqual(self._bundles(), [])
 
     def test_only_its_own_prefix_is_pruned(self) -> None:
@@ -275,6 +283,7 @@ class TrustedCaBundleTests(unittest.TestCase):
         keep = self.certs_dir / "unrelated.pem"
         keep.write_bytes(b"not ours")
         self._build([])
+        prune_trusted_ca_bundles(None, certs_dir=self.certs_dir)
         self.assertTrue(keep.exists())
         self.assertTrue(service.cert_path.exists())
 
@@ -351,6 +360,12 @@ class UpstreamTlsKernelTestCase(unittest.TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        prune_patcher = mock.patch(
+            "ferret.core.mitm.runtime.prune_trusted_ca_bundles",
+            functools.partial(prune_trusted_ca_bundles, certs_dir=self.certs_dir),
+        )
+        prune_patcher.start()
+        self.addCleanup(prune_patcher.stop)
 
     def _runtime(self, **kwargs) -> MitmRuntime:
         runtime = MitmRuntime(listen_port=free_port(), **kwargs)
@@ -402,6 +417,44 @@ class UpstreamTlsSeedTests(UpstreamTlsKernelTestCase):
 
 class UpstreamTlsHotUpdateTests(UpstreamTlsKernelTestCase):
     """热更：None 不改动、成功同步、失败两边回滚、未运行只改副本。"""
+
+    def test_failed_clear_keeps_the_bundle_referenced_by_the_kernel_readable(
+        self,
+    ) -> None:
+        pem = make_ca_pem(self.source_dir)
+        runtime = self._runtime(ssl_trusted_ca_files=[str(pem)])
+        old_bundle = self._option(runtime, "ssl_verify_upstream_trusted_ca")
+        assert isinstance(old_bundle, str)
+        original = Path(old_bundle).read_bytes()
+        with (
+            mock.patch.object(runtime, "call", side_effect=TimeoutError("not started")),
+            self.assertRaises(TimeoutError),
+        ):
+            runtime.apply_ssl_options(trusted_ca_files=[])
+        self.assertEqual(runtime.ssl_trusted_ca_files, [str(pem)])
+        self.assertEqual(
+            self._option(runtime, "ssl_verify_upstream_trusted_ca"), old_bundle
+        )
+        self.assertEqual(Path(old_bundle).read_bytes(), original)
+        ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(old_bundle)
+        runtime.apply_ssl_options(trusted_ca_files=[])
+        self.assertFalse(Path(old_bundle).exists())
+
+    def test_rejected_replacement_keeps_the_previous_bundle(self) -> None:
+        service = SystemCertificateService(self.source_dir)
+        service.ensure()
+        runtime = self._runtime(ssl_trusted_ca_files=[str(service.cert_path)])
+        old_bundle = self._option(runtime, "ssl_verify_upstream_trusted_ca")
+        assert isinstance(old_bundle, str)
+        service.regenerate()
+        with (
+            mock.patch.object(runtime, "call", side_effect=OptionsError("rejected")),
+            self.assertRaises(ValueError),
+        ):
+            runtime.apply_ssl_options(trusted_ca_files=[str(service.cert_path)])
+        ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(old_bundle)
+        runtime.apply_ssl_options(trusted_ca_files=[str(service.cert_path)])
+        self.assertFalse(Path(old_bundle).exists())
 
     def test_hot_update_changes_the_running_options(self) -> None:
         runtime = self._runtime()

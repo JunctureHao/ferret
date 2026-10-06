@@ -4,7 +4,7 @@
 窗口就能测。时序块（`TimingPane`）作为 lead 挂进概览的「时序」卡（组头之下、
 时刻行之上）—— 图定比例、行给精确值，一个组头一个故事。
 
-两条硬约束（出处见 `.plans/timing-waterfall.md`）：
+两条硬约束（出处见 `docs/design.md#export`）：
 
 - **总耗时永远是一次减法**（``res_end - req_start``），绝不是各段求和 ——
   ``connection_strategy="eager"`` 下 HTTPS 的连接/TLS 发生在请求**之前**，明文

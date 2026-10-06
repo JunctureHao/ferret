@@ -17,7 +17,7 @@ import unittest.mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QObject, QPoint
+from PySide6.QtCore import QObject, QPoint, Signal
 from PySide6.QtWidgets import QApplication, QLineEdit, QTableWidget
 
 from ferret.apps.common.edit.syntax import Language
@@ -382,8 +382,9 @@ class JsonDualPanelTests(unittest.TestCase):
         self.assertTrue(seen)
 
 
-
 class _MenuStub(QObject):
+    closedSignal = Signal()
+
     """替身菜单：真 `RoundMenu.exec` 会弹出非阻塞菜单，离线测试没人点它。
 
     必须是 `QObject`：菜单动作把菜单当 parent 构造，QAction 拒绝 MagicMock。

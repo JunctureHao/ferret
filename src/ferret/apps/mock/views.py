@@ -1,4 +1,4 @@
-"""Mock 响应池页：池表 + 匹配行为旋钮卡（.plans/0-server-playback.md §4.2）。
+"""Mock 响应池页：池表 + 匹配行为旋钮卡（docs/design.md#mock）。
 
 布局 = 规则页骨架（命令栏 + 表格 + 空态页）加一个底部「匹配设置」折叠区。
 折叠区里是 WinUI 设置卡（qfluentwidgets SettingCard 家族，与设置页同一套词汇）：
@@ -214,7 +214,9 @@ class MockInterface(QWidget):
         self.reuse_card = SwitchSettingCard(
             icon=FluentIcon.SYNC,
             title=self.tr("可重复使用"),
-            content=self.tr("关闭后每条 Mock 响应只回一次，池耗尽后未命中策略生效"),
+            content=self.tr(
+                "关闭后每条 Mock 响应只回一次；池耗尽后请求将直连上游，未命中策略不再生效"
+            ),
             configItem=CONFIG.mock_reuse,
             parent=cards_inner,
         )
@@ -278,9 +280,7 @@ class MockInterface(QWidget):
         self.knob_toggle_btn.clicked.connect(self._on_toggle_knobs)
         self.enable_switch.checkedChanged.connect(self.controller.set_enabled)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
-        self.table.selectionModel().selectionChanged.connect(
-            self._update_action_state
-        )
+        self.table.selectionModel().selectionChanged.connect(self._update_action_state)
 
         self.controller.pool_changed.connect(self._on_pool_changed)
         self.controller.enabled_changed.connect(self._sync_switch)
@@ -320,9 +320,7 @@ class MockInterface(QWidget):
             parts.append(self.tr("忽略主机"))
         params = list(CONFIG.get(CONFIG.mock_ignore_params))
         if params:
-            parts.append(
-                self.tr("忽略参数 {} 项").format(len(params))
-            )
+            parts.append(self.tr("忽略参数 {} 项").format(len(params)))
         headers = list(CONFIG.get(CONFIG.mock_use_headers))
         if headers:
             parts.append(self.tr("比对请求头 {} 项").format(len(headers)))
@@ -331,9 +329,7 @@ class MockInterface(QWidget):
     def _sync_list_cards(self) -> None:
         params = list(CONFIG.get(CONFIG.mock_ignore_params))
         headers = list(CONFIG.get(CONFIG.mock_use_headers))
-        self.params_card.setContent(
-            "、".join(params) if params else self.tr("未配置")
-        )
+        self.params_card.setContent("、".join(params) if params else self.tr("未配置"))
         self.headers_card.setContent(
             "、".join(headers) if headers else self.tr("未配置")
         )
@@ -362,9 +358,7 @@ class MockInterface(QWidget):
     def _on_pool_changed(self, snapshot: dict[str, Any]) -> None:
         self.source_model.set_entries(snapshot.get("entries", []))
         self._sync_switch(self.controller.enabled)
-        self.count_label.setText(
-            self.tr("{} 条").format(int(snapshot.get("count", 0)))
-        )
+        self.count_label.setText(self.tr("{} 条").format(int(snapshot.get("count", 0))))
         self._update_content_state()
         self._update_action_state()
 
@@ -412,6 +406,7 @@ class MockInterface(QWidget):
     @Slot()
     def _on_more_menu(self) -> None:
         menu = RoundMenu(parent=self)
+        menu.closedSignal.connect(menu.deleteLater)
         export_action = BaseAction(
             FluentIcon.SHARE, self.tr("导出池为 Flow 文件…"), menu
         )
@@ -455,10 +450,13 @@ class MockInterface(QWidget):
         dialog = StringListDialog(
             title, hint, list(CONFIG.get(item)), parent=self.window()
         )
-        if dialog.exec():
-            CONFIG.set(item, dialog.items())
-        # valueChanged（含同值短路不触发的情况）都同步一次卡片文案。
-        self._sync_list_cards()
+        try:
+            if dialog.exec():
+                CONFIG.set(item, dialog.items())
+            # valueChanged（含同值短路不触发的情况）都同步一次卡片文案。
+            self._sync_list_cards()
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def _on_context_menu(self, pos) -> None:
@@ -473,6 +471,7 @@ class MockInterface(QWidget):
         if not entry_ids:
             return
         menu = RoundMenu(parent=self.table)
+        menu.closedSignal.connect(menu.deleteLater)
         delete_action = BaseAction(
             FluentIcon.DELETE,
             self.tr("删除")

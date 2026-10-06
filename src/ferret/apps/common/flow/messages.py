@@ -427,7 +427,7 @@ class MessagesPane(QWidget):
 
     def __trim(self) -> None:
         """超上限从最旧一端逐出。显示条数是界面策略，`count` 恒指内核总数。"""
-        while len(self.stream.bubbles()) > MESSAGE_ROW_LIMIT:
+        while self.stream.message_count() > MESSAGE_ROW_LIMIT:
             self.stream.evict_oldest()
 
     def __close_text(self, close: WsClose) -> str:

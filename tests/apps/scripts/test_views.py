@@ -57,6 +57,9 @@ class FakeDialog:
     def exec(self) -> int:
         return 1 if type(self).accepted else 0
 
+    def deleteLater(self) -> None:
+        pass
+
 
 class FakeNewScriptDialog(FakeDialog):
     filename = "made.py"
@@ -250,6 +253,25 @@ class ScriptsInterfaceTests(unittest.TestCase):
         self.assertEqual(len(FakeDialog.calls), 1)
         saved = (self.managed / "mine.py").read_text(encoding="utf-8")
         self.assertEqual(saved, "# keep me\n")
+
+    def test_a_failed_save_keeps_the_dirty_editor_and_original_selection(self) -> None:
+        path = self.add_new("mine.py")
+        self.add_import("other.py")
+        self.select_row(0)
+        before = Path(path).read_text(encoding="utf-8")
+        self.view.panel.editor.code_widget.setPlainText("# unsaved\n")
+        with (
+            mock.patch.object(views, "MessageBox", FakeDialog),
+            mock.patch.object(self.controller, "save_script", return_value=False),
+        ):
+            FakeDialog.accepted = True
+            self.select_row(1)
+        assert self.view.panel.entry is not None
+        self.assertEqual(self.view.panel.entry.path, path)
+        self.assertEqual(self.view.panel.editor.text(), "# unsaved\n")
+        self.assertTrue(self.view.panel.dirty)
+        self.assertEqual(self.view.table.selectionModel().selectedRows()[0].row(), 0)
+        self.assertEqual(Path(path).read_text(encoding="utf-8"), before)
 
     def test_discarding_leaves_the_file_alone(self) -> None:
         path = self.add_new("mine.py")

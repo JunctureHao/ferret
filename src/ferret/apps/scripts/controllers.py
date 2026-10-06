@@ -18,7 +18,7 @@ from ferret.core.settings import CONFIG, get_scripts_dir
 
 log = get_logger("scripts")
 
-# 「新建」入口的初始内容（plans/scripts.md §7 第 4 条：v1 只给最简模板）。
+# 「新建」入口的初始内容（docs/design.md#scripts 第 4 条：v1 只给最简模板）。
 # 这是写进脚本文件的正文，不是界面文案，所以不过 tr()。钩子名与签名照
 # mitmproxy 的 addon 事件模型，用户照着改就能用。
 SCRIPT_TEMPLATE = '''"""Ferret 用户脚本。
@@ -146,7 +146,7 @@ class ScriptsController(QObject):
         """从清单移除；`delete_files` 才会动磁盘上的文件（默认只移除条目）。
 
         **删文件只对 new 条目生效**：import 条目引用的是用户自己的文件，移除时
-        「文件不动」是 plans/scripts.md §3.4 那张表钉死的语义 —— 混选时勾了
+        「文件不动」是 docs/design.md#scripts 那张表钉死的语义 —— 混选时勾了
         「同时删除文件」也不许碰它们。
         """
         dropped = {i for i in indexes if 0 <= i < len(self._scripts)}
@@ -236,7 +236,7 @@ class ScriptsController(QObject):
         return Path(path).read_text(encoding="utf-8")
 
     def save_script(self, path: str, text: str) -> bool:
-        """保存 = 写盘 + 立即重载（plans/scripts.md §3.4）。"""
+        """保存 = 写盘 + 立即重载（docs/design.md#scripts）。"""
         try:
             Path(path).write_text(text, encoding="utf-8")
         except OSError as exc:

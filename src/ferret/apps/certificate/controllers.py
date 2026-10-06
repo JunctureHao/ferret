@@ -60,7 +60,7 @@ class CertificateController(QObject):
     def busy(self) -> bool:
         return self._active > 0
 
-    # --- 上游信任（.plans/upstream-tls.md §3.6）---
+    # --- 上游信任（docs/design.md#tls）---
     #
     # 三个读属性一律取内核内存副本，不读 CONFIG：副本在 `_build_mitm_runtime` 里
     # 就由 CONFIG 播过种，运行中热更后它才是真值（落盘值可能刚被拒、没写成）。
@@ -99,7 +99,7 @@ class CertificateController(QObject):
             add_upstream_certs=add_upstream_certs,
         )
 
-    # --- mTLS 客户端证书（.plans/mtls-client-certs.md §3.5）---
+    # --- mTLS 客户端证书（docs/design.md#tls）---
 
     @property
     def client_certs_path(self) -> str:

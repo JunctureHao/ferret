@@ -1,4 +1,4 @@
-"""流列表列布局的 Qt 行为（.plans/0-flow-list-columns.md §6.2）。
+"""流列表列布局的 Qt 行为（docs/design.md#ui）。
 
 平铺表格与连接树共用同一份布局，两套视图都要覆盖：默认 8 列、显隐、重排（视觉
 列序 + 无串列）、响应式按稳定 key、用户隐藏不被响应式复原、列宽按 key、Mark 固定宽、
@@ -46,7 +46,9 @@ class ColumnLayoutQtTests(unittest.TestCase):
 
     def setUp(self) -> None:
         # 隔离持久化：init 读默认、变更写到 mock，不触真实 config.json。
-        self._load_patch = patch.object(views, "load_layout", return_value=default_layout())
+        self._load_patch = patch.object(
+            views, "load_layout", return_value=default_layout()
+        )
         self._save_patch = patch.object(views, "save_layout")
         self._load_patch.start()
         self.save_mock = self._save_patch.start()

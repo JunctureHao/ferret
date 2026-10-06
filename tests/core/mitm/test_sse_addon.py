@@ -16,15 +16,20 @@ chunk 过一趟 callable、转发其返回值，流末以空 chunk 收尾）就�
 * **流末补回 body**：响应体页 / 保存 / HAR 导出都读 `response.data.content`。
 * **内存闸**：buf 超 `SSE_BODY_LIMIT` 停止增长（留前缀），解析推送继续 ——
   几小时寿命的端点全攒着就是给内核埋内存炸弹。
-* **存档恒存全量**（`sse_ended` 之后详情页还会整取一次），`forget` / `clear`
+* **存档在容量内保留尾部**（`sse_ended` 之后详情页还会整取一次），`forget` / `clear`
   随 View 的删/清走。
 """
 
+from __future__ import annotations
+
+import os
 import socket
 import threading
 import time
 import unittest
 from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.http import Response
 from mitmproxy.test import tflow
@@ -40,7 +45,7 @@ from ferret.core.mitm import (
 from ferret.core.mitm.gateway import GatewayLayer, GatewayPolicy, GatewayRule
 
 from ._qt import start_runtime, wait_until
-from .test_upstream import free_port, http_through
+from .test_upstream import free_port
 
 
 def response_of(flow: HTTPFlow) -> Response:
@@ -54,6 +59,7 @@ def sse_flow(content_type: str = "text/event-stream") -> HTTPFlow:
     """一条响应头已到、body 待流式转发的事件流流量。"""
     flow = tflow.tflow(resp=True)
     response_of(flow).headers["content-type"] = content_type
+    response_of(flow).raw_content = None
     return flow
 
 
@@ -261,11 +267,11 @@ class FerretSseAddonTests(unittest.TestCase):
             stream = response_of(flow).stream
             assert callable(stream)
             stream(b"data: a")  # 7 字节，限内
-            stream(b"\n\n")  # 再来就超了：buf 冻结，解析照常
+            stream(b"\n\n")  # 缓冲精确前 8 字节后冻结，解析照常
             stream(b"data: tail")
             stream(b"")
 
-        self.assertEqual(response_of(flow).data.content, b"data: a")
+        self.assertEqual(response_of(flow).data.content, b"data: a\n")
         self.assertEqual([e.data for e in self.addon.events(flow.id)], ["a", "tail"])
 
     def test_a_non_utf8_charset_is_honoured(self) -> None:
@@ -380,11 +386,18 @@ class GatewayBlockInTimingTests(unittest.TestCase):
             enabled=True,
         )
 
-        response = http_through(
-            runtime.listen_port, f"http://127.0.0.1:{origin.port}/events"
-        )
-        self.assertNotIn(b"ORIGINAL", response)
-        self.assertNotIn(b"text/event-stream", response)
+        # Keep every received byte even if a later socket operation fails.
+        response = bytearray()
+        with socket.create_connection(
+            ("127.0.0.1", runtime.listen_port), timeout=3
+        ) as client:
+            client.sendall(
+                f"GET http://127.0.0.1:{origin.port}/events HTTP/1.1\r\nHost: 127.0.0.1:{origin.port}\r\nConnection: close\r\n\r\n".encode()
+            )
+            while chunk := client.recv(65536):
+                response.extend(chunk)
+        self.assertEqual(bytes(response), b"")
+        self.assertEqual(len(origin.requests), 1)
 
         self.assertTrue(wait_until(lambda: len(runtime.view) > 0))
         flows = runtime.call(lambda: list(runtime.view))

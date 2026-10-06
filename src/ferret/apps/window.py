@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import cast
 
 from PySide6.QtCore import Qt, QTimer, Slot
@@ -133,7 +135,7 @@ class MainWindow(FluentWindow):
         self.__connect_signal_to_slot()
         # 初始路由一次（启动页 = 捕获页 → titlebar 亮出表达式编辑器，规格 §4.3）。
         self.__on_page_changed(self.stackedWidget.currentIndex())
-        # 启动自动检查更新（.plans/3-auto-update.md §2）：延迟避开启动高峰；
+        # 启动自动检查更新（docs/design.md#update）：延迟避开启动高峰；
         # 开关与形态闸门都收在 check_updates_auto 内部，这里只管定时触发。
         QTimer.singleShot(5000, self.settings_interface.check_updates_auto)
 
@@ -175,6 +177,8 @@ class MainWindow(FluentWindow):
         )
 
     def __connect_signal_to_slot(self):
+        self.settings_interface.update_restart_requested.connect(self._apply_update)
+        self.runtime.startup_error.connect(self._show_startup_error)
         qconfig.themeChanged.connect(lambda theme: setTheme(theme))
         self.pin_button.clicked.connect(self.toggleStayOnTop)
         self.tray_icon.activated.connect(self.__on_activated)
@@ -283,6 +287,11 @@ class MainWindow(FluentWindow):
         """统一退出流程：关闭 Save、停止代理、提交录制。"""
         if self._shutdown_complete:
             return True
+        try:
+            CONFIG.flush_pending_save()
+        except OSError as exc:
+            show_warning(self.tr("退出未完成"), str(exc), self)
+            return False
         self.captures_interface.stop_capture()
         complete = self.runtime.shutdown()
         self._shutdown_complete = complete
@@ -291,7 +300,31 @@ class MainWindow(FluentWindow):
             # 决定退出了，再问一遍「挂着的怎么办」只是噪音 —— 内核马上停，挂起的连接
             # 跟着断，这就是退出该有的语义（本轮刻意不做超时自动放行）。
             self.intercept_window.hide()
+        else:
+            self.show()
+            self.raise_()
+            show_warning(
+                self.tr("退出未完成"),
+                self.runtime.last_shutdown_error
+                or self.tr("清理代理或内核失败，请重试退出。"),
+                self,
+            )
         return complete
+
+    @Slot(object)
+    def _apply_update(self, info: object) -> None:
+        # The update SDK exits the process directly, bypassing Qt's quit hooks.
+        if self.shutdown():
+            self.settings_interface.update_controller.apply_and_restart(info)
+            # A successful SDK call exits. If it returns after failure, the user
+            # can start capture again; a later exit must perform cleanup anew.
+            self._shutdown_complete = False
+
+    @Slot(str)
+    def _show_startup_error(self, message: str) -> None:
+        QTimer.singleShot(
+            0, lambda: show_warning(self.tr("系统代理恢复失败"), message, self)
+        )
 
     def closeEvent(self, event):
         if CONFIG.get(CONFIG.minimize_to_tray):

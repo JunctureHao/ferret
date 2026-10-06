@@ -1,6 +1,6 @@
 """Rewrite-rule model, validation and the compiled snapshot the addon executes.
 
-重写引擎是自研的（plans/rewrite-ui.md）：八个类型全部由
+重写引擎是自研的（docs/design.md#rewrite）：八个类型全部由
 :class:`ferret.core.mitm.addons.FerretRewriteAddon` 执行，原生 MapRemote /
 MapLocal / ModifyHeaders / ModifyBody 四件已退役。自研的动机不是复刻原生，而是
 原生补不上的两个缺口：ModifyHeaders / ModifyBody 改不了状态码和 method/path
@@ -63,7 +63,7 @@ WHOLE_BODY_PATTERN = r"\A.*\Z"
 
 # 头值 / 体内容以 `@` 开头时按文件路径**每请求现读**。比原生 modify 的
 # 「spec 解析时校验可读性、请求时重读」少了定格校验这一步 —— 文件可以先建规则
-# 后落盘，更利于 mock 迭代，是刻意差异（plans/rewrite-ui.md §5）。也因此
+# 后落盘，更利于 mock 迭代，是刻意差异（docs/design.md#rewrite）。也因此
 # **无法**下发一个真的以 `@` 开头的字面量。
 FILE_REPLACEMENT_PREFIX = "@"
 
@@ -74,7 +74,7 @@ REPLACE_RESPONSE_DEFAULT_STATUS = 200
 # 对这种「预作答」流量仍会派发 `responseheaders`（proxy/layers/http/__init__.py
 # 里那句 "we now need to emulate the responseheaders hook"），SSE tee 的检测点
 # 恰好在那里 —— 不跳过的话，一条被替换成 text/event-stream 的静态响应会被它
-# 当成真事件流包装起来（plans/rewrite-ui.md §13 风险一）。
+# 当成真事件流包装起来（docs/design.md#rewrite 风险一）。
 REWRITE_ANSWERED_KEY = "ferret_rewrite_answered"
 
 # 「这条响应走了流式管道」的标记，`response` 钩子里读：流式响应到这一钩子时

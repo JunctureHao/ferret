@@ -182,6 +182,8 @@ class InterceptInterfaceTests(unittest.TestCase):
 
 
 class _MenuStub(QObject):
+    closedSignal = Signal()
+
     """替身菜单：真 `RoundMenu.exec` 会弹出非阻塞菜单，离线测试没人点它。
 
     必须是 `QObject`：菜单动作把菜单当 parent 构造，QAction 拒绝 MagicMock。

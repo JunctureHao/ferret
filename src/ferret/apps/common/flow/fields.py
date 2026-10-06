@@ -472,7 +472,7 @@ def _chain_section(index: int) -> Section:
     """证书链中间/根证书小节 —— 静态声明 `Chain[1]`…`Chain[3]`，判别 5 项。
 
     链深是运行时数据而 `SECTIONS` 是静态表，做动态小节数量要给 `section_rows`
-    加新渲染语法，越界（.plans/tls-detail.md §4.2）；现实链深几乎 ≤4，更深的链
+    加新渲染语法，越界（docs/design.md#tls）；现实链深几乎 ≤4，更深的链
     退回 CN 名单。小节无可见行时连小标题一起消失，所以没用上的小节不占地方。
     """
     prefix = f"Chain[{index}]"

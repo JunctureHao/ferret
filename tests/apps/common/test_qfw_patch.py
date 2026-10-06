@@ -4,7 +4,7 @@
 **深度恒 1**（不自我嵌套），渲染文本长度不随往返增长。若上游 qfluentwidgets 修了棘轮
 或本补丁失效，此测试会在深度 > 1 处失败。
 
-对照见 `.plans/0-MEMORY_OPTIMIZATION_PLAN.executable.md` §3。
+对照见 `docs/design.md#ui`。
 """
 
 from __future__ import annotations

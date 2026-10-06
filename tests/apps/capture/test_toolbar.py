@@ -69,6 +69,18 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.assertTrue(self.bar.captures_delete_btn.isEnabled())
         self.assertIn("已选 2 条", self.bar.stats_label.toolTip())
 
+    def test_cleanup_failure_offers_stop_retry_after_proxy_is_restored(self) -> None:
+        self.bar.set_state(
+            self.state(
+                capture_state=CaptureState.FAILED,
+                proxy_attached=False,
+                stop_failed=True,
+            )
+        )
+        self.assertEqual(self.bar.control_btn.text(), "重试停止")
+        self.assertEqual(self.bar.control_btn.toolTip(), "重试停止")
+        self.assertTrue(self.bar.control_btn.isEnabled())
+
     def test_narrow_width_preserves_status_and_overflow_actions(self) -> None:
         self.bar.set_state(
             self.state(

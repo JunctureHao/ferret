@@ -30,12 +30,13 @@ from __future__ import annotations
 
 import codecs
 import zlib
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ferret.core.log import get_logger
-from ferret.core.mitm.bindings import HTTPFlow
+from ferret.core.mitm.bindings import Flow, HTTPFlow
 from ferret.core.mitm.rewrite import REWRITE_ANSWERED_KEY
 
 if TYPE_CHECKING:
@@ -55,6 +56,11 @@ DEFAULT_EVENT = "message"
 # 显示已经缓冲到的前 N 字节。与 `WS_FRAME_LIMIT` 同构：原生一个上限都没有，闸门
 # 只能由 ferret 加。
 SSE_BODY_LIMIT = 10 * 1024 * 1024
+SSE_EVENT_LIMIT = 10_000
+SSE_ARCHIVE_LIMIT = 10 * 1024 * 1024
+SSE_BLOCK_LIMIT = 1024 * 1024
+SSE_BODY_TRUNCATED_KEY = "ferret.sse.body_truncated"
+SSE_EVENTS_TRUNCATED_KEY = "ferret.sse.events_truncated"
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +159,12 @@ class _Block:
         # 只认纯 ASCII 数字。`str.isdigit()` 对全角「１２３」也是真，而那不是规范说的
         # ASCII digits，`int()` 却照样吃 —— 会把乱码当成重连间隔。
         elif name == "retry" and value.isascii() and value.isdigit():
-            self.retry = int(value)
+            try:
+                self.retry = int(value)
+            except ValueError:
+                # Python limits decimal conversion length; a malformed retry
+                # must not prevent subsequent data from being forwarded.
+                pass
         # 其余字段按规范忽略（`retry: abc` 也走到这里）。
 
     def build(self, index: int) -> SseEvent:
@@ -185,11 +196,16 @@ class SseFeeder:
         self._pending = ""
         self._block = _Block()
         self._count = 0
+        self._block_size = 0
 
     def feed(self, text: str) -> list[SseEvent]:
         """喂一段解码后的文本，吐出这一段凑齐的所有事件。"""
         events: list[SseEvent] = []
         data = self._pending + text
+        if len(data) + self._block_size > SSE_BLOCK_LIMIT and not any(
+            sep in data for sep in ("\n\n", "\r\r", "\r\n\r\n")
+        ):
+            raise ValueError("SSE event exceeds parser buffer limit")
         # 段尾悬着一个 `\r` 时先扣下不切：它可能自己就是行分隔符，也可能是 `\r\n`
         # 的前半 —— TCP 把一个 `\r\n` 劈在两段之间（`\r` 收上一段尾、`\n` 开下一段
         # 头）是常态。此时当行尾吃掉，下一段开头的 `\n` 就成了一条凭空空行，把攒到
@@ -205,14 +221,20 @@ class SseFeeder:
         self._pending = lines.pop()
         if held_cr:
             self._pending += "\r"
+        if len(self._pending) > SSE_BLOCK_LIMIT:
+            raise ValueError("SSE line exceeds parser buffer limit")
         for line in lines:
             if line:
+                self._block_size += len(line) + 1
+                if self._block_size > SSE_BLOCK_LIMIT:
+                    raise ValueError("SSE event exceeds parser buffer limit")
                 self._block.feed(line)
                 continue
             if self._block.lines:
                 events.append(self._block.build(self._count))
                 self._count += 1
             self._block = _Block()
+            self._block_size = 0
         return events
 
     def flush(self) -> list[SseEvent]:
@@ -233,6 +255,7 @@ class SseFeeder:
             events.append(self._block.build(self._count))
             self._count += 1
         self._block = _Block()
+        self._block_size = 0
         return events
 
 
@@ -297,13 +320,20 @@ class _ChunkDecoder:
             return chunk
         if self._prefix is not None:
             self._prefix += chunk
+            # zlib cannot distinguish a wrapped stream from raw deflate after
+            # only one byte. Do not feed or discard the prefix prematurely.
+            if len(self._prefix) < 2:
+                return b""
             data = bytes(self._prefix)
         else:
             data = chunk
         out = bytearray()
         try:
             while True:
-                out += self._decompressor.decompress(data)
+                out += self._decompressor.decompress(data, SSE_BODY_LIMIT + 1)
+                if len(out) > SSE_BODY_LIMIT or self._decompressor.unconsumed_tail:
+                    self._dead = True
+                    return None
                 if not self._decompressor.eof:
                     break
                 # gzip 多成员：本成员收尾，剩余字节（可能为空）换新解压器接着解。
@@ -317,7 +347,12 @@ class _ChunkDecoder:
                 self._wbits = _RAW_WBITS
                 self._decompressor = zlib.decompressobj(_RAW_WBITS)
                 try:
-                    out += self._decompressor.decompress(bytes(self._prefix))
+                    out += self._decompressor.decompress(
+                        bytes(self._prefix), SSE_BODY_LIMIT + 1
+                    )
+                    if len(out) > SSE_BODY_LIMIT or self._decompressor.unconsumed_tail:
+                        self._dead = True
+                        return None
                 except zlib.error:
                     self._dead = True
                     return None
@@ -379,14 +414,22 @@ class _SseTap:
         self.buf = bytearray()
         # 超 :data:`SSE_BODY_LIMIT` 后置真：停止攒 body，解析推送继续。
         self.buf_overflowed = False
+        self._ended = False
+        self._parsing = True
+        self.received = False
+        self.streamed = True
 
     def tee(self, chunk: bytes) -> bytes:
+        if self._ended:
+            return chunk
         if not chunk:
             # 流末约定：mitmproxy 在转发路径收尾时以空 chunk 通知 callable。
             self._flush()
             return chunk
+        self.received = True
         if not self.buf_overflowed:
             if len(self.buf) + len(chunk) > SSE_BODY_LIMIT:
+                self.buf += chunk[: max(0, SSE_BODY_LIMIT - len(self.buf))]
                 self.buf_overflowed = True
                 log.info(
                     "SSE body 超过 %d 字节，停止攒 body（事件推送继续）", SSE_BODY_LIMIT
@@ -395,26 +438,48 @@ class _SseTap:
                 self.buf += chunk
         # 先剥 Content-Encoding 再文本解码：stream callable 拿到的是未解压的
         # 转发 chunk（issues #12）。``None`` = 解不出来，这段放弃解析。
-        plain = self._chunk_decoder.decode(chunk)
-        if plain is not None:
-            events = self._feeder.feed(self._decoder.decode(plain))
-            if events:
-                self._on_events(events)
+        if self._parsing:
+            try:
+                plain = self._chunk_decoder.decode(chunk)
+                if plain is None:
+                    self._parsing = False
+                else:
+                    events = self._feeder.feed(self._decoder.decode(plain))
+                    if events:
+                        self._on_events(events)
+            except Exception:
+                # This is an observer, never part of the forwarding contract.
+                self._parsing = False
+                self._feeder = SseFeeder()
+                log.warning(
+                    "SSE parsing disabled; wire bytes are still forwarded",
+                    exc_info=True,
+                )
         return chunk
 
     def _flush(self) -> None:
-        tail = self._chunk_decoder.flush()
-        if tail is None:
-            events: list[SseEvent] = []
-        else:
-            events = [
-                *self._feeder.feed(self._decoder.decode(tail)),
-                *self._feeder.feed(self._decoder.decode(b"", final=True)),
-                *self._feeder.flush(),
-            ]
-        if events:
-            self._on_events(events)
-        self._on_end()
+        if self._ended:
+            return
+        self._ended = True
+        try:
+            if self._parsing:
+                tail = self._chunk_decoder.flush()
+                if tail is not None:
+                    events = [
+                        *self._feeder.feed(self._decoder.decode(tail)),
+                        *self._feeder.feed(self._decoder.decode(b"", final=True)),
+                        *self._feeder.flush(),
+                    ]
+                    if events:
+                        self._on_events(events)
+        except Exception:
+            log.warning("SSE final parsing failed", exc_info=True)
+        finally:
+            self._feeder = SseFeeder()
+            try:
+                self._on_end()
+            except Exception:
+                log.warning("SSE end notification failed", exc_info=True)
 
 
 class FerretSseAddon:
@@ -424,7 +489,7 @@ class FerretSseAddon:
     `response` 钩子之前设，`response` 里设已晚（转发已经开始，前面的 chunk 就
     漏过去了）。
 
-    存档语义对齐 `ws_frames()`：`_events` 恒存全量（显示上限归界面）；flow 从
+    存档保留有界尾部；body 保留有界前缀，截断标记随 flow 保存。flow 从
     View 移除时清掉对应条目。
     """
 
@@ -432,7 +497,8 @@ class FerretSseAddon:
         # bridge 可后置注入：master 装配时不认识 runtime（master 由 runtime 造），
         # runtime 在挂 UiBridgeAddon 时一并补上。没补就等于推送关掉，存档照常。
         self.bridge = bridge
-        self._events: dict[str, list[SseEvent]] = {}
+        self._events: dict[str, deque[SseEvent]] = {}
+        self._archive_sizes: dict[str, int] = {}
         self._taps: dict[str, _SseTap] = {}
         self._flows: dict[str, HTTPFlow] = {}
 
@@ -463,9 +529,33 @@ class FerretSseAddon:
         )
         self._taps[flow.id] = tap
         self._flows[flow.id] = flow
-        self._events.setdefault(flow.id, [])
-        response.stream = tap.tee
+        self._events.setdefault(flow.id, deque())
+        self._archive_sizes.setdefault(flow.id, 0)
+        tap.streamed = response.raw_content is None
+        if tap.streamed:
+            response.stream = tap.tee
         self._emit_started(flow.id)
+
+    def response(self, flow: HTTPFlow) -> None:
+        tap = self._taps.get(flow.id)
+        if tap is None:
+            return
+        # Static Mock/script answers never enter the streaming callable. Read
+        # their already available wire body once before the same finalizer.
+        if not tap.received and flow.response is not None:
+            content = flow.response.raw_content
+            if content:
+                tap.tee(content)
+        tap.tee(b"")
+
+    def error(self, flow: HTTPFlow) -> None:
+        tap = self._taps.get(flow.id)
+        if tap is not None:
+            tap.tee(b"")
+
+    def done(self) -> None:
+        for tap in list(self._taps.values()):
+            tap.tee(b"")
 
     # —— 对内 ——
 
@@ -473,7 +563,18 @@ class FerretSseAddon:
         archive = self._events.get(flow_id)
         if archive is None:
             return
-        archive.extend(events)
+        size = self._archive_sizes[flow_id]
+        for event in events:
+            archive.append(event)
+            size += _event_size(event)
+        truncated = False
+        while archive and (len(archive) > SSE_EVENT_LIMIT or size > SSE_ARCHIVE_LIMIT):
+            size -= _event_size(archive.popleft())
+            truncated = True
+        self._archive_sizes[flow_id] = size
+        flow = self._flows.get(flow_id)
+        if truncated and flow is not None:
+            flow.metadata[SSE_EVENTS_TRUNCATED_KEY] = True
         if self.bridge is None:
             return
         for event in events:
@@ -488,6 +589,12 @@ class FerretSseAddon:
         # 攒的是前缀，也补回去 —— 有前缀总比空 body 强（界面能显示「前 10 MB」）。
         if flow.response is not None:
             flow.response.data.content = bytes(tap.buf)
+            # Keep the streamed marker for body-rewrite policy without keeping
+            # the bound method (and its decoder/body buffers) alive forever.
+            flow.response.stream = tap.streamed
+        if tap.buf_overflowed:
+            flow.metadata[SSE_BODY_TRUNCATED_KEY] = True
+        tap.buf.clear()
         if self.bridge is not None:
             self.bridge.sse_ended.emit(flow_id)
 
@@ -498,18 +605,31 @@ class FerretSseAddon:
     def forget(self, flow_id: str) -> None:
         """flow 从 View 移除时清存档。由 facade 的 remove/clear 路径调用。"""
         self._events.pop(flow_id, None)
-        self._taps.pop(flow_id, None)
-        self._flows.pop(flow_id, None)
+        self._archive_sizes.pop(flow_id, None)
+        tap = self._taps.get(flow_id)
+        if tap is not None:
+            tap.tee(b"")
+
+    def flow_removed(self, flow: Flow) -> None:
+        self.forget(flow.id)
 
     def clear(self) -> None:
         """整表清空（`clear_flows` 那条路）。"""
+        self.done()
         self._events.clear()
-        self._taps.clear()
-        self._flows.clear()
+        self._archive_sizes.clear()
 
     def events(self, flow_id: str) -> list[SseEvent]:
-        """全量事件存档（不在此套显示上限 —— 上限是界面策略）。"""
+        """容量以内的最近事件；绝对 index 保留，可辨别被驱逐的前缀。"""
         return list(self._events.get(flow_id, []))
+
+
+def _event_size(event: SseEvent) -> int:
+    # Include duplicated raw/data strings, accounting for worst-case Unicode.
+    return 4 * sum(
+        len(value)
+        for value in (event.raw, event.data, event.comment, event.id, event.event)
+    )
 
 
 def _charset_of(content_type: str) -> str:

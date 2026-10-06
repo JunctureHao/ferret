@@ -135,7 +135,7 @@ def upload(output_dir: Path, version: str, args: argparse.Namespace) -> None:
     """把 releases 目录推上 GitHub Releases（即应用内更新的更新源）。"""
     repo_url = args.repo_url or REPO_URL
     if not repo_url:
-        raise SystemExit("无法从 git origin 推导仓库地址，请用 --repo-url 显式指定")
+        raise SystemExit("未配置 REPO_URL，请用 --repo-url 显式指定仓库地址")
     cmd = [
         "vpk",
         "--yes",
@@ -153,7 +153,7 @@ def upload(output_dir: Path, version: str, args: argparse.Namespace) -> None:
     # 草稿不进更新源（客户端看不到），所以默认 --publish；semver 预发版自动标 pre-release
     if not args.draft:
         cmd.append("--publish")
-    if "-" in version:
+    if "-" in version.partition("+")[0]:
         cmd.append("--pre")
     if args.merge:
         cmd.append("--merge")
@@ -173,7 +173,11 @@ def main() -> None:
     parser.add_argument(
         "--version", help="覆盖版本号（默认读 pyproject.toml 的 project.version）"
     )
-    parser.add_argument("--pack-authors", help="作者/公司名，写入安装包元数据")
+    parser.add_argument(
+        "--pack-authors",
+        default="Ferret contributors",
+        help="作者/公司名，写入安装包元数据",
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -193,7 +197,7 @@ def main() -> None:
         action="store_true",
         help="打包后上传 releases 目录到 GitHub Releases（需 GITHUB_TOKEN）",
     )
-    parser.add_argument("--repo-url", help="GitHub 仓库地址（默认从 git origin 推导）")
+    parser.add_argument("--repo-url", help="GitHub 仓库地址（默认 core.meta.REPO_URL）")
     parser.add_argument(
         "--draft",
         action="store_true",
@@ -214,7 +218,11 @@ def main() -> None:
 
     if not args.skip_build:
         run([sys.executable, "-m", "nuitka", "src/ferret"], args.dry_run)
-    standalone = find_standalone_dir()
+    standalone = (
+        DIST_DIR / "<build-stamp>" / STANDALONE_DIR
+        if args.dry_run
+        else find_standalone_dir()
+    )
     pack(standalone, version, args.output_dir, args)
     if args.upload:
         upload(args.output_dir, version, args)

@@ -1,4 +1,4 @@
-"""字段抽取导出（mitmproxy 命令行 `cut` 的 GUI 等效物，规格见 .plans/cut-csv-export.md）。
+"""字段抽取导出（mitmproxy 命令行 `cut` 的 GUI 等效物，规格见 docs/design.md#export）。
 
 `cut` 的本质是「多选流量 → 按字段路径抽取 → 拼成 CSV」。这里把它落成 GUI：
 

@@ -1,11 +1,15 @@
 """Tests for the rewrite-rule model, the self-built addon and its wiring."""
 
+from __future__ import annotations
+
 import asyncio
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.addons.next_layer import NextLayer
 from mitmproxy.test import tflow
@@ -120,9 +124,7 @@ class RewriteRuleValidateTests(unittest.TestCase):
 
     def test_equals_requires_an_absolute_replacement_url(self) -> None:
         with self.assertRaises(ValueError):
-            rule(
-                RewriteLogic.EQUALS, "http://a.com/x", "127.0.0.1:8000"
-            ).validate()
+            rule(RewriteLogic.EQUALS, "http://a.com/x", "127.0.0.1:8000").validate()
         rule(
             RewriteLogic.EQUALS, "http://a.com/x", "http://127.0.0.1:8000/x"
         ).validate()
@@ -139,9 +141,7 @@ class RewriteRuleValidateTests(unittest.TestCase):
 
     def test_a_header_name_with_a_newline_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能含换行"):
-            kind_rule(
-                RewriteKind.MODIFY_REQUEST_HEADER, target="A\nB"
-            ).validate()
+            kind_rule(RewriteKind.MODIFY_REQUEST_HEADER, target="A\nB").validate()
 
     def test_a_broken_body_regex_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "无效的体正则"):
@@ -152,9 +152,7 @@ class RewriteRuleValidateTests(unittest.TestCase):
     def test_a_missing_local_path_is_rejected(self) -> None:
         """和原生 resolve(strict=True) 同一道闸，挡住绝大多数手滑。"""
         with self.assertRaisesRegex(ValueError, "本地路径不存在或不可访问"):
-            kind_rule(
-                RewriteKind.MAP_LOCAL, replacement="no/such/path.json"
-            ).validate()
+            kind_rule(RewriteKind.MAP_LOCAL, replacement="no/such/path.json").validate()
 
     def test_a_bad_backreference_in_a_replace_body_is_not_the_engines_business(self):
         """体替换是字面量，反斜杠不是元字符 —— 规则照单全收。"""
@@ -209,13 +207,9 @@ class RewriteRuleFilledTests(unittest.TestCase):
             self.assertTrue(
                 kind_rule(RewriteKind.REPLACE_REQUEST, method="POST").filled
             )
+            self.assertTrue(kind_rule(RewriteKind.REPLACE_REQUEST, path="/v1").filled)
             self.assertTrue(
-                kind_rule(RewriteKind.REPLACE_REQUEST, path="/v1").filled
-            )
-            self.assertTrue(
-                kind_rule(
-                    RewriteKind.REPLACE_REQUEST, headers=(("A", "b"),)
-                ).filled
+                kind_rule(RewriteKind.REPLACE_REQUEST, headers=(("A", "b"),)).filled
             )
             self.assertTrue(
                 kind_rule(RewriteKind.REPLACE_REQUEST, replacement="body").filled
@@ -226,9 +220,7 @@ class RewriteRuleFilledTests(unittest.TestCase):
                 kind_rule(RewriteKind.REPLACE_RESPONSE, status_code=404).filled
             )
             self.assertTrue(
-                kind_rule(
-                    RewriteKind.REPLACE_RESPONSE, headers=(("A", "b"),)
-                ).filled
+                kind_rule(RewriteKind.REPLACE_RESPONSE, headers=(("A", "b"),)).filled
             )
             self.assertTrue(
                 kind_rule(RewriteKind.REPLACE_RESPONSE, replacement="body").filled
@@ -246,9 +238,7 @@ class ReadReplacementTests(unittest.TestCase):
             handle.write("from disk")
             path = handle.name
         self.addCleanup(os.unlink, path)
-        self.assertEqual(
-            read_replacement(FILE_REPLACEMENT_PREFIX + path), b"from disk"
-        )
+        self.assertEqual(read_replacement(FILE_REPLACEMENT_PREFIX + path), b"from disk")
 
     def test_a_missing_file_raises_oserror(self) -> None:
         with self.assertRaises(OSError):
@@ -296,9 +286,7 @@ class ConfigRoundTripTests(unittest.TestCase):
             {"kind": "replace_response", "value": "b", "headers": "nope"},
             {"kind": "replace_response", "value": "c", "status_code": 404},
         ]
-        self.assertEqual(
-            [r.value for r in rewrite_rules_from_config(raw)], ["c"]
-        )
+        self.assertEqual([r.value for r in rewrite_rules_from_config(raw)], ["c"])
 
     def test_missing_keys_fall_back_to_defaults(self) -> None:
         self.assertEqual(
@@ -363,7 +351,9 @@ class RewriteRuleSetTests(unittest.TestCase):
 
     def test_an_empty_ruleset_is_falsy(self) -> None:
         self.assertFalse(RewriteRuleSet([]))
-        self.assertTrue(RewriteRuleSet([kind_rule(RewriteKind.REPLACE_REQUEST, method="GET")]))
+        self.assertTrue(
+            RewriteRuleSet([kind_rule(RewriteKind.REPLACE_REQUEST, method="GET")])
+        )
 
 
 class FerretMasterRewriteAddonTests(unittest.TestCase):
@@ -433,7 +423,9 @@ class RewriteEndToEndTests(unittest.TestCase):
         self.addon.request(flow)
         self.assertEqual(flow.request.pretty_url, "https://c.com/x")
 
-    def test_an_identity_map_remote_replacement_does_not_touch_the_request(self) -> None:
+    def test_an_identity_map_remote_replacement_does_not_touch_the_request(
+        self,
+    ) -> None:
         """#44：替换前后一字不差就不回写。
 
         url setter 会走一遍 parse 重赋 scheme/host/port/path，Host 大小写被归一
@@ -469,7 +461,9 @@ class RewriteEndToEndTests(unittest.TestCase):
                 target="X-Boom",
                 replacement=FILE_REPLACEMENT_PREFIX + "no/such/file.txt",
             ),
-            kind_rule(RewriteKind.MODIFY_REQUEST_HEADER, target="X-Ok", replacement="1"),
+            kind_rule(
+                RewriteKind.MODIFY_REQUEST_HEADER, target="X-Ok", replacement="1"
+            ),
         )
         flow = flow_to(URL)
         with self.assertLogs(level="WARNING"):
@@ -491,9 +485,7 @@ class RewriteEndToEndTests(unittest.TestCase):
 
     def test_an_empty_header_value_removes_the_header(self) -> None:
         """头值留空 = 只删不加（对齐原生语义）。"""
-        self.push(
-            kind_rule(RewriteKind.MODIFY_REQUEST_HEADER, target="X-Token")
-        )
+        self.push(kind_rule(RewriteKind.MODIFY_REQUEST_HEADER, target="X-Token"))
         flow = flow_to(URL)
         flow.request.headers["X-Token"] = "old"
         self.addon.request(flow)
@@ -624,15 +616,18 @@ class RewriteEndToEndTests(unittest.TestCase):
         """二进制体跳过＋debug 日志，不静默也不炸钩子（§13 风险三）。"""
         self.push(kind_rule(RewriteKind.MODIFY_RESPONSE_BODY, replacement="R"))
         flow = flow_to(URL, resp=True)
-        flow.response.content = bytes([0xFF, 0xFE, 0x00, 0x01])
+        # FF FE 00 01 is valid BOM-prefixed UTF-16, which text rules support.
+        flow.response.content = bytes([0x00, 0xFF, 0x01])
         with self.assertLogs(level="DEBUG"):
             self.addon.response(flow)
         self.assertEqual(
-            flow.response.get_content(strict=False), bytes([0xFF, 0xFE, 0x00, 0x01])
+            flow.response.get_content(strict=False), bytes([0x00, 0xFF, 0x01])
         )
 
     def test_the_body_content_length_is_recalculated(self) -> None:
-        self.push(kind_rule(RewriteKind.MODIFY_RESPONSE_BODY, replacement="longer-body"))
+        self.push(
+            kind_rule(RewriteKind.MODIFY_RESPONSE_BODY, replacement="longer-body")
+        )
         flow = flow_to(URL, resp=True)
         flow.response.content = b"x"
         self.addon.response(flow)
@@ -647,9 +642,7 @@ class RewriteEndToEndTests(unittest.TestCase):
         flow = flow_to(URL, resp=True)
         flow.response.content = b"home"
         self.addon.response(flow)
-        self.assertEqual(
-            flow.response.get_content(strict=False), rb"C:\Users\pet"
-        )
+        self.assertEqual(flow.response.get_content(strict=False), rb"C:\Users\pet")
 
     def test_a_body_replacement_with_escape_like_text_stays_literal(self) -> None:
         """字面 `\\n`、`\\1` 不做转义、不当反向引用 —— 界面帮助与引擎契约
@@ -745,7 +738,9 @@ class RewriteEndToEndTests(unittest.TestCase):
 
     def test_a_map_local_directory_rule_serves_index_html_for_a_bare_path(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
-            with open(os.path.join(folder, "index.html"), "w", encoding="utf-8") as handle:
+            with open(
+                os.path.join(folder, "index.html"), "w", encoding="utf-8"
+            ) as handle:
                 handle.write("<h1>ok</h1>")
             self.push(kind_rule(RewriteKind.MAP_LOCAL, replacement=folder))
             flow = flow_to("https://api.example.com/")
@@ -771,9 +766,7 @@ class RewriteEndToEndTests(unittest.TestCase):
             flow = flow_to("https://api.example.com/../secret.txt")
             self.addon.request(flow)
         # 候选被守卫判成不安全（空表）或不存在 → 404 / 不作答，总之读不到文件。
-        self.assertTrue(
-            flow.response is None or flow.response.status_code == 404
-        )
+        self.assertTrue(flow.response is None or flow.response.status_code == 404)
 
     def test_a_map_local_rule_does_not_override_an_existing_response(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -841,7 +834,9 @@ class RewriteEndToEndTests(unittest.TestCase):
         self.assertEqual(first.request.get_content(strict=False), b"v1")
         self.assertEqual(second.request.get_content(strict=False), b"v2")
 
-    def test_an_unreadable_at_file_body_leaves_the_replace_request_untouched(self) -> None:
+    def test_an_unreadable_at_file_body_leaves_the_replace_request_untouched(
+        self,
+    ) -> None:
         """体读失败整条跳过：method / path / 头表都不许先落（同 `_modify_header`）。"""
         self.push(
             kind_rule(

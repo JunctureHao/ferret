@@ -78,6 +78,28 @@ class FlowTableModelTests(unittest.TestCase):
         model.handle_refresh()
         self.assertEqual(model.rowCount(), 2)
 
+    def test_identity_lookup_tracks_removal_refresh_and_append(self) -> None:
+        first, second, third = [self.completed_flow() for _ in range(3)]
+        source = _ListSource([first, second])
+        model = FlowTableModel(self.app)
+        model.set_source(source)
+        model.handle_remove(first, 999)
+        self.assertEqual(model._row_of(second), 0)
+        self.assertEqual(model._row_of(first), -1)
+        model.handle_add(third)
+        model.handle_add(third)
+        self.assertEqual(model._row_of(third), 1)
+        self.assertEqual(model.rowCount(), 2)
+        stale = second.copy()
+        stale.id = second.id
+        self.assertEqual(model._row_of(stale), -1)
+        source.flows = [third, second]
+        model.handle_refresh()
+        self.assertEqual(model._row_of(third), 0)
+        self.assertEqual(model._row_of(second), 1)
+        model.clear_data()
+        self.assertEqual(model._row_of(second), -1)
+
     def test_clear_data_and_remove_row_delegate_to_the_source(self) -> None:
         """clear/remove 只经 source 走 —— model 不再直连 View（AGENTS.md §3）。"""
         first = self.completed_flow()

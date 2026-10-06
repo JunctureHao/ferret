@@ -225,12 +225,7 @@ class SessionController(QObject):
             vc = SessionViewController(meta, flows)
             self.session_opened.emit(meta, vc)
 
-        def _do_open(sid: str):
-            meta = self._repo.get(sid)
-            flows = self._repo.load_flows(sid)
-            return (meta, flows)
-
-        self._run(_do_open, session_id, on_success=_on_loaded)
+        self._run(self._repo.open, session_id, on_success=_on_loaded)
 
     def rename_session(self, session_id: str, name: str) -> None:
         def _on_renamed(meta: SessionMeta):

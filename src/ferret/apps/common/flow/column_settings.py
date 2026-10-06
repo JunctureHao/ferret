@@ -1,4 +1,4 @@
-"""流列表「列设置」对话框（.plans/0-flow-list-columns.md §2.1 / §4.2）。
+"""流列表「列设置」对话框（docs/design.md#ui）。
 
 一个 `MessageBoxBase`：勾选决定显隐、拖拽决定顺序、「恢复默认列」一键回落。产出经
 `columns.normalize` 收敛，所以对话框侧不必自己保证「必需列不被隐藏 / index 居首」——
@@ -49,9 +49,7 @@ class ColumnSettingsDialog(MessageBoxBase):
 
         # 顺序 = 列表自上而下；显隐 = 勾选态。InternalMove 让用户拖动重排。
         self.list_widget = ListWidget(self)
-        self.list_widget.setDragDropMode(
-            QAbstractItemView.DragDropMode.InternalMove
-        )
+        self.list_widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.list_widget.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.list_widget.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection

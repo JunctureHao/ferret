@@ -1,4 +1,4 @@
-"""flowfilter 搜索动作与错误条（.plans/0-titlebar-search.md §5 v3）。
+"""flowfilter 搜索动作与错误条（docs/design.md#ui v3）。
 
 全局搜索框只有一个（`SearchHost.edit`，见 apps/common/search.py）；捕获页**不换
 控件**，而是把两个独特动作（帮助文档 / 高亮 toggle）作为 QAction 注入框内

@@ -301,15 +301,18 @@ class ScriptsInterface(QWidget):
             ),
             self.window(),
         )
-        box.yesButton.setText(self.tr("保存并重载"))
-        box.cancelButton.setText(self.tr("放弃改动"))
-        if not box.exec():
+        try:
+            box.yesButton.setText(self.tr("保存并重载"))
+            box.cancelButton.setText(self.tr("放弃改动"))
+            if not box.exec():
+                return True
+            text = self.panel.editor.text()
+            if not self.controller.save_script(entry.path, text):
+                return False
+            self.panel.mark_saved(text)
             return True
-        text = self.panel.editor.text()
-        if not self.controller.save_script(entry.path, text):
-            return False
-        self.panel.mark_saved(text)
-        return True
+        finally:
+            box.deleteLater()
 
     def _load_entry(self, entry: ScriptEntry) -> None:
         status = self.controller.status_of(entry.path)
@@ -433,11 +436,14 @@ class ScriptsInterface(QWidget):
     @Slot()
     def _on_new(self):
         dialog = NewScriptDialog(self.controller.scripts_dir, parent=self.window())
-        if not dialog.exec():
-            return
-        path = self.controller.create_script(dialog.get_filename())
-        if path:
-            self._select_path(path)
+        try:
+            if not dialog.exec():
+                return
+            path = self.controller.create_script(dialog.get_filename())
+            if path:
+                self._select_path(path)
+        finally:
+            dialog.deleteLater()
 
     @Slot(str, str)
     def _on_save(self, path: str, text: str):
@@ -450,11 +456,14 @@ class ScriptsInterface(QWidget):
         dialog = NewScriptDialog(
             self.controller.scripts_dir, title=self.tr("另存为"), parent=self.window()
         )
-        if not dialog.exec():
-            return
-        path = self.controller.create_script(dialog.get_filename(), text)
-        if path:
-            self._select_path(path)
+        try:
+            if not dialog.exec():
+                return
+            path = self.controller.create_script(dialog.get_filename(), text)
+            if path:
+                self._select_path(path)
+        finally:
+            dialog.deleteLater()
 
     @Slot()
     def _on_reload_selected(self):
@@ -482,9 +491,12 @@ class ScriptsInterface(QWidget):
             dialog = ScriptRemoveDialog(
                 [script_name(entry) for entry in entries], parent=self.window()
             )
-            if not dialog.exec():
-                return
-            self.controller.remove_scripts(rows, delete_files=dialog.delete_files())
+            try:
+                if not dialog.exec():
+                    return
+                self.controller.remove_scripts(rows, delete_files=dialog.delete_files())
+            finally:
+                dialog.deleteLater()
             return
         self.controller.remove_scripts(rows)
 
@@ -502,6 +514,7 @@ class ScriptsInterface(QWidget):
         if not rows or not entries:
             return
         menu = RoundMenu(parent=self.table)
+        menu.closedSignal.connect(menu.deleteLater)
         if len(rows) == 1:
             row, entry = rows[0], entries[0]
             target = not entry.enabled

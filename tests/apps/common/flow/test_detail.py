@@ -221,7 +221,7 @@ class FlowDataPanelTests(unittest.TestCase):
                 self.assertFalse(hasattr(self.panel, name))
 
     def test_the_more_menu_has_no_mark_switch_anymore(self) -> None:
-        """标记从「开 / 关」变成了一整本 emoji（`.plans/flow-mark.md` D1），
+        """标记从「开 / 关」变成了一整本 emoji（`docs/design.md#ui`），
         入口只在表格右键：面板这侧留一个开关就等于留一个只能写 `:default:` 的
         窄门，两处语义对不上。`can_mark` 门控本身不删 —— 表格那侧还在用。"""
         self.assertFalse(hasattr(self.panel, "mark_action"))

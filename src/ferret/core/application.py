@@ -7,10 +7,14 @@
 参考常见桌面应用的 Application / Bootstrap 模式。
 """
 
+from __future__ import annotations
+
 import io
+import logging
 import os
 import sys
 from contextlib import redirect_stdout
+from types import TracebackType
 from typing import Any
 
 from PySide6.QtCore import (
@@ -29,7 +33,7 @@ from velopack import App
 # 1.11.x 在 common/config.py 模块级无条件 print "QFluentWidgets Pro" 广告且无官方开关。
 # 首次 import qfluentwidgets 期间用 redirect_stdout 吞掉该输出，导入完成即恢复正常输出。
 with redirect_stdout(io.StringIO()):
-    from qfluentwidgets import FluentTranslator, qconfig
+    from qfluentwidgets import FluentTranslator, InfoBar, qconfig
 
     # 主题切换棘轮止血：必须在任何控件创建前覆盖 qfw 的 updateStyleSheet（理由见该模块）。
     # 放在此处而非文件顶部，是为了确保 qfluentwidgets 已导入、且早于任何 apps 控件构造。
@@ -54,6 +58,42 @@ UI_FONT_FAMILY = "Microsoft YaHei"
 logger = get_logger(__name__)
 
 
+def _log_unhandled_exception(
+    kind: type[BaseException], value: BaseException, traceback: TracebackType | None
+) -> None:
+    if issubclass(kind, KeyboardInterrupt):
+        sys.__excepthook__(kind, value, traceback)
+        return
+    logger.error("Unhandled Python exception", exc_info=(kind, value, traceback))
+    # 打包态没有控制台，日志仍保留堆栈；开发态保留 Python 默认 stderr 行为。
+    if sys.stderr is not None:
+        sys.__excepthook__(kind, value, traceback)
+
+
+def _make_qt_message_filter(previous):
+    def handle(msg_type: QtMsgType, context, message: str) -> None:
+        if msg_type == QtMsgType.QtWarningMsg and message.startswith(
+            "QFont::setPointSize: Point size <= 0"
+        ):
+            return
+        if previous is not None:
+            previous(msg_type, context, message)
+            return
+        level = {
+            QtMsgType.QtDebugMsg: logging.DEBUG,
+            QtMsgType.QtInfoMsg: logging.INFO,
+            QtMsgType.QtWarningMsg: logging.WARNING,
+            QtMsgType.QtCriticalMsg: logging.ERROR,
+            QtMsgType.QtFatalMsg: logging.CRITICAL,
+        }.get(msg_type, logging.WARNING)
+        logger.log(level, "Qt: %s", message)
+        # None 表示 Qt 默认 handler；安装 Python handler 后须显式保留 stderr。
+        if sys.stderr is not None:
+            sys.stderr.write(message + "\n")
+
+    return handle
+
+
 class Application:
     """应用启动中心：负责初始化并运行 ferret。
 
@@ -75,6 +115,7 @@ class Application:
         """初始化全局日志设施（须在 QApplication 创建前、任何日志产生前调用）。"""
 
         init_logging()
+        sys.excepthook = _log_unhandled_exception
 
     def _init_app_info(self):
         """设置应用级元信息。"""
@@ -83,7 +124,15 @@ class Application:
     def _init_config(self):
         """确保配置目录存在并加载配置"""
         config_file = get_config_file()
-        qconfig.load(str(config_file), CONFIG)
+        CONFIG.load(config_file)
+        # qfw 控件通过全局 qconfig 保存主题等偏好，也必须经过同一原子写入口。
+        if qconfig._cfg is not CONFIG:
+            qconfig._cfg = CONFIG
+            CONFIG.themeChanged.connect(qconfig.themeChanged)
+        # setTheme() reads this attribute directly, while set()/toDict() consult
+        # _cfg. Config overrides the default item, so both must share its identity.
+        qconfig.themeMode = CONFIG.themeMode
+        qconfig.save = CONFIG.save  # ty: ignore[invalid-assignment] — qfw 实例保存适配
 
     def _init_font(self):
         """把 UI 字体收敛成单族，避免启动时把整个系统字体库读进内存。
@@ -141,17 +190,7 @@ class Application:
         # 这是框架 bug，在此静默过滤，不吞其他警告。
         _default_handler: Any = qInstallMessageHandler(None)
 
-        def _qt_message_filter(msg_type: QtMsgType, context, message: str):
-            if (
-                msg_type == QtMsgType.QtWarningMsg
-                and "QFont::setPointSize" in message
-                and "Point size <= 0" in message
-            ):
-                return
-            if _default_handler is not None:
-                _default_handler(msg_type, context, message)
-
-        qInstallMessageHandler(_qt_message_filter)
+        qInstallMessageHandler(_make_qt_message_filter(_default_handler))
         # 全局窗口图标（任务栏 / Alt-Tab / 标题栏），资源已在 resources_rc 注册
         app.setWindowIcon(QIcon(":/icon"))
         self.app = app
@@ -208,6 +247,13 @@ class Application:
         self.window = MainWindow(self.runtime)
         self.runtime.start()
         self.window.show()
+        for warning in CONFIG.recovery_messages():
+            InfoBar.warning(
+                QCoreApplication.translate("Application", "配置恢复"),
+                warning,
+                duration=-1,
+                parent=self.window,
+            )
 
     def _shutdown(self) -> None:
         if self.window is not None:
