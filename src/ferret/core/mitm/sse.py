@@ -498,6 +498,7 @@ class FerretSseAddon:
         # bridge 可后置注入：master 装配时不认识 runtime（master 由 runtime 造），
         # runtime 在挂 UiBridgeAddon 时一并补上。没补就等于推送关掉，存档照常。
         self.bridge = bridge
+        self.on_flow_updated: Callable[[HTTPFlow], None] | None = None
         self._events: dict[str, deque[SseEvent]] = {}
         self._event_counts: dict[str, int] = {}
         self._archive_sizes: dict[str, int] = {}
@@ -586,7 +587,7 @@ class FerretSseAddon:
         if self.bridge is None:
             return
         for event in events:
-            self.bridge.sse_event.emit(flow_id, event)
+            self._emit("sse_event", flow_id, event)
 
     def _finish(self, flow_id: str) -> None:
         tap = self._taps.pop(flow_id, None)
@@ -603,12 +604,28 @@ class FerretSseAddon:
         if tap.buf_overflowed:
             flow.metadata[SSE_BODY_TRUNCATED_KEY] = True
         tap.buf.clear()
+        # Static SSE replies are parsed after View.response. Account for the
+        # resulting archive and republish the final body through View.update.
+        if self.on_flow_updated is not None:
+            self.on_flow_updated(flow)
         if self.bridge is not None:
-            self.bridge.sse_ended.emit(flow_id)
+            self._emit("sse_ended", flow_id)
 
     def _emit_started(self, flow_id: str) -> None:
         if self.bridge is not None:
-            self.bridge.sse_started.emit(flow_id)
+            self._emit("sse_started", flow_id)
+
+    def _emit(self, name: str, *args) -> None:
+        if self.bridge is None:
+            return
+        post = getattr(self.bridge, "post_ui_event", None)
+        if post is not None:
+            post(name, *args)
+        else:
+            getattr(self.bridge, name).emit(*args)
+
+    def memory_size(self, flow: Flow) -> int:
+        return self._archive_sizes.get(flow.id, 0)
 
     def forget(self, flow_id: str) -> None:
         """flow 从 View 移除时清存档。由 facade 的 remove/clear 路径调用。"""

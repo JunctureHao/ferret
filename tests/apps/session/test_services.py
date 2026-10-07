@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import gc
 import os
 import tempfile
 import unittest
+import weakref
 from pathlib import Path
 from unittest.mock import patch
 
@@ -57,7 +59,7 @@ class RepositoryRecoveryTests(unittest.TestCase):
         with (
             patch.object(FlowFile, "count_http") as count,
             patch.object(
-                FlowFile, "read_valid_prefix", wraps=FlowFile.read_valid_prefix
+                FlowFile, "iter_valid_prefix", wraps=FlowFile.iter_valid_prefix
             ) as read,
         ):
             opened, flows = self.repo.open(meta.session_id)
@@ -65,3 +67,38 @@ class RepositoryRecoveryTests(unittest.TestCase):
         self.assertEqual(len(flows), 2)
         read.assert_called_once()
         count.assert_not_called()
+
+    def test_open_discards_non_http_and_replaced_bodies_while_reading(self):
+        observed = []
+
+        def records(_path):
+            first = tflow.tflow(resp=True)
+            first.id = "duplicate"
+            first_ref = weakref.ref(first)
+            yield first
+            del first
+            replacement = tflow.tflow(resp=True)
+            replacement.id = "duplicate"
+            replacement.request.path = "/latest"
+            yield replacement
+            gc.collect()
+            observed.append(first_ref() is None)
+            tcp = tflow.ttcpflow()
+            tcp_ref = weakref.ref(tcp)
+            yield tcp
+            del tcp
+            yield tflow.tflow(resp=True)
+            observed.append(tcp_ref() is None)
+
+        with patch.object(FlowFile, "iter_valid_prefix", side_effect=records):
+            flows = self.repo._read_http(self.source)
+        self.assertEqual(observed, [True, True])
+        self.assertEqual(len(flows), 2)
+        self.assertEqual(flows[0].request.path, "/latest")
+
+    def test_open_keeps_complete_prefix_before_a_truncated_tail(self):
+        contents = self.source.read_bytes()
+        with self.source.open("ab") as file:
+            file.write(contents[:30])
+        meta = self.repo.import_file(self.source)
+        self.assertEqual(len(self.repo.load_flows(meta.session_id)), 2)

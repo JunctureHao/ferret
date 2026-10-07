@@ -4,15 +4,19 @@
 只在边界上把 ``CommandError`` 归一化成 ``ValueError``。
 """
 
+from __future__ import annotations
+
 import json
 import re
 import shlex
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from functools import partial
+from typing import cast
 
 from ferret.core.mitm.bindings import CommandError, HTTPFlow, SaveHar, export_module
+from ferret.core.mitm.io import atomic_output
 
 # shlex.quote 视为「安全可不加引号」的字符集（CPython ``shlex._find_unsafe`` 同款
 # 判定）。Windows 改写沿用同一判定决定裸写还是包引号，旧命令里原本正确的裸
@@ -179,14 +183,19 @@ class FlowExporter:
         return flow.response.get_content(strict=False) or b""
 
     @staticmethod
-    def save_har(flows: Sequence[HTTPFlow], path: str) -> None:
+    def save_har(flows: Iterable[HTTPFlow], path: str) -> None:
         """把流量导出为标准 HAR 文件。
 
         复用 ``mitmproxy.addons.savehar.SaveHar.make_har``，该函数是纯函数、
-        不依赖 ``ctx``，可在 GUI 线程直接调用。单条与多条流量均可，均写入
+        不依赖 ``ctx``，在后台线程处理已脱离内核的快照。单条与多条流量均可，均写入
         同一个 ``.har`` 文件（``entries`` 数组长度不同）。
         """
 
-        har = json.dumps(SaveHar().make_har(flows), indent=2).encode()
-        with open(path, "wb") as file:
-            file.write(har)
+        # make_har 只迭代输入；使用迭代器让 facade 逐批拍快照，但仍然只调用
+        # 一次 make_har，以保留其 servers_seen 跨条目的连接计时状态。
+        har = SaveHar().make_har(cast(Sequence[HTTPFlow], flows))
+        with (
+            atomic_output(path) as temporary,
+            temporary.open("w", encoding="utf-8", newline="\n") as file,
+        ):
+            json.dump(har, file, indent=2)

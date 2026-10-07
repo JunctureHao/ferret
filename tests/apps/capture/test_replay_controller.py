@@ -42,6 +42,7 @@ class FakeRuntime(QObject):
     websocket_closed = Signal(str, object)
     sse_started = Signal(str)
     sse_event = Signal(str, object)
+    messages_changed = Signal(str, str, int)
     sse_ended = Signal(str)
     ready = Signal(object)
     failed = Signal(str)
@@ -58,6 +59,9 @@ class FakeRuntime(QObject):
 
     def call(self, callback, *, timeout=5.0):
         return callback()
+
+    def flush_ui_events(self) -> None:
+        """Replay fixtures have no pending UI batch."""
 
 
 class FakeSystemProxy:
@@ -116,9 +120,7 @@ class CaptureControllerReplayTests(unittest.TestCase):
         with patch.object(
             self.runtime.master.client_playback, "start_replay"
         ) as start_replay:
-            self.controller.replay_flows(
-                [flow.id for flow in flows] + [invalid.id]
-            )
+            self.controller.replay_flows([flow.id for flow in flows] + [invalid.id])
 
         replay_flows = start_replay.call_args[0][0]
         self.assertEqual(

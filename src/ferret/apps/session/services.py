@@ -65,7 +65,13 @@ class SessionRepository:
 
     @staticmethod
     def _read_http(path: Path) -> list[HTTPFlow]:
-        return [f for f in FlowFile.read_valid_prefix(path) if isinstance(f, HTTPFlow)]
+        # 录制可能含同 id 的在途/完成版本。边读边替换，保持首次出现顺序、
+        # 最后内容，避免去重前保留旧正文和非 HTTP 流量。
+        flows: dict[str, HTTPFlow] = {}
+        for flow in FlowFile.iter_valid_prefix(path):
+            if isinstance(flow, HTTPFlow):
+                flows[flow.id] = flow
+        return list(flows.values())
 
     def _meta(
         self,
@@ -177,17 +183,7 @@ class SessionRepository:
                     "SessionRepository", "会话文件不存在: {}"
                 ).format(session_id)
             )
-        flows = self._read_http(path)
-        # 录制文件可能含同 id 多条：录制中导入历史文件等场景，在途流先被冲一条
-        # 当时状态、收尾再写一条完整记录（#79）。原生 View.add 只收首次出现的
-        # id，整表灌进去展示的永远是不完整的那条 —— 打开时按 id 取**最后**一条
-        # （最完整），顺序仍按首次出现排。磁盘原样保留，不在此重写文件。
-        if len({flow.id for flow in flows}) != len(flows):
-            deduped: dict[str, HTTPFlow] = {}
-            for flow in flows:
-                deduped[flow.id] = flow
-            flows = list(deduped.values())
-        return flows
+        return self._read_http(path)
 
     def open(self, session_id: str) -> tuple[SessionMeta, list[HTTPFlow]]:
         flows = self.load_flows(session_id)

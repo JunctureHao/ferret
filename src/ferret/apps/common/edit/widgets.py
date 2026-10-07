@@ -1,12 +1,19 @@
+from __future__ import annotations
+
 import json
-from collections.abc import Mapping, Sequence
+from array import array
+from bisect import bisect_right
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
 
 from PySide6.QtCore import (
     QCoreApplication,
+    QPoint,
     QSize,
     Qt,
+    QTimer,
     Signal,
     Slot,
 )
@@ -45,6 +52,12 @@ from .theme import EditorPalette
 # 键值对的对外类型：既收 dict（只读页面的既有调用点），也收有序键值对序列。
 # 键和值都不限类型 —— 两边都过 `_cell_text`，bytes 会被解码、其余一律 str()。
 ItemSource = Mapping[Any, Any] | Sequence[tuple[Any, Any]] | None
+
+SEARCH_HIGHLIGHT_LIMIT = 256
+SEARCH_DEBOUNCE_MS = 150
+JSON_TREE_BATCH_SIZE = 256
+JSON_TREE_NODE_LIMIT = 4096
+JSON_TREE_DEPTH_LIMIT = 64
 
 
 def _cell_text(value: Any) -> str:
@@ -524,8 +537,14 @@ class ToolPlainTextEdit(SimpleCardWidget):
         super().__init__(parent)
         self._wrap_on = False  # 默认不换行
         self._search_visible = False
-        self._search_results: list = []  # 匹配的 QTextCursor 列表
+        # Qt 光标持有文档状态；仅保存紧凑的 UTF-16 偏移，绘制时才临时创建。
+        self._search_results = array("I")
+        self._search_ends = array("I")
         self._search_index = -1  # 当前命中项索引
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(self._run_pending_search)
         # set_text 是程序化换文本，不该被当成"用户改了内容"往外发 changed。
         self._loading = False
 
@@ -537,6 +556,9 @@ class ToolPlainTextEdit(SimpleCardWidget):
     def __init_widget(self):
         self.tool_widget = ToolWidget(self)
         self.code_widget = CodeEditor(self)
+        self.notice = CaptionLabel(self)
+        self.notice.setWordWrap(True)
+        self.notice.hide()
 
         self._btn_copy = TransparentTooltipButton(FluentIcon.COPY, self)
         self._btn_copy.setToolTip(self.tr("复制"))
@@ -576,6 +598,7 @@ class ToolPlainTextEdit(SimpleCardWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         main_layout.addWidget(self.tool_widget)
+        main_layout.addWidget(self.notice)
 
         # 查找栏：独占一行，输入框+状态文字挨着，按钮靠右
         search_layout = QHBoxLayout()
@@ -607,8 +630,14 @@ class ToolPlainTextEdit(SimpleCardWidget):
         self._search_close.clicked.connect(self.close_search)
         self._search_next.clicked.connect(self.search_next)
         self._search_prev.clicked.connect(self.search_prev)
-        # 输入即触发实时搜索（去掉回车/搜索按钮触发）
         self._search_bar.textChanged.connect(self.__on_search_text_changed)
+        self.code_widget.verticalScrollBar().valueChanged.connect(
+            self._apply_search_highlight
+        )
+        self.code_widget.horizontalScrollBar().valueChanged.connect(
+            self._apply_search_highlight
+        )
+        self.code_widget.viewportChanged.connect(self._apply_search_highlight)
 
     @Slot()
     def handle_btn_copy_clicked(self):
@@ -666,66 +695,87 @@ class ToolPlainTextEdit(SimpleCardWidget):
 
     def clear_search(self):
         """清除高亮与命中记录"""
-        self._search_results = []
+        self._search_timer.stop()
+        self._search_results = array("I")
+        self._search_ends = array("I")
         self._search_index = -1
         self._search_status.setText("")
         self.code_widget.setExtraSelections([])
         self.code_widget.set_highlight_current_line()  # 恢复当前行高亮
 
     def __on_search_text_changed(self, text: str):
-        """输入即实时搜索"""
-        self.do_search(text.strip())
+        self.clear_search()
+        if self._search_visible and text.strip():
+            self._search_timer.start()
+
+    def _run_pending_search(self):
+        self.do_search(self._search_bar.text().strip())
 
     def do_search(self, text: str):
-        """从文档中查找所有命中项并高亮"""
-        self._search_results = []
-        self._search_index = -1
+        """保留原生查找语义与 UTF-16 坐标，仅持久保存整数位置。"""
+        self.clear_search()
         if not text:
-            self.clear_search()
             return
 
         doc = self.code_widget.document()
         cursor = doc.find(text)
         while not cursor.isNull():
-            self._search_results.append(QTextCursor(cursor))
+            self._search_results.append(cursor.selectionStart())
+            self._search_ends.append(cursor.selectionEnd())
             cursor = doc.find(text, cursor)
 
         if self._search_results:
             self._search_index = 0
-            self._apply_search_highlight()
             self._goto_current()
+            self._apply_search_highlight()
         else:
             self._search_status.setText(self.tr("无匹配"))
             self.code_widget.setExtraSelections([])
 
     def search_next(self):
+        if self._search_timer.isActive():
+            self._run_pending_search()
+            return
         if not self._search_results:
             text = self._search_bar.text().strip()
             if text:
                 self.do_search(text)
             return
         self._search_index = (self._search_index + 1) % len(self._search_results)
-        self._apply_search_highlight()
         self._goto_current()
+        self._apply_search_highlight()
 
     def search_prev(self):
+        if self._search_timer.isActive():
+            self._run_pending_search()
+            return
         if not self._search_results:
             return
         self._search_index = (self._search_index - 1) % len(self._search_results)
-        self._apply_search_highlight()
         self._goto_current()
+        self._apply_search_highlight()
 
     def _apply_search_highlight(self):
-        """用 ExtraSelection 高亮所有命中：当前项橙色，其余黄色"""
+        """仅物化视口内的有界高亮，并始终包含当前命中。"""
+        if not self._search_results:
+            return
+        start = self.code_widget.cursorForPosition(QPoint(0, 0)).position()
+        end = self.code_widget.cursorForPosition(
+            self.code_widget.viewport().rect().bottomRight()
+        ).position()
+        first = bisect_right(self._search_ends, start)
+        last = bisect_right(self._search_results, end)
+        indices = set(range(first, min(last, first + SEARCH_HIGHLIGHT_LIMIT - 1)))
+        indices.add(self._search_index)
         selections = []
         base_bg = EditorPalette.search_match()
         cur_bg = EditorPalette.search_current()
-        for i, c in enumerate(self._search_results):
+        for i in sorted(indices):
             sel = QTextEdit.ExtraSelection()
             sel.format.setBackground(base_bg)
             if i == self._search_index:
                 sel.format.setBackground(cur_bg)
-            sel.cursor = QTextCursor(c)
+            sel.cursor = self._search_cursor(i)
             selections.append(sel)
         self.code_widget.setExtraSelections(selections)
         total = len(self._search_results)
@@ -733,16 +783,27 @@ class ToolPlainTextEdit(SimpleCardWidget):
 
     def _goto_current(self):
         if 0 <= self._search_index < len(self._search_results):
-            cursor = QTextCursor(self._search_results[self._search_index])
+            cursor = self._search_cursor(self._search_index)
             self.code_widget.setTextCursor(cursor)
             self.code_widget.centerCursor()
+
+    def _search_cursor(self, index: int) -> QTextCursor:
+        cursor = QTextCursor(self.code_widget.document())
+        cursor.setPosition(self._search_results[index])
+        cursor.setPosition(self._search_ends[index], QTextCursor.MoveMode.KeepAnchor)
+        return cursor
 
     @property
     def tool_layout(self) -> QHBoxLayout:
         return self.tool_widget.left_layout
 
-    def set_text(self, text: str, lang: Language | str = Language.HTTP):
+    def set_text(
+        self, text: str, lang: Language | str = Language.HTTP, *, notice: str = ""
+    ):
         """设置文本并指定高亮语言（见 ``syntax.Language``）。"""
+        self.clear_search()
+        self.notice.setText(notice)
+        self.notice.setVisible(bool(notice))
         self._loading = True
         try:
             self.code_widget.set_language(lang)
@@ -754,10 +815,6 @@ class ToolPlainTextEdit(SimpleCardWidget):
             self.code_widget.highlighter.relex_now()
         finally:
             self._loading = False
-        # 文本变更时清空旧的查找结果
-        self._search_results = []
-        self._search_index = -1
-        self._search_status.setText("")
 
     def text(self) -> str:
         """当前文本（含用户编辑）。"""
@@ -773,6 +830,7 @@ class ToolPlainTextEdit(SimpleCardWidget):
     def _on_text_changed(self):
         if self._loading:
             return
+        self.__on_search_text_changed(self._search_bar.text())
         self.changed.emit()
 
 
@@ -875,8 +933,23 @@ class ItemDualPanel(QWidget):
         self.table.set_read_only(read_only)
 
 
+@dataclass
+class _JsonChildren:
+    entries: Iterator[tuple[Any, Any]]
+    remaining: int
+    depth: int
+
+
+class _JsonItem(QTreeWidgetItem):
+    # 不用 Qt.UserRole 存容器：QVariant 会复制整个 JSON 子树。
+    pending: _JsonChildren | None = None
+    more: bool = False
+
+
 class JsonTreeWidget(TreeWidget):
-    """JSON 体树形视图 — 递归展示 dict / list / 标量，两列：键/值"""
+    """JSON 子项按展开、按批次构造，节点数和深度另设独立上限。"""
+
+    noticeChanged = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -888,40 +961,98 @@ class JsonTreeWidget(TreeWidget):
         self.header().setFixedHeight(22)  # 横向表头行高（紧凑）
         self.setAlternatingRowColors(False)
         self.setIndentation(14)
+        self._node_count = 0
+        self.itemExpanded.connect(self._expand)
+        self.itemClicked.connect(self._load_more)
+        self.itemActivated.connect(self._load_more)
+
+    def clear(self) -> None:
+        super().clear()
+        self._node_count = 0
+        self.noticeChanged.emit("")
 
     def set_data(self, data):
         """用解析后的 JSON 对象（dict/list/标量）重建树（无根节点）"""
         self.clear()
         if data is None:
             return
-        self._fill(self, data)
-        self._apply_count_color()
-        # 默认全部折叠，不展开
-
-    def _fill(self, parent, value):
-        if isinstance(value, dict):
-            for k, v in value.items():
-                item = QTreeWidgetItem(parent)
-                item.setText(0, str(k))
-                if isinstance(v, (dict, list)):
-                    item.setText(1, self._count_label(v))
-                    item.setFont(1, self._count_font())
-                    self._fill(item, v)
-                else:
-                    item.setText(1, self._scalar_text(v))
-        elif isinstance(value, list):
-            for i, v in enumerate(value):
-                item = QTreeWidgetItem(parent)
-                item.setText(0, f"[{i}]")
-                if isinstance(v, (dict, list)):
-                    item.setText(1, self._count_label(v))
-                    item.setFont(1, self._count_font())
-                    self._fill(item, v)
-                else:
-                    item.setText(1, self._scalar_text(v))
+        if isinstance(data, (dict, list)):
+            self._fill(self, self._children(data, 0))
         else:
-            item = QTreeWidgetItem(parent)
-            item.setText(0, self._scalar_text(value))
+            item = _JsonItem(self)
+            item.setText(0, self._scalar_text(data))
+            self._node_count = 1
+
+    @staticmethod
+    def _children(value: dict | list, depth: int) -> _JsonChildren:
+        entries = (
+            iter(value.items())
+            if isinstance(value, dict)
+            else ((f"[{i}]", child) for i, child in enumerate(value))
+        )
+        return _JsonChildren(entries, len(value), depth)
+
+    def _fill(self, parent: JsonTreeWidget | QTreeWidgetItem, source: _JsonChildren):
+        count = min(
+            source.remaining,
+            JSON_TREE_BATCH_SIZE,
+            JSON_TREE_NODE_LIMIT - self._node_count,
+        )
+        for _ in range(count):
+            key, value = next(source.entries)
+            source.remaining -= 1
+            item = _JsonItem(parent)
+            self._node_count += 1
+            item.setText(0, str(key))
+            if isinstance(value, (dict, list)):
+                item.setText(1, self._count_label(value))
+                item.setFont(1, self._count_font())
+                item.setForeground(1, EditorPalette.tree_count())
+                if value:
+                    if source.depth + 1 >= JSON_TREE_DEPTH_LIMIT:
+                        self.noticeChanged.emit(
+                            self.tr("嵌套层级过深，请使用文本视图查看其余内容")
+                        )
+                    else:
+                        item.pending = self._children(value, source.depth + 1)
+                        item.setChildIndicatorPolicy(
+                            QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
+                        )
+            else:
+                item.setText(1, self._scalar_text(value))
+        if source.remaining:
+            if self._node_count >= JSON_TREE_NODE_LIMIT:
+                self.noticeChanged.emit(
+                    self.tr("已达到树节点上限，请使用文本视图查看其余内容")
+                )
+                return
+            more = _JsonItem(parent)
+            self._node_count += 1
+            more.more = True
+            more.pending = source
+            more.setText(0, self.tr("加载更多（剩余 {} 项）").format(source.remaining))
+            more.setFirstColumnSpanned(True)
+
+    def _expand(self, item: QTreeWidgetItem) -> None:
+        if not isinstance(item, _JsonItem) or item.more or item.pending is None:
+            return
+        source, item.pending = item.pending, None
+        item.setChildIndicatorPolicy(
+            QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicatorWhenChildless
+        )
+        self._fill(item, source)
+
+    def _load_more(self, item: QTreeWidgetItem, _column: int = 0) -> None:
+        if not isinstance(item, _JsonItem) or not item.more or item.pending is None:
+            return
+        source, item.pending = item.pending, None
+        parent = item.parent()
+        if parent is None:
+            self.takeTopLevelItem(self.indexOfTopLevelItem(item))
+        else:
+            parent.takeChild(parent.indexOfChild(item))
+        self._node_count -= 1
+        self._fill(parent if parent is not None else self, source)
 
     @staticmethod
     def _count_label(v) -> str:
@@ -972,12 +1103,21 @@ class JsonTreePanel(SimpleCardWidget):
         super().__init__(parent)
         self._tool_widget = ToolWidget(self)
         self.tree = JsonTreeWidget(self)
+        self.notice = CaptionLabel(self)
+        self.notice.setWordWrap(True)
+        self.notice.hide()
+        self.tree.noticeChanged.connect(self._show_notice)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._tool_widget)
+        layout.addWidget(self.notice)
         layout.addWidget(self.tree, stretch=1)
+
+    def _show_notice(self, text: str) -> None:
+        self.notice.setText(text)
+        self.notice.setVisible(bool(text))
 
     @property
     def tool_layout(self) -> QHBoxLayout:
@@ -1066,8 +1206,11 @@ class JsonDualPanel(QWidget):
     @Slot()
     def _invalidate_tree(self):
         self._tree_dirty = True
-        if self.tree is not None and self.tree.isVisible():
-            self._rebuild_tree()
+        if self.tree is not None:
+            # 隐藏树同样持有解析对象和 Qt 节点，不能只标脏留到下次打开。
+            self.tree.tree.clear()
+            if self.tree.isVisible():
+                self._rebuild_tree()
 
     def _rebuild_tree(self):
         tree = self.tree
@@ -1079,6 +1222,9 @@ class JsonDualPanel(QWidget):
             return
         try:
             tree.tree.set_data(json.loads(self.text.text()))
+        except RecursionError:
+            tree.tree.clear()
+            tree._show_notice(self.tr("嵌套层级过深，请使用文本视图查看内容"))
         except ValueError:
             # json.JSONDecodeError 是 ValueError 子类；body 常常是被截断的 JSON。
             tree.tree.clear()

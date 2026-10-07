@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import logging
 import logging.handlers
 import sys
 from collections import deque
+from copy import copy
+from dataclasses import dataclass
 from threading import Lock
 
 from PySide6.QtCore import QObject, Signal
@@ -66,6 +70,17 @@ class LogEmitter(QObject):
     log_received = Signal(str, str, str)
 
 
+@dataclass(frozen=True, slots=True)
+class BufferedLogRecord:
+    """UI 回填值；不保留 LogRecord 的 args、异常、traceback 或 extra 对象。"""
+
+    created: float
+    levelno: int
+    levelname: str
+    name: str
+    message: str
+
+
 class RingBufferHandler(logging.Handler):
     """日志处理器：入队环形缓冲，并经由 ``LogEmitter`` 广播给 UI。
 
@@ -74,20 +89,27 @@ class RingBufferHandler(logging.Handler):
     信号跨线程发射由 Qt 自动队列化到 GUI 线程，UI 端无需额外同步。
     """
 
-    def __init__(self, emitter: "LogEmitter", maxlen: int = LOG_MAXLEN) -> None:
+    def __init__(self, emitter: LogEmitter, maxlen: int = LOG_MAXLEN) -> None:
         super().__init__()
         self._emitter = emitter
-        self._buf: deque[logging.LogRecord] = deque(maxlen=maxlen)
+        self._buf: deque[BufferedLogRecord] = deque(maxlen=maxlen)
         self._lock = Lock()
 
     def emit(self, record: logging.LogRecord) -> None:
-        with self._lock:
-            self._buf.append(record)
-        self._emitter.log_received.emit(
-            record.levelname, record.name, self.format(record)
+        # Formatter 会写 message / exc_text；副本确保共用的文件与控制台 handler
+        # 仍收到原始记录。格式化结束后只留下标量，失败任务的局部变量即可回收。
+        item = BufferedLogRecord(
+            record.created,
+            record.levelno,
+            record.levelname,
+            record.name,
+            self.format(copy(record)),
         )
+        with self._lock:
+            self._buf.append(item)
+        self._emitter.log_received.emit(item.levelname, item.name, item.message)
 
-    def recent(self, n: int | None = None) -> list[logging.LogRecord]:
+    def recent(self, n: int | None = None) -> list[BufferedLogRecord]:
         """返回最近 n 条记录（用于 UI 初始化回填）。"""
         with self._lock:
             items = list(self._buf)

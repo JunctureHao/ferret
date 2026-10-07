@@ -4,12 +4,14 @@
 `views.py` 仍然 re-export 这三个类，挂载点的 import 不受影响。
 """
 
+from __future__ import annotations
+
 import re
 import time
 from pathlib import Path
 from typing import ClassVar
 
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog
 from qfluentwidgets import FluentIcon, RoundMenu
@@ -28,6 +30,7 @@ from ferret.apps.common.flow.protocols import (
 )
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success, show_warning
+from ferret.apps.common.tasks import FunctionTask
 from ferret.core.log import get_logger
 from ferret.core.mitm import FlowRow
 
@@ -400,6 +403,51 @@ class FlowContextMenu(RoundMenu):
                 self.controller.replay_flow(flow_id)
         except (ValueError, RuntimeError) as exc:
             show_warning(self.tr("回放失败"), str(exc), self.main_window)
+
+
+class _FlowFileExport(QObject):
+    """Keep the worker alive independently of the menu or session being closed."""
+
+    def __init__(
+        self, window, exporter, flow_ids, path, success_title, message, error_title
+    ):
+        super().__init__(QApplication.instance())
+        self._window = window
+        self._success_title = success_title
+        self._message = message
+        self._error_title = error_title
+        self._task: FunctionTask | None = FunctionTask(exporter, flow_ids, path)
+        self._task.signals.succeeded.connect(self._succeeded)
+        self._task.signals.failed.connect(self._failed)
+        self._task.signals.finished.connect(self._finished)
+        window.destroyed.connect(self._window_destroyed)
+        QThreadPool.globalInstance().start(self._task)
+
+    @Slot()
+    def _window_destroyed(self) -> None:
+        self._window = None
+
+    @Slot(object)
+    def _succeeded(self, _result) -> None:
+        if self._window is not None:
+            show_success(self._success_title, self._message, self._window)
+
+    @Slot(str)
+    def _failed(self, message: str) -> None:
+        if self._window is not None:
+            show_error(self._error_title, message, self._window)
+
+    @Slot()
+    def _finished(self) -> None:
+        task, self._task = self._task, None
+        if task is not None:
+            task.signals.succeeded.disconnect()
+            task.signals.failed.disconnect()
+            task.signals.finished.disconnect()
+        if self._window is not None:
+            self._window.destroyed.disconnect(self._window_destroyed)
+            self._window = None
+        self.deleteLater()
 
 
 class FlowExportMenu(RoundMenu):
@@ -782,19 +830,17 @@ class FlowExportMenu(RoundMenu):
         if not path.lower().endswith(suffix):
             path += suffix
 
-        try:
-            if kind == "har":
-                self.controller.export_har(flow_ids, path)
-            else:
-                self.controller.save_flows(flow_ids, path)
-        except Exception as exc:  # noqa: BLE001
-            show_error(self.tr("导出失败"), str(exc), self.main_window)
-            return
-
-        show_success(
+        exporter = (
+            self.controller.export_har if kind == "har" else self.controller.save_flows
+        )
+        _FlowFileExport(
+            self.main_window,
+            exporter,
+            flow_ids,
+            path,
             self.tr("成功"),
             self.tr("已导出 {} 条流量到 {}").format(len(flows), Path(path).name),
-            self.main_window,
+            self.tr("导出失败"),
         )
 
     def __export_csv(self) -> None:

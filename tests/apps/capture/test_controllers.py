@@ -34,6 +34,7 @@ class FakeRuntime(QObject):
     websocket_closed = Signal(str, object)
     sse_started = Signal(str)
     sse_event = Signal(str, object)
+    messages_changed = Signal(str, str, int)
     sse_ended = Signal(str)
     ready = Signal(object)
     failed = Signal(str)
@@ -75,6 +76,9 @@ class FakeRuntime(QObject):
 
     def start(self) -> None:
         self.start_calls += 1
+
+    def flush_ui_events(self) -> None:
+        """The default fake delivers signals immediately and has no queued batch."""
 
     def stop(self) -> bool:
         self.stop_calls += 1
@@ -803,6 +807,47 @@ class CaptureControllerStateTests(unittest.TestCase):
         runtime.flow_stored.emit(flow_row(flow))
         runtime.flow_added.emit(flow_row(flow))
         self.assertEqual(len(added), 1)
+
+    def test_flush_keeps_queued_flows_on_the_correct_side_of_the_capture_gate(
+        self,
+    ) -> None:
+        controller, runtime, _, _ = self.make_controller()
+        added = []
+        controller.flow_added.connect(added.append)
+        before_start, before_stop, while_stopped, after_restart = [
+            flow_row(tflow.tflow()) for _ in range(4)
+        ]
+        pending = [before_start]
+
+        def flush():
+            for row in pending:
+                runtime.flow_stored.emit(row)
+                runtime.flow_added.emit(row)
+            pending.clear()
+
+        with patch.object(runtime, "flush_ui_events", side_effect=flush) as flushed:
+            controller.start_capture()
+            self.assertEqual(added, [])
+            pending.append(before_stop)
+            controller.stop_capture()
+            self.assertEqual(added, [before_stop])
+            pending.append(while_stopped)
+            controller.start_capture()
+            self.assertEqual(added, [before_stop])
+            runtime.flow_stored.emit(after_restart)
+            runtime.flow_added.emit(after_restart)
+            self.assertEqual(added, [before_stop, after_restart])
+            self.assertEqual(flushed.call_count, 3)
+            controller.stop_capture()
+
+    def test_message_range_notification_preserves_flow_kind_and_count(self) -> None:
+        controller, runtime, _, _ = self.make_controller()
+        received = []
+        controller.messages_changed.connect(lambda *args: received.append(args))
+
+        runtime.messages_changed.emit("flow-id", "websocket", 123)
+
+        self.assertEqual(received, [("flow-id", "websocket", 123)])
 
     def test_recorded_compose_flows_pass_once_without_changing_capture_state(
         self,

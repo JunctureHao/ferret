@@ -96,6 +96,9 @@ class FerretMaster(Master):
         # （源码注释明确 stream 必须在 response 钩子之前换），链上这里照常能收到。
         # bridge 由 runtime 在挂 UiBridgeAddon 时注入（master 装配时还不认识它）。
         self.sse = FerretSseAddon()
+        self.sse.on_flow_updated = lambda flow, view=self.view: view.update([flow])
+        if isinstance(self.view, FerretView):
+            self.view.additional_size = self.sse.memory_size
         self.view.sig_store_remove.connect(self.sse.flow_removed)
         self.compose.on_cancel = self._cancel_compose
         self.save = FerretSave()

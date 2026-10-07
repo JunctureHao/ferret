@@ -117,6 +117,7 @@ class CaptureController(QObject):
     sse_started = Signal(str)
     sse_event = Signal(str, object)
     sse_ended = Signal(str)
+    messages_changed = Signal(str, str, int)
 
     capture_state_changed = Signal(object)
     # 写入闸门与通道状态：流量表/命令栏据此显示「抓包中 / 已停止」与通道摘要。
@@ -189,6 +190,7 @@ class CaptureController(QObject):
         runtime.websocket_closed.connect(self.websocket_closed)
         runtime.sse_started.connect(self.sse_started)
         runtime.sse_event.connect(self.sse_event)
+        runtime.messages_changed.connect(self.messages_changed)
         runtime.sse_ended.connect(self.sse_ended)
         runtime.ready.connect(self._on_runtime_ready)
         runtime.failed.connect(self._on_runtime_failed)
@@ -349,6 +351,7 @@ class CaptureController(QObject):
         """
         if self._capture_state in (CaptureState.STARTING, CaptureState.RUNNING):
             return
+        self._runtime.flush_ui_events()
         if self.stop_failed:
             self.stop_capture()
             if self.stop_failed:
@@ -407,6 +410,7 @@ class CaptureController(QObject):
         except Exception as exc:
             log.exception("failed to stop capture recording")
             errors.append(self.tr("停止录制失败：{error}").format(error=exc))
+        self._runtime.flush_ui_events()
         self._set_recording(False)
         # 通道回落：OS 级截流停止（上游只清截流配置，守护进程驻留 → 重开免 UAC）。
         # 只动接通位，use_local/use_wireguard 意图值原样保留。
@@ -623,6 +627,12 @@ class CaptureController(QObject):
 
     def get_raw_request(self, flow_id: str) -> bytes:
         return self._mitm.get_raw_request(flow_id)
+
+    def get_raw_request_preview(self, flow_id: str) -> dict[str, str]:
+        return self._mitm.get_raw_request_preview(flow_id)
+
+    def get_raw_response_preview(self, flow_id: str) -> dict[str, str]:
+        return self._mitm.get_raw_response_preview(flow_id)
 
     def get_raw_response(self, flow_id: str) -> bytes:
         return self._mitm.get_raw_response(flow_id)

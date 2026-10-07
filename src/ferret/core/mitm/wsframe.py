@@ -26,9 +26,12 @@ from ferret.core.mitm.bindings import Opcode, WebSocketData, WebSocketMessage
 # 占一行、内容还留在内存里。理由与 `intercept.py::INTERCEPT_LIMIT` 同构：原生一个上限
 # 都没有（mitmproxy 自己的 TUI 逐条翻页），闸门只能由 ferret 加。
 #
-# 这里**只**是界面侧的显示上限，不是丢弃：`ws_frames` 恒返回全部帧，截断与「共 N 帧」
-# 的提示由消息页决定 —— 静默少几行是最难查的那类 bug。
+# 界面按条数和字节预算取尾部预览；内核侧（`view.py::_trim_websocket`）按同一组预算
+# 裁剪原生 messages 列表 —— 内核保留 = 界面可见 = 导出内容，三者一致，被裁掉的帧
+# 不再存在于任何副本里。调用 `ws_frames` 不传 limit 时仍返回全部保留帧。
 WS_FRAME_LIMIT = 2000
+WS_PREVIEW_BYTES = 64 * 1024
+WS_WINDOW_BYTES = 2 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +52,7 @@ class WsFrame:
     timestamp: float
     dropped: bool
     injected: bool
+    original_size: int | None = None
 
     @property
     def is_text(self) -> bool:
@@ -57,7 +61,13 @@ class WsFrame:
 
     @property
     def size(self) -> int:
-        return len(self.content)
+        return (
+            self.original_size if self.original_size is not None else len(self.content)
+        )
+
+    @property
+    def truncated(self) -> bool:
+        return self.size > len(self.content)
 
     def text(self, *, errors: str = "replace") -> str:
         """内容按 UTF-8 宽松解码。
@@ -90,30 +100,50 @@ class WsClose:
         return self.timestamp_end is not None or self.close_code is not None
 
 
-def to_frame(message: WebSocketMessage, index: int) -> WsFrame:
+def to_frame(
+    message: WebSocketMessage, index: int, *, preview: bool = False
+) -> WsFrame:
     """Copy one native message into a frozen value. **Call on the mitm thread.**"""
     return WsFrame(
         index=index,
         from_client=message.from_client,
         opcode=int(message.type),
-        content=bytes(message.content),
+        content=bytes(
+            message.content[:WS_PREVIEW_BYTES] if preview else message.content
+        ),
         timestamp=message.timestamp,
         dropped=message.dropped,
         injected=message.injected,
+        original_size=len(message.content) if preview else None,
     )
 
 
-def ws_frames(data: WebSocketData | None) -> list[WsFrame]:
-    """Every frame captured so far. **Call on the mitm thread.**
+def ws_frames(data: WebSocketData | None, *, limit: int | None = None) -> list[WsFrame]:
+    """Full history, or a bounded tail preview. **Call on the mitm thread.**
 
-    恒返回全部帧，不在这里套 :data:`WS_FRAME_LIMIT`：上限是显示策略，属于界面。
+    `limit` 同时启用消息数、单帧和窗口字节预算；未传时保留完整快照语义。
     """
     if data is None:
         return []
+    if limit is not None:
+        frames = []
+        used = 0
+        for index in range(
+            len(data.messages) - 1, max(-1, len(data.messages) - limit - 1), -1
+        ):
+            frame = to_frame(data.messages[index], index, preview=True)
+            if frames and used + len(frame.content) > WS_WINDOW_BYTES:
+                break
+            used += len(frame.content)
+            frames.append(frame)
+        frames.reverse()
+        return frames
     return [to_frame(message, index) for index, message in enumerate(data.messages)]
 
 
-def latest_frame(data: WebSocketData | None) -> WsFrame | None:
+def latest_frame(
+    data: WebSocketData | None, *, preview: bool = False
+) -> WsFrame | None:
     """The frame that just arrived. **Call on the mitm thread.**
 
     `websocket_message` 钩子的约定是「最新一帧在 `messages[-1]`」，所以整表不用重取，
@@ -123,7 +153,7 @@ def latest_frame(data: WebSocketData | None) -> WsFrame | None:
     if data is None or not data.messages:
         return None
     index = len(data.messages) - 1
-    return to_frame(data.messages[index], index)
+    return to_frame(data.messages[index], index, preview=preview)
 
 
 def ws_close(data: WebSocketData | None) -> WsClose:

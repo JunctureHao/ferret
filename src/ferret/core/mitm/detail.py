@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from copy import deepcopy
 from typing import Any, Literal
 
@@ -23,19 +24,17 @@ from ferret.core.mitm.bindings import (
     assemble_request_head,
     assemble_response_head,
 )
+from ferret.core.mitm.body import build_body
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.sse import (
+    SSE_BODY_TRUNCATED_KEY,
     SSE_EVENT_COUNT_KEY,
+    SSE_EVENTS_TRUNCATED_KEY,
     SseEvent,
+    SseFeeder,
     is_event_stream,
-    parse_sse,
 )
-from ferret.core.mitm.wsframe import WsClose, ws_close, ws_frames
-
-# `utils/http_parser.py` 反过来引 `core/mitm/bindings`（AGENTS.md §4 记着这是误引，
-# 别扩散）。这一条不构成真环：`bindings.py` 不从 ferret 里 import 任何东西，
-# 所以无论谁先被加载都能走通。
-from ferret.utils.http_parser import _safe_text, build_body
+from ferret.core.mitm.wsframe import WS_FRAME_LIMIT, WsClose, ws_close, ws_frames
 
 log = get_logger("mitm.detail")
 
@@ -511,15 +510,18 @@ def build_flow_body(
         f"{side} Body Pretty": body["pretty"],
         f"{side} Body View": body["view"],
         f"{side} Body Syntax": body["syntax"],
+        f"{side} Body Truncated": body["truncated"],
+        f"{side} Body Notice": body["notice"],
         f"{side} Content-Type": message.headers.get("Content-Type", "-"),
-        "req_decoded_size" if side == "Request" else "res_decoded_size": len(
-            body["raw"]
-        ),
     }
+    if body["decoded_size"] is not None:
+        fields["req_decoded_size" if side == "Request" else "res_decoded_size"] = body[
+            "decoded_size"
+        ]
     if side == "Request":
         # 查询串不需要解 body；urlencoded 表单与 Body 一起按需读取。
         # multipart 仍由原生 contentview 显示，避免另拷整份上传文件。
-        form = flatten_multi(flow.request.urlencoded_form.items(multi=True))
+        form = flatten_multi(body["form"])
         if form:
             fields["Request Form"] = form
     return fields
@@ -548,25 +550,54 @@ def build_flow_messages(
     if flow is None:
         return data
     if flow.websocket is not None:
-        frames = ws_frames(flow.websocket)
+        frames = ws_frames(flow.websocket, limit=WS_FRAME_LIMIT)
         data.update(
             kind="websocket",
-            count=len(frames),
+            count=len(flow.websocket.messages),
             frames=frames,
             close=ws_close(flow.websocket),
         )
     elif flow.response is not None and is_event_stream(
         flow.response.headers.get("content-type")
     ):
+        truncated = bool(flow.metadata.get(SSE_EVENTS_TRUNCATED_KEY, False))
+        notice = ""
+        count_exact = True
         if events is None:
-            events = parse_sse(_safe_text(flow.response))
+            body = build_body(flow, flow.response, max_size=0)
+            truncated = bool(
+                body["truncated"]
+                or body["notice"]
+                or flow.metadata.get(SSE_BODY_TRUNCATED_KEY, False)
+            )
+            notice = body["notice"]
+            feeder = SseFeeder()
+            retained: deque[SseEvent] = deque(maxlen=2000)
+            text = body["text"]
+            for offset in range(0, len(text), 8192):
+                retained.extend(feeder.feed(text[offset : offset + 8192]))
+            # A preview boundary is not the end of the stream. Do not invent a
+            # final event from half a line/block cut off by the byte budget.
+            if not truncated:
+                retained.extend(feeder.flush())
+            events = list(retained)
+            count_exact = not truncated or SSE_EVENT_COUNT_KEY in flow.metadata
+        count = max(
+            events[-1].index + 1 if events else 0,
+            flow.metadata.get(SSE_EVENT_COUNT_KEY, 0),
+        )
+        truncated = truncated or len(events) > 2000 or bool(events and events[0].index)
+        if truncated and not notice:
+            notice = QCoreApplication.translate(
+                "FlowDetail", "仅显示部分事件，完整已保存正文可通过导出查看。"
+            )
         data.update(
             kind="sse",
-            count=max(
-                events[-1].index + 1 if events else 0,
-                flow.metadata.get(SSE_EVENT_COUNT_KEY, 0),
-            ),
-            events=events,
+            count=count,
+            count_exact=count_exact,
+            truncated=truncated,
+            notice=notice,
+            events=events[-2000:],
         )
     return data
 

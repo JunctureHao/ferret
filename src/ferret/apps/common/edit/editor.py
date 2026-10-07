@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QSize, Qt, Slot
+from PySide6.QtCore import QRect, QSize, Qt, Signal, Slot
 from PySide6.QtGui import (
     QColor,
     QPainter,
@@ -38,6 +38,8 @@ class LineNumberArea(QWidget):
 
 
 class CodeEditor(PlainTextEdit):
+    viewportChanged = Signal()
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.line_number_area = LineNumberArea(self)
@@ -130,6 +132,12 @@ class CodeEditor(PlainTextEdit):
         hsb = self.scrollDelegate.hScrollBar
         hsb.move(cr.left() + width, hsb.y())
         hsb.resize(cr.width() - width - 2, hsb.height())
+        self.viewportChanged.emit()
+
+    def setPlainText(self, text: str) -> None:
+        # ExtraSelections 在 Qt 内也持有游标，程序化换文档必须先释放它们。
+        self.setExtraSelections([])
+        super().setPlainText(text)
 
     def set_line_number_area(self, rect, dy):
         if dy:

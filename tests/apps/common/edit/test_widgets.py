@@ -10,11 +10,14 @@
   否则控制器一填表就以为用户动过手。
 """
 
+from __future__ import annotations
+
 import json
 import os
 import typing
 import unittest
 import unittest.mock
+from array import array
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -23,6 +26,10 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QTableWidget
 
 from ferret.apps.common.edit.syntax import Language
 from ferret.apps.common.edit.widgets import (
+    JSON_TREE_BATCH_SIZE,
+    JSON_TREE_DEPTH_LIMIT,
+    JSON_TREE_NODE_LIMIT,
+    SEARCH_HIGHLIGHT_LIMIT,
     ItemDualPanel,
     ItemTableToolWidget,
     ItemTableWidget,
@@ -33,6 +40,7 @@ from ferret.apps.common.edit.widgets import (
     items_to_text,
     normalize_items,
 )
+from tests.core.mitm._qt import wait_until
 
 app = QApplication.instance() or QApplication([])
 
@@ -268,8 +276,61 @@ class ToolPlainTextEditTests(unittest.TestCase):
         self.edit.do_search("a")
         self.assertTrue(self.edit._search_results)
         self.edit.set_text("bbb")
-        self.assertEqual(self.edit._search_results, [])
+        self.assertFalse(self.edit._search_results)
         self.assertEqual(self.edit._search_index, -1)
+
+    def test_many_search_hits_use_compact_positions_and_bounded_highlights(
+        self,
+    ) -> None:
+        self.edit.resize(600, 400)
+        self.edit.show()
+        self.edit.set_text("a " * 20000)
+        self.edit.open_search()
+        self.edit.do_search("a")
+        self.assertIsInstance(self.edit._search_results, array)
+        self.assertEqual(len(self.edit._search_results), 20000)
+        self.assertLessEqual(
+            len(self.edit.code_widget.extraSelections()), SEARCH_HIGHLIGHT_LIMIT
+        )
+        self.edit.search_prev()
+        self.assertEqual(self.edit._search_index, 19999)
+        self.assertEqual(self.edit.code_widget.textCursor().selectionStart(), 39998)
+        self.assertLessEqual(
+            len(self.edit.code_widget.extraSelections()), SEARCH_HIGHLIGHT_LIMIT
+        )
+        self.edit.set_text("short")
+        self.assertFalse(self.edit._search_results)
+        self.assertFalse(self.edit.code_widget.extraSelections())
+
+    def test_search_navigation_uses_qt_utf16_positions(self) -> None:
+        self.edit.set_text("😀 a 😀 A")
+        self.edit.open_search()
+        self.edit.do_search("a")
+        self.assertEqual(list(self.edit._search_results), [3, 8])
+        self.edit.search_next()
+        self.assertEqual(self.edit.code_widget.textCursor().selectedText(), "A")
+        self.edit.close_search()
+        self.assertFalse(self.edit._search_results)
+        self.assertEqual(len(self.edit.code_widget.extraSelections()), 1)
+
+    def test_search_input_is_debounced_and_document_replacement_cancels_it(
+        self,
+    ) -> None:
+        self.edit.set_text("abc")
+        self.edit.open_search()
+        with unittest.mock.patch.object(
+            self.edit, "do_search", wraps=self.edit.do_search
+        ) as search:
+            self.edit._search_bar.setText("a")
+            self.edit._search_bar.setText("ab")
+            self.edit._search_bar.setText("abc")
+            search.assert_not_called()
+            self.assertTrue(wait_until(lambda: search.call_count == 1, timeout_ms=2000))
+            search.assert_called_once_with("abc")
+            self.edit._search_bar.setText("x")
+            self.edit.set_text("new document")
+            self.assertFalse(self.edit._search_timer.isActive())
+            self.assertFalse(self.edit.code_widget.extraSelections())
 
 
 class ItemDualPanelTests(unittest.TestCase):
@@ -352,6 +413,70 @@ class JsonDualPanelTests(unittest.TestCase):
     def test_plain_text_round_trips(self) -> None:
         self.panel.set_text('{"a": 1}')
         self.assertEqual(self.panel.plain_text(), '{"a": 1}')
+
+    def test_a_small_wide_json_is_materialized_in_bounded_batches(self) -> None:
+        self.panel.set_text("[" + ",".join("0" for _ in range(100000)) + "]")
+        self.panel._show_tree_page()
+        assert self.panel.tree is not None
+        tree = self.panel.tree.tree
+        self.assertEqual(tree.topLevelItemCount(), JSON_TREE_BATCH_SIZE + 1)
+        more = tree.topLevelItem(tree.topLevelItemCount() - 1)
+        assert more is not None
+        tree.itemClicked.emit(more, 0)
+        self.assertEqual(tree.topLevelItemCount(), JSON_TREE_BATCH_SIZE * 2 + 1)
+        last = tree.topLevelItem(JSON_TREE_BATCH_SIZE * 2 - 1)
+        assert last is not None
+        self.assertEqual(last.text(0), "[511]")
+        while tree.topLevelItemCount() < JSON_TREE_NODE_LIMIT:
+            more = tree.topLevelItem(tree.topLevelItemCount() - 1)
+            assert more is not None
+            tree.itemClicked.emit(more, 0)
+        self.assertEqual(tree.topLevelItemCount(), JSON_TREE_NODE_LIMIT)
+        self.assertIn("树节点上限", self.panel.tree.notice.text())
+
+    def test_children_are_only_created_when_the_container_expands(self) -> None:
+        self.panel.set_text('{"items": [[1, 2], [3, 4]]}')
+        self.panel._show_tree_page()
+        assert self.panel.tree is not None
+        item = self.panel.tree.tree.topLevelItem(0)
+        assert item is not None
+        self.assertEqual(item.childCount(), 0)
+        item.setExpanded(True)
+        self.assertEqual(item.childCount(), 2)
+        child = item.child(0)
+        assert child is not None
+        self.assertEqual(child.childCount(), 0)
+        child.setExpanded(True)
+        self.assertEqual(child.childCount(), 2)
+
+    def test_depth_is_bounded_and_parser_recursion_errors_are_reported(self) -> None:
+        self.panel.set_text("[" * 100 + "0" + "]" * 100)
+        self.panel._show_tree_page()
+        assert self.panel.tree is not None
+        tree = self.panel.tree.tree
+        item = tree.topLevelItem(0)
+        count = 0
+        while item is not None:
+            count += 1
+            item.setExpanded(True)
+            item = item.child(0)
+        self.assertEqual(count, JSON_TREE_DEPTH_LIMIT)
+        self.assertIn("嵌套层级过深", self.panel.tree.notice.text())
+        self.panel.set_text("[" * 2000 + "0" + "]" * 2000)
+        with unittest.mock.patch(
+            "ferret.apps.common.edit.widgets.json.loads", side_effect=RecursionError
+        ):
+            self.panel._show_tree_page()
+        self.assertEqual(tree.topLevelItemCount(), 0)
+        self.assertIn("嵌套层级过深", self.panel.tree.notice.text())
+
+    def test_replacing_text_releases_hidden_tree_nodes_immediately(self) -> None:
+        self.panel.set_text('{"old": [1, 2]}')
+        self.panel._show_tree_page()
+        assert self.panel.tree is not None
+        self.panel.stack.setCurrentWidget(self.panel.text)
+        self.panel.set_text("new", Language.HTTP)
+        self.assertEqual(self.panel.tree.tree.topLevelItemCount(), 0)
 
     def test_text_only_use_never_creates_or_parses_the_tree(self) -> None:
         with unittest.mock.patch("ferret.apps.common.edit.widgets.json.loads") as parse:

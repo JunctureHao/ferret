@@ -181,6 +181,10 @@ class MessagesPane(QWidget):
     # —— 组件 ——
 
     def __init_widget(self) -> None:
+        self.notice_label = BodyLabel(self)
+        self.notice_label.setWordWrap(True)
+        self.notice_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.notice_label.hide()
         self.placeholder = BodyLabel(self)
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder.setWordWrap(True)
@@ -213,6 +217,7 @@ class MessagesPane(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        layout.addWidget(self.notice_label)
 
         stream_layout = QVBoxLayout(self.stream_page)
         stream_layout.setContentsMargins(2, 2, 2, 0)
@@ -252,6 +257,14 @@ class MessagesPane(QWidget):
         """帧数 / 事件数的**总数**（不是显示条数）—— 标签上那枚徽标读它。"""
         return self._total
 
+    def set_count(self, count: int) -> None:
+        """Absolute history count can exceed the bounded display window."""
+        self._total = max(0, count)
+
+    def set_notice(self, text: str) -> None:
+        self.notice_label.setText(text)
+        self.notice_label.setVisible(bool(text))
+
     def set_data(
         self,
         data: dict,
@@ -289,7 +302,7 @@ class MessagesPane(QWidget):
         self.__reset()
         self._applicable = True
         self._mode = "ws"
-        self._total = len(frames)
+        self._total = frames[-1].index + 1 if frames else 0
         for frame in frames[-MESSAGE_ROW_LIMIT:]:
             self.stream.add(self.__frame_bubble(frame))
         self.__trim()
@@ -366,6 +379,10 @@ class MessagesPane(QWidget):
         )
         if frame.is_text:
             content = frame.text()
+            if frame.truncated:
+                content += "\n" + self.tr(
+                    "仅显示前 {} 字节，共 {} 字节；完整消息保留在流量导出中。"
+                ).format(len(frame.content), frame.size)
         else:
             content = frame.content[:PREVIEW_HEX_BYTES].hex(" ")
         # 方向文字也进搜索串：输 "client" 只看上行帧，这是排查订阅流时最快的切法。
@@ -421,6 +438,7 @@ class MessagesPane(QWidget):
     # —— 内部 ——
 
     def __reset(self) -> None:
+        self.set_notice("")
         self._total = 0
         self._close = WsClose()
         self._close_note = None

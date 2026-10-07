@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -123,6 +124,24 @@ class FerretReadFile(ReadFile):
             return await super().load_flows(source)
 
 
+@contextmanager
+def atomic_output(path: str | Path) -> Generator[Path, None, None]:
+    """Publish a completed sibling file; failures leave the destination intact."""
+    destination = Path(path)
+    with tempfile.NamedTemporaryFile(
+        dir=destination.parent,
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        yield temporary_path
+        os.replace(temporary_path, destination)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 class FlowFile:
     @staticmethod
     def count_http(path: str | Path) -> int:
@@ -140,7 +159,7 @@ class FlowFile:
     @staticmethod
     def write(path: str | Path, flows: Iterable[Flow]) -> int:
         count = 0
-        with Path(path).open("wb") as file:
+        with atomic_output(path) as temporary, temporary.open("wb") as file:
             writer = io.FlowWriter(file)
             for flow in flows:
                 writer.add(flow)
@@ -159,11 +178,14 @@ class FlowFile:
         Returns the flows that were fully written before any truncation or
         corruption at the file tail. A truncated final entry is ignored.
         """
-        flows: list[Flow] = []
+        return list(FlowFile.iter_valid_prefix(path))
+
+    @staticmethod
+    def iter_valid_prefix(path: str | Path) -> Generator[Flow, None, None]:
+        """Yield complete records so callers can discard superseded bodies early."""
         with Path(path).open("rb") as file:
             reader = io.FlowReader(file)
             try:
-                flows.extend(reader.stream())
+                yield from reader.stream()
             except FlowReadException:
                 pass
-        return flows

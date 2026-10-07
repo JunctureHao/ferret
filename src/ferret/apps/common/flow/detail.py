@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    CaptionLabel,
     FluentIcon,
     InfoBadge,
     InfoLevel,
@@ -186,8 +187,20 @@ def _fill_raw(
             `get_raw_response`）
     """
     raw_data = None
-    flow_id = str((datas or {}).get("Flow ID") or "")
+    flow_id = str((datas or {}).get("Flow ID") or (datas or {}).get("id") or "")
     if controller and flow_id:
+        preview = getattr(controller, f"{getter}_preview", None)
+        if preview is not None:
+            try:
+                result = preview(flow_id)
+                edit.set_text(
+                    str(result.get("text") or ""),
+                    notice=str(result.get("notice") or ""),
+                )
+            except (AttributeError, ValueError, TypeError, RuntimeError) as exc:
+                log.warning("failed to read the raw HTTP preview: %s", exc)
+                edit.set_text("")
+            return
         try:
             raw_data = getattr(controller, getter)(flow_id)
         except (AttributeError, ValueError, TypeError, RuntimeError) as e:
@@ -201,6 +214,7 @@ def _fill_raw(
             return
 
     if not datas:
+        edit.set_text("")
         return
     raw_lines = [start_line]
     headers = datas.get(f"{prefix} Headers", {})
@@ -215,7 +229,9 @@ def _fill_raw(
             raw_lines.append(datas.get(f"{prefix} Body Text") or "")
         else:
             raw_lines.append(str(body))
-    edit.set_text("\n".join(raw_lines))
+    edit.set_text(
+        "\n".join(raw_lines), notice=str(datas.get(f"{prefix} Body Notice") or "")
+    )
 
 
 class CookieWidget(QWidget):
@@ -317,6 +333,10 @@ class BodyPane(QStackedWidget):
         super().__init__(parent)
         self.json_panel = JsonDualPanel()
         self.json_panel.set_read_only(True)
+        self.notice = CaptionLabel(self.json_panel)
+        self.notice.setWordWrap(True)
+        self.notice.hide()
+        self.json_panel.main_layout.insertWidget(0, self.notice)
         self.addWidget(self.json_panel)
 
         self.form_panel: ItemDualPanel | None = None
@@ -327,24 +347,42 @@ class BodyPane(QStackedWidget):
 
         self.empty_label = SubtitleLabel(self.tr("无任何数据"))
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.setWordWrap(True)
         self.addWidget(self.empty_label)
+
+    def clear(self) -> None:
+        """保留懒创建的控件，释放已失效的正文、树、表单和查找游标。"""
+        self.json_panel.set_text("")
+        if self.form_panel is not None:
+            self.form_panel.set_items({})
+        self.notice.clear()
+        self.notice.hide()
+        self.empty_label.setText(self.tr("无任何数据"))
+        self.setCurrentWidget(self.empty_label)
 
     def set_data(self, data: dict, prefix: str) -> None:
         """按详情字典切页：表单优先，其次报文体文本，最后空占位。"""
         text = data.get(f"{prefix} Body Pretty")
         if text is None:
             text = data.get(f"{prefix} Body Text") or ""
+        notice = str(data.get(f"{prefix} Body Notice") or "")
+        self.notice.setText(notice)
+        self.notice.setVisible(bool(notice))
         if self.form_panel is not None:
             form = data.get(f"{prefix} Form") or {}
             if form:
+                self.json_panel.set_text("")
                 self.form_panel.set_items(form)
                 self.setCurrentWidget(self.form_panel)
                 return
+            self.form_panel.set_items({})
         if text:
             lang = _body_lang(data.get(f"{prefix} Body Syntax", "none"), str(text))
             self.json_panel.set_text(str(text), lang=lang)
             self.setCurrentWidget(self.json_panel)
         else:
+            self.json_panel.set_text("")
+            self.empty_label.setText(notice or self.tr("无任何数据"))
             self.setCurrentWidget(self.empty_label)
 
 
@@ -520,7 +558,22 @@ class ResponsePane(TabPanel):
         return self.body_pane
 
     def set_data(self, data: dict, *, active: bool = True) -> None:
-        """换流量只标脏，当前响应页可见时才构造并填充它。"""
+        """换流量先释放旧页载荷，当前响应页可见时才填入新内容。"""
+        previous = self.datas or {}
+        if (
+            not data
+            or data.get("id") != previous.get("id")
+            or data.get("Flow ID") != previous.get("Flow ID")
+            or (not data.get("id") and data is not self.datas)
+        ):
+            if self.raw_edit is not None:
+                self.raw_edit.set_text("")
+            if self.header_card is not None:
+                self.header_card.set_items({})
+            if self.body_pane is not None:
+                self.body_pane.clear()
+        elif data.get("res_wire_size") == 0 and self.body_pane is not None:
+            self.body_pane.clear()
         self.datas = data
         self._active = active
         self._dirty = {"Raw", "Headers", "Body"}
@@ -583,6 +636,7 @@ class FlowDataPanel(QWidget):
         self._messages_dirty = True
         self._message_kind = ""
         self._message_count: int | None = 0
+        self._message_count_exact = True
         self._message_last_index = -1
         self._messages_flow_id: str | None = None
         self._rendered_message_kind = ""
@@ -798,6 +852,7 @@ class FlowDataPanel(QWidget):
             "sse_started": self.__on_sse_started,
             "sse_event": self.__on_sse_event,
             "sse_ended": self.__on_sse_ended,
+            "messages_changed": self.__on_messages_changed,
         }
         for name, slot in slots.items():
             signal = getattr(controller, name, None)
@@ -915,6 +970,18 @@ class FlowDataPanel(QWidget):
         同一张表。"""
         return bool(flow_id) and flow_id == self.datas.get("id")
 
+    @Slot(str, str, int)
+    def __on_messages_changed(self, flow_id: str, kind: str, count: int) -> None:
+        if not self.__is_current(flow_id):
+            return
+        self._message_kind = kind
+        self._message_count = max(self._message_count or 0, count)
+        self._message_count_exact = True
+        self._message_last_index = max(self._message_last_index, count - 1)
+        self._messages_dirty = True
+        self.__refresh_message_page()
+        self.__populate_messages()
+
     @Slot(str)
     def __on_ws_started(self, flow_id: str) -> None:
         """握手成功。选中时还是普通 HTTP 流量（消息栏藏着）的那一条，从这里开始有帧。"""
@@ -988,15 +1055,23 @@ class FlowDataPanel(QWidget):
         self._message_last_index = item.index
         self._message_kind = kind
         self._message_count = max(self._message_count or 0, item.index + 1)
+        self._message_count_exact = True
         if (
             self.__messages_visible()
             and not self._messages_dirty
             and self.messages is not None
         ):
+            # 合并桥接通知可能跳过中间序号；从有界存档补齐，不能当成连续追加。
+            if item.index > self._rendered_message_index + 1:
+                self._messages_dirty = True
+                self.__populate_messages()
+                self.__refresh_message_page()
+                return
             if isinstance(item, WsFrame):
                 self.messages.append_frame(item)
             else:
                 self.messages.append_event(item)
+            self.messages.set_count(self._message_count)
             self._rendered_message_index = item.index
         else:
             self._messages_dirty = True
@@ -1114,6 +1189,9 @@ class FlowDataPanel(QWidget):
             max((item.index for item in items), default=-1),
         )
         self._message_count = snapshot.get("count", len(items))
+        self._message_count_exact = bool(snapshot.get("count_exact", True))
+        self.messages.set_count(self._message_count)
+        self.messages.set_notice(str(snapshot.get("notice") or ""))
         self._message_last_index = max(
             self._message_last_index, self._rendered_message_index
         )
@@ -1127,7 +1205,9 @@ class FlowDataPanel(QWidget):
         if not applicable or not count:
             self.message_badge.hide()
             return
-        self.message_badge.setText(str(count))
+        self.message_badge.setText(
+            str(count) if self._message_count_exact else f"≥{count}"
+        )
         self.message_badge.adjustSize()
         # 徽标变宽不触发目标 Resize / Move，`PivotBadgeAnchor` 感知不到，得手动补一次。
         self.message_badge.manager.reposition()
@@ -1147,8 +1227,15 @@ class FlowDataPanel(QWidget):
 
     def set_data(self, data: dict):
         """摘要驱动导航与计数；只填充两栏当前页，其余页留到首次打开。"""
-        if data.get("id") != self.datas.get("id"):
+        if (
+            not data
+            or data.get("id") != self.datas.get("id")
+            or data.get("kind") != self.datas.get("kind")
+        ):
+            self.__release_payloads()
             self._messages_flow_id = None
+        elif data.get("req_wire_size") == 0 and self.req_body is not None:
+            self.req_body.clear()
         self.datas = data
         self._req_dirty = set(self.req_tabs.pivot.items)
         self._messages_dirty = True
@@ -1190,6 +1277,7 @@ class FlowDataPanel(QWidget):
             elif is_event_stream(data.get("Response Content-Type")):
                 self._message_kind = "sse"
         self._message_count = data.get("message_count")
+        self._message_count_exact = True
         if self._message_count is None and self._message_kind == "websocket":
             raw_ws = (data.get("raw_state") or {}).get("websocket") or {}
             self._message_count = len(raw_ws.get("messages", []))
@@ -1204,6 +1292,29 @@ class FlowDataPanel(QWidget):
         self._setting_data = False
         self.__populate_request()
         self.__populate_messages()
+
+    def __release_payloads(self) -> None:
+        """切换流量/空页时清空已创建页面，避免隐藏页保留上一条大正文。"""
+        if self.req_raw is not None:
+            self.req_raw.set_text("")
+        if self.req_body is not None:
+            self.req_body.clear()
+        for panel in (self.req_headers, self.query_widget, self.conn_fields):
+            if panel is not None:
+                panel.set_items({})
+        if self.cookie_widget is not None:
+            self.cookie_widget.set_cookies({})
+        if self.comment_pane is not None:
+            self.comment_pane.set_data({})
+        if self.overview is not None:
+            self.overview.set_data({})
+        if self.timing_pane is not None:
+            self.timing_pane.set_data({})
+        if self.messages is not None:
+            self.messages.set_data({})
+        self._rendered_close = WsClose()
+        self._rendered_message_index = -1
+        self._rendered_message_kind = ""
 
     def __populate_request(self, _index: int = -1) -> None:
         key = self.req_tabs.pivot.currentRouteKey()

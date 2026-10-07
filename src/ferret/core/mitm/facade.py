@@ -60,7 +60,13 @@ from ferret.core.mitm.rows import FlowRow, flow_row
 from ferret.core.mitm.runtime import MitmRuntime
 from ferret.core.mitm.scripts import ScriptEntry, ScriptStatus
 from ferret.core.mitm.sse import SseEvent
-from ferret.core.mitm.wsframe import WsClose, WsFrame, ws_close, ws_frames
+from ferret.core.mitm.wsframe import (
+    WS_FRAME_LIMIT,
+    WsClose,
+    WsFrame,
+    ws_close,
+    ws_frames,
+)
 from ferret.core.network import LOOPBACK_HOST, detect_lan_address
 
 # 改个名，免得和下面同名的 MitmFacade.is_lan_exposed 属性看混。
@@ -983,7 +989,7 @@ class MitmFacade:
             flow = self.view.get_by_id(flow_id)
             if not isinstance(flow, HTTPFlow):
                 return []
-            return ws_frames(flow.websocket)
+            return ws_frames(flow.websocket, limit=WS_FRAME_LIMIT)
 
         return self.runtime.call(collect) if self.runtime.is_running else collect()
 
@@ -1090,16 +1096,25 @@ class MitmFacade:
         装配里出现。
         """
 
-        def snapshot() -> list[HTTPFlow]:
-            result = []
-            for flow_id in flow_ids:
-                flow = self.view.get_by_id(flow_id)
-                if isinstance(flow, HTTPFlow):
-                    result.append(_snapshot(flow))
-            return result
+        from itertools import batched
 
-        flows = self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
-        return FlowFile.write(path, flows)
+        def snapshots():
+            for batch in batched(flow_ids, 64):
+
+                def snapshot(batch=batch) -> list[HTTPFlow]:
+                    return [
+                        _snapshot(flow)
+                        for flow_id in batch
+                        if isinstance(flow := self.view.get_by_id(flow_id), HTTPFlow)
+                    ]
+
+                yield from (
+                    self.runtime.call(snapshot)
+                    if self.runtime.is_running
+                    else snapshot()
+                )
+
+        return FlowFile.write(path, snapshots())
 
     def get_httpie_command(self, flow_id: str) -> str:
         return self._export(flow_id, FlowExporter.httpie_command, "")
@@ -1109,6 +1124,20 @@ class MitmFacade:
 
     def get_raw_request(self, flow_id: str) -> bytes:
         return self._export(flow_id, FlowExporter.raw_request, b"")
+
+    def get_raw_request_preview(self, flow_id: str) -> dict[str, str]:
+        from ferret.core.mitm.body import build_raw_preview
+
+        return self._export(
+            flow_id, lambda flow: build_raw_preview(flow, "Request"), {}
+        )
+
+    def get_raw_response_preview(self, flow_id: str) -> dict[str, str]:
+        from ferret.core.mitm.body import build_raw_preview
+
+        return self._export(
+            flow_id, lambda flow: build_raw_preview(flow, "Response"), {}
+        )
 
     def get_raw_response(self, flow_id: str) -> bytes:
         return self._export(flow_id, FlowExporter.raw_response, b"")
@@ -1129,22 +1158,31 @@ class MitmFacade:
         return self._export(flow_id, FlowExporter.response_body, b"")
 
     def export_har(self, flow_ids: Collection[str], path: str) -> None:
-        """按 id 批量导出 HAR；快照与写盘都在 mitm 线程内完成（#90）。
+        """按 id 分批在 mitm 线程拍快照，调用线程负责 HAR 构建与写盘。
 
-        旧签名收 flow 对象、在**调用线程**上读字段导出——那是表格外的另一处
-        跨线程读，一并收进 id 寻址。内核没在跑时直读本 facade 的 View（死对象）。
+        菜单经 FunctionTask 调用，故写盘不阻塞 GUI。内核没在跑时直读本 facade
+        的 View（死对象）；快照迭代只交付脱离内核的对象，保留 id 和选区顺序。
         """
 
-        def snapshot() -> list[HTTPFlow]:
-            result = []
-            for flow_id in flow_ids:
-                flow = self.view.get_by_id(flow_id)
-                if isinstance(flow, HTTPFlow):
-                    result.append(_snapshot(flow))
-            return result
+        from itertools import batched
 
-        flows = self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
-        FlowExporter.save_har(flows, path)
+        def snapshots():
+            for batch in batched(flow_ids, 64):
+
+                def snapshot(batch=batch) -> list[HTTPFlow]:
+                    return [
+                        _snapshot(flow)
+                        for flow_id in batch
+                        if isinstance(flow := self.view.get_by_id(flow_id), HTTPFlow)
+                    ]
+
+                yield from (
+                    self.runtime.call(snapshot)
+                    if self.runtime.is_running
+                    else snapshot()
+                )
+
+        FlowExporter.save_har(snapshots(), path)
 
     def _export(self, flow_id: str, exporter, default):
         def export():

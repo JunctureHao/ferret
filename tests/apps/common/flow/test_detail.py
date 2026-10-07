@@ -32,6 +32,7 @@ from qfluentwidgets import InfoLevel
 from ferret.apps.common.edit import Language
 from ferret.apps.common.flow import detail
 from ferret.apps.common.flow.detail import (
+    BodyPane,
     FlowDataPanel,
     ResponsePane,
     _body_lang,
@@ -261,6 +262,7 @@ class _LazyController(QObject):
     websocket_started = Signal(str)
     websocket_frame = Signal(str, object)
     websocket_closed = Signal(str, object)
+    messages_changed = Signal(str, str, int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -364,7 +366,7 @@ class LazyDetailTests(unittest.TestCase):
         second = tflow.tflow(resp=True)
         second.request.content = b"second"
         self.select(second)
-        self.assertEqual(body.json_panel.plain_text(), "first")
+        self.assertEqual(body.json_panel.plain_text(), "")
         self.assertEqual(len(self.controller.body_calls), 1)
         self.panel.req_tabs.setCurrentTab("Body")
         self.assertIs(self.panel.req_body, body)
@@ -446,6 +448,8 @@ class LazyDetailTests(unittest.TestCase):
         second = tflow.tflow(resp=True)
         self.select(second)
         self.assertNotIn((second.id, "Request"), self.controller.raw_calls)
+        assert raw is not None
+        self.assertEqual(raw.text(), "")
         self.panel.req_tabs.setCurrentTab("Raw")
         self.assertIs(self.panel.req_raw, raw)
         self.assertIn((second.id, "Request"), self.controller.raw_calls)
@@ -476,6 +480,8 @@ class LazyDetailTests(unittest.TestCase):
         self.assertIs(self.panel.stack.currentWidget(), self.panel.empty_page)
         self.assertEqual(other.raw_calls, [])
         self.assertEqual(other.body_calls, [])
+        assert body is not None
+        self.assertEqual(body.json_panel.plain_text(), "")
         other.flows[flow.id] = flow
         self.panel.set_data(build_flow_summary(flow))
         self.assertIs(self.panel.req_body, body)
@@ -574,6 +580,96 @@ class LazyDetailTests(unittest.TestCase):
         self.panel.set_data(other_data)
         self.assertEqual(messages.filter_input.text(), "")
         self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [0, 1])
+
+    def test_coalesced_messages_fetch_only_when_visible_and_recover_missing_indices(
+        self,
+    ) -> None:
+        flow = tflow.twebsocketflow()
+        self.select(flow)
+        self.controller.frames = [
+            WsFrame(index, True, 1, b"message", 1700000000.0, False, False)
+            for index in range(3)
+        ]
+        self.controller.messages_changed.emit(flow.id, "websocket", 3)
+        self.assertIsNone(self.panel.messages)
+        self.assertEqual(self.controller.message_calls, [])
+        self.assertEqual(self.panel.message_badge.text(), "3")
+        self.panel.res_pane.setCurrentTab("Messages")
+        messages = self.panel.messages
+        assert messages is not None
+        self.assertEqual([b.key for b in messages.stream.bubbles()], [0, 1, 2])
+        self.controller.frames.extend(
+            [
+                replace(self.controller.frames[0], index=3),
+                replace(self.controller.frames[0], index=4),
+            ]
+        )
+        self.controller.websocket_frame.emit(flow.id, self.controller.frames[-1])
+        self.assertEqual(len(self.controller.message_calls), 2)
+        self.assertEqual([b.key for b in messages.stream.bubbles()], [0, 1, 2, 3, 4])
+        self.controller.frames.append(replace(self.controller.frames[0], index=5))
+        self.controller.messages_changed.emit(flow.id, "websocket", 6)
+        self.assertEqual([b.key for b in messages.stream.bubbles()], [0, 1, 2, 3, 4, 5])
+        self.assertEqual(messages.count, 6)
+        latest = replace(self.controller.frames[0], index=999)
+        with patch.object(
+            self.controller,
+            "flow_messages",
+            return_value={
+                "kind": "websocket",
+                "frames": [latest],
+                "count": 1000,
+                "close": WsClose(),
+            },
+        ):
+            self.controller.messages_changed.emit(flow.id, "websocket", 1000)
+        self.assertEqual(messages.count, 1000)
+        self.assertEqual(self.panel.message_badge.text(), "1000")
+        self.panel.set_data({})
+        self.assertEqual(messages.stream.message_count(), 0)
+
+    def test_clearing_details_releases_both_hidden_body_documents_without_fetching(
+        self,
+    ) -> None:
+        flow = tflow.tflow(resp=True)
+        self.select(flow)
+        self.panel.req_tabs.setCurrentTab("Body")
+        self.panel.res_pane.setCurrentTab("Body")
+        request = self.panel.req_body
+        response = self.panel.res_pane.body_pane
+        assert request is not None and response is not None
+        self.panel.req_tabs.setCurrentTab("Headers")
+        self.panel.res_pane.setCurrentTab("Headers")
+        before = list(self.controller.body_calls)
+        self.panel.set_data({})
+        self.assertEqual(request.json_panel.plain_text(), "")
+        self.assertEqual(response.json_panel.plain_text(), "")
+        self.assertEqual(self.controller.body_calls, before)
+
+    def test_partial_message_snapshot_shows_notice_and_a_lower_bound_count(
+        self,
+    ) -> None:
+        flow = tflow.tflow(resp=True)
+        data = self.select(flow)
+        data["message_kind"] = "sse"
+        self.panel.set_data(data)
+        with patch.object(
+            self.controller,
+            "flow_messages",
+            return_value={
+                "kind": "sse",
+                "events": parse_sse("data: first\n\ndata: second\n\n"),
+                "count": 2,
+                "count_exact": False,
+                "notice": "history preview",
+            },
+        ):
+            self.panel.res_pane.setCurrentTab("Messages")
+        self.assertEqual(self.panel.message_badge.text(), "≥2")
+        messages = self.panel.messages
+        assert messages is not None
+        self.assertEqual(messages.notice_label.text(), "history preview")
+        self.assertFalse(messages.notice_label.isHidden())
 
 
 class MessageBadgeTests(unittest.TestCase):
@@ -972,6 +1068,78 @@ class LeftColumnTests(unittest.TestCase):
         self.assertIn("/wire", self.panel.req_raw.text())
         assert self.panel.res_pane.raw_edit is not None
         self.assertIn("418", self.panel.res_pane.raw_edit.text())
+
+
+class BodyPayloadLifetimeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_empty_body_releases_text_tree_search_and_form_payloads(self) -> None:
+        pane = BodyPane(allow_form=True)
+        self.addCleanup(pane.deleteLater)
+        pane.set_data(
+            {"Request Body Text": '{"items": [1, 2]}', "Request Body Syntax": "yaml"},
+            "Request",
+        )
+        pane.json_panel._show_tree_page()
+        assert pane.json_panel.tree is not None
+        pane.json_panel.text.open_search()
+        pane.json_panel.text.do_search("items")
+        pane.set_data({"Request Body Text": "x" * (2 * 1024 * 1024)}, "Request")
+        pane.set_data({}, "Request")
+        self.assertIs(pane.currentWidget(), pane.empty_label)
+        self.assertEqual(pane.json_panel.plain_text(), "")
+        self.assertEqual(pane.json_panel.tree.tree.topLevelItemCount(), 0)
+        self.assertFalse(pane.json_panel.text.code_widget.extraSelections())
+        pane.set_data({"Request Form": {"key": "value"}}, "Request")
+        pane.set_data({"Request Body Text": "new body"}, "Request")
+        assert pane.form_panel is not None
+        self.assertEqual(pane.form_panel.items(), [])
+        self.assertEqual(pane.form_panel.text.text(), "")
+
+    def test_body_notice_is_visible_with_a_preview_and_without_decoded_text(
+        self,
+    ) -> None:
+        pane = BodyPane()
+        self.addCleanup(pane.deleteLater)
+        pane.set_data(
+            {"Response Body Text": "preview", "Response Body Notice": "preview notice"},
+            "Response",
+        )
+        self.assertIs(pane.currentWidget(), pane.json_panel)
+        self.assertEqual(pane.notice.text(), "preview notice")
+        self.assertFalse(pane.notice.isHidden())
+        pane.set_data({"Response Body Notice": "decode paused"}, "Response")
+        self.assertIs(pane.currentWidget(), pane.empty_label)
+        self.assertEqual(pane.empty_label.text(), "decode paused")
+        self.assertEqual(pane.json_panel.plain_text(), "")
+
+    def test_inactive_response_releases_previous_raw_and_body(self) -> None:
+        pane = ResponsePane()
+        self.addCleanup(pane.deleteLater)
+        pane.set_data({"id": "old", "Response Body Text": "old body"})
+        assert pane.raw_edit is not None
+        pane.setCurrentTab("Body")
+        assert pane.body_pane is not None
+        pane.set_data({"id": "new"}, active=False)
+        self.assertEqual(pane.raw_edit.text(), "")
+        self.assertEqual(pane.body_pane.json_panel.plain_text(), "")
+
+    def test_raw_display_prefers_bounded_preview_and_shows_notice(self) -> None:
+        controller = Mock()
+        controller.get_raw_response_preview.return_value = {
+            "text": "HTTP/1.1 200 OK\n\npreview",
+            "notice": "preview notice",
+        }
+        pane = ResponsePane(controller=controller)
+        self.addCleanup(pane.deleteLater)
+        pane.set_data({"id": "flow"})
+        controller.get_raw_response_preview.assert_called_once_with("flow")
+        controller.get_raw_response.assert_not_called()
+        assert pane.raw_edit is not None
+        self.assertEqual(pane.raw_edit.text(), "HTTP/1.1 200 OK\n\npreview")
+        self.assertEqual(pane.raw_edit.notice.text(), "preview notice")
 
 
 class ResponsePaneTests(unittest.TestCase):

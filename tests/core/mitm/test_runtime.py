@@ -69,14 +69,14 @@ class MitmRuntimeTests(unittest.TestCase):
         self._assert_no_bridge_receivers(runtime)
 
     def _assert_no_bridge_receivers(self, runtime: MitmRuntime) -> None:
-        """共享 view 上除原生自带的 focus / settings 外不许残留任何活接收器。
+        """共享 view 上只允许 view 自身及其 focus / settings 的接收器。
 
         接收器留在跨代共享的 view 上，重启内核后每个 View 事件都会双发。
-        原生 ``View.__init__`` 会挂自己的 Focus / Settings 组件，与 view 同寿、
-        不是每代产物，放行；弱引用已死的条目 SyncSignal 只做惰性清理，直接跳过。
+        Focus / Settings 组件及 FerretView 自身的容量记账与 view 同寿，不是
+        每代产物，放行；弱引用已死的条目 SyncSignal 只做惰性清理，直接跳过。
         """
         view = runtime.view
-        native_owners = {id(view.focus), id(view.settings)}
+        native_owners = {id(view), id(view.focus), id(view.settings)}
         for signal in (
             view.sig_store_add,
             view.sig_store_remove,

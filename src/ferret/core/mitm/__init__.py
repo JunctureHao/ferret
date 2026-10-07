@@ -15,6 +15,7 @@ from ferret.core.mitm.bindings import (
     human,
     parse_filter,
 )
+from ferret.core.mitm.body import build_raw_preview
 from ferret.core.mitm.certificate import (
     CA_ARTIFACTS,
     CLIENT_CERTS_SCAN_LIMIT,
@@ -258,6 +259,7 @@ __all__ = [
     "build_flow_messages",
     "build_flow_overview_metadata",
     "build_flow_summary",
+    "build_raw_preview",
     "build_request_edit",
     "capture_mode_specs",
     "client_certs_error",

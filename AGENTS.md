@@ -49,7 +49,7 @@ mitmproxy Master 在独立 asyncio 线程，GUI 在主线程：
 - ❌ 在 Qt 线程直接操作 master/view、修改活 flow，或对活 flow 构建详情/解码 body；这些经 facade 投到 mitm 线程。跨线程交付的流量行一律是 `core/mitm/rows.py::FlowRow` 不可变快照（桥接信号与 `visible_flow_rows()` 都在内核侧折好，mitmweb `flow_to_json` 同款边界）；勿把活引用加回信号载荷或导出/删除/回放 API（这些一律按 flow.id 寻址）。新增改变行内容的内核侧变更路径必须经既有收口重发快照，漏发＝表格显示过期。
 - 完整对象快照经 `all_http_flows()` / `intercepted_flows()` 获取（导出与断点窗口专用）；内部的 `core/mitm/facade.py::_snapshot` 是模块函数，负责保留 `flow.id`，勿自行 `flow.copy()`。回放创建新流量时仍应生成新 id。
 - ❌ 使用 `ctx`。需 master/options 用手上的 `runtime.master`，仍须遵守线程边界；`ctx` 不进 `bindings.__all__`。
-- ❌ 跨层 import mitmproxy。业务源码只有 `core/mitm/bindings.py` 可直接 import mitmproxy；`core/mitm/*` 从 bindings 引入，其余用 `from ferret.core.mitm import`（历史例外见 §4）。
+- ❌ 跨层 import mitmproxy。业务源码只有 `core/mitm/bindings.py` 可直接 import mitmproxy；`core/mitm/*` 从 bindings 引入，其余用 `from ferret.core.mitm import`。
 - ❌ 向 master 追加 mitmproxy 命令行 addon（comment/cut/export/script 等），GUI 自行实现等效能力。
 - ❌ 手动改 `Content-Length`；写入 `flow.request.content` / `response.content` 后由 mitmproxy 自动重算。
 - 三个地址不可混用：`listen_host` 用于 bind；本机接入恒 `127.0.0.1`（`MitmFacade.local_client_host`）；`detect_lan_address()` 只用于局域网展示，不写配置。系统代理只写 `127.0.0.1`。
@@ -61,10 +61,11 @@ mitmproxy Master 在独立 asyncio 线程，GUI 在主线程：
 - `core/mitm/` 不依赖 QtWidgets；`bindings.py` 是唯一 mitmproxy 入口，对外 API 以 `__init__.py` 为准；送到界面的异常文案用 `QCoreApplication.translate("<Ctx>", ...)`，日志与不上界面的 `from_dict` 校验消息不译。
 - `apps/` 后台任务统一用 `apps/common/tasks.py::FunctionTask`，调用方必须持有任务到 finished，避免包装与 signals 被 GC（见 `apps/update/controllers.py` docstring）。
 - 编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel` / `ToolPlainTextEdit` / `JsonDualPanel`），不新造编辑器；方法词表复用 `apps/common/http_methods.py`。
-- `utils/` 不再新增依赖；`utils/http_parser.py` 对 `core/mitm/bindings` 的历史误引勿扩散，机理见 `core/mitm/detail.py` 注释。
+- `utils/` 不再新增依赖；正文派生实现放在 `core/mitm/body.py`，`utils/http_parser.py` 只保留延迟兼容转发，勿恢复与 core 的循环导入。
 
 ## 5. 技术决策（勿推翻；详细理由见对应代码注释）
 
+- **运行期不引入 SQLite / 嵌入式存储**：WS 历史在内核钩子内直接裁剪原生 `flow.websocket.messages`（`core/mitm/view.py::_trim_websocket`，保留窗口 = 界面 = 导出），跨线程 UI 事件用纯内存合并队列（`core/mitm/ui_events.py`）；有界化问题优先裁剪原生结构，勿新建落盘副本。
 - **五通道抓包**：regular + local + wireguard + reverse + socks5 可组合，经原生 `options.update(mode=[...])` 热更；模式串统一复用 `core/mitm/modes.py` 的构造函数。
 - local 保留 `@127.0.0.1:0` 查重占位；reverse / socks5 保留显式 `@host:port` 独立端口，监听地址跟随 `listen_host`；reverse 的 HTTPS 保留原生 TCP+UDP（`BOTH`）语义，勿裁成裸 TCP。
 - SOCKS5 入站仅支持 TCP CONNECT；认证用同一份 `proxyauth`，不因 SOCKS5 接通而关闭认证（见 `core/mitm/runtime.py::_effective_proxyauth`）。

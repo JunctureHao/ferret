@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from threading import RLock
 from typing import Any, Literal
 
 from PySide6.QtCore import (
@@ -16,6 +17,7 @@ from ferret.apps.common.tasks import FunctionTask
 from ferret.apps.session.models import SessionMeta, SessionSource
 from ferret.apps.session.repository import SessionRepository
 from ferret.core.mitm import (
+    WS_FRAME_LIMIT,
     FlowExporter,
     FlowFile,
     HTTPFlow,
@@ -27,6 +29,7 @@ from ferret.core.mitm import (
     build_flow_messages,
     build_flow_overview_metadata,
     build_flow_summary,
+    build_raw_preview,
     parse_filter,
     ws_close,
     ws_frames,
@@ -89,7 +92,7 @@ class SessionViewController(QObject):
         只读页刻意不接那三个实时信号：这批流量早就结束了，没有「新帧到达」这件事。
         """
         flow = self.get_flow(flow_id)
-        return ws_frames(flow.websocket) if flow else []
+        return ws_frames(flow.websocket, limit=WS_FRAME_LIMIT) if flow else []
 
     def websocket_close(self, flow_id: str) -> WsClose:
         flow = self.get_flow(flow_id)
@@ -106,6 +109,14 @@ class SessionViewController(QObject):
         if flow:
             return FlowExporter.raw_response(flow)
         return b""
+
+    def get_raw_request_preview(self, flow_id: str) -> dict[str, Any]:
+        flow = self.get_flow(flow_id)
+        return build_raw_preview(flow, "Request") if flow else {}
+
+    def get_raw_response_preview(self, flow_id: str) -> dict[str, Any]:
+        flow = self.get_flow(flow_id)
+        return build_raw_preview(flow, "Response") if flow else {}
 
     def get_raw_flow(self, flow_id: str) -> bytes:
         flow = self.get_flow(flow_id)
@@ -176,6 +187,14 @@ class SessionController(QObject):
         self._write_pool.setMaxThreadCount(1)
         self._active_tasks = 0
         self._open_generation = 0
+        self._open_running = False
+        self._pending_open: tuple[int, str] | None = None
+        self._refresh_generation = 0
+        self._refresh_running = False
+        self._refresh_pending = False
+        # 扫描与写入不能交叉：扫描会读路径和计数缓存，写入则可能改名/删文件。
+        self._repository_lock = RLock()
+        self._repository_revision = 0
         self._tasks: set[FunctionTask] = set()
 
     def _set_task_active(self, active: bool) -> None:
@@ -191,30 +210,56 @@ class SessionController(QObject):
         *args,
         on_success=None,
         on_failure=None,
+        on_finished=None,
+        is_current: Callable[[], bool] | None = None,
         write: bool = False,
+        exclusive: bool = False,
     ) -> None:
         self._set_task_active(True)
-        task = FunctionTask(fn, *args)
+        if write:
+            self._refresh_generation += 1
+
+        def _execute():
+            if write or exclusive:
+                with self._repository_lock:
+                    try:
+                        return fn(*args)
+                    finally:
+                        if write:
+                            # 修订在真正写入结束时递增，不等 GUI 消费成功/失败信号。
+                            self._repository_revision += 1
+            return fn(*args)
+
+        task = FunctionTask(_execute)
         task.setAutoDelete(True)
         self._tasks.add(task)
 
         def _on_succeeded(result):
+            if write:
+                self._refresh_generation += 1
             if on_success:
                 on_success(result)
 
         def _on_failed(msg: str):
+            if is_current is not None and not is_current():
+                return
             if on_failure:
                 on_failure(msg)
             self.operation_failed.emit(self.tr("操作失败"), msg)
 
         def _on_finished():
-            self._set_task_active(False)
+            if write:
+                # 即使部分写入失败，旧扫描也不能在写操作后覆盖页面。
+                self.refresh()
+            if on_finished:
+                on_finished()
             self._tasks.discard(task)
             # 拆环：task → signals → Qt 连接 → 本闭包 → task 是横跨 C++ 边界的
             # 引用环，gc.collect() 收不掉；断掉 signals 上的连接后任务才整体可释放。
             task.signals.succeeded.disconnect()
             task.signals.failed.disconnect()
             task.signals.finished.disconnect()
+            self._set_task_active(False)
 
         task.signals.succeeded.connect(_on_succeeded)
         task.signals.failed.connect(_on_failed)
@@ -223,7 +268,47 @@ class SessionController(QObject):
         pool.start(task)
 
     def refresh(self) -> None:
-        self._run(self._repo.list_all, on_success=self.sessions_loaded.emit)
+        self._refresh_generation += 1
+        if self._refresh_running:
+            self._refresh_pending = True
+            return
+        self._start_refresh()
+
+    def _start_refresh(self) -> None:
+        generation = self._refresh_generation
+        self._refresh_running = True
+        self._refresh_pending = False
+
+        def _scan():
+            return self._repository_revision, self._repo.list_all()
+
+        def _on_loaded(result):
+            revision, sessions = result
+            # 检查与发布都在写锁内；锁正被耗时 IO 持有时丢弃并重扫，不能卡 GUI。
+            if not self._repository_lock.acquire(blocking=False):
+                self._refresh_pending = True
+                return
+            try:
+                if (
+                    generation == self._refresh_generation
+                    and revision == self._repository_revision
+                ):
+                    self.sessions_loaded.emit(sessions)
+            finally:
+                self._repository_lock.release()
+
+        def _on_finished():
+            self._refresh_running = False
+            if self._refresh_pending:
+                self._start_refresh()
+
+        self._run(
+            _scan,
+            on_success=_on_loaded,
+            on_finished=_on_finished,
+            is_current=lambda: generation == self._refresh_generation,
+            exclusive=True,
+        )
 
     def save_capture(self, name: str, flows: list[HTTPFlow]) -> None:
         def _on_created(meta: SessionMeta):
@@ -253,7 +338,17 @@ class SessionController(QObject):
 
     def open_session(self, session_id: str) -> None:
         self._open_generation += 1
-        generation = self._open_generation
+        self._pending_open = (self._open_generation, session_id)
+        if not self._open_running:
+            self._start_open()
+
+    def _start_open(self) -> None:
+        pending = self._pending_open
+        if pending is None:
+            return
+        generation, session_id = pending
+        self._pending_open = None
+        self._open_running = True
 
         def _on_loaded(result):
             if generation != self._open_generation:
@@ -265,7 +360,18 @@ class SessionController(QObject):
             vc = SessionViewController(meta, flows)
             self.session_opened.emit(meta, vc)
 
-        self._run(self._repo.open, session_id, on_success=_on_loaded)
+        def _on_finished():
+            self._open_running = False
+            self._start_open()
+
+        self._run(
+            self._repo.open,
+            session_id,
+            on_success=_on_loaded,
+            on_finished=_on_finished,
+            is_current=lambda: generation == self._open_generation,
+            exclusive=True,
+        )
 
     def rename_session(self, session_id: str, name: str) -> None:
         def _on_renamed(meta: SessionMeta):

@@ -1,8 +1,16 @@
 """Centralized mitmproxy imports and packaging compatibility shims."""
 
+from __future__ import annotations
+
 import os
 import posixpath
 import sys
+import zlib
+from collections.abc import Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from functools import wraps
 from types import ModuleType
 from typing import Any
 
@@ -152,6 +160,7 @@ from mitmproxy.flowfilter import parse as parse_filter
 from mitmproxy.http import Headers, HTTPFlow, Request, Response
 from mitmproxy.log import MitmLogHandler
 from mitmproxy.master import Master
+from mitmproxy.net import encoding as _net_encoding
 
 # mTLS 唯一触点：net_tls.create_proxy_server_context.cache_clear。该函数是模块级的
 # @lru_cache(256)，键里只有 client_cert 的**路径字符串** —— 路径不变、原地换掉证书
@@ -183,6 +192,130 @@ from wsproto.frame_protocol import Opcode
 
 tlsconfig_module: Any = _tlsconfig_module
 
+# Upstream's one-entry encoding cache has no byte ceiling. Keep native codecs
+# and their full-body behaviour, but do not let an export/rewrite pin its last
+# huge encoded/decoded pair after the caller releases the result. This runs at
+# the codec boundary on the calling thread, never from a GUI cleanup timer.
+ENCODING_CACHE_LIMIT = 2 * 1024 * 1024
+_native_encoding: Any = _net_encoding
+_native_decode = _native_encoding.decode
+_native_encode = _native_encoding.encode
+
+
+def _trim_encoding_cache() -> None:
+    cached = _native_encoding._cache
+    if (
+        sys.getsizeof(cached.encoded) + sys.getsizeof(cached.decoded)
+        > ENCODING_CACHE_LIMIT
+    ):
+        _native_encoding._cache = _native_encoding.CachedDecode(None, None, None, None)
+
+
+class PreviewDecodingUnavailable(Exception):
+    """The codec cannot enforce a preview output/window budget."""
+
+
+@dataclass
+class _DecodeBudget:
+    limit: int
+    incomplete_input: bool
+
+
+_decode_budget: ContextVar[_DecodeBudget | None] = ContextVar(
+    "ferret_body_decode_budget", default=None
+)
+
+
+@contextmanager
+def bounded_content_decoding(
+    limit: int, *, incomplete_input: bool = False
+) -> Generator[None]:
+    """Scope native Message.get_content/get_text calls to a preview budget.
+
+    Only this context uses bounded variants of upstream's compression codecs.
+    ContextVar keeps concurrent exports and mitm callbacks on their native path;
+    preview decoding bypasses the shared cache, including existing full results.
+    The caller supplies at most limit + 1 encoded bytes and checks the sentinel
+    output byte. Unknown codecs and Brotli have no bounded Python output API,
+    so preview is explicitly deferred instead of decompressing then slicing.
+    """
+    token = _decode_budget.set(_DecodeBudget(limit, incomplete_input))
+    try:
+        yield
+    finally:
+        _decode_budget.reset(token)
+
+
+def _bounded_zlib(data: bytes, encoding: str, budget: _DecodeBudget) -> bytes:
+    windows = (47,) if encoding == "gzip" else (15, -15)
+    for window in windows:
+        try:
+            decoder = zlib.decompressobj(window)
+            decoded = decoder.decompress(data, budget.limit + 1)
+            # Native gzip permits a partial stream; native deflate only permits
+            # it here when *our* encoded-input budget shortened a valid body.
+            if (
+                encoding != "gzip"
+                and not decoder.eof
+                and not budget.incomplete_input
+                and len(decoded) <= budget.limit
+            ):
+                raise zlib.error("incomplete deflate stream")
+            return decoded
+        except zlib.error:
+            if window == windows[-1]:
+                raise ValueError("Invalid compressed preview") from None
+    raise AssertionError("No zlib window configured")
+
+
+@wraps(_native_decode)
+def _decode_with_budget(encoded, encoding: str, errors: str = "strict"):
+    budget = _decode_budget.get()
+    if budget is not None and isinstance(encoded, bytes):
+        name = encoding.lower()
+        if name in ("gzip", "deflate", "deflateraw"):
+            return _bounded_zlib(encoded, name, budget) if encoded else b""
+        if name == "zstd":
+            if not encoded:
+                return b""
+            try:
+                # Same streaming decoder as upstream, with a bounded read and
+                # an 8 MiB window ceiling (bytes in the installed C backend).
+                decoder = _native_encoding.zstd.ZstdDecompressor(
+                    max_window_size=8 * 1024 * 1024
+                )
+                with decoder.stream_reader(encoded, read_across_frames=True) as reader:
+                    return reader.read(budget.limit + 1)
+            except _native_encoding.zstd.ZstdError:
+                raise PreviewDecodingUnavailable(name) from None
+        if name == "br":
+            raise PreviewDecodingUnavailable(name)
+        if name not in ("none", "identity"):
+            try:
+                codec = _native_encoding.codecs.lookup(name)
+            except LookupError:
+                raise ValueError("Unknown preview charset") from None
+            if not codec._is_text_encoding:
+                # A bogus charset such as bz2 must not provide a second,
+                # unbounded decompression route through native get_text.
+                raise ValueError("Non-text preview charset")
+    try:
+        return _native_decode(encoded, encoding, errors)
+    finally:
+        _trim_encoding_cache()
+
+
+@wraps(_native_encode)
+def _encode_with_cache_limit(decoded, encoding, errors="strict"):
+    try:
+        return _native_encode(decoded, encoding, errors)
+    finally:
+        _trim_encoding_cache()
+
+
+_native_encoding.decode = _decode_with_budget
+_native_encoding.encode = _encode_with_cache_limit
+
 # 目录穿越守卫（werkzeug 等价实现，见上面的 _safe_join）：自研重写引擎的文件映射
 # 按原生 MapLocal 的候选算法取路径，URL 后缀是不可信输入，必须走同一道守卫。
 safe_join = _safe_join
@@ -198,6 +331,7 @@ if not hasattr(ctx, "options"):
     ctx.options = Options()
 
 __all__ = [
+    "ENCODING_CACHE_LIMIT",
     "FLOW_FORMAT_VERSION",
     "KEY_SIZE",
     "AddonHalt",
@@ -222,6 +356,7 @@ __all__ = [
     "Opcode",
     "Options",
     "OptionsError",
+    "PreviewDecodingUnavailable",
     "ProxyAuth",
     "ProxyMode",
     "Proxyserver",
@@ -247,6 +382,7 @@ __all__ = [
     "addonmanager",
     "assemble_request_head",
     "assemble_response_head",
+    "bounded_content_decoding",
     "certs",
     "connection",
     "contentviews",

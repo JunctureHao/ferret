@@ -12,7 +12,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import StrEnum
 from typing import Any
 
-from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Qt, QThread, Signal
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import (
@@ -47,6 +47,7 @@ from ferret.core.mitm.modes import (
 from ferret.core.mitm.rewrite import RewriteRule, RewriteRuleSet
 from ferret.core.mitm.rows import flow_row
 from ferret.core.mitm.scripts import ScriptEntry
+from ferret.core.mitm.ui_events import UiEventQueue
 from ferret.core.mitm.view import FerretView
 from ferret.core.mitm.wsframe import latest_frame, ws_close
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, normalize_listen_host
@@ -258,12 +259,16 @@ class UiBridgeAddon:
         # 每个发射点先在 mitm 线程上把活 flow 折成 `FlowRow` 再 emit——跨线程
         # 边界上过的只有不可变快照，Qt 侧读行字段不再触碰内核线程的对象。
         self._on_add = self._forward_add
-        self._on_update = lambda flow: bridge.flow_updated.emit(flow_row(flow))
-        self._on_remove = lambda flow, index: bridge.flow_removed.emit(
-            flow_row(flow), index
+        self._on_update = lambda flow: bridge.post_ui_event(
+            "flow_updated", flow_row(flow)
         )
-        self._on_refresh = lambda: bridge.view_refreshed.emit()
-        self._on_store_remove = lambda flow: bridge.flow_discarded.emit(flow_row(flow))
+        self._on_remove = lambda flow, index: bridge.post_ui_event(
+            "flow_removed", flow_row(flow), index
+        )
+        self._on_refresh = lambda: bridge.post_ui_event("view_refreshed")
+        self._on_store_remove = lambda flow: bridge.post_ui_event(
+            "flow_discarded", flow_row(flow)
+        )
         self._store_add = getattr(view, "sig_store_add", None)
         if self._store_add is not None:
             self._store_add.connect(self._forward_store)
@@ -277,36 +282,37 @@ class UiBridgeAddon:
         row = flow_row(flow)
         record = compose_recording(flow)
         if record is True:
-            self._bridge.compose_flow_added.emit(row)
+            self._bridge.post_ui_event("compose_flow_added", row)
         elif record is None:
-            self._bridge.flow_added.emit(row)
+            self._bridge.post_ui_event("flow_added", row)
 
     def _forward_store(self, flow: Flow) -> None:
         row = flow_row(flow)
         record = compose_recording(flow)
         if record is True:
-            self._bridge.compose_flow_stored.emit(row)
+            self._bridge.post_ui_event("compose_flow_stored", row)
         elif record is None:
-            self._bridge.flow_stored.emit(row)
+            self._bridge.post_ui_event("flow_stored", row)
 
     def running(self) -> None:
         # 断连（done / `_run_master` 的 finally）之后本钩子不可能再被派发：
         # 生命周期上 running 先于 done，早退路径压根没有 running。
         assert self._master is not None  # 调用方已守
         if not self._master.proxyserver.listen_addrs():
-            self._bridge._master_start_failed.emit(
+            self._bridge.post_ui_event(
+                "_master_start_failed",
                 self._generation,
                 QCoreApplication.translate("MitmRuntime", "代理端口监听失败"),
             )
             self._master.shutdown()
             return
-        self._bridge._master_running.emit(self._generation)
+        self._bridge.post_ui_event("_master_running", self._generation)
 
     def websocket_start(self, flow: HTTPFlow) -> None:
         """101 握手成功、可以收发帧了。"""
         if not self._connected:
             return
-        self._bridge.websocket_started.emit(flow.id)
+        self._bridge.post_ui_event("websocket_started", flow.id)
 
     def websocket_message(self, flow: HTTPFlow) -> None:
         """一帧到达（约定：最新一帧在 ``flow.websocket.messages[-1]``）。
@@ -317,15 +323,17 @@ class UiBridgeAddon:
         """
         if not self._connected:
             return
-        frame = latest_frame(flow.websocket)
+        frame = latest_frame(flow.websocket, preview=True)
         if frame is not None:
-            self._bridge.websocket_frame.emit(flow.id, frame)
+            self._bridge.post_ui_event("websocket_frame", flow.id, frame)
 
     def websocket_end(self, flow: HTTPFlow) -> None:
         """连接关了。关闭码 / 原因 / 谁关的 / 何时关，一并作为值对象发出去。"""
         if not self._connected:
             return
-        self._bridge.websocket_closed.emit(flow.id, ws_close(flow.websocket))
+        self._bridge.post_ui_event(
+            "websocket_closed", flow.id, ws_close(flow.websocket)
+        )
 
     def done(self) -> None:
         self.disconnect()
@@ -348,8 +356,6 @@ class UiBridgeAddon:
 
 
 class _MitmThread(QThread):
-    failed = Signal(int, str)
-
     def __init__(self, runtime: MitmRuntime, generation: int) -> None:
         super().__init__(runtime)
         self.runtime = runtime
@@ -362,7 +368,9 @@ class _MitmThread(QThread):
         try:
             asyncio.run(self._run_master())
         except Exception as exc:  # noqa: BLE001
-            self.failed.emit(self.generation, str(exc))
+            self.runtime.post_ui_event(
+                "_master_start_failed", self.generation, str(exc)
+            )
             try:
                 log.error("mitmproxy runtime failed: %s", exc)
             except RuntimeError:
@@ -414,7 +422,7 @@ class _MitmThread(QThread):
         # SSE tee 的信号桥同理（master 装配时 runtime 还不存在，只能在这里补）。
         master.sse.bridge = self.runtime
         self.master = master
-        self.runtime._master_created.emit(self.generation, master)
+        self.runtime.post_ui_event("_master_created", self.generation)
         if self.stop_requested:
             master.shutdown()
         try:
@@ -753,15 +761,17 @@ class MitmRuntime(QObject):
     sse_started = Signal(str)
     sse_event = Signal(str, object)
     sse_ended = Signal(str)
+    messages_changed = Signal(str, str, int)
     # 编辑页手工发送的落地结果：ComposeResult 值对象（见 core/mitm/compose.py）。
     compose_result = Signal(object)
     # 脚本装载状态变更：path + ScriptStatus 值对象（core/mitm/scripts.py），
     # 由 FerretScriptAddon.on_status 回调经本信号跨线程送达（与 compose_result 同形）。
     script_status_changed = Signal(str, object)
 
-    _master_created = Signal(int, object)
+    _master_created = Signal(int)
     _master_running = Signal(int)
     _master_start_failed = Signal(int, str)
+    _thread_stopped = Signal(int)
 
     def __init__(
         self,
@@ -798,6 +808,7 @@ class MitmRuntime(QObject):
         client_certs_path: str = "",
     ) -> None:
         super().__init__(parent)
+        self._ui_events = UiEventQueue(self)
         self.listen_host = normalize_listen_host(listen_host)
         self.listen_port = listen_port
         # 原生 Block addon 的两个来源过滤开关（mitmproxy/addons/block.py）。
@@ -927,6 +938,7 @@ class MitmRuntime(QObject):
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
         self._master_start_failed.connect(self._on_failed)
+        self._thread_stopped.connect(self._on_queued_thread_finished)
 
     @property
     def state(self) -> MitmRuntimeState:
@@ -1212,14 +1224,16 @@ class MitmRuntime(QObject):
             MitmRuntimeState.STOPPING,
         ):
             return
+        self.flush_ui_events()
+        self._ui_events.close()
         self._last_error = ""
         self._set_state(MitmRuntimeState.STARTING)
         self._generation += 1
         generation = self._generation
         thread = _MitmThread(self, generation)
-        thread.failed.connect(self._on_failed)
         thread.finished.connect(
-            lambda t=thread, g=generation: self._on_thread_finished(g, t)
+            lambda g=generation: self.post_ui_event("_thread_stopped", g),
+            Qt.ConnectionType.DirectConnection,
         )
         self._thread = thread
         thread.start()
@@ -1251,6 +1265,7 @@ class MitmRuntime(QObject):
             if not stopped:
                 log.error("mitmproxy runtime did not stop within %d ms", timeout_ms)
                 return False
+            self.flush_ui_events()
             if self._thread is thread:
                 self._thread = None
         self._master = None
@@ -1978,7 +1993,7 @@ class MitmRuntime(QObject):
         永远不上屏。跨线程 emit 走 Qt 的队列连接，和 `UiBridgeAddon` 同一条路子；
         发的是行快照（本回调跑在 mitm 线程，折叠就地进行）。
         """
-        self.flow_suspended.emit(flow_row(flow))
+        self.post_ui_event("flow_suspended", flow_row(flow))
 
     def _on_flow_intercepted(self, flow: Any) -> None:
         """Republish a breakpoint hold/release from the mitm thread as a Qt signal.
@@ -1987,7 +2002,13 @@ class MitmRuntime(QObject):
         `View` 只在 `requestheaders` / `response` / `error` 上更新行，不自己补发
         一次「已拦截」就永远不上屏。载荷同 #90 约定：行快照。
         """
-        self.flow_intercepted.emit(flow_row(flow))
+        self.post_ui_event("flow_intercepted", flow_row(flow))
+
+    def post_ui_event(self, name: str, *args) -> None:
+        self._ui_events.post(name, *args)
+
+    def flush_ui_events(self) -> None:
+        self._ui_events.flush()
 
     def _set_state(self, state: MitmRuntimeState) -> None:
         if state == self._state:
@@ -1995,10 +2016,15 @@ class MitmRuntime(QObject):
         self._state = state
         self.state_changed.emit(state)
 
-    def _on_master_created(self, generation: int, master: FerretMaster) -> None:
+    def _on_master_created(self, generation: int) -> None:
         if generation != self._generation or self._state != MitmRuntimeState.STARTING:
             return
-        self._master = master
+        # Creation and readiness share the mailbox order, including after a
+        # restart with an old Qt wakeup still pending. Only lifecycle ownership
+        # crosses here; flow operations still use the facade/mitm event loop.
+        thread = self._thread
+        if thread is not None:
+            self._master = thread.master
 
     def _on_master_running(self, generation: int) -> None:
         if (
@@ -2063,6 +2089,11 @@ class MitmRuntime(QObject):
         self._master = None
         self._set_state(MitmRuntimeState.FAILED)
         self.failed.emit(message)
+
+    def _on_queued_thread_finished(self, generation: int) -> None:
+        thread = self._thread
+        if thread is not None:
+            self._on_thread_finished(generation, thread)
 
     def _on_thread_finished(self, generation: int, thread: _MitmThread) -> None:
         if generation != self._generation or self._thread is not thread:
