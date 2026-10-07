@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.proxy import mode_specs
+from mitmproxy.test import tflow
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.mitm import MitmRuntime, MitmRuntimeState
@@ -65,6 +66,56 @@ class MitmRuntimeTests(unittest.TestCase):
         QCoreApplication.processEvents()
         self.assertEqual(runtime.state, MitmRuntimeState.STOPPED)
         self.assertIsNone(runtime.master)
+        self._assert_no_bridge_receivers(runtime)
+
+    def _assert_no_bridge_receivers(self, runtime: MitmRuntime) -> None:
+        """共享 view 上除原生自带的 focus / settings 外不许残留任何活接收器。
+
+        接收器留在跨代共享的 view 上，重启内核后每个 View 事件都会双发。
+        原生 ``View.__init__`` 会挂自己的 Focus / Settings 组件，与 view 同寿、
+        不是每代产物，放行；弱引用已死的条目 SyncSignal 只做惰性清理，直接跳过。
+        """
+        view = runtime.view
+        native_owners = {id(view.focus), id(view.settings)}
+        for signal in (
+            view.sig_store_add,
+            view.sig_store_remove,
+            view.sig_view_add,
+            view.sig_view_update,
+            view.sig_view_remove,
+            view.sig_view_refresh,
+        ):
+            for ref in signal.receivers:
+                receiver = ref()
+                if receiver is None:
+                    continue
+                owner = getattr(receiver, "__self__", None)
+                self.assertIsNotNone(owner)
+                self.assertIn(id(owner), native_owners)
+
+    def test_bridge_receivers_severed_even_when_done_hook_is_skipped(self) -> None:
+        """原生 run() 在 setup_servers 阶段见到 should_exit 会直接 return，而这条
+        早退不在保证 done() 的 try/finally 之内 —— done() 不保证执行，断连必须由
+        `_run_master` 的 finally 兜底。用「run() 返回但不派发 DoneHook」的替身把
+        这条路径钉死（真实早退依赖停止落在 setup_servers 窗口内，测不稳）。"""
+        runtime = MitmRuntime(listen_port=free_port())
+
+        async def run_without_done(self: FerretMaster) -> None:
+            return None
+
+        with patch.object(FerretMaster, "run", run_without_done):
+            runtime.start()
+            self.assertTrue(runtime.stop())
+        self._assert_no_bridge_receivers(runtime)
+
+        # 泄漏的可见后果：重启内核后同一 View 事件只允许发一次，旧缺陷下残留
+        # 的旧接收器会再发一遍（flow_stored 翻倍）。
+        start_runtime(runtime)
+        self.addCleanup(runtime.stop)
+        rows: list[object] = []
+        runtime.flow_stored.connect(rows.append)
+        runtime.view.sig_store_add.send(flow=tflow.tflow(resp=True))
+        self.assertEqual(len(rows), 1)
 
 
 class RuntimeRecoveryTests(unittest.TestCase):

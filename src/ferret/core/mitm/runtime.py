@@ -290,6 +290,9 @@ class UiBridgeAddon:
             self._bridge.flow_stored.emit(row)
 
     def running(self) -> None:
+        # 断连（done / `_run_master` 的 finally）之后本钩子不可能再被派发：
+        # 生命周期上 running 先于 done，早退路径压根没有 running。
+        assert self._master is not None  # 调用方已守
         if not self._master.proxyserver.listen_addrs():
             self._bridge._master_start_failed.emit(
                 self._generation,
@@ -338,6 +341,10 @@ class UiBridgeAddon:
         self._view.sig_view_update.disconnect(self._on_update)
         self._view.sig_view_remove.disconnect(self._on_remove)
         self._view.sig_view_refresh.disconnect(self._on_refresh)
+        # master.addons 持有本 addon，不在这里松手就留下 addon↔master 引用环，
+        # 旧 master 连同整条 addon 链只能等分代 GC 回收、引用计数永远收不走。
+        # done() 与 `_run_master` 的 finally 都会到这里，幂等。
+        self._master = None
 
 
 class _MitmThread(QThread):
@@ -380,14 +387,13 @@ class _MitmThread(QThread):
             mode=self.runtime._mode_specs(),
         )
         master = FerretMaster(options, event_loop=self.loop, view=self.runtime.view)
-        master.addons.add(
-            UiBridgeAddon(
-                self.runtime.view,
-                self.runtime,
-                master,
-                self.generation,
-            )
+        bridge = UiBridgeAddon(
+            self.runtime.view,
+            self.runtime,
+            master,
+            self.generation,
         )
+        master.addons.add(bridge)
         self._apply_gateway_rules(master)
         self._apply_block_options(master)
         self._apply_rewrite_rules(master)
@@ -414,6 +420,15 @@ class _MitmThread(QThread):
         try:
             await master.run()
         finally:
+            # 原生 Master.run() 在 setup_servers 阶段见到 should_exit 就直接
+            # return，这条早退不在保证 done() 的 try/finally 之内 —— 启动期 stop、
+            # UAC 等待中停止、监听失败都到不了 done()，断连不能只押在它上面。
+            # view 跨代共享，残留接收器会让重启内核后每个 View 事件双发；
+            # SyncSignal 的 receivers 是普通 list，只能在 mitm 线程上动，恰好在的。
+            bridge.disconnect()
+            # FerretMaster 装配时把 sse 也接到了同一条共享 view 上（装配方与
+            # 拆解方必须对称），一并拔掉。
+            master.view.sig_store_remove.disconnect(master.sse.flow_removed)
             self.master = None
             self.loop = None
 
@@ -1267,10 +1282,9 @@ class MitmRuntime(QObject):
     def restart(
         self, *, listen_host: str | None = None, listen_port: int | None = None
     ) -> None:
-        if listen_host is not None:
-            self.listen_host = normalize_listen_host(listen_host)
-        if listen_port is not None:
-            self.listen_port = listen_port
+        # 新端点先归一化、但**后赋值**：stop 失败时内核多半还带着旧端点在跑，
+        # 意图值必须与实际监听保持一致，不能提前改成没生效的新值。
+        host = normalize_listen_host(listen_host) if listen_host is not None else None
         if not self.stop():
             raise RuntimeError(
                 QCoreApplication.translate(
@@ -1278,6 +1292,10 @@ class MitmRuntime(QObject):
                     "mitmproxy 内核尚未完全停止，无法重启",
                 )
             )
+        if host is not None:
+            self.listen_host = host
+        if listen_port is not None:
+            self.listen_port = listen_port
         self.start()
 
     def apply_gateway_rules(
