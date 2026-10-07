@@ -60,11 +60,12 @@ from ferret.core.mitm import ComposeResult, RequestEdit
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 # 请求体「数据类型」下拉：(显示名, 高亮语言, 默认 Content-Type)。
-# 显示名进翻译，语言/类型是常量。
+# 显示名只存 QT_TRANSLATE_NOOP 标记（模块级求值翻译会冻结在源语言，见
+# utils/i18n.py），填充下拉时才用 translate 求值；语言/类型是常量。
 BODY_KINDS: tuple[tuple[str, Language, str], ...] = (
-    ("JSON", Language.JSON, "application/json"),
-    ("XML", Language.XML, "application/xml"),
-    ("Text", Language.HTTP, "text/plain"),
+    (QT_TRANSLATE_NOOP("ComposeView", "JSON"), Language.JSON, "application/json"),
+    (QT_TRANSLATE_NOOP("ComposeView", "XML"), Language.XML, "application/xml"),
+    (QT_TRANSLATE_NOOP("ComposeView", "Text"), Language.HTTP, "text/plain"),
 )
 
 # 只存标记：模块级求值赶在翻译器安装之前。与断点面板同一个锁模式，
@@ -256,7 +257,12 @@ class ComposeInterface(QWidget):
         self.headers_card = HeaderDualPanel(True, self)
         self.body_panel = JsonDualPanel(self)
         self.body_kind_combo = ComboBox(self)
-        self.body_kind_combo.addItems([kind for kind, _, _ in BODY_KINDS])
+        self.body_kind_combo.addItems(
+            [
+                QCoreApplication.translate("ComposeView", kind)
+                for kind, _, _ in BODY_KINDS
+            ]
+        )
         self.body_kind_combo.setFixedWidth(96)
         self.body_panel.text.tool_layout.addWidget(BodyLabel(self.tr("数据类型"), self))
         self.body_panel.text.tool_layout.addWidget(self.body_kind_combo)
@@ -438,10 +444,11 @@ class ComposeInterface(QWidget):
         if (parts.scheme == "http" and port == 443) or (
             parts.scheme == "https" and port == 80
         ):
-            host = parts.hostname or ""
-            if ":" in host:  # IPv6：hostname 不带方括号，拼回去得补上
-                host = f"[{host}]"
-            parts = parts._replace(netloc=host)
+            # 从 netloc 尾部剥掉端口段，而不是拿 hostname 重建 netloc ——
+            # hostname 不含 userinfo，重建会把 URL 内嵌的 user:pass@ 一并丢掉。
+            host, sep, port_part = parts.netloc.rpartition(":")
+            if sep and port_part.isdigit() and int(port_part) == port:
+                parts = parts._replace(netloc=host)
         pairs = [(k, v) for k, v in pairs if k.strip()]
         query = urlencode(pairs) if pairs else parts.query
         return urlunsplit(

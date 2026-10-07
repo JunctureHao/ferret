@@ -217,5 +217,33 @@ class HeaderFidelityTests(unittest.TestCase):
         )
 
 
+class StatusCodeParsingTests(unittest.TestCase):
+    """状态码判定须与 int() 同边界：isdigit 对 "²" 这类上标也 True，int() 却抛
+    ValueError，异常从放行槽逃逸就是「点了放行没反应」。非十进制一律折 0，
+    交给内核侧统一报「状态码必须是……」。"""
+
+    def _panel_with_code(self, text: str) -> ResponsePanel:
+        panel = ResponsePanel()
+        self.addCleanup(panel.deleteLater)
+        panel.load(tflow.tflow(resp=True))
+        panel.code_edit.setText(text)
+        return panel
+
+    def test_superscript_digit_folds_to_zero_instead_of_raising(self):
+        # 回归：int("²") 抛 ValueError，构造 ResponseEdit 时就炸在槽里。
+        self.assertEqual(self._panel_with_code("²").edit().status_code, 0)
+
+    def test_subscript_digits_folds_to_zero(self):
+        self.assertEqual(self._panel_with_code("₂₀₀").edit().status_code, 0)
+
+    def test_plain_decimal_digits_are_parsed(self):
+        # isdecimal 对阿拉伯-印度数字也是 True，int() 同样收（"٤٠٤" -> 404）。
+        self.assertEqual(self._panel_with_code("404").edit().status_code, 404)
+
+    def test_non_digit_folds_to_zero(self):
+        self.assertEqual(self._panel_with_code("").edit().status_code, 0)
+        self.assertEqual(self._panel_with_code("abc").edit().status_code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

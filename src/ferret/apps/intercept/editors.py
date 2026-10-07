@@ -64,10 +64,11 @@ def _merge_query(url: str, pairs: list[tuple[str, str]]) -> str:
     if (parts.scheme == "http" and port == 443) or (
         parts.scheme == "https" and port == 80
     ):
-        host = parts.hostname or ""
-        if ":" in host:  # IPv6：hostname 不带方括号，拼回去得补上
-            host = f"[{host}]"
-        parts = parts._replace(netloc=host)
+        # 从 netloc 尾部剥掉端口段，而不是拿 hostname 重建 netloc ——
+        # hostname 不含 userinfo，重建会把 URL 内嵌的 user:pass@ 一并丢掉。
+        host, sep, port_part = parts.netloc.rpartition(":")
+        if sep and port_part.isdigit() and int(port_part) == port:
+            parts = parts._replace(netloc=host)
     pairs = [(key, value) for key, value in pairs if key.strip()]
     query = urlencode(pairs) if pairs else parts.query
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
@@ -361,11 +362,13 @@ class ResponsePanel(PhasePanel):
         """状态码交给 `apply_response_edit` 校验（须在 100-599）。
 
         这里只把「不是数字」折成 0：让内核那边统一报「状态码必须是……」，
-        免得同一件事两处措辞不一样。
+        免得同一件事两处措辞不一样。判定用 isdecimal —— 它与 int() 接受的
+        字符集一致；isdigit 对上标（"²"）也 True 而 int() 抛 ValueError，
+        异常会从放行槽逃逸，流量停在断点上界面毫无反应。
         """
         text = self.code_edit.text().strip()
         return ResponseEdit(
-            status_code=int(text) if text.isdigit() else 0,
+            status_code=int(text) if text.isdecimal() else 0,
             headers=self._headers(),
             content=self._body_bytes(),
         )
