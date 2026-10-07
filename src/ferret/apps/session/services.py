@@ -201,7 +201,13 @@ class SessionRepository:
                     "SessionRepository", "会话不存在: {}"
                 ).format(session_id)
             )
-        destination = self._unique_path(normalize_session_name(name))
+        # 规范化后同名即原地不动：现名 "a b" 输入 "a  b" 时视图守卫拦不住（比对
+        # 的是未规范化原文），不短路会让 _unique_path 撞上源文件自己，无端改名
+        # 成 "a b-2.flow"。
+        normalized = normalize_session_name(name)
+        if normalized == source.stem:
+            return self._meta(source)
+        destination = self._unique_path(normalized)
         source.rename(destination)
         return self._meta(destination)
 
