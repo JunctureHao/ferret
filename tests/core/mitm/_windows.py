@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import ctypes
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from ctypes import wintypes
 
 
 @contextmanager
-def process_enumeration_window() -> Iterator[None]:
+def process_enumeration_window() -> Generator[None, None, None]:
     if sys.platform != "win32":
         yield
         return
