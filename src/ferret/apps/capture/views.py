@@ -180,6 +180,9 @@ class CapturesInterface(QWidget):
         self.command_bar.deleteUnmarkedRequested.connect(
             self.__on_delete_unmarked_requested
         )
+        self.command_bar.clearMarkedRequested.connect(
+            self.__on_clear_marked_requested
+        )
 
         # 由共享查看器汇总菜单信号，连接树首次创建后自动接入同一路径。
         self.content.replay_file_requested.connect(self.__on_replay_from_file_requested)
@@ -611,6 +614,32 @@ class CapturesInterface(QWidget):
         finally:
             dialog.deleteLater()
 
+    @Slot()
+    def __on_clear_marked_requested(self) -> None:
+        """清空全部已标记流量（含被当前过滤式遮住的），对全部 store 生效。
+
+        与「删除未标记」同一确认策略：先按同一套口径报数，用户点头才动手。
+        """
+        marked = self.controller.marked_flow_count()
+        if marked <= 0:
+            return
+        dialog = ClearMarkedFlowsDialog(marked, self.window())
+        try:
+            if not dialog.exec():
+                return
+            removed = self.controller.remove_marked_flows()
+            self._ui_state = replace(
+                self._ui_state, total_count=self.controller.total_count()
+            )
+            self._refresh_command_bar()
+            show_success(
+                self.tr("成功"),
+                self.tr("已清空 {} 条已标记流量").format(removed),
+                parent=self,
+            )
+        finally:
+            dialog.deleteLater()
+
     def __handle_escape(self) -> None:
         # 表达式框在 titlebar 后，页内 Esc 只剩「收起详情面板」一级。
         if self.content.is_panel_expanded():
@@ -778,6 +807,7 @@ class CaptureCommandBar(QWidget):
     openRequested = Signal()
     clearRequested = Signal()
     deleteUnmarkedRequested = Signal()
+    clearMarkedRequested = Signal()
     portRequested = Signal()
     locateRequested = Signal()
 
@@ -934,13 +964,18 @@ class CaptureCommandBar(QWidget):
         self.captureToggled.emit(not running)
 
     def _build_delete_menu(self) -> RoundMenu:
-        """拆分按钮下拉：只放主钮没有的删除动作（删除未标记流量）。「清空当前流量」
-        是主钮单击的动作，不在下拉里重复。"""
+        """拆分按钮下拉：只放主钮没有的删除动作（删除未标记 / 清空已标记）。
+        「清空当前流量」是主钮单击的动作，不在下拉里重复。"""
         menu = RoundMenu(parent=self)
+        has_flows = bool(self._state and self._state.total_count)
         unmarked_action = Action(FluentIcon.DELETE, self.tr("删除未标记流量"), menu)
-        unmarked_action.setEnabled(bool(self._state and self._state.total_count))
+        unmarked_action.setEnabled(has_flows)
         unmarked_action.triggered.connect(self.deleteUnmarkedRequested.emit)
         menu.addAction(unmarked_action)
+        marked_action = Action(FluentIcon.DELETE, self.tr("清空已标记流量"), menu)
+        marked_action.setEnabled(has_flows)
+        marked_action.triggered.connect(self.clearMarkedRequested.emit)
+        menu.addAction(marked_action)
         return menu
 
     @Slot()
@@ -988,6 +1023,10 @@ class CaptureCommandBar(QWidget):
             unmarked_action.setEnabled(clear_action.isEnabled())
             unmarked_action.triggered.connect(self.deleteUnmarkedRequested.emit)
             menu.addAction(unmarked_action)
+            marked_action = Action(FluentIcon.DELETE, self.tr("清空已标记流量"), menu)
+            marked_action.setEnabled(clear_action.isEnabled())
+            marked_action.triggered.connect(self.clearMarkedRequested.emit)
+            menu.addAction(marked_action)
         return menu
 
     @Slot()
@@ -1216,6 +1255,28 @@ class ClearUnmarkedFlowsDialog(MessageBoxBase):
         )
         self.desc_label.setWordWrap(True)
         self.yesButton.setText(self.tr("删除"))
+        self.cancelButton.setText(self.tr("取消"))
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.desc_label)
+        self.viewLayout.addLayout(layout)
+        self.widget.setMinimumWidth(380)
+
+
+class ClearMarkedFlowsDialog(MessageBoxBase):
+    """Confirmation for clearing marked capture rows."""
+
+    def __init__(self, flow_count: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.title_label = SubtitleLabel(
+            self.tr("清空已标记的 {} 条流量？").format(flow_count), self
+        )
+        self.desc_label = BodyLabel(
+            self.tr("包含被当前过滤条件遮住的流量；此操作无法撤销。"), self
+        )
+        self.desc_label.setWordWrap(True)
+        self.yesButton.setText(self.tr("清空"))
         self.cancelButton.setText(self.tr("取消"))
         layout = QVBoxLayout()
         layout.setSpacing(8)

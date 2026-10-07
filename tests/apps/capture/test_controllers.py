@@ -307,6 +307,14 @@ class FakeFacade:
         self.removed_unmarked_calls = getattr(self, "removed_unmarked_calls", 0) + 1
         return 3
 
+    def marked_flow_count(self, flow_ids=None) -> int:
+        self.marked_count_calls = getattr(self, "marked_count_calls", 0) + 1
+        return 2
+
+    def remove_marked_flows(self, flow_ids=None) -> int:
+        self.removed_marked_calls = getattr(self, "removed_marked_calls", 0) + 1
+        return 2
+
     def match_ids(self, matcher) -> set[str]:
         # 记账调用次数与最近一次 matcher；apply_highlight 的断言据此看「下没下发」。
         self.match_calls = getattr(self, "match_calls", 0) + 1
@@ -1059,6 +1067,13 @@ class ApplyFilterRawTests(unittest.TestCase):
         controller, facade = self.make_controller()
         self.assertEqual(controller.remove_unmarked_flows(), 3)
         self.assertEqual(facade.removed_unmarked_calls, 1)
+
+    def test_clearing_marked_flows_passes_through_to_the_facade(self) -> None:
+        controller, facade = self.make_controller()
+        self.assertEqual(controller.marked_flow_count(), 2)
+        self.assertEqual(facade.marked_count_calls, 1)
+        self.assertEqual(controller.remove_marked_flows(), 2)
+        self.assertEqual(facade.removed_marked_calls, 1)
 
 
 class ApplyHighlightTests(unittest.TestCase):

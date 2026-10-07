@@ -319,6 +319,55 @@ class RemoveUnmarkedTests(unittest.TestCase):
         self.assertEqual(len(self.runtime.view._store), 2)
 
 
+class RemoveMarkedTests(unittest.TestCase):
+    """`remove_marked_flows` 与 `remove_unmarked_flows` 同一条生命周期（放行 → 删），
+    受害者集合换成 store 里所有**已**标记 flow —— 「清空已标记流量」的内核动作。
+    计数与删除必须同一套口径，确认框的数字才不会骗人。"""
+
+    def setUp(self) -> None:
+        self.runtime = _InlineRuntime()
+        self.facade = MitmFacade(self.runtime)  # type: ignore
+
+    def _add(self, marked: str):
+        flow = tflow.tflow(resp=True)
+        flow.marked = marked
+        self.runtime.view.add([flow])
+        return flow
+
+    def test_only_marked_flows_are_removed_and_the_count_is_returned(self) -> None:
+        gone_a = self._add(":bug:")
+        gone_b = self._add(":default:")
+        kept = self._add("")
+
+        removed = self.facade.remove_marked_flows()
+
+        self.assertEqual(removed, 2)
+        remaining = list(self.runtime.view._store.values())
+        self.assertEqual(remaining, [kept])
+        self.assertIsNone(self.runtime.view.get_by_id(gone_a.id))
+        self.assertIsNone(self.runtime.view.get_by_id(gone_b.id))
+
+    def test_the_count_matches_what_would_be_removed(self) -> None:
+        self._add(":bug:")
+        self._add("")
+        self.assertEqual(self.facade.marked_flow_count(), 1)
+
+    def test_a_pending_marked_flow_is_released_before_removal(self) -> None:
+        pending = self._add(":bug:")
+        pending.intercept()
+        self.assertTrue(pending.intercepted)
+
+        self.facade.remove_marked_flows()
+
+        self.assertFalse(pending.intercepted)
+        self.assertIsNone(self.runtime.view.get_by_id(pending.id))
+
+    def test_removing_from_an_all_unmarked_store_is_a_no_op(self) -> None:
+        self._add("")
+        self.assertEqual(self.facade.remove_marked_flows(), 0)
+        self.assertEqual(len(self.runtime.view._store), 1)
+
+
 class FlowDetailTests(unittest.TestCase):
     """详情字典必须**穿过 `runtime.call`** 才交给界面（AGENTS.md §3）。
 

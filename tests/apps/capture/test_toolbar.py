@@ -239,18 +239,29 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.bar.captures_delete_btn.click()
         self.assertEqual(fired, [True])
 
-    def test_the_dropdown_only_offers_the_action_the_button_lacks(self) -> None:
-        """下拉只放「删除未标记流量」；「清空当前流量」是主钮动作，不在下拉里重复。"""
+    def test_the_dropdown_offers_the_delete_actions_the_button_lacks(self) -> None:
+        """下拉放「删除未标记 / 清空已标记」；「清空当前流量」是主钮动作，不重复。"""
         self.bar.set_state(self.state(total_count=5))
         unmarked = []
         self.bar.deleteUnmarkedRequested.connect(lambda: unmarked.append(True))
+        marked = []
+        self.bar.clearMarkedRequested.connect(lambda: marked.append(True))
 
         menu = self.bar._build_delete_menu()
         actions = [a for a in menu.actions() if a.text()]
-        self.assertEqual([a.text() for a in actions], ["删除未标记流量"])
+        self.assertEqual([a.text() for a in actions], ["删除未标记流量", "清空已标记流量"])
 
         actions[0].trigger()
         self.assertEqual(unmarked, [True])
+        actions[1].trigger()
+        self.assertEqual(marked, [True])
+        menu.deleteLater()
+
+    def test_the_delete_actions_disable_without_flows(self) -> None:
+        self.bar.set_state(self.state(total_count=0))
+        menu = self.bar._build_delete_menu()
+        for action in (a for a in menu.actions() if a.text()):
+            self.assertFalse(action.isEnabled(), action.text())
         menu.deleteLater()
 
     def test_more_menu_loads_flows_and_locates_the_selection(self) -> None:

@@ -1547,17 +1547,24 @@ class MitmFacade:
         else:
             remove()
 
+    def _marked_flow_ids(
+        self, marked: bool, flow_ids: Collection[str] | None
+    ) -> list[str]:
+        """按「是否带标记」过滤 store 的 flow id。**必须在 mitm 线程上调用**
+        （桥接红线：Qt 线程不碰 view），是 count / remove 两组方法的共享口径。"""
+        return [
+            f.id
+            for f in self.view._store.values()
+            if bool(f.marked) == marked and (flow_ids is None or f.id in flow_ids)
+        ]
+
     def unmarked_flow_count(self, flow_ids: Collection[str] | None = None) -> int:
         """store 里未标记流量的条数。「删除未标记」确认框的计数：与
         `remove_unmarked_flows` 同一套过滤口径（不看类型、只看 marked），
         数字对不上就会删多。"""
 
         def count() -> int:
-            return sum(
-                1
-                for f in self.view._store.values()
-                if not f.marked and (flow_ids is None or f.id in flow_ids)
-            )
+            return len(self._marked_flow_ids(False, flow_ids))
 
         if self.runtime.is_running:
             return int(self.runtime.call(count))
@@ -1573,11 +1580,34 @@ class MitmFacade:
         """
 
         def remove() -> int:
-            doomed = [
-                f.id
-                for f in self.view._store.values()
-                if not f.marked and (flow_ids is None or f.id in flow_ids)
-            ]
+            doomed = self._marked_flow_ids(False, flow_ids)
+            self._remove_flow_ids(doomed)
+            return len(doomed)
+
+        if self.runtime.is_running:
+            return int(self.runtime.call(remove))
+        return remove()
+
+    def marked_flow_count(self, flow_ids: Collection[str] | None = None) -> int:
+        """store 里已标记流量的条数。「清空已标记」确认框的计数，与
+        `remove_marked_flows` 同一套过滤口径，数字对不上就会删多。"""
+
+        def count() -> int:
+            return len(self._marked_flow_ids(True, flow_ids))
+
+        if self.runtime.is_running:
+            return int(self.runtime.call(count))
+        return count()
+
+    def remove_marked_flows(self, flow_ids: Collection[str] | None = None) -> int:
+        """删除 store 里所有已标记流量，返回删除数供界面播报。
+
+        生命周期与 `remove_unmarked_flows` 完全一致：挂起中的 flow 必须先放行，
+        否则连接永久挂在 wait_for_resume 上（同 `remove_flows` 注释）。
+        """
+
+        def remove() -> int:
+            doomed = self._marked_flow_ids(True, flow_ids)
             self._remove_flow_ids(doomed)
             return len(doomed)
 

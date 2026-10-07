@@ -660,9 +660,7 @@ class CaptureController(QObject):
         self._admitted_ids.clear()
 
     def remove_flows(self, flow_ids: list[str]) -> None:
-        self._mitm.remove_flows(
-            [fid for fid in flow_ids if fid in self._admitted_ids]
-        )
+        self._mitm.remove_flows([fid for fid in flow_ids if fid in self._admitted_ids])
 
     def unmarked_flow_count(self) -> int:
         """未标记流量条数（「删除未标记」确认框的计数，与删除同一套口径）。"""
@@ -671,6 +669,14 @@ class CaptureController(QObject):
     def remove_unmarked_flows(self) -> int:
         """删除全部未标记流量（含被当前过滤式遮住的），返回删除数。"""
         return self._mitm.remove_unmarked_flows(self._admitted_ids)
+
+    def marked_flow_count(self) -> int:
+        """已标记流量条数（「清空已标记」确认框的计数，与删除同一套口径）。"""
+        return self._mitm.marked_flow_count(self._admitted_ids)
+
+    def remove_marked_flows(self) -> int:
+        """清空全部已标记流量（含被当前过滤式遮住的），返回删除数。"""
+        return self._mitm.remove_marked_flows(self._admitted_ids)
 
     def toggle_capture(self) -> bool:
         # 文件/通道清理失败也必须先重试停止，即使代理已经恢复。
