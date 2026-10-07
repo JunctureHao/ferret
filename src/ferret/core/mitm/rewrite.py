@@ -248,6 +248,7 @@ class RewriteRule:
             self._validate_map_local()
         elif self.kind in HEADER_KINDS:
             self._validate_header_name()
+            self._validate_header_value(self.replacement)
         elif self.kind in BODY_KINDS:
             self._validate_body_regex()
         elif self.kind == RewriteKind.REPLACE_REQUEST:
@@ -317,6 +318,28 @@ class RewriteRule:
                 QCoreApplication.translate("RewriteRule", "请求头/响应头名称不能含换行")
             )
 
+    def _validate_header_value(self, value: str) -> None:
+        """头值过 CRLF 闸：界面输入框之外（手改配置 / 粘贴）多行值能溜进规则，
+        写进报文就是把一行头拆成两行的头走私。空串是删头语义、``@路径`` 每请求
+        现读（保存期管不到文件内容），两者不拦。"""
+        if not value or value.startswith(FILE_REPLACEMENT_PREFIX):
+            return
+        if "\n" in value or "\r" in value:
+            raise ValueError(
+                QCoreApplication.translate("RewriteRule", "请求头/响应头值不能含换行")
+            )
+
+    def _validate_header_table(self) -> None:
+        """替换类的头表逐项过 CRLF 闸（名 + 值），动机同 _validate_header_value。"""
+        for name, value in self.headers:
+            if "\n" in name or "\r" in name:
+                raise ValueError(
+                    QCoreApplication.translate(
+                        "RewriteRule", "请求头/响应头名称不能含换行"
+                    )
+                )
+            self._validate_header_value(value)
+
     def _validate_body_regex(self) -> None:
         # 体正则不 strip：正则里的空白是有意义的。整栏留空才当「整体替换」。
         pattern = self.target if self.target.strip() else WHOLE_BODY_PATTERN
@@ -342,6 +365,7 @@ class RewriteRule:
             raise ValueError(
                 QCoreApplication.translate("RewriteRule", "请求方法不能含空白字符")
             )
+        self._validate_header_table()
 
     def _validate_replace_response(self) -> None:
         if not self.filled:
@@ -352,6 +376,7 @@ class RewriteRule:
             )
         if self.status_code is not None:
             _checked_status(self.status_code)
+        self._validate_header_table()
 
     # —— 持久化 ——
 
