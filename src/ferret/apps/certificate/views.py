@@ -790,7 +790,13 @@ class CertificateInterface(ScrollArea):
     @Slot()
     def _on_open_dir(self) -> None:
         directory = self.controller.certs_dir
-        directory.mkdir(parents=True, exist_ok=True)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            # 目录建不出来（盘符没了 / 权限被收）时回退打开的是父目录，静默
+            # 打不开位比报错更糊涂；与本页其他操作的 InfoBar 反馈保持一致。
+            show_warning(self.tr("无法打开证书目录"), str(exc), self)
+            return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
 
     def _on_export(self, fmt: CertExportFormat) -> None:

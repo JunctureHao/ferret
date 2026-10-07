@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import unittest
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -66,8 +66,18 @@ class CertificateInterfaceTests(unittest.TestCase):
                         side_effect=RuntimeError("TLS rejected"),
                     ),
                     patch("ferret.apps.certificate.views.show_warning") as warning,
+                    self.assertLogs("ferret.certificate", "WARNING") as logs,
                 ):
                     callback(True)
+                self.assertEqual(
+                    logs.output,
+                    [
+                        (
+                            "WARNING:ferret.certificate:"
+                            "Failed to apply saved TLS settings: TLS rejected"
+                        )
+                    ],
+                )
                 warning.assert_called_once()
                 self.assertIn("TLS rejected", warning.call_args.args[1])
 
@@ -189,7 +199,7 @@ class CertificateInterfaceTests(unittest.TestCase):
 
     def test_skeleton_matches_the_settings_page(self) -> None:
         """版式和设置页对齐：同样的视口边距、同样的 36px 内容边距、同样的标题位置。"""
-        settings = SettingsInterface()
+        settings = SettingsInterface(updates=Mock())
         self.addCleanup(settings.deleteLater)
         self.assertEqual(self.page.viewportMargins(), settings.viewportMargins())
         self.assertEqual(
