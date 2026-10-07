@@ -175,6 +175,7 @@ from mitmproxy.proxy.mode_specs import ProxyMode, UpstreamMode
 from mitmproxy.tcp import TCPFlow
 from mitmproxy.udp import UDPFlow
 from mitmproxy.utils import emoji, human, signals
+from mitmproxy.version import FLOW_FORMAT_VERSION
 from mitmproxy.websocket import WebSocketData, WebSocketMessage
 from mitmproxy_rs import process_info as rs_process_info
 from mitmproxy_rs import wireguard as rs_wireguard
@@ -197,6 +198,7 @@ if not hasattr(ctx, "options"):
     ctx.options = Options()
 
 __all__ = [
+    "FLOW_FORMAT_VERSION",
     "KEY_SIZE",
     "AddonHalt",
     "AntiCache",

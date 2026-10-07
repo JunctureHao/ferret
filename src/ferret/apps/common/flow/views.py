@@ -61,10 +61,6 @@ from ferret.apps.common.flow.columns import (
     logical_index,
     save_layout,
 )
-
-# 详情面板搬去 detail.py，但两个挂载点（capture / session）照旧从 views 导入 ——
-# `FlowViewerPane` 自己就要用，这一行同时当转出口。
-from ferret.apps.common.flow.detail import FlowDataPanel
 from ferret.apps.common.flow.menus import (
     FlowContextMenu,
     FlowExportMenu,  # noqa: F401  re-export：菜单搬去 menus.py，外部照旧从 views 导入
@@ -91,7 +87,8 @@ log = get_logger("flow")
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from PySide6.QtCore import SignalInstance
+    from ferret.apps.common.flow.detail import FlowDataPanel
+    from ferret.apps.common.flow.models import FlowSource
 
     # 类型检查专用基类：mixin 运行时是纯 `object`，但它调用的 `tr` / `setColumnWidth`
     # / `setColumnHidden` 与 `column_layout_changed` 信号都由具体视图子类（QTableView /
@@ -118,10 +115,12 @@ class _ColumnLayoutMixin(_MixinBase):
     """
 
     if TYPE_CHECKING:
-        # 具体视图子类提供的信号/方法，用注解声明（不用 `def ...: ...` 内联体：
+        # 具体视图子类提供的方法，用注解声明（不用 `def ...: ...` 内联体：
         # pyside6-lupdate 的 Python 扫描器会在类体内联体上错算缩进，把其后类的
         # `tr()` 甩进空 context，英文界面静默退回中文，§7）。
-        column_layout_changed: SignalInstance
+        # 这里声明类级描述符；实例访问时 PySide6 将其绑定为 SignalInstance，
+        # 直接声明 SignalInstance 会与子类的 Signal(object) 定义冲突。
+        column_layout_changed = Signal(object)
         setColumnWidth: Callable[[int, int], None]
         setColumnHidden: Callable[[int, bool], None]
 
@@ -314,8 +313,8 @@ class HighlightRowDelegate(TableItemDelegate):
 class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method-override]
     """Flow 数据表格 - 显示网络请求数据。"""
 
-    row_double_clicked = Signal(dict)  # 双击行信号
-    row_selected = Signal(dict)  # 选中行信号
+    row_double_clicked = Signal(dict)  # 仅携带 flow id，由宿主按需读取详情
+    row_selected = Signal(dict)
     stats_updated = Signal(int, int, int)  # 统计更新信号：总条数、显示条数、选中条数
     column_layout_changed = Signal(object)  # 列布局变更（FlowViewerPane 落盘 + 同步树）
 
@@ -412,12 +411,13 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         self.context_menu.controller = controller
         self.context_menu.export_menu.controller = controller
 
-    def row_detail(self, row: int) -> dict:
-        """行号 → 详情字典，由 controller 在 mitm 线程内构建。
+    def row_summary(self, row: int) -> dict:
+        """行号 → 轻量摘要字典，由 controller 在 mitm 线程内构建。
 
-        改造前这一步是 `FlowTableModel._build_row_data`，在 **Qt 线程**上直接读活
-        flow（AGENTS.md §3 的红线），还顺手做了 body 美化和证书解析。现在表格模型
-        只管七列，详情整份由 `FlowViewController.flow_detail` 产出。
+        右键菜单只消费 method/host/url/type/comment 这几个标量，curl 改为点击
+        复制时按需生成（见 FlowExportMenu.__export_text）。此前这里走
+        `flow_detail`：双侧 body 解码美化 + curl 全算一遍，大 body 流量上右键
+        这个高频操作每次都白付几十毫秒。
 
         没有 controller 只发生在裸构造 `FlowViewerPane()` 的场合（测试）——
         此时没有任何流量可查，空字典就是正确答案。
@@ -425,7 +425,13 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         snapshot = self.source_model.get_row(row)
         if snapshot is None or self.controller is None:
             return {}
-        return self.controller.flow_detail(snapshot.id)
+        return self.controller.flow_summary(snapshot.id)
+
+    def _selection_for(self, index: QModelIndex | QPersistentModelIndex) -> dict:
+        """普通选择只传不可变行的 id，不在折叠状态下解码、美化 body。"""
+        source_index = self.proxy_model.mapToSource(index)
+        row = self.source_model.get_row(source_index.row())
+        return {"id": row.id} if row is not None else {}
 
     def get_selected_rows(self) -> list[FlowRow]:
         """获取当前选中的行快照列表(单选/多选通用)"""
@@ -445,14 +451,10 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         """
         indexes = selected.indexes()
         if indexes:
-            index = indexes[0]
-            source_index = self.proxy_model.mapToSource(index)
-            row = source_index.row()
-            data = self.row_detail(row)
-            self.row_selected.emit(data)
+            self.row_selected.emit(self._selection_for(indexes[0]))
 
         # 更新统计信息
-        QTimer.singleShot(0, self.__emit_stats_updated)
+        QTimer.singleShot(0, self, self.__emit_stats_updated)
 
     @Slot(QPoint)
     def __on_show_context_menu(self, pos: QPoint):
@@ -467,7 +469,7 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
 
         source_index = self.proxy_model.mapToSource(index)
         row = source_index.row()
-        row_data = self.row_detail(row)  # ← 就来自这里
+        row_data = self.row_summary(row)
         selected_rows = self.get_selected_rows()
         self.context_menu.update_context(row, row_data, selected_rows)
         self.context_menu.exec(self.viewport().mapToGlobal(pos))
@@ -475,8 +477,8 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
     @Slot()
     def __on_sync_visual(self):
         """视图更新（动态的插入需要）"""
-        QTimer.singleShot(0, self.updateSelectedRows)
-        QTimer.singleShot(0, self.__emit_stats_updated)
+        QTimer.singleShot(0, self, self.updateSelectedRows)
+        QTimer.singleShot(0, self, self.__emit_stats_updated)
 
     def __emit_stats_updated(self):
         """发出统计更新信号"""
@@ -495,7 +497,7 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         """清除所有数据"""
         self.source_model.clear_data()
         self.clearSelection()
-        QTimer.singleShot(0, self.__emit_stats_updated)
+        QTimer.singleShot(0, self, self.__emit_stats_updated)
 
     @Slot()
     def remove_selected(self) -> None:
@@ -538,14 +540,14 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         self.horizontalScrollBar().setValue(0)
 
     def selected_row_data(self) -> dict:
+        """当前选区的轻量描述；详情由 FlowViewerPane 按需获取。"""
+        indexes = self.selectionModel().selectedRows()
+        if not indexes:
+            return {}
         index = self.selectionModel().currentIndex()
-        if not index.isValid():
-            indexes = self.selectionModel().selectedRows()
-            if not indexes:
-                return {}
+        if not index.isValid() or not self.selectionModel().isSelected(index):
             index = indexes[0]
-        source_index = self.proxy_model.mapToSource(index)
-        return self.row_detail(source_index.row())
+        return self._selection_for(index)
 
     @Slot(QModelIndex)
     def __on_row_double_clicked(self, index: QModelIndex):
@@ -554,10 +556,7 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         Args:
             index: 被双击的索引
         """
-        source_index = self.proxy_model.mapToSource(index)
-        row = source_index.row()
-        data = self.row_detail(row)
-        self.row_double_clicked.emit(data)
+        self.row_double_clicked.emit(self._selection_for(index))
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
@@ -755,15 +754,24 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
         self.context_menu.export_menu.controller = controller
 
     def _detail_for(self, proxy_index: QModelIndex | QPersistentModelIndex) -> dict:
-        """proxy index → 详情字典：连接节点走 connection_detail，子流走 flow_detail。"""
+        """proxy index → 右键菜单用的字典：连接节点走 connection_detail，
+        子流走轻量 summary（菜单不读 body 文本，同 FlowViewerPane.row_summary）。"""
+        selection = self._selection_for(proxy_index)
+        if selection.get("kind") == "connection":
+            return selection
+        flow_id = selection.get("id")
+        if not flow_id or self.controller is None:
+            return {}
+        return self.controller.flow_summary(flow_id)
+
+    def _selection_for(self, proxy_index: QModelIndex | QPersistentModelIndex) -> dict:
+        """子流只交 id，连接节点的摘要直接来自行快照。"""
         source_index = self.proxy_model.mapToSource(proxy_index)
         node = self.source_model.node_at(source_index)
         if node is not None:
             return self.source_model.connection_detail(node)
         flow = self.source_model.flow_at(source_index)
-        if flow is None or self.controller is None:
-            return {}
-        return self.controller.flow_detail(flow.id)
+        return {"id": flow.id} if flow is not None else {}
 
     def get_selected_rows(self) -> list[FlowRow]:
         """选区 → 行快照列表：连接节点展开为其全部子行（parent→children 映射）。"""
@@ -781,8 +789,8 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
     def __on_selection_changed(self, selected):
         indexes = selected.indexes()
         if indexes:
-            self.row_selected.emit(self._detail_for(indexes[0]))
-        QTimer.singleShot(0, self.__emit_stats_updated)
+            self.row_selected.emit(self._selection_for(indexes[0]))
+        QTimer.singleShot(0, self, self.__emit_stats_updated)
 
     @Slot(QPoint)
     def __on_show_context_menu(self, pos: QPoint):
@@ -798,7 +806,7 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
 
     @Slot()
     def __on_sync_visual(self):
-        QTimer.singleShot(0, self.__emit_stats_updated)
+        QTimer.singleShot(0, self, self.__emit_stats_updated)
 
     def __emit_stats_updated(self):
         total = self.controller.total_count() if self.controller else 0
@@ -813,7 +821,7 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
     def clear_all(self):
         self.source_model.clear_data()
         self.clearSelection()
-        QTimer.singleShot(0, self.__emit_stats_updated)
+        QTimer.singleShot(0, self, self.__emit_stats_updated)
 
     @Slot()
     def remove_selected(self) -> None:
@@ -848,13 +856,13 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
         self.horizontalScrollBar().setValue(0)
 
     def selected_row_data(self) -> dict:
+        indexes = self.selectionModel().selectedRows()
+        if not indexes:
+            return {}
         index = self.selectionModel().currentIndex()
-        if not index.isValid():
-            indexes = self.selectionModel().selectedRows()
-            if not indexes:
-                return {}
+        if not index.isValid() or not self.selectionModel().isSelected(index):
             index = indexes[0]
-        return self._detail_for(index)
+        return self._selection_for(index)
 
     @Slot(QModelIndex)
     def __on_row_double_clicked(self, index: QModelIndex):
@@ -862,7 +870,7 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
         source_index = self.proxy_model.mapToSource(index)
         if self.source_model.node_at(source_index) is not None:
             return
-        self.row_double_clicked.emit(self._detail_for(index))
+        self.row_double_clicked.emit(self._selection_for(index))
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
@@ -874,6 +882,10 @@ class FlowViewerPane(OrientationSplitter):
 
     # 当前模式视图的统计转发（平铺/连接树两路都汇到这里再冒泡给消费方）。
     stats_updated = Signal(int, int, int)
+    replay_file_requested = Signal()
+    block_host_requested = Signal(str)
+    edit_in_compose_requested = Signal(str)
+    add_to_mock_requested = Signal(list)
 
     def __init__(
         self,
@@ -885,6 +897,10 @@ class FlowViewerPane(OrientationSplitter):
     ) -> None:
         super().__init__(parent=parent)
         self.controller = controller
+        self._capabilities = capabilities
+        self._source: FlowSource | None = None
+        self._highlight_ids: set[str] = set()
+        self._panel_expanded = False
         self._capture_mode = capabilities is None or capabilities.can_delete
         self._grouping_mode = "flat"
         self._grouping_actions: dict[str, Action] = {}
@@ -927,40 +943,74 @@ class FlowViewerPane(OrientationSplitter):
 
         self.table_stack = QStackedWidget(self.table_container)
         self.table = FlowDataTable(self.table_container, controller, capabilities)
-        self.tree = FlowConnTree(self.table_container, controller, capabilities)
+        self.tree: FlowConnTree | None = None
         self.empty_state = FlowEmptyState(self.table_container)
-        self.table_stack.addWidget(self.table)  # page 0: 平铺
-        self.table_stack.addWidget(self.tree)  # page 1: 按连接
-        self.table_stack.addWidget(self.empty_state)  # page 2: 空态
+        self.table_stack.addWidget(self.table)
+        self.table_stack.addWidget(self.empty_state)
         container_layout = QVBoxLayout(self.table_container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
         container_layout.addWidget(self.table_stack)
-        self.panel = FlowDataPanel(self, controller, capabilities)
+        self.panel: FlowDataPanel | None = None
         self.addWidget(self.table_container)
-        self.addWidget(self.panel)
+        self.addWidget(QWidget(self))  # 保留可拖动分割条，首次展开才创建编辑器。
         self.setStretchFactor(0, 1)
         self.setStretchFactor(1, 0)
         self.collapse_panel()
 
-        self.table.row_selected.connect(self._on_row_selected)
-        self.table.row_double_clicked.connect(self._on_row_double_clicked)
-        self.tree.row_selected.connect(self._on_row_selected)
-        self.tree.row_double_clicked.connect(self._on_row_double_clicked)
-        self.panel.collapseRequested.connect(self.collapse_panel)
-        self.table.stats_updated.connect(self._on_stats_updated)
-        self.tree.stats_updated.connect(self._on_stats_updated)
+        self.splitterMoved.connect(self._on_splitter_moved)
 
         # 列布局：pane 是唯一读配置/落盘/同步两视图的枢纽（§4.2）。启动读一次持久布局
-        # 应用到两套视图；任一视图的变更（列宽拖动 / 列设置对话框 / 恢复默认）回到 pane，
-        # 落盘后再 fan-out 到另一视图，避免两套状态漂移。
+        # 应用到已创建的视图，连接树首次打开时取最新布局；任一视图变更仍统一落盘。
         self._column_layout = load_layout()
         self.table.apply_column_layout(self._column_layout)
-        self.tree.apply_column_layout(self._column_layout)
-        self.table.column_layout_changed.connect(self._on_column_layout_changed)
-        self.tree.column_layout_changed.connect(self._on_column_layout_changed)
+        self._connect_view(self.table)
 
         self._refresh_empty_state()
+
+    def _connect_view(self, view: FlowDataTable | FlowConnTree) -> None:
+        view.row_selected.connect(self._on_row_selected)
+        view.row_double_clicked.connect(self._on_row_double_clicked)
+        view.stats_updated.connect(self._on_stats_updated)
+        view.column_layout_changed.connect(self._on_column_layout_changed)
+        menu = view.context_menu
+        menu.replay_file_requested.connect(self.replay_file_requested)
+        menu.block_host_requested.connect(self.block_host_requested)
+        menu.edit_in_compose_requested.connect(self.edit_in_compose_requested)
+        menu.add_to_mock_requested.connect(self.add_to_mock_requested)
+
+    def _ensure_tree(self) -> FlowConnTree:
+        if self.tree is None:
+            tree = FlowConnTree(
+                self.table_container, self.controller, self._capabilities
+            )
+            self.tree = tree
+            self.table_stack.addWidget(tree)
+            tree.apply_column_layout(self._column_layout)
+            tree.set_highlight_ids(self._highlight_ids)
+            self._connect_view(tree)
+            # 未打开时不积压增量信号；数据源已保存最新快照，首次整树重建即可。
+            if self._source is not None:
+                tree.set_source(self._source)
+        return self.tree
+
+    def _ensure_panel(self) -> FlowDataPanel:
+        if self.panel is None:
+            from ferret.apps.common.flow.detail import FlowDataPanel
+
+            placeholder = self.widget(1)
+            assert placeholder is not None
+            sizes = self.sizes()
+            hidden = placeholder.isHidden()
+            # 先挂占位件，避免 QSplitter 自动插入第三个直接子控件。
+            panel = FlowDataPanel(placeholder, self.controller, self._capabilities)
+            self.panel = panel
+            self.replaceWidget(1, panel)
+            placeholder.deleteLater()
+            panel.collapseRequested.connect(self.collapse_panel)
+            panel.setVisible(not hidden)
+            self.setSizes(sizes)
+        return self.panel
 
     @Slot(object)
     def _on_column_layout_changed(self, layout: ColumnLayout) -> None:
@@ -973,11 +1023,14 @@ class FlowViewerPane(OrientationSplitter):
         self._column_layout = layout
         save_layout(layout)
         other = self.tree if self.sender() is self.table else self.table
-        other.apply_column_layout(layout)
+        if other is not None:
+            other.apply_column_layout(layout)
 
-    def _current_view(self):
+    def _current_view(self) -> FlowDataTable | FlowConnTree:
         """当前模式对应的视图（平铺表格 / 连接树）。"""
-        return self.tree if self._grouping_mode == "conn" else self.table
+        if self._grouping_mode == "conn" and self.tree is not None:
+            return self.tree
+        return self.table
 
     @Slot()
     def _toggle_grouping_mode(self) -> None:
@@ -989,6 +1042,8 @@ class FlowViewerPane(OrientationSplitter):
         """切换显示模式：flat（平铺）⇄ conn（按连接分组）。"""
         if mode not in ("flat", "conn") or mode == self._grouping_mode:
             return
+        if mode == "conn":
+            self._ensure_tree()
         self._grouping_mode = mode
         self._sync_mode_button()
         # 换页后按当前视图重算统计（shown 口径不同：平铺=行数，树=子流数）。
@@ -1012,28 +1067,36 @@ class FlowViewerPane(OrientationSplitter):
     # fan-out：一层转发同时喂平铺与连接树两个模型（见方案 §3.3）
     # ------------------------------------------------------------------
     def set_source(self, source) -> None:
+        self._source = source
         self.table.set_source(source)
-        self.tree.set_source(source)
+        if self.tree is not None:
+            self.tree.set_source(source)
 
     def set_highlight_ids(self, ids: set[str]) -> None:
-        self.table.set_highlight_ids(ids)
-        self.tree.set_highlight_ids(ids)
+        self._highlight_ids = set(ids)
+        self.table.set_highlight_ids(self._highlight_ids)
+        if self.tree is not None:
+            self.tree.set_highlight_ids(self._highlight_ids)
 
     def on_flow_added(self, flow) -> None:
         self.table.on_flow_added(flow)
-        self.tree.on_flow_added(flow)
+        if self.tree is not None:
+            self.tree.on_flow_added(flow)
 
     def on_flow_updated(self, flow) -> None:
         self.table.on_flow_updated(flow)
-        self.tree.on_flow_updated(flow)
+        if self.tree is not None:
+            self.tree.on_flow_updated(flow)
 
     def on_flow_removed(self, flow, index) -> None:
         self.table.on_flow_removed(flow, index)
-        self.tree.on_flow_removed(flow, index)
+        if self.tree is not None:
+            self.tree.on_flow_removed(flow, index)
 
     def on_view_refreshed(self) -> None:
         self.table.on_view_refreshed()
-        self.tree.on_view_refreshed()
+        if self.tree is not None:
+            self.tree.on_view_refreshed()
 
     def on_locate_selection(self) -> None:
         self._current_view().on_locate_selection()
@@ -1041,13 +1104,16 @@ class FlowViewerPane(OrientationSplitter):
     def clear_all(self) -> None:
         # 平铺侧清源（source.clear()）+ 复位，连接树再从空源整树重建。
         self.table.clear_all()
-        self.tree.on_view_refreshed()
+        if self.tree is not None:
+            self.tree.on_view_refreshed()
 
     def set_controller(self, controller) -> None:
         self.controller = controller
         self.table.set_controller(controller)
-        self.tree.set_controller(controller)
-        self.panel.set_controller(controller)
+        if self.tree is not None:
+            self.tree.set_controller(controller)
+        if self.panel is not None:
+            self.panel.set_controller(controller)
         self._refresh_empty_state()
 
     def is_panel_expanded(self) -> bool:
@@ -1057,21 +1123,57 @@ class FlowViewerPane(OrientationSplitter):
     @Slot(dict)
     def _on_row_selected(self, data: dict) -> None:
         """Update details only when the outer detail panel is already open."""
+        if self.sender() is not self._current_view():
+            return
         if self.is_panel_expanded():
-            self.panel.set_data(data)
+            self._show_selection(data)
+
+    def _show_selection(self, selection: dict) -> None:
+        panel = self._ensure_panel()
+        data = self._detail_for_selection(selection)
+        if data:
+            panel.set_data(data)
+        else:
+            # 无选区时保持中性空页，并撤下旧 id，避免继续接收旧流量的消息。
+            panel.set_data({})
+
+    def _detail_for_selection(self, selection: dict) -> dict:
+        if selection.get("kind") == "connection":
+            return selection
+        flow_id = selection.get("id")
+        if not flow_id or self.controller is None:
+            return {}
+        return self.controller.flow_summary(flow_id)
 
     @Slot(dict)
     def _on_row_double_clicked(self, data: dict) -> None:
         """Open details and normalize the outer splitter to 50/50."""
+        if self.sender() is not self._current_view():
+            return
+        self._open_detail(data)
+
+    def _open_detail(self, selection: dict) -> None:
+        data = self._detail_for_selection(selection)
+        if not data:
+            return
         # 空态会把面板整个隐藏（4ee294f），而 QSplitter 对隐藏件不分配尺寸；
         # 有行可双击就说明面板不该再藏着，先恢复显示再等分。
-        if self.panel.isHidden():
-            self.panel.setVisible(True)
-        self.panel.set_data(data)
-        QTimer.singleShot(0, self._apply_equal_sizes)
+        panel = self._ensure_panel()
+        panel.setVisible(True)
+        panel.set_data(data)
+        self._panel_expanded = True
+        QTimer.singleShot(0, self, self._apply_equal_sizes)
+
+    @Slot(int, int)
+    def _on_splitter_moved(self, _position: int, _index: int) -> None:
+        expanded = self.is_panel_expanded()
+        if expanded and not self._panel_expanded:
+            self._show_selection(self._current_view().selected_row_data())
+        self._panel_expanded = expanded
 
     @Slot()
     def collapse_panel(self) -> None:
+        self._panel_expanded = False
         self.collapse(1)
 
     def _apply_equal_sizes(self) -> None:
@@ -1081,7 +1183,7 @@ class FlowViewerPane(OrientationSplitter):
     def open_selected(self) -> None:
         data = self._current_view().selected_row_data()
         if data:
-            self._on_row_double_clicked(data)
+            self._open_detail(data)
 
     def set_capture_context(
         self,
@@ -1104,12 +1206,17 @@ class FlowViewerPane(OrientationSplitter):
 
     @Slot(int, int, int)
     def _on_stats_updated(self, total: int, shown: int, selected: int) -> None:
+        # 隐藏视图的增量/选区信号仍会到达，但不能覆盖当前视图的选中计数与空态。
+        if self.sender() is not self._current_view():
+            return
         self._capture_context["total_count"] = total
         self._capture_context["shown_count"] = shown
         self._refresh_empty_state()
         self.stats_updated.emit(total, shown, selected)
 
     def _refresh_empty_state(self) -> None:
+        detail_widget = self.widget(1)
+        assert detail_widget is not None
         total = int(self._capture_context["total_count"])
         shown = int(self._capture_context["shown_count"])
         state = str(self._capture_context["capture_state"])
@@ -1123,13 +1230,14 @@ class FlowViewerPane(OrientationSplitter):
             self.table_stack.setCurrentWidget(self._current_view())
             # isHidden() 只认「被刻意隐藏」；isVisible() 会把窗口未显示误判进来，
             # 导致显示前每次 stats 更新都白白 collapse 一次。
-            if self.panel.isHidden():
-                self.panel.setVisible(True)
+            if detail_widget.isHidden():
+                detail_widget.setVisible(True)
                 self.collapse_panel()
             return
 
         self.table_stack.setCurrentWidget(self.empty_state)
-        self.panel.setVisible(False)
+        self._panel_expanded = False
+        detail_widget.setVisible(False)
         if total > 0:
             self.empty_state.set_text(
                 self.tr("没有匹配结果"),

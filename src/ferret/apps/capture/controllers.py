@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal
 from sysproxy import (
@@ -540,6 +540,20 @@ class CaptureController(QObject):
     def flow_detail(self, flow_id: str) -> dict[str, Any]:
         return self._mitm.flow_detail(flow_id)
 
+    def flow_summary(self, flow_id: str) -> dict[str, Any]:
+        return self._mitm.flow_summary(flow_id)
+
+    def flow_body(
+        self, flow_id: str, side: Literal["Request", "Response"]
+    ) -> dict[str, Any]:
+        return self._mitm.flow_body(flow_id, side)
+
+    def flow_overview_metadata(self, flow_id: str) -> dict[str, Any]:
+        return self._mitm.flow_overview_metadata(flow_id)
+
+    def flow_messages(self, flow_id: str) -> dict[str, Any]:
+        return self._mitm.flow_messages(flow_id)
+
     def request_edit(self, flow_id: str) -> RequestEdit:
         return self._mitm.request_edit(flow_id)
 
@@ -597,6 +611,9 @@ class CaptureController(QObject):
 
     def get_httpie_command(self, flow_id: str) -> str:
         return self._mitm.get_httpie_command(flow_id)
+
+    def get_curl_command(self, flow_id: str) -> str:
+        return self._mitm.get_curl_command(flow_id)
 
     def get_raw_request(self, flow_id: str) -> bytes:
         return self._mitm.get_raw_request(flow_id)

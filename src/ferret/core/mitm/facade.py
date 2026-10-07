@@ -6,7 +6,7 @@ import os
 from collections.abc import Collection
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from PySide6.QtCore import QCoreApplication
@@ -26,7 +26,13 @@ from ferret.core.mitm.compose import (
     build_compose_flow,
     compose_recording,
 )
-from ferret.core.mitm.detail import build_flow_detail
+from ferret.core.mitm.detail import (
+    build_flow_body,
+    build_flow_detail,
+    build_flow_messages,
+    build_flow_overview_metadata,
+    build_flow_summary,
+)
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.gateway import GatewayRule
 from ferret.core.mitm.intercept import (
@@ -866,6 +872,60 @@ class MitmFacade:
 
         return self.runtime.call(build) if self.runtime.is_running else build()
 
+    def flow_summary(self, flow_id: str) -> dict[str, Any]:
+        """选中行时只取轻量字段，不解码 body 或遍历消息。"""
+
+        def build() -> dict[str, Any]:
+            flow = self.view.get_by_id(flow_id)
+            if not isinstance(flow, HTTPFlow):
+                return {}
+            data = build_flow_summary(flow)
+            master = self.runtime.master
+            if data["message_kind"] == "sse" and master is not None:
+                count = master.sse.event_count(flow_id)
+                if count is not None:
+                    data["message_count"] = count
+            return data
+
+        return self.runtime.call(build) if self.runtime.is_running else build()
+
+    def flow_body(
+        self, flow_id: str, side: Literal["Request", "Response"]
+    ) -> dict[str, Any]:
+        """打开一侧 Body 页时，才在 mitm 线程构建这一侧的派生数据。"""
+
+        def build() -> dict[str, Any]:
+            flow = self.view.get_by_id(flow_id)
+            return build_flow_body(flow, side) if isinstance(flow, HTTPFlow) else {}
+
+        return self.runtime.call(build) if self.runtime.is_running else build()
+
+    def flow_overview_metadata(self, flow_id: str) -> dict[str, Any]:
+        """概览需要的精确修改状态；其原生 backup 比较也在 mitm 线程完成。"""
+
+        def build() -> dict[str, Any]:
+            flow = self.view.get_by_id(flow_id)
+            return (
+                build_flow_overview_metadata(flow) if isinstance(flow, HTTPFlow) else {}
+            )
+
+        return self.runtime.call(build) if self.runtime.is_running else build()
+
+    def flow_messages(self, flow_id: str) -> dict[str, Any]:
+        """消息页一次取齐消息和结束状态，避免跨两次 call 读出不一致快照。"""
+
+        def build() -> dict[str, Any]:
+            flow = self.view.get_by_id(flow_id)
+            if not isinstance(flow, HTTPFlow):
+                return build_flow_messages(None)
+            events = None
+            master = self.runtime.master
+            if master is not None and master.sse.event_count(flow_id) is not None:
+                events = master.sse.events(flow_id)
+            return build_flow_messages(flow, events)
+
+        return self.runtime.call(build) if self.runtime.is_running else build()
+
     def request_edit(self, flow_id: str) -> RequestEdit:
         """一条流量的请求压成 :class:`RequestEdit`，给 compose 页灌表单。
 
@@ -1022,13 +1082,14 @@ class MitmFacade:
                     result.append(_snapshot(flow))
             return result
 
-        flows = (
-            self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
-        )
+        flows = self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
         return FlowFile.write(path, flows)
 
     def get_httpie_command(self, flow_id: str) -> str:
         return self._export(flow_id, FlowExporter.httpie_command, "")
+
+    def get_curl_command(self, flow_id: str) -> str:
+        return self._export(flow_id, FlowExporter.curl_command, "")
 
     def get_raw_request(self, flow_id: str) -> bytes:
         return self._export(flow_id, FlowExporter.raw_request, b"")

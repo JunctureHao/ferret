@@ -1,8 +1,10 @@
 """Session controllers: read-only view controller and page-level controller."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PySide6.QtCore import (
     QObject,
@@ -20,7 +22,11 @@ from ferret.core.mitm import (
     View,
     WsClose,
     WsFrame,
+    build_flow_body,
     build_flow_detail,
+    build_flow_messages,
+    build_flow_overview_metadata,
+    build_flow_summary,
     parse_filter,
     ws_close,
     ws_frames,
@@ -59,6 +65,23 @@ class SessionViewController(QObject):
         """会话页的流量是从文件读回来的，没有 mitm 线程也就没有活 flow —— 直接构建。"""
         flow = self.get_flow(flow_id)
         return build_flow_detail(flow) if flow else {}
+
+    def flow_summary(self, flow_id: str) -> dict[str, Any]:
+        flow = self.get_flow(flow_id)
+        return build_flow_summary(flow) if flow else {}
+
+    def flow_body(
+        self, flow_id: str, side: Literal["Request", "Response"]
+    ) -> dict[str, Any]:
+        flow = self.get_flow(flow_id)
+        return build_flow_body(flow, side) if flow else {}
+
+    def flow_overview_metadata(self, flow_id: str) -> dict[str, Any]:
+        flow = self.get_flow(flow_id)
+        return build_flow_overview_metadata(flow) if flow else {}
+
+    def flow_messages(self, flow_id: str) -> dict[str, Any]:
+        return build_flow_messages(self.get_flow(flow_id))
 
     def websocket_frames(self, flow_id: str) -> list[WsFrame]:
         """会话页没有 mitm 线程，`flow.websocket` 直接读 —— 文件里的 flow 是死的。
@@ -103,6 +126,12 @@ class SessionViewController(QObject):
         flow = self.get_flow(flow_id)
         if flow:
             return FlowExporter.httpie_command(flow)
+        return ""
+
+    def get_curl_command(self, flow_id: str) -> str:
+        flow = self.get_flow(flow_id)
+        if flow:
+            return FlowExporter.curl_command(flow)
         return ""
 
     def save_flows(self, flow_ids: list[str], path: str) -> int:

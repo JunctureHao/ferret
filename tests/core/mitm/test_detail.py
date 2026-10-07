@@ -8,11 +8,17 @@
 返回源文本，正好用来验标记本身。译文由 `tests/core/test_i18n.py` 双向盯着。
 """
 
+from __future__ import annotations
+
 import gzip
+import os
 import tempfile
 import unittest
 import warnings
 from pathlib import Path
+from unittest import mock
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from cryptography import x509
 from mitmproxy import certs
@@ -21,11 +27,16 @@ from mitmproxy.net import server_spec
 from mitmproxy.test import tflow
 
 from ferret.core.mitm import (
+    build_flow_body,
     build_flow_detail,
+    build_flow_messages,
+    build_flow_overview_metadata,
+    build_flow_summary,
     head_size,
     infer_state,
     wire_size,
 )
+from ferret.core.mitm.sse import SSE_EVENT_COUNT_KEY
 
 
 def certificate():
@@ -293,7 +304,9 @@ class DurationFieldTests(unittest.TestCase):
         flow.response.timestamp_end = 100.412
         data = build_flow_detail(flow)
 
-        self.assertEqual(data["duration_ms"], FlowTableModel._duration_ms(flow_row(flow)))
+        self.assertEqual(
+            data["duration_ms"], FlowTableModel._duration_ms(flow_row(flow))
+        )
         self.assertAlmostEqual(data["duration_ms"], 412.0, places=3)
 
 
@@ -339,6 +352,15 @@ class MessageFieldTests(unittest.TestCase):
         # 解析得出来（不是空表单），但刻意不产出这个键。
         self.assertTrue(flow.request.multipart_form)
         self.assertNotIn("Request Form", build_flow_detail(flow))
+
+    def test_a_json_body_is_prettified_with_two_space_indent(self) -> None:
+        """mitmproxy 的 JSON 视图固定 4 空格缩进，ferret 统一收紧为 2（界面约定）。"""
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.headers["Content-Type"] = "application/json"
+        flow.response.content = b'{"a": 1, "items": [1, 2]}'
+        pretty = build_flow_body(flow, "Response")["Response Body Pretty"]
+        self.assertEqual(pretty, '{\n  "a": 1,\n  "items": [\n    1,\n    2\n  ]\n}')
 
     def test_trailers_show_up_only_when_the_message_has_them(self) -> None:
         flow = tflow.tflow(resp=True)
@@ -517,6 +539,132 @@ class DetailShapeTests(unittest.TestCase):
         self.assertEqual(infer_state(tflow.tflow()), "request")
         self.assertEqual(infer_state(tflow.tflow(resp=True)), "complete")
         self.assertEqual(infer_state(tflow.tflow(err=True)), "error")
+
+
+class LazyDetailTests(unittest.TestCase):
+    def test_summary_never_decodes_bodies_or_serializes_a_backed_up_websocket(self):
+        flow = tflow.twebsocketflow()
+        assert flow.response is not None
+        flow.request.headers["content-type"] = "application/x-www-form-urlencoded"
+        flow.request.content = b"a=1&a=2"
+        flow.backup()
+        version = flow.get_state()["version"]
+        with (
+            mock.patch.object(flow, "get_state", side_effect=AssertionError("state")),
+            mock.patch.object(flow, "modified", side_effect=AssertionError("modified")),
+            mock.patch.object(flow.request, "get_content", side_effect=AssertionError),
+            mock.patch.object(flow.request, "get_text", side_effect=AssertionError),
+            mock.patch.object(flow.response, "get_content", side_effect=AssertionError),
+            mock.patch.object(flow.response, "get_text", side_effect=AssertionError),
+            mock.patch(
+                "ferret.core.mitm.detail.build_body", side_effect=AssertionError
+            ),
+            mock.patch(
+                "ferret.core.mitm.detail.FlowExporter.curl_command",
+                side_effect=AssertionError,
+            ),
+            mock.patch("ferret.core.mitm.detail.ws_frames", side_effect=AssertionError),
+        ):
+            data = build_flow_summary(flow)
+        self.assertEqual(data["id"], flow.id)
+        self.assertEqual(data["Flow Version"], version)
+        self.assertEqual(data["message_kind"], "websocket")
+        self.assertEqual(data["message_count"], 3)
+        self.assertTrue(data["is_websocket"])
+        self.assertTrue(data["overview_pending"])
+        for key in (
+            "Request Body",
+            "Response Body",
+            "Request Form",
+            "req_decoded_size",
+            "res_decoded_size",
+            "raw_state",
+            "curl_command",
+            "Modified",
+        ):
+            self.assertNotIn(key, data)
+
+    def test_body_decodes_only_the_requested_side(self):
+        for side in ("Request", "Response"):
+            with self.subTest(side=side):
+                flow = tflow.tflow(resp=True)
+                assert flow.response is not None
+                flow.request.headers["content-type"] = (
+                    "application/x-www-form-urlencoded"
+                )
+                flow.request.content = b"a=1&a=2"
+                flow.response.headers["content-encoding"] = "gzip"
+                flow.response.raw_content = gzip.compress(b"response text")
+                other = flow.response if side == "Request" else flow.request
+                with (
+                    mock.patch.object(other, "get_content", side_effect=AssertionError),
+                    mock.patch.object(other, "get_text", side_effect=AssertionError),
+                    mock.patch.object(flow, "get_state", side_effect=AssertionError),
+                ):
+                    data = build_flow_body(flow, side)
+                expected = b"a=1&a=2" if side == "Request" else b"response text"
+                self.assertEqual(data[f"{side} Body"], expected)
+                self.assertEqual(data[f"{side} Body Text"], expected.decode())
+                if side == "Request":
+                    self.assertEqual(data["Request Form"], {"a": "1, 2"})
+                    self.assertNotIn("Response Body", data)
+                else:
+                    self.assertNotIn("Request Body", data)
+
+    def test_missing_response_has_no_body_fields(self):
+        self.assertEqual(build_flow_body(tflow.tflow(), "Response"), {})
+
+    def test_summary_metadata_does_not_track_later_changes(self):
+        flow = tflow.tflow(resp=True)
+        flow.metadata["nested"] = {"items": ["before"]}
+        data = build_flow_summary(flow)
+        flow.metadata["nested"]["items"].append("after")
+        self.assertEqual(data["Flow Metadata"], {"nested": {"items": ["before"]}})
+        self.assertEqual(data["Modified"], "false")
+
+    def test_overview_reports_native_modified_state_on_demand(self):
+        flow = tflow.tflow(resp=True)
+        flow.backup()
+        flow.request.path = "/changed"
+        self.assertEqual(
+            build_flow_overview_metadata(flow),
+            {"Modified": "true" if flow.modified() else "false"},
+        )
+
+    def test_historical_sse_body_is_only_parsed_for_the_messages_snapshot(self):
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.headers["content-type"] = "text/event-stream"
+        flow.response.content = b"data: one\n\ndata: two\n\n"
+        with mock.patch.object(flow.response, "get_text", side_effect=AssertionError):
+            data = build_flow_summary(flow)
+        self.assertEqual(data["message_kind"], "sse")
+        self.assertIsNone(data["message_count"])
+        snapshot = build_flow_messages(flow)
+        self.assertEqual(snapshot["count"], 2)
+        self.assertEqual([event.data for event in snapshot["events"]], ["one", "two"])
+
+    def test_empty_live_sse_archive_does_not_fall_back_to_the_body(self):
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.headers["content-type"] = "text/event-stream"
+        flow.metadata[SSE_EVENT_COUNT_KEY] = 8
+        with mock.patch.object(flow.response, "get_text", side_effect=AssertionError):
+            data = build_flow_messages(flow, [])
+        self.assertEqual(data["events"], [])
+        self.assertEqual(data["count"], 8)
+
+    def test_historical_sse_replaces_surrogates_before_handing_text_to_qt(self):
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.headers["content-type"] = "text/event-stream"
+        with mock.patch.object(
+            flow.response, "get_text", return_value="data: broken \udcff\n\n"
+        ):
+            snapshot = build_flow_messages(flow)
+        self.assertEqual(snapshot["count"], 1)
+        self.assertEqual(snapshot["events"][0].data, "broken ?")
+        snapshot["events"][0].data.encode("utf-8")
 
 
 if __name__ == "__main__":

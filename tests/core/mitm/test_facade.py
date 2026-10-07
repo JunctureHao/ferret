@@ -12,11 +12,16 @@
 在这里覆盖，那条路由端到端冒烟兜着。）
 """
 
+from __future__ import annotations
+
 import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy import flowfilter
 from mitmproxy.test import tflow
@@ -32,6 +37,7 @@ from ferret.core.mitm import (
 )
 from ferret.core.mitm.addons import GatewayPolicy, GatewayState
 from ferret.core.mitm.intercept import InterceptState
+from ferret.core.mitm.sse import SSE_EVENT_COUNT_KEY
 
 
 class SnapshotIdentityTests(unittest.TestCase):
@@ -358,6 +364,39 @@ class FlowDetailTests(unittest.TestCase):
         facade.view.add([self.flow])
         self.assertEqual(facade.flow_detail(self.flow.id)["id"], self.flow.id)
 
+    def test_lazy_reads_all_use_the_runtime_once_per_snapshot(self) -> None:
+        with mock.patch.object(self.runtime, "call", wraps=self.runtime.call) as call:
+            summary = self.facade.flow_summary(self.flow.id)
+            self.assertEqual(call.call_count, 1)
+            body = self.facade.flow_body(self.flow.id, "Response")
+            self.assertEqual(call.call_count, 2)
+            metadata = self.facade.flow_overview_metadata(self.flow.id)
+            self.assertEqual(call.call_count, 3)
+            messages = self.facade.flow_messages(self.flow.id)
+            self.assertEqual(call.call_count, 4)
+        self.assertEqual(summary["id"], self.flow.id)
+        self.assertNotIn("Response Body", summary)
+        self.assertIn("Response Body", body)
+        self.assertEqual(metadata, {"Modified": "false"})
+        self.assertEqual(messages["kind"], "")
+
+    def test_lazy_reads_tolerate_missing_and_non_http_flows(self) -> None:
+        tcp = tflow.ttcpflow()
+        self.runtime.view.add([tcp])
+        for flow_id in ("missing", tcp.id):
+            with self.subTest(flow_id=flow_id):
+                self.assertEqual(self.facade.flow_summary(flow_id), {})
+                self.assertEqual(self.facade.flow_body(flow_id, "Request"), {})
+                self.assertEqual(self.facade.flow_overview_metadata(flow_id), {})
+                self.assertEqual(self.facade.flow_messages(flow_id)["count"], 0)
+
+    def test_lazy_reads_work_with_a_stopped_kernel(self) -> None:
+        facade = MitmFacade(MitmRuntime())
+        facade.view.add([self.flow])
+        self.assertEqual(facade.flow_summary(self.flow.id)["id"], self.flow.id)
+        self.assertIn("Request Body", facade.flow_body(self.flow.id, "Request"))
+        self.assertEqual(facade.flow_messages(self.flow.id)["kind"], "")
+
 
 class RequestEditTests(unittest.TestCase):
     """compose 草稿提取：与 `flow_detail` 同一款线程纪律（AGENTS.md §3）。
@@ -484,6 +523,20 @@ class WebsocketReadTests(unittest.TestCase):
         self.flow.websocket.messages[-1].content = b"tampered"
         self.assertEqual(frames[-1].content, b"it's me")
 
+    def test_message_snapshot_combines_frames_and_close_without_serializing_flow(self):
+        with (
+            mock.patch.object(self.flow, "get_state", side_effect=AssertionError),
+            mock.patch.object(self.runtime, "call", wraps=self.runtime.call) as call,
+        ):
+            snapshot = self.facade.flow_messages(self.flow.id)
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(snapshot["kind"], "websocket")
+        self.assertEqual(snapshot["count"], 3)
+        self.assertEqual(snapshot["close"].close_reason, "Close Reason")
+        assert self.flow.websocket is not None
+        self.flow.websocket.messages[-1].content = b"changed"
+        self.assertEqual(snapshot["frames"][-1].content, b"it's me")
+
     def test_close_info_comes_back_whole(self) -> None:
         info = self.facade.websocket_close(self.flow.id)
         self.assertEqual(info.close_code, 1000)
@@ -563,6 +616,48 @@ class SseEventReadTests(unittest.TestCase):
         facade = MitmFacade(MitmRuntime())
         facade.view.add([self.flow])
         self.assertEqual(facade.sse_events(self.flow.id), [])
+
+    def test_summary_counts_without_fetching_the_archive_or_decoding_body(self):
+        assert self.flow.response is not None
+        with (
+            mock.patch.object(
+                self.runtime.master.sse, "events", side_effect=AssertionError
+            ),
+            mock.patch.object(
+                self.flow.response, "get_text", side_effect=AssertionError
+            ),
+        ):
+            data = self.facade.flow_summary(self.flow.id)
+        self.assertEqual(data["message_kind"], "sse")
+        self.assertEqual(data["message_count"], 2)
+        self.assertEqual(self.flow.metadata[SSE_EVENT_COUNT_KEY], 2)
+
+    def test_message_snapshot_prefers_live_archive_over_body_parsing(self):
+        assert self.flow.response is not None
+        with mock.patch.object(
+            self.flow.response, "get_text", side_effect=AssertionError
+        ):
+            data = self.facade.flow_messages(self.flow.id)
+        self.assertEqual(data["count"], 2)
+        self.assertEqual([event.data for event in data["events"]], ["a", "b"])
+
+    def test_sse_count_survives_eviction_and_is_removed_with_archive(self):
+        addon = FerretSseAddon()
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.headers["content-type"] = "text/event-stream"
+        flow.response.raw_content = None
+        addon.responseheaders(flow)
+        stream = flow.response.stream
+        assert callable(stream)
+        with mock.patch("ferret.core.mitm.sse.SSE_ARCHIVE_LIMIT", 0):
+            stream(b"data: a\n\ndata: b\n\n")
+        stream(b"")
+        self.assertEqual(addon.events(flow.id), [])
+        self.assertEqual(addon.event_count(flow.id), 2)
+        self.assertEqual(flow.metadata[SSE_EVENT_COUNT_KEY], 2)
+        addon.forget(flow.id)
+        self.assertIsNone(addon.event_count(flow.id))
 
 
 if __name__ == "__main__":

@@ -1,27 +1,22 @@
-"""详情面板的数据产出：一条 `HTTPFlow` → 一个纯数据字典。
+"""详情面板的纯数据快照，所有活 flow 读取都由 facade 放到 mitm 线程。
 
-这个模块存在的理由是**线程**，不是分层洁癖。改造前这套逻辑长在
-`apps/common/flow/models.py::FlowTableModel._build_row_data` 里，每次选中行都在
-**Qt 线程**上直接读活 flow —— AGENTS.md §3 记着的红线违规。而且它还顺手做了
-body 美化（上限 1 MiB）和证书解析，卡的是界面线程。
+选中行只构建 summary；请求体、响应体、消息分别在对应页打开时读取。
+这样未打开的 Body 页不解压或美化，WebSocket 概览也不序列化整份帧列表。
+``build_flow_detail`` 为导出菜单和 Compose 保留完整详情接口。
 
-搬到 `core/mitm/` 之后，`MitmFacade.flow_detail()` 用 `runtime.call` 把整个构建
-过程放进 mitm 线程内完成，界面拿到的是 str/int/bytes/list/dict 组成的纯数据。
-副作用是构建期间 mitm 的 event loop 被占住 —— 但那是一次几十毫秒的解析，
-而且 body 美化本来就有 1 MiB 上限；换到的是界面不再直读活 flow。
-
-`bytes` 会原样穿过线程边界（`Request Body` / `Response Body` 是 `bytes`）——
-它不可变，界面只读，不需要再拷一层。
+交付的容器不带活引用；body / 消息内容的不可变 bytes 可以直接跨线程交付。
 """
 
 from __future__ import annotations
 
-from typing import Any
+from copy import deepcopy
+from typing import Any, Literal
 
 from PySide6.QtCore import QCoreApplication
 
 from ferret.core.log import get_logger
 from ferret.core.mitm.bindings import (
+    FLOW_FORMAT_VERSION,
     HTTPFlow,
     Request,
     Response,
@@ -29,11 +24,18 @@ from ferret.core.mitm.bindings import (
     assemble_response_head,
 )
 from ferret.core.mitm.export import FlowExporter
+from ferret.core.mitm.sse import (
+    SSE_EVENT_COUNT_KEY,
+    SseEvent,
+    is_event_stream,
+    parse_sse,
+)
+from ferret.core.mitm.wsframe import WsClose, ws_close, ws_frames
 
 # `utils/http_parser.py` 反过来引 `core/mitm/bindings`（AGENTS.md §4 记着这是误引，
 # 别扩散）。这一条不构成真环：`bindings.py` 不从 ferret 里 import 任何东西，
 # 所以无论谁先被加载都能走通。
-from ferret.utils.http_parser import build_body
+from ferret.utils.http_parser import _safe_text, build_body
 
 log = get_logger("mitm.detail")
 
@@ -290,7 +292,7 @@ def response_cookies(response: Response) -> list[dict[str, Any]]:
 
 
 def request_fields(flow: HTTPFlow) -> dict[str, Any]:
-    """请求一侧的详情字段。
+    """请求一侧不依赖 body 的详情字段。
 
     这里不做状态判断：每条流量都有请求，而改造前那个
     ``state in ("request_headers", "request", "response_headers", "complete", "error")``
@@ -301,8 +303,6 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
     if keep_alive is None:
         keep_alive = "true" if request.http_version == "HTTP/1.1" else "false"
 
-    body_info = build_body(flow, request)
-    body = body_info["raw"]
     headers_size = head_size(request)
     wire = wire_size(request)
 
@@ -325,12 +325,7 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
         "Request Headers": dict(request.headers),
         "Request Params": flatten_multi(request.query.items(multi=True)),
         "Request Cookies": flatten_multi(request.cookies.items(multi=True)),
-        "Request Body": body,
         "Request Content-Type": request.headers.get("Content-Type", "-"),
-        "Request Body Text": body_info["text"],
-        "Request Body Pretty": body_info["pretty"],
-        "Request Body View": body_info["view"],
-        "Request Body Syntax": body_info["syntax"],
         "Status Code": QCoreApplication.translate("FlowDetail", "等待中..."),
         "Keep Alive": keep_alive,
         # `Flow ID` 是新键。改造前叫 `Connection ID`，存的却是 `flow.id` —— 名字
@@ -345,7 +340,6 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
         "req_duration": req_duration,
         "req_headers_size": headers_size,
         "req_wire_size": wire,
-        "req_decoded_size": len(body),
         "req_total_size": headers_size + wire,
     }
     if client_conn is not None:
@@ -356,20 +350,13 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
             fields["Client Mitm Certificate"] = client_conn.mitmcert.cn or ""
         if client_conn.proxy_mode is not None:
             fields["Client Proxy Mode"] = client_conn.proxy_mode.full_spec
-    # urlencoded 表单单独产出一份：`Request Params` 是 URL 上的查询串，表单在 body 里，
-    # 两个都被叫做「参数」但来源完全不同，混在一页里看根本分不清哪个是哪个。
-    # multipart 刻意不产出 —— 它的键和值都是 `bytes`，值还可能是整个上传文件，
-    # 而 Body 页的 Multipart Form 视图本来就把它排得更清楚。
-    form = flatten_multi(request.urlencoded_form.items(multi=True))
-    if form:
-        fields["Request Form"] = form
     if request.trailers:
         fields["Request Trailers"] = flatten_multi(request.trailers.items(multi=True))
     return fields
 
 
 def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
-    """响应一侧的详情字段。
+    """响应一侧不依赖 body 的详情字段。
 
     改造前这些字段分在两个分支里：一个判 ``("response_headers", "complete",
     "error")``，一个判 ``("complete", "error")``，两个都还要再 `and flow.response`。
@@ -377,8 +364,6 @@ def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
     ``complete`` 必然有响应、``request`` 必然没有、``error`` 两种都可能 ——
     所以两个条件都等价于「有响应」，合成一个分支后逐字等价。
     """
-    body_info = build_body(flow, response)
-    body = body_info["raw"]
     headers_size = head_size(response)
     wire = wire_size(response)
 
@@ -415,14 +400,9 @@ def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
         "Response Headers": dict(response.headers),
         "Response Cookies": response_cookies(response),
         "Response HTTP Version": response.http_version,
-        "Response Body": body,
         "Response Content-Type": response.headers.get("Content-Type", "-"),
         # 「线上 3.1 KB / 解压后 12 KB」旁边总得说清是谁压的，否则那两个数字看着像 bug。
         "Response Content-Encoding": response.headers.get("Content-Encoding", ""),
-        "Response Body Text": body_info["text"],
-        "Response Body Pretty": body_info["pretty"],
-        "Response Body View": body_info["view"],
-        "Response Body Syntax": body_info["syntax"],
         "Server Address": server_addr,
         "Protocol": protocol,
         "Proxy Protocol": proxy_protocol,
@@ -438,7 +418,6 @@ def response_fields(flow: HTTPFlow, response: Response) -> dict[str, Any]:
         "res_duration": res_duration,
         "res_headers_size": headers_size,
         "res_wire_size": wire,
-        "res_decoded_size": len(body),
         "res_total_size": headers_size + wire,
     }
     if server_conn is not None:
@@ -460,21 +439,17 @@ def infer_state(flow: HTTPFlow) -> str:
     return "request"
 
 
-def build_flow_detail(flow: HTTPFlow) -> dict[str, Any]:
-    """一条流量 → 详情面板的完整字典。**只在 mitm 线程内调用**。
+def build_flow_summary(flow: HTTPFlow) -> dict[str, Any]:
+    """详情页的轻量字段；不解 body、不序列化 flow / WebSocket 消息。
 
-    改造前这里是 `dict(flow.get_state())` 打底再往上叠加工字段，等于把原生的
-    小写键（``id`` / ``type`` / ``version`` / ``client_conn`` / ``request`` …）
-    和面板自己的 CamelCase 键混在同一层命名空间里，谁盖谁全看叠加顺序。现在
-    原生状态整体挪进 `raw_state` 一个键 —— 「原始状态」页正好要的就是它，
-    面板需要的几项（`id` / `comment` / `marked` …）单独显式产出。
-
-    分支只按「有没有响应」分，不再按状态字符串分：`infer_state()` 只会返回
-    ``request`` / ``complete`` / ``error``，改造前那两条 ``request_headers`` /
-    ``response_headers`` 分支永远进不去。
+    活 flow 只在 mitm 线程读取，会话页可直接读取自己持有的离线 flow。
+    ``Modified`` 在有 backup 时需要原生状态比较，留给概览按需补齐。
     """
     state = infer_state(flow)
-    raw_state = flow.get_state()
+    websocket = flow.websocket
+    sse = flow.response is not None and is_event_stream(
+        flow.response.headers.get("content-type")
+    )
     data: dict[str, Any] = {
         "id": flow.id,
         "state": state,
@@ -482,17 +457,25 @@ def build_flow_detail(flow: HTTPFlow) -> dict[str, Any]:
         "marked": flow.marked,
         "is_replay": flow.is_replay or "",
         "live": "true" if flow.live else "false",
-        # 「流量元数据」卡要的几项。`version` 只在原生状态里有（`Flow` 上没有同名
-        # 属性），所以从 `raw_state` 读；`modified()` 是**方法**不是属性。
         "Flow Type": flow.type,
-        "Flow Version": raw_state.get("version"),
+        "Flow Version": FLOW_FORMAT_VERSION,
         "Flow Created": flow.timestamp_created,
         "Intercepted": "true" if flow.intercepted else "false",
-        "Modified": "true" if flow.modified() else "false",
-        "Flow Metadata": dict(flow.metadata),
-        # 完整性兜底：以后新增的 flow 字段不改一行代码就已经在这棵子树里。
-        "raw_state": raw_state,
+        "Flow Metadata": deepcopy(flow.metadata),
+        "is_websocket": websocket is not None,
+        "message_kind": "websocket" if websocket is not None else "sse" if sse else "",
+        "message_count": (
+            len(websocket.messages)
+            if websocket is not None
+            else flow.metadata.get(SSE_EVENT_COUNT_KEY)
+            if sse
+            else 0
+        ),
     }
+    if not flow._backup:
+        data["Modified"] = "false"
+    else:
+        data["overview_pending"] = True
     data.update(request_fields(flow))
 
     response = flow.response
@@ -509,7 +492,95 @@ def build_flow_detail(flow: HTTPFlow) -> dict[str, Any]:
         if flow.error is not None:
             data["Error Time"] = flow.error.timestamp
 
-    if state == "complete":
+    return data
+
+
+def build_flow_body(
+    flow: HTTPFlow, side: Literal["Request", "Response"]
+) -> dict[str, Any]:
+    """只为一侧 Body 页解码、美化；不触碰另一侧报文或 WebSocket 帧。"""
+    if side not in ("Request", "Response"):
+        raise ValueError(f"Unknown HTTP message side: {side}")
+    message = flow.request if side == "Request" else flow.response
+    if message is None:
+        return {}
+    body = build_body(flow, message)
+    fields = {
+        f"{side} Body": body["raw"],
+        f"{side} Body Text": body["text"],
+        f"{side} Body Pretty": body["pretty"],
+        f"{side} Body View": body["view"],
+        f"{side} Body Syntax": body["syntax"],
+        f"{side} Content-Type": message.headers.get("Content-Type", "-"),
+        "req_decoded_size" if side == "Request" else "res_decoded_size": len(
+            body["raw"]
+        ),
+    }
+    if side == "Request":
+        # 查询串不需要解 body；urlencoded 表单与 Body 一起按需读取。
+        # multipart 仍由原生 contentview 显示，避免另拷整份上传文件。
+        form = flatten_multi(flow.request.urlencoded_form.items(multi=True))
+        if form:
+            fields["Request Form"] = form
+    return fields
+
+
+def build_flow_overview_metadata(flow: HTTPFlow) -> dict[str, Any]:
+    """概览按需读取原生修改状态；有 backup 才会进行完整状态比较。"""
+    return {"Modified": "true" if flow.modified() else "false"}
+
+
+def build_flow_messages(
+    flow: HTTPFlow | None, events: list[SseEvent] | None = None
+) -> dict[str, Any]:
+    """消息页的一次原子快照，事件/帧 index 可用于忽略已在途的重复信号。
+
+    ``events=None`` 表示没有实时存档，才从历史 SSE body 解码；空列表则是
+    已接通但尚无事件的流式响应，不能因此重复解析 body。
+    """
+    data: dict[str, Any] = {
+        "kind": "",
+        "count": 0,
+        "frames": [],
+        "close": WsClose(),
+        "events": [],
+    }
+    if flow is None:
+        return data
+    if flow.websocket is not None:
+        frames = ws_frames(flow.websocket)
+        data.update(
+            kind="websocket",
+            count=len(frames),
+            frames=frames,
+            close=ws_close(flow.websocket),
+        )
+    elif flow.response is not None and is_event_stream(
+        flow.response.headers.get("content-type")
+    ):
+        if events is None:
+            events = parse_sse(_safe_text(flow.response))
+        data.update(
+            kind="sse",
+            count=max(
+                events[-1].index + 1 if events else 0,
+                flow.metadata.get(SSE_EVENT_COUNT_KEY, 0),
+            ),
+            events=events,
+        )
+    return data
+
+
+def build_flow_detail(flow: HTTPFlow) -> dict[str, Any]:
+    """兼容导出 / Compose 的完整详情；界面选择行应使用轻量 summary。"""
+    data = build_flow_summary(flow)
+    data.update(build_flow_body(flow, "Request"))
+    data.update(build_flow_body(flow, "Response"))
+    data.update(build_flow_overview_metadata(flow))
+    data.pop("overview_pending", None)
+    # 完整原生状态只由明确请求完整详情的调用方承担，不进入选中行的热路径。
+    data["raw_state"] = flow.get_state()
+    if data["state"] == "complete":
         try:
             data["curl_command"] = FlowExporter.curl_command(flow)
         except Exception as e:  # noqa: BLE001

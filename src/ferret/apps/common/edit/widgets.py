@@ -992,20 +992,18 @@ class JsonDualPanel(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._lang = Language.JSON
+        self._tree_dirty = True
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
 
     def __init_widget(self):
         self.text = ToolPlainTextEdit(self)
-        self.tree = JsonTreePanel(self)
+        self.tree: JsonTreePanel | None = None
 
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.text)
-        self.stack.addWidget(self.tree)
 
-        self._btn_text = TransparentTooltipButton(BaseIcon.CONVERT_TO_TEXT, self)
-        self._btn_text.setToolTip(self.tr("文本模式"))
         self._btn_tree = TransparentTooltipButton(BaseIcon.CONVERT_TO_TABLE, self)
         self._btn_tree.setToolTip(self.tr("树形模式"))
 
@@ -1016,20 +1014,36 @@ class JsonDualPanel(QWidget):
 
         # 与 KVDualPanel 一致：每个页面只显示自己的切换按钮，不额外占一行
         self.text.tool_layout.addWidget(self._btn_tree)
-        self.tree.tool_layout.addWidget(self._btn_text)
 
     def __connect_signal_to_slot(self):
-        self._btn_text.clicked.connect(lambda: self.stack.setCurrentWidget(self.text))
         self._btn_tree.clicked.connect(self._show_tree_page)
         self.stack.currentChanged.connect(self.updateGeometry)
+        self.text.changed.connect(self._invalidate_tree)
         self.text.changed.connect(self.changed)
+
+    def _ensure_tree(self) -> JsonTreePanel:
+        if self.tree is None:
+            self.tree = JsonTreePanel(self)
+            self._btn_text = TransparentTooltipButton(BaseIcon.CONVERT_TO_TEXT, self)
+            self._btn_text.setToolTip(self.tr("文本模式"))
+            self._btn_text.clicked.connect(
+                lambda: self.stack.setCurrentWidget(self.text)
+            )
+            self.tree.tool_layout.addWidget(self._btn_text)
+            self.stack.addWidget(self.tree)
+        return self.tree
 
     @Slot()
     def _show_tree_page(self):
-        # 树是文本的派生视图（只读），切过去之前按当前文本重建一次，
-        # 否则用户改完 JSON 切到树上看到的还是旧结构。
-        self._rebuild_tree(self.text.text())
-        self.stack.setCurrentWidget(self.tree)
+        tree = self._ensure_tree()
+        self._rebuild_tree()
+        self.stack.setCurrentWidget(tree)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Body 标签或整个详情隐藏期间只记脏；再次显示已选中的树页才补建。
+        if self.tree is not None and self.stack.currentWidget() is self.tree:
+            self._rebuild_tree()
 
     def sizeHint(self) -> QSize:
         """把内部 QStackedWidget 当前页面的正确尺寸向上传递，解决嵌套错位。"""
@@ -1039,20 +1053,35 @@ class JsonDualPanel(QWidget):
         return super().sizeHint()
 
     def set_text(self, text: str, lang: Language | str = Language.JSON):
-        """设置文本并指定语言；JSON 时顺带建树。"""
-        self._lang = Language.coerce(lang)
+        """设置文本并指定语言；树是按需构造、解析的只读派生视图。"""
+        lang = Language.coerce(lang)
+        tree_dirty = (
+            self._tree_dirty or self._lang is not lang or self.text.text() != text
+        )
+        self._lang = lang
         self.text.set_text(text, lang=self._lang)
-        self._rebuild_tree(text)
+        if tree_dirty:
+            self._invalidate_tree()
 
-    def _rebuild_tree(self, text: str):
+    @Slot()
+    def _invalidate_tree(self):
+        self._tree_dirty = True
+        if self.tree is not None and self.tree.isVisible():
+            self._rebuild_tree()
+
+    def _rebuild_tree(self):
+        tree = self.tree
+        if tree is None or not self._tree_dirty:
+            return
+        self._tree_dirty = False
         if self._lang is not Language.JSON:
-            self.tree.tree.clear()
+            tree.tree.clear()
             return
         try:
-            self.tree.tree.set_data(json.loads(text))
+            tree.tree.set_data(json.loads(self.text.text()))
         except ValueError:
             # json.JSONDecodeError 是 ValueError 子类；body 常常是被截断的 JSON。
-            self.tree.tree.clear()
+            tree.tree.clear()
 
     def plain_text(self) -> str:
         """当前文本（含用户编辑）。树是只读派生视图，不参与回读。

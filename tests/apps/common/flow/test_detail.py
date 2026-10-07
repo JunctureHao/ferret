@@ -12,15 +12,20 @@
 翻译器**故意不装**，理由同 `test_fields.py`。
 """
 
+from __future__ import annotations
+
+import gzip
 import os
 import unittest
+from dataclasses import replace
+from typing import Literal
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from mitmproxy.test import tflow
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication, QWidget
 from qfluentwidgets import InfoLevel
 
@@ -36,7 +41,9 @@ from ferret.apps.common.flow.protocols import CAPTURE_CAPABILITIES
 from ferret.core.mitm import (
     WsClose,
     WsFrame,
+    build_flow_body,
     build_flow_detail,
+    build_flow_summary,
     parse_sse,
 )
 
@@ -115,6 +122,9 @@ class FlowDataPanelTests(unittest.TestCase):
     def test_the_timing_block_is_fused_into_the_overview(self) -> None:
         """时序与耗时合并成一张「时序」卡：瀑布块作为 lead 挂在组头之下、
         时刻行之上 —— 图定比例、行给精确值，一个组头一个故事，整组一起折叠。"""
+        self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        assert self.panel.overview is not None
+        assert self.panel.timing_pane is not None
         card = next(c for c in self.panel.overview.cards if c.section.title == "时序")
         self.assertIs(self.panel.timing_pane.parent(), card.view)
         view_layout = card.view.layout()
@@ -130,7 +140,7 @@ class FlowDataPanelTests(unittest.TestCase):
         card.set_expanded(True)
 
         # 空字典（面板先于数据构造 / 一个时间戳都没有）整块让位；有数据回来。
-        self.panel.set_data({})
+        self.panel.set_data({"id": "without-timestamps"})
         self.assertTrue(self.panel.timing_pane.isHidden())
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
         self.assertFalse(self.panel.timing_pane.isHidden())
@@ -161,6 +171,16 @@ class FlowDataPanelTests(unittest.TestCase):
         first, second = self.panel.splitter.sizes()
         self.assertGreater(second, 0)
         self.assertAlmostEqual(second / (first + second), 0.5, delta=0.02)
+
+    def test_destroying_the_panel_cancels_its_initial_split_timer(self) -> None:
+        with patch.object(self.panel.splitter, "set_equal_sizes") as normalize:
+            self.host.show()
+            self.assertTrue(self.panel._split_normalized)
+            normalize.assert_not_called()
+            self.panel.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            self.app.processEvents()
+            normalize.assert_not_called()
 
     def test_the_headers_tab_label_carries_the_count(self) -> None:
         data = build_flow_detail(tflow.tflow(resp=True))
@@ -237,6 +257,325 @@ class FlowDataPanelTests(unittest.TestCase):
         self.assertIn("2", self.panel.req_tabs.pivot.items["Cookies"].text())
 
 
+class _LazyController(QObject):
+    websocket_started = Signal(str)
+    websocket_frame = Signal(str, object)
+    websocket_closed = Signal(str, object)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.flows = {}
+        self.body_calls = []
+        self.raw_calls = []
+        self.message_calls = []
+        self.overview_calls = []
+        self.frames = []
+
+    def get_raw_request(self, flow_id: str) -> str:
+        self.raw_calls.append((flow_id, "Request"))
+        return "GET /wire HTTP/1.1\r\n\r\nrequest"
+
+    def get_raw_response(self, flow_id: str) -> str:
+        self.raw_calls.append((flow_id, "Response"))
+        return "HTTP/1.1 200 OK\r\n\r\nresponse"
+
+    def flow_body(self, flow_id: str, side: Literal["Request", "Response"]) -> dict:
+        self.body_calls.append((flow_id, side))
+        return build_flow_body(self.flows[flow_id], side)
+
+    def flow_overview_metadata(self, flow_id: str) -> dict:
+        self.overview_calls.append(flow_id)
+        return {"Modified": "true"}
+
+    def flow_messages(self, flow_id: str) -> dict:
+        self.message_calls.append(flow_id)
+        return {
+            "kind": "websocket",
+            "count": len(self.frames),
+            "frames": list(self.frames),
+            "close": WsClose(),
+        }
+
+
+class LazyDetailTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self.host = QWidget()
+        self.controller = _LazyController()
+        self.panel = FlowDataPanel(self.host, self.controller)
+        self.host.resize(1000, 700)
+        self.host.show()
+        self.app.processEvents()
+
+    def tearDown(self) -> None:
+        self.host.deleteLater()
+        self.app.processEvents()
+
+    def select(self, flow) -> dict:
+        self.controller.flows[flow.id] = flow
+        data = build_flow_summary(flow)
+        self.panel.set_data(data)
+        return data
+
+    def test_empty_and_connection_pages_do_not_construct_http_tabs(self) -> None:
+        self.panel.set_data({})
+        self.panel.set_data({"kind": "connection", "flow_count": 2})
+        for key in self.panel.req_tabs.pivot.items:
+            self.assertIsNone(self.panel.req_tabs.tabWidget(key), key)
+        for key in self.panel.res_pane.pivot.items:
+            self.assertIsNone(self.panel.res_pane.tabWidget(key), key)
+        self.assertEqual(self.controller.raw_calls, [])
+        self.assertEqual(self.controller.body_calls, [])
+        self.assertEqual(self.controller.message_calls, [])
+
+    def test_initial_summary_constructs_only_overview_and_response_raw(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self.select(flow)
+        self.assertIsNotNone(self.panel.overview)
+        self.assertIsNotNone(self.panel.res_pane.raw_edit)
+        for key in ("Raw", "Headers", "Body", "Query", "Cookies", "Comment"):
+            self.assertIsNone(self.panel.req_tabs.tabWidget(key), key)
+        for key in ("Headers", "Body", "Messages"):
+            self.assertIsNone(self.panel.res_pane.tabWidget(key), key)
+        self.assertEqual(self.controller.raw_calls, [(flow.id, "Response")])
+        self.assertEqual(self.controller.body_calls, [])
+        self.assertEqual(self.controller.message_calls, [])
+
+    def test_request_only_summary_does_not_construct_response_raw(self) -> None:
+        self.select(tflow.tflow())
+        self.assertIsNone(self.panel.res_pane.raw_edit)
+        self.assertEqual(self.controller.raw_calls, [])
+
+    def test_body_is_fetched_once_per_side_and_reused_until_flow_changes(self) -> None:
+        first = tflow.tflow(resp=True)
+        first.request.content = b"first"
+        self.select(first)
+        self.panel.req_tabs.setCurrentTab("Body")
+        body = self.panel.req_body
+        assert body is not None
+        self.assertEqual(self.controller.body_calls, [(first.id, "Request")])
+        self.panel.req_tabs.setCurrentTab("Headers")
+        self.panel.req_tabs.setCurrentTab("Body")
+        self.assertEqual(len(self.controller.body_calls), 1)
+        self.panel.req_tabs.setCurrentTab("Headers")
+        second = tflow.tflow(resp=True)
+        second.request.content = b"second"
+        self.select(second)
+        self.assertEqual(body.json_panel.plain_text(), "first")
+        self.assertEqual(len(self.controller.body_calls), 1)
+        self.panel.req_tabs.setCurrentTab("Body")
+        self.assertIs(self.panel.req_body, body)
+        self.assertEqual(body.json_panel.plain_text(), "second")
+        self.panel.res_pane.setCurrentTab("Body")
+        self.assertEqual(
+            self.controller.body_calls,
+            [(first.id, "Request"), (second.id, "Request"), (second.id, "Response")],
+        )
+
+    def test_uncompressed_bodies_do_not_rebuild_the_rendered_overview(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self.select(flow)
+        overview = self.panel.overview
+        assert overview is not None
+        with patch.object(overview, "set_data", wraps=overview.set_data) as render:
+            self.panel.req_tabs.setCurrentTab("Body")
+            self.panel.req_tabs.setCurrentTab("Overview")
+            self.panel.res_pane.setCurrentTab("Body")
+            render.assert_not_called()
+        self.assertEqual(
+            self.panel.datas["req_decoded_size"], self.panel.datas["req_wire_size"]
+        )
+        self.assertEqual(
+            self.panel.datas["res_decoded_size"], self.panel.datas["res_wire_size"]
+        )
+
+    def test_compressed_bodies_add_the_real_decoded_size_to_the_overview(self) -> None:
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        payload = b"x" * 4096
+        flow.request.headers["Content-Encoding"] = "gzip"
+        flow.request.raw_content = gzip.compress(payload)
+        flow.response.headers["Content-Encoding"] = "gzip"
+        flow.response.raw_content = gzip.compress(payload)
+        self.select(flow)
+        overview = self.panel.overview
+        assert overview is not None
+
+        def decoded_rows() -> list[str]:
+            return [
+                row.value
+                for card in overview.cards
+                for row in card.rows()
+                if "解压后" in row.label
+            ]
+
+        self.assertEqual(decoded_rows(), [])
+        with patch.object(overview, "set_data", wraps=overview.set_data) as render:
+            self.panel.req_tabs.setCurrentTab("Body")
+            render.assert_not_called()
+            self.panel.req_tabs.setCurrentTab("Overview")
+            self.assertEqual(render.call_count, 1)
+            self.assertEqual(decoded_rows(), ["4.0k"])
+            self.panel.res_pane.setCurrentTab("Body")
+            self.assertEqual(render.call_count, 2)
+            self.assertEqual(decoded_rows(), ["4.0k", "4.0k"])
+
+    def test_body_with_unchanged_size_preserves_the_new_flows_dirty_overview(
+        self,
+    ) -> None:
+        self.select(tflow.tflow(resp=True))
+        self.panel.req_tabs.setCurrentTab("Body")
+        overview = self.panel.overview
+        assert overview is not None
+        second = tflow.tflow(resp=True)
+        self.select(second)
+        with patch.object(overview, "set_data", wraps=overview.set_data) as render:
+            self.panel.req_tabs.setCurrentTab("Overview")
+            render.assert_called_once()
+            self.assertEqual(render.call_args.args[0]["id"], second.id)
+
+    def test_hidden_raw_editor_is_not_filled_on_flow_switch(self) -> None:
+        first = tflow.tflow(resp=True)
+        self.select(first)
+        self.panel.req_tabs.setCurrentTab("Raw")
+        raw = self.panel.req_raw
+        self.panel.req_tabs.setCurrentTab("Headers")
+        second = tflow.tflow(resp=True)
+        self.select(second)
+        self.assertNotIn((second.id, "Request"), self.controller.raw_calls)
+        self.panel.req_tabs.setCurrentTab("Raw")
+        self.assertIs(self.panel.req_raw, raw)
+        self.assertIn((second.id, "Request"), self.controller.raw_calls)
+
+    def test_hiding_messages_fetches_raw_only_for_the_new_http_flow(self) -> None:
+        self.select(tflow.twebsocketflow())
+        self.panel.res_pane.setCurrentTab("Messages")
+        self.select(tflow.twebsocketflow())
+        self.assertEqual(self.panel.res_pane.pivot.currentRouteKey(), "Messages")
+        self.controller.raw_calls.clear()
+
+        plain = tflow.tflow(resp=True)
+        self.select(plain)
+
+        self.assertEqual(self.panel.res_pane.pivot.currentRouteKey(), "Raw")
+        self.assertEqual(self.controller.raw_calls, [(plain.id, "Response")])
+
+    def test_changing_controllers_clears_cached_data_without_fetching_the_old_id(
+        self,
+    ) -> None:
+        flow = tflow.tflow(resp=True)
+        self.select(flow)
+        self.panel.req_tabs.setCurrentTab("Body")
+        body = self.panel.req_body
+        other = _LazyController()
+        self.panel.set_controller(other)
+        self.assertEqual(self.panel.datas, {})
+        self.assertIs(self.panel.stack.currentWidget(), self.panel.empty_page)
+        self.assertEqual(other.raw_calls, [])
+        self.assertEqual(other.body_calls, [])
+        other.flows[flow.id] = flow
+        self.panel.set_data(build_flow_summary(flow))
+        self.assertIs(self.panel.req_body, body)
+        self.assertEqual(other.body_calls, [(flow.id, "Request")])
+
+    def test_pending_modified_metadata_is_loaded_only_on_overview(self) -> None:
+        first = tflow.tflow(resp=True)
+        self.select(first)
+        self.panel.req_tabs.setCurrentTab("Headers")
+        second = tflow.tflow(resp=True)
+        data = build_flow_summary(second)
+        data["overview_pending"] = True
+        self.panel.set_data(data)
+        self.assertEqual(self.controller.overview_calls, [])
+        self.panel.req_tabs.setCurrentTab("Overview")
+        self.assertEqual(self.controller.overview_calls, [second.id])
+        self.assertEqual(self.panel.datas["Modified"], "true")
+
+    def test_messages_use_metadata_until_open_and_skip_queued_duplicates(self) -> None:
+        flow = tflow.twebsocketflow()
+        self.controller.frames = [
+            WsFrame(index, True, 1, b"text", 1700000000.0, False, False)
+            for index in range(3)
+        ]
+        data = build_flow_summary(flow)
+        data["message_count"] = 3
+        self.panel.set_data(data)
+        self.assertIsNone(self.panel.messages)
+        self.assertEqual(self.panel.message_badge.text(), "3")
+        self.assertEqual(self.controller.message_calls, [])
+        self.panel.res_pane.setCurrentTab("Messages")
+        messages = self.panel.messages
+        assert messages is not None
+        self.assertEqual(messages.count, 3)
+        self.controller.websocket_frame.emit(flow.id, self.controller.frames[-1])
+        self.assertEqual(messages.count, 3)
+        fourth = replace(self.controller.frames[-1], index=3)
+        self.controller.frames.append(fourth)
+        self.controller.websocket_frame.emit(flow.id, fourth)
+        self.assertEqual(messages.count, 4)
+        self.panel.res_pane.setCurrentTab("Headers")
+        fifth = replace(fourth, index=4)
+        self.controller.frames.append(fifth)
+        self.controller.websocket_frame.emit(flow.id, fifth)
+        self.assertEqual(messages.count, 4)
+        self.assertEqual(self.panel.message_badge.text(), "5")
+        self.assertEqual(len(self.controller.message_calls), 1)
+        self.panel.res_pane.setCurrentTab("Messages")
+        self.assertIs(self.panel.messages, messages)
+        self.assertEqual(messages.count, 5)
+        self.assertEqual(len(self.controller.message_calls), 2)
+
+        # 外层 splitter 收到零尺寸时，选中的 Messages 也不能继续造气泡。
+        self.panel.resize(0, self.panel.height())
+        sixth = replace(fifth, index=5)
+        self.controller.frames.append(sixth)
+        self.controller.websocket_frame.emit(flow.id, sixth)
+        self.assertEqual(messages.count, 5)
+        self.assertEqual(self.panel.message_badge.text(), "6")
+        self.panel.resize(800, self.panel.height())
+        self.assertEqual(messages.count, 6)
+        self.assertEqual(len(self.controller.message_calls), 3)
+
+    def test_hidden_websocket_updates_preserve_filter_and_cleared_display(self) -> None:
+        flow = tflow.twebsocketflow()
+        first = WsFrame(0, True, 1, b"old", 1700000000.0, False, False)
+        self.controller.frames = [first]
+        data = build_flow_summary(flow)
+        data["message_count"] = 1
+        self.panel.set_data(data)
+        self.panel.res_pane.setCurrentTab("Messages")
+        messages = self.panel.messages
+        assert messages is not None
+        messages.filter_input.setText("new")
+        messages.clear_btn.click()
+        self.panel.res_pane.setCurrentTab("Headers")
+        second = replace(first, index=1, content=b"new")
+        self.controller.frames.append(second)
+        self.controller.websocket_frame.emit(flow.id, second)
+        self.assertEqual(messages.stream.message_count(), 0)
+
+        self.panel.res_pane.setCurrentTab("Messages")
+        self.assertEqual(messages.filter_input.text(), "new")
+        self.assertEqual(messages.stream.filter_text, "new")
+        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [1])
+        self.assertEqual(messages.count, 2)
+        # 同流摘要更新也只补增量，不能使刚清空的旧消息复活。
+        data["message_count"] = 2
+        self.panel.set_data(data)
+        self.assertEqual(messages.filter_input.text(), "new")
+        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [1])
+
+        other = tflow.twebsocketflow()
+        other_data = build_flow_summary(other)
+        other_data["message_count"] = 2
+        self.panel.set_data(other_data)
+        self.assertEqual(messages.filter_input.text(), "")
+        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [0, 1])
+
+
 class MessageBadgeTests(unittest.TestCase):
     """「消息」计数徽标：外挂在标签右侧，不许压住标签文字。"""
 
@@ -277,7 +616,9 @@ class MessageBadgeTests(unittest.TestCase):
         flow = tflow.twebsocketflow()
         assert flow.websocket is not None
         self.panel.controller = FramesOnly()
-        self.panel.set_data(build_flow_detail(flow))
+        data = build_flow_summary(flow)
+        data["message_count"] = 2
+        self.panel.set_data(data)
         self.app.processEvents()
 
     def test_the_badge_sits_outside_the_tab_not_on_top_of_it(self) -> None:
@@ -339,9 +680,15 @@ class _SseController(QObject):
     def sse_events(self, _flow_id: str) -> list:
         return list(self.archived)
 
-    def flow_detail(self, _flow_id: str) -> dict:
+    def flow_summary(self, _flow_id: str) -> dict:
         self.detail_requests += 1
         return self.detail
+
+    def flow_messages(self, _flow_id: str) -> dict:
+        events = self.archived or parse_sse(
+            str(self.detail.get("Response Body Text") or "")
+        )
+        return {"kind": "sse", "count": len(events), "events": list(events)}
 
     def get_raw_request(self, _flow_id: str) -> str:
         return ""
@@ -402,19 +749,45 @@ class SseRealtimeTests(unittest.TestCase):
         self.app.processEvents()
 
         self.assertTrue(self.panel.res_pane.isTabVisible("Messages"))
-        self.assertFalse(self.panel.message_badge.isHidden())
-        self.assertEqual(self.panel.message_badge.text(), "1")
+        self.assertIsNone(self.panel.messages)
+        self.assertTrue(self.panel.message_badge.isHidden())
 
     def test_sse_events_append_and_tick_the_badge(self) -> None:
         flow_id = self.__select(self.__sse_detail())
         self.controller.sse_started.emit(flow_id)
+        self.panel.res_pane.setCurrentTab("Messages")
+        assert self.panel.messages is not None
 
         self.controller.sse_event.emit(flow_id, parse_sse("data: one\n\n")[0])
-        self.controller.sse_event.emit(flow_id, parse_sse("data: two\n\n")[0])
+        self.controller.sse_event.emit(
+            flow_id, replace(parse_sse("data: two\n\n")[0], index=1)
+        )
         self.app.processEvents()
 
         self.assertEqual(self.panel.messages.count, 2)
         self.assertEqual(self.panel.message_badge.text(), "2")
+
+    def test_hidden_sse_updates_preserve_filter_and_cleared_display(self) -> None:
+        self.controller.archived = parse_sse("data: old\n\n")
+        flow_id = self.__select(self.__sse_detail())
+        self.panel.res_pane.setCurrentTab("Messages")
+        messages = self.panel.messages
+        assert messages is not None
+        messages.filter_input.setText("new")
+        messages.clear_btn.click()
+        self.panel.res_pane.setCurrentTab("Headers")
+        event = replace(self.controller.archived[0], index=1, data="new")
+        self.controller.archived.append(event)
+        self.controller.sse_event.emit(flow_id, event)
+        self.assertEqual(messages.stream.message_count(), 0)
+
+        self.panel.res_pane.setCurrentTab("Messages")
+        self.assertEqual(messages.filter_input.text(), "new")
+        self.assertEqual(messages.stream.filter_text, "new")
+        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [1])
+        self.assertEqual(messages.count, 2)
+        self.controller.sse_event.emit(flow_id, event)
+        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [1])
 
     def test_a_foreign_flow_id_leaves_the_panel_alone(self) -> None:
         self.__select(self.__pending_detail())
@@ -424,13 +797,14 @@ class SseRealtimeTests(unittest.TestCase):
         self.controller.sse_ended.emit("someone-else")
 
         self.assertFalse(self.panel.res_pane.isTabVisible("Messages"))
-        self.assertEqual(self.panel.messages.count, 0)
+        self.assertIsNone(self.panel.messages)
         self.assertEqual(self.controller.detail_requests, 0)
 
     def test_sse_ended_repulls_the_detail(self) -> None:
         """流末 body 已补回：响应体页要换最终内容，整个面板重拉一次详情。"""
         flow_id = self.__select(self.__sse_detail())
         self.controller.sse_started.emit(flow_id)
+        self.panel.res_pane.setCurrentTab("Messages")
 
         final = self.__sse_detail("data: final\n\n")
         self.controller.detail = final
@@ -440,11 +814,14 @@ class SseRealtimeTests(unittest.TestCase):
         self.assertEqual(self.controller.detail_requests, 1)
         self.assertIs(self.panel.datas, final)
         # 重拉之后消息页从补回的 body 重新落位（addon 存档为空 → 兑底解 body）。
+        assert self.panel.messages is not None
         self.assertEqual(self.panel.messages.count, 1)
 
     def test_sse_ended_with_nothing_to_show_does_not_blanks_the_panel(self) -> None:
         """controller 给不出详情（{}）时保持现状，别把面板打空。"""
         flow_id = self.__select(self.__sse_detail("data: seeded\n\n"))
+        self.panel.res_pane.setCurrentTab("Messages")
+        assert self.panel.messages is not None
         before = self.panel.messages.count
 
         self.controller.sse_ended.emit(flow_id)
@@ -468,12 +845,20 @@ class LeftColumnTests(unittest.TestCase):
         self.host.deleteLater()
         self.app.processEvents()
 
-    def test_an_empty_body_shows_the_placeholder_not_a_blank_editor(self) -> None:
+    def test_an_empty_response_body_shows_the_placeholder_not_a_blank_editor(
+        self,
+    ) -> None:
+        # 请求侧无 body 时整条标签都被藏起（见下一个测试），占位页的兜底
+        # 用响应侧验证：有响应头、无响应体。
         flow = tflow.tflow(resp=True)
-        flow.request.content = b""
+        assert flow.response is not None
+        flow.response.content = b""
         self.panel.set_data(build_flow_detail(flow))
+        self.panel.res_pane.setCurrentTab("Body")
+        assert self.panel.res_pane.body_pane is not None
         self.assertIs(
-            self.panel.req_body.currentWidget(), self.panel.req_body.empty_label
+            self.panel.res_pane.body_pane.currentWidget(),
+            self.panel.res_pane.body_pane.empty_label,
         )
 
     def test_a_json_body_lands_on_the_dual_view(self) -> None:
@@ -481,18 +866,25 @@ class LeftColumnTests(unittest.TestCase):
         flow.request.headers["Content-Type"] = "application/json"
         flow.request.content = b'{"a": 1}'
         self.panel.set_data(build_flow_detail(flow))
+        self.panel.req_tabs.setCurrentTab("Body")
+        assert self.panel.req_body is not None
 
         self.assertIs(
             self.panel.req_body.currentWidget(), self.panel.req_body.json_panel
         )
-        self.assertTrue(self.panel.req_body_badge.isVisibleTo(self.panel))
-        self.assertEqual(self.panel.req_body_badge.text(), "JSON")
 
-    def test_a_bodyless_message_shows_no_view_badge(self) -> None:
+    def test_a_bodyless_request_hides_the_body_tab(self) -> None:
+        # GET 这类无请求体的流量不再摆一条点进去全是空白的 Body 标签。
         flow = tflow.tflow()
         flow.request.content = b""
         self.panel.set_data(build_flow_detail(flow))
-        self.assertFalse(self.panel.req_body_badge.isVisibleTo(self.panel))
+        self.assertFalse(self.panel.req_tabs.isTabVisible("Body"))
+
+    def test_a_request_with_a_body_keeps_the_body_tab(self) -> None:
+        flow = tflow.tflow()
+        flow.request.content = b"payload"
+        self.panel.set_data(build_flow_detail(flow))
+        self.assertTrue(self.panel.req_tabs.isTabVisible("Body"))
 
     def test_a_form_body_is_a_view_of_the_body_not_its_own_tab(self) -> None:
         """urlencoded 表单是请求体的一种格式：键值表格顶进 Body 页。"""
@@ -500,6 +892,8 @@ class LeftColumnTests(unittest.TestCase):
         flow.request.headers["Content-Type"] = "application/x-www-form-urlencoded"
         flow.request.content = b"user=jun&tag=a&tag=b"
         self.panel.set_data(build_flow_detail(flow))
+        self.panel.req_tabs.setCurrentTab("Body")
+        assert self.panel.req_body is not None
 
         self.assertIsNotNone(self.panel.req_body.form_panel)
         assert self.panel.req_body.form_panel is not None
@@ -527,10 +921,13 @@ class LeftColumnTests(unittest.TestCase):
     ) -> None:
         """没有 controller 时按详情字典手工拼「起始行 + 头 + 空行 + body」。"""
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.panel.req_tabs.setCurrentTab("Raw")
+        assert self.panel.req_raw is not None
 
         raw = self.panel.req_raw.text()
         self.assertTrue(raw.startswith("GET /path HTTP/1.1"))
         self.assertIn("header: qvalue", raw)
+        assert self.panel.res_pane.raw_edit is not None
         res_raw = self.panel.res_pane.raw_edit.text()
         self.assertTrue(res_raw.startswith("HTTP/1.1 200 OK"))
 
@@ -551,9 +948,12 @@ class LeftColumnTests(unittest.TestCase):
         self.panel.set_controller(Broken())
         with self.assertLogs("ferret.flow.detail", "WARNING") as caught:
             self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+            self.panel.req_tabs.setCurrentTab("Raw")
 
         self.assertEqual(len(caught.output), 2)
+        assert self.panel.req_raw is not None
         self.assertTrue(self.panel.req_raw.text().startswith("GET /path"))
+        assert self.panel.res_pane.raw_edit is not None
         self.assertTrue(self.panel.res_pane.raw_edit.text().startswith("HTTP/1.1 200"))
 
     def test_a_working_controller_wins_over_the_hand_assembled_fallback(self) -> None:
@@ -566,8 +966,11 @@ class LeftColumnTests(unittest.TestCase):
 
         self.panel.set_controller(Wire())
         self.panel.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        self.panel.req_tabs.setCurrentTab("Raw")
+        assert self.panel.req_raw is not None
 
         self.assertIn("/wire", self.panel.req_raw.text())
+        assert self.panel.res_pane.raw_edit is not None
         self.assertIn("418", self.panel.res_pane.raw_edit.text())
 
 
@@ -599,8 +1002,30 @@ class ResponsePaneTests(unittest.TestCase):
     def test_raw_falls_back_to_the_detail_dict_without_a_controller(self) -> None:
         pane = ResponsePane()
         pane.set_data(build_flow_detail(tflow.tflow(resp=True)))
+        assert pane.raw_edit is not None
         self.assertTrue(pane.raw_edit.text().startswith("HTTP/1.1 200 OK"))
         pane.deleteLater()
+
+    def test_without_raw_never_creates_an_editor_or_fetches_the_raw_response(
+        self,
+    ) -> None:
+        controller = Mock()
+        with patch.object(detail, "ToolPlainTextEdit") as make_raw:
+            pane = ResponsePane(controller=controller, with_raw=False)
+        self.addCleanup(pane.deleteLater)
+        make_raw.assert_not_called()
+        self.assertIsNone(pane.raw_edit)
+        self.assertEqual(list(pane.pivot.items), ["Headers", "Body"])
+
+        data = build_flow_detail(tflow.tflow(resp=True))
+        with patch.object(detail, "_fill_raw") as fill_raw:
+            pane.set_data(data)
+        fill_raw.assert_not_called()
+        controller.get_raw_response.assert_not_called()
+        self.assertIs(pane.datas, data)
+        self.assertIn(
+            str(len(data["Response Headers"])), pane.pivot.items["Headers"].text()
+        )
 
 
 class CommentPaneTests(unittest.TestCase):
@@ -691,6 +1116,8 @@ class CommentWriteBackTests(unittest.TestCase):
         )
         self.flow = tflow.tflow(resp=True)
         self.panel.set_data(build_flow_detail(self.flow))
+        self.panel.req_tabs.setCurrentTab("Comment")
+        assert self.panel.comment_pane is not None
 
     def tearDown(self) -> None:
         self.host.deleteLater()
@@ -708,6 +1135,9 @@ class CommentWriteBackTests(unittest.TestCase):
         """没有可写的 flow（只读页 / 死对象）时编辑页整体锁死，而不是点了保存才报错。"""
         panel = FlowDataPanel(self.host, None, CAPTURE_CAPABILITIES)
         panel.set_data(build_flow_detail(self.flow))
+        panel.req_tabs.setCurrentTab("Comment")
+        assert panel.comment_pane is not None
+        assert self.panel.comment_pane is not None
         self.assertTrue(panel.comment_pane.edit.is_read_only())
 
         self.assertFalse(self.panel.comment_pane.edit.is_read_only())
@@ -716,6 +1146,7 @@ class CommentWriteBackTests(unittest.TestCase):
         """空串是一个有意的取值，不是「没填」。"""
         self.flow.comment = "旧备注"
         self.panel.set_data(build_flow_detail(self.flow))
+        assert self.panel.comment_pane is not None
         self.panel.comment_pane.edit.code_widget.setPlainText("")
         self.panel.comment_pane.save_button.click()
         self.app.processEvents()
@@ -724,6 +1155,8 @@ class CommentWriteBackTests(unittest.TestCase):
 
     def test_the_inline_editor_writes_back_through_the_same_channel(self) -> None:
         seen: list[list] = []
+        assert self.panel.overview is not None
+        assert self.panel.comment_pane is not None
 
         with patch.object(self.panel.overview, "set_data") as overview:
             self.panel.comment_pane.set_data({"comment": ""})
@@ -732,23 +1165,25 @@ class CommentWriteBackTests(unittest.TestCase):
             self.app.processEvents()
             seen.append(self.controller.calls)
 
-        overview.assert_called_once()
+        overview.assert_not_called()
+        self.panel.req_tabs.setCurrentTab("Overview")
+        self.assertEqual(self.panel.datas["comment"], "内联写回")
         self.assertEqual(seen, [[("comment", self.flow.id, "内联写回")]])
 
-    def test_a_write_back_refreshes_the_overview_card_only(self) -> None:
+    def test_a_write_back_defers_the_hidden_overview_until_activated(self) -> None:
         """整个 `set_data` 会连消息页一起重建，把 WS 帧表的选中和滚动位置清掉 ——
         而帧还在一秒几十条地进来。"""
-        with (
-            patch.object(self.panel.overview, "set_data") as overview,
-            patch.object(self.panel.messages, "set_data") as messages,
-        ):
+        assert self.panel.overview is not None
+        assert self.panel.comment_pane is not None
+        with patch.object(self.panel.overview, "set_data") as overview:
             self.panel.comment_pane.edit.code_widget.setPlainText("看这条")
             self.panel.comment_pane.save_button.click()
             self.app.processEvents()
-
-        overview.assert_called_once()
-        messages.assert_not_called()
-        self.assertEqual(overview.call_args.args[0]["comment"], "看这条")
+            overview.assert_not_called()
+            self.panel.req_tabs.setCurrentTab("Overview")
+            overview.assert_called_once()
+            self.assertEqual(overview.call_args.args[0]["comment"], "看这条")
+        self.assertIsNone(self.panel.messages)
 
     def test_a_failed_comment_write_leaves_the_cached_detail_alone(self) -> None:
         panel = FlowDataPanel(
@@ -757,6 +1192,8 @@ class CommentWriteBackTests(unittest.TestCase):
             CAPTURE_CAPABILITIES,
         )
         panel.set_data(build_flow_detail(self.flow))
+        panel.req_tabs.setCurrentTab("Comment")
+        assert panel.comment_pane is not None
         panel.comment_pane.edit.code_widget.setPlainText("写不进去")
         panel.comment_pane.save_button.click()
         self.app.processEvents()

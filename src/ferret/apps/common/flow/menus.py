@@ -563,7 +563,9 @@ class FlowExportMenu(RoundMenu):
             return
 
         if kind == "curl":
-            text = self.context_menu.row_data.get("curl_command") or ""
+            # 按需生成，不提前构建：右键时顺手算 curl 是大 body 流量上菜单
+            # 卡顿的来源之一，而绝大多数右键根本不点复制。
+            text = self.controller.get_curl_command(flow_id)
             label = "cURL"
 
         else:

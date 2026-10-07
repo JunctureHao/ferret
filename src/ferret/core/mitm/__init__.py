@@ -41,7 +41,11 @@ from ferret.core.mitm.compose import (
     ComposeResult,
 )
 from ferret.core.mitm.detail import (
+    build_flow_body,
     build_flow_detail,
+    build_flow_messages,
+    build_flow_overview_metadata,
+    build_flow_summary,
     head_size,
     infer_state,
     wire_size,
@@ -249,7 +253,11 @@ __all__ = [
     "WsClose",
     "WsFrame",
     "anticache_option_updates",
+    "build_flow_body",
     "build_flow_detail",
+    "build_flow_messages",
+    "build_flow_overview_metadata",
+    "build_flow_summary",
     "build_request_edit",
     "capture_mode_specs",
     "client_certs_error",

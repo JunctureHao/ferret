@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -461,9 +463,7 @@ class _SessionRowSource:
 
     def remove(self, flow_ids) -> None:
         flows = [
-            flow
-            for fid in flow_ids
-            if (flow := self._view.get_by_id(fid)) is not None
+            flow for fid in flow_ids if (flow := self._view.get_by_id(fid)) is not None
         ]
         if flows:
             self._view.remove(flows)
@@ -534,7 +534,6 @@ class SessionViewerPage(QWidget):
                 capabilities=READONLY_CAPABILITIES,
             )
             self.table = splitter.table
-            self.panel = splitter.panel
             self._toolbar_layout.insertWidget(
                 self._toolbar_layout.count() - 1, splitter.mode_button
             )

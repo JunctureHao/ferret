@@ -4,6 +4,7 @@
 UI 消费的字典：
 
 - body 美化 / 视图命中 / 高亮语言 → ``mitmproxy.contentviews.prettify_message``
+  （JSON 视图的缩进由这里收紧为 2 空格，见 ``build_body``）
 - Content-Encoding 解压           → ``Message.get_content(strict=False)``
 - charset 解码                    → ``Message.get_text(strict=False)``
 
@@ -12,6 +13,8 @@ mitmproxy 侧没有的派生数据一并去掉，避免两侧行为分叉：JSON
 二进制嗅探（``_is_binary_content``）、``format_bytes`` 自定义字节格式
 （改用 ``mitmproxy.utils.human.pretty_size``）。
 """
+
+import json
 
 from ferret.core.mitm.bindings import contentviews
 
@@ -34,6 +37,7 @@ def build_body(flow, message, max_size: int = MAX_PRETTY_SIZE) -> dict:
         "raw": bytes,           # 解压后的原始字节（Content-Encoding 已还原）
         "text": str,            # 解码后文本，Raw 标签页兜底用
         "pretty": str | None,   # contentview 美化结果；空 body 或超限为 None
+                                # （JSON 视图再收紧为 2 空格缩进）
         "view": str,            # 命中的 contentview 名（JSON / gRPC / Raw …）
         "syntax": str,          # contentview 声明的高亮语言，见 SyntaxHighlight
     }
@@ -45,10 +49,19 @@ def build_body(flow, message, max_size: int = MAX_PRETTY_SIZE) -> dict:
         return {"raw": raw, "text": text, "pretty": None, "view": "", "syntax": "none"}
 
     result = contentviews.prettify_message(message, flow)
+    pretty = result.text
+    if result.view_name == "JSON":
+        # mitmproxy 的 JSON 视图固定 ``indent=4``，ferret 统一收紧为 2。视图
+        # 命中即代表它已对同一份数据成功 ``json.loads`` 过，重新解析不会失败；
+        # 兜一层只为极端畸形输出不炸穿 body 页。
+        try:
+            pretty = json.dumps(json.loads(pretty), indent=2, ensure_ascii=False)
+        except ValueError:
+            pass
     return {
         "raw": raw,
         "text": text,
-        "pretty": result.text,
+        "pretty": pretty,
         "view": result.view_name or "",
         "syntax": result.syntax_highlight,
     }

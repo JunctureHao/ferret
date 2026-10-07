@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from io import BufferedIOBase, BufferedReader
@@ -41,7 +41,7 @@ def imported_flow_ids() -> set[str] | None:
 
 
 @contextmanager
-def flow_import(ids: set[str] | None = None) -> Iterator[None]:
+def flow_import(ids: set[str] | None = None) -> Generator[None, None, None]:
     token = _FLOW_IMPORT.set(
         (asyncio.current_task(), ids if ids is not None else set())
     )

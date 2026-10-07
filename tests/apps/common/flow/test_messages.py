@@ -100,6 +100,10 @@ class PureHelperTests(unittest.TestCase):
         self.assertTrue(is_websocket({"raw_state": {"websocket": {"messages": []}}}))
         self.assertFalse(is_websocket({"raw_state": {"websocket": None}}))
 
+    def test_websocket_detection_accepts_the_lightweight_summary(self) -> None:
+        self.assertTrue(is_websocket({"is_websocket": True}))
+        self.assertFalse(is_websocket({"is_websocket": False}))
+
     def test_websocket_detection_survives_a_missing_state(self) -> None:
         """详情字典可能只有几个键（双击表格那一路），不许抛。"""
         self.assertFalse(is_websocket({}))

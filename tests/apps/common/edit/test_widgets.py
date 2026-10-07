@@ -10,6 +10,7 @@
   否则控制器一填表就以为用户动过手。
 """
 
+import json
 import os
 import typing
 import unittest
@@ -352,25 +353,150 @@ class JsonDualPanelTests(unittest.TestCase):
         self.panel.set_text('{"a": 1}')
         self.assertEqual(self.panel.plain_text(), '{"a": 1}')
 
+    def test_text_only_use_never_creates_or_parses_the_tree(self) -> None:
+        with unittest.mock.patch("ferret.apps.common.edit.widgets.json.loads") as parse:
+            self.panel.set_text('{"a": 1}')
+            self.panel.set_text('{"b": 2}')
+            self.panel.text.code_widget.setPlainText('{"c": 3}')
+        parse.assert_not_called()
+        self.assertIsNone(self.panel.tree)
+        self.assertEqual(self.panel.stack.count(), 1)
+        self.assertEqual(self.panel.plain_text(), '{"c": 3}')
+
     def test_the_tree_is_rebuilt_from_the_edited_text(self) -> None:
         """树是文本的派生视图；不重建就会显示上一份结构。"""
         self.panel.set_text('{"a": 1}')
         self.panel.text.code_widget.setPlainText('{"b": 2, "c": 3}')
         self.panel._show_tree_page()
+        assert self.panel.tree is not None
         tree = self.panel.tree.tree
         self.assertEqual(tree.topLevelItemCount(), 2)
         first = tree.topLevelItem(0)
         assert first is not None
         self.assertEqual(first.text(0), "b")
 
+    def test_switching_pages_reuses_the_tree_until_the_text_changes(self) -> None:
+        self.panel.set_text('{"a": {"nested": 1}}')
+        self.panel._btn_tree.click()
+        assert self.panel.tree is not None
+        tree_panel = self.panel.tree
+        first = tree_panel.tree.topLevelItem(0)
+        assert first is not None
+        first.setExpanded(True)
+
+        with unittest.mock.patch(
+            "ferret.apps.common.edit.widgets.json.loads", wraps=json.loads
+        ) as parse:
+            self.panel._btn_text.click()
+            self.panel._btn_tree.click()
+            parse.assert_not_called()
+            self.assertTrue(first.isExpanded())
+
+            self.panel._btn_text.click()
+            self.panel.set_text('{"b": 2}')
+            parse.assert_not_called()
+            self.panel._btn_tree.click()
+            parse.assert_called_once_with('{"b": 2}')
+
+        self.assertIs(self.panel.tree, tree_panel)
+        self.assertEqual(self.panel.stack.count(), 2)
+        first = tree_panel.tree.topLevelItem(0)
+        assert first is not None
+        self.assertEqual(first.text(0), "b")
+
+    def test_a_visible_tree_tracks_replacement_text(self) -> None:
+        self.panel.show()
+        self.panel.set_text('{"a": 1}')
+        self.panel._btn_tree.click()
+        assert self.panel.tree is not None
+        self.assertTrue(self.panel.tree.isVisible())
+
+        seen: list[None] = []
+        self.panel.changed.connect(lambda: seen.append(None))
+        self.panel.set_text('{"b": 2}')
+
+        first = self.panel.tree.tree.topLevelItem(0)
+        assert first is not None
+        self.assertEqual(first.text(0), "b")
+        self.assertIs(self.panel.stack.currentWidget(), self.panel.tree)
+        self.assertEqual(seen, [])
+
+    def test_loading_the_same_text_and_language_keeps_the_cached_tree(self) -> None:
+        text = '{"a": {"nested": 1}}'
+        self.panel.show()
+        self.panel.set_text(text)
+        self.panel._btn_tree.click()
+        assert self.panel.tree is not None
+        first = self.panel.tree.tree.topLevelItem(0)
+        assert first is not None
+        first.setExpanded(True)
+
+        with unittest.mock.patch(
+            "ferret.apps.common.edit.widgets.json.loads", wraps=json.loads
+        ) as parse:
+            self.panel.set_text(text, "json")
+            self.panel._btn_text.click()
+            self.panel._btn_tree.click()
+        parse.assert_not_called()
+        self.assertTrue(first.isExpanded())
+        self.assertEqual(self.panel.plain_text(), text)
+
+    def test_changing_only_the_language_invalidates_the_tree(self) -> None:
+        text = '{"a": 1}'
+        self.panel.show()
+        self.panel.set_text(text)
+        self.panel._btn_tree.click()
+        assert self.panel.tree is not None
+
+        with unittest.mock.patch(
+            "ferret.apps.common.edit.widgets.json.loads", wraps=json.loads
+        ) as parse:
+            self.panel.set_text(text, Language.HTTP)
+            parse.assert_not_called()
+            self.assertEqual(self.panel.tree.tree.topLevelItemCount(), 0)
+            self.panel.set_text(text, Language.JSON)
+            parse.assert_called_once_with(text)
+
+        first = self.panel.tree.tree.topLevelItem(0)
+        assert first is not None
+        self.assertEqual(first.text(0), "a")
+
+    def test_a_hidden_tree_waits_until_the_panel_is_shown_again(self) -> None:
+        self.panel.show()
+        self.panel.set_text('{"a": 1}')
+        self.panel._btn_tree.click()
+        assert self.panel.tree is not None
+        self.panel.hide()
+
+        with unittest.mock.patch(
+            "ferret.apps.common.edit.widgets.json.loads", wraps=json.loads
+        ) as parse:
+            self.panel.set_text('{"b": 2}')
+            self.panel.set_text('{"c": 3}')
+            parse.assert_not_called()
+            self.panel.show()
+            parse.assert_called_once_with('{"c": 3}')
+
+        first = self.panel.tree.tree.topLevelItem(0)
+        assert first is not None
+        self.assertEqual(first.text(0), "c")
+
     def test_broken_json_leaves_an_empty_tree(self) -> None:
         """body 常常是被截断的 JSON，不该因此炸掉。"""
+        self.panel.set_text('{"old": 1}')
+        self.panel._show_tree_page()
         self.panel.set_text('{"a": 1')
+        self.panel._show_tree_page()
+        assert self.panel.tree is not None
         self.assertEqual(self.panel.tree.tree.topLevelItemCount(), 0)
         self.assertEqual(self.panel.plain_text(), '{"a": 1')
 
     def test_a_non_json_language_has_no_tree(self) -> None:
+        self.panel.set_text('{"old": 1}')
+        self.panel._show_tree_page()
         self.panel.set_text("plain body", Language.HTTP)
+        self.panel._show_tree_page()
+        assert self.panel.tree is not None
         self.assertEqual(self.panel.tree.tree.topLevelItemCount(), 0)
 
     def test_typing_is_announced(self) -> None:

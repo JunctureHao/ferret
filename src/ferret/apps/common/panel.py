@@ -1,4 +1,8 @@
-from PySide6.QtCore import Signal, Slot
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from PySide6.QtCore import QSignalBlocker, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import (
     FluentIcon,
@@ -15,6 +19,8 @@ class TabPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._tab_font_size = 18
+        self._tab_widgets: dict[str, QWidget] = {}
+        self._tab_factories: dict[str, Callable[[], QWidget]] = {}
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -23,6 +29,7 @@ class TabPanel(QWidget):
 
     def addTab(self, route_key: str, widget: QWidget, text: str, index: int = -1):
         widget.setObjectName(route_key)
+        self._tab_widgets[route_key] = widget
 
         if index < 0 or index >= self.stacked.count():
             self.stacked.addWidget(widget)
@@ -33,7 +40,7 @@ class TabPanel(QWidget):
             index,
             routeKey=route_key,
             text=text,
-            onClick=lambda _, w=widget: self.stacked.setCurrentWidget(w),
+            onClick=lambda _, key=route_key: self.setCurrentTab(key),
         )
 
         item = self.pivot.items.get(route_key)
@@ -43,6 +50,43 @@ class TabPanel(QWidget):
 
         if self.stacked.count() == 1:
             self.pivot.setCurrentItem(route_key)
+
+    def addLazyTab(
+        self,
+        route_key: str,
+        factory: Callable[[], QWidget],
+        text: str,
+        index: int = -1,
+    ) -> None:
+        """先注册导航和空壳；显式激活标签时才创建内容。"""
+        self.addTab(route_key, QWidget(), text, index)
+        self._tab_factories[route_key] = factory
+
+    def tabWidget(self, route_key: str) -> QWidget | None:
+        """只查询已创建的内容，不因读取属性而构造控件。"""
+        if route_key in self._tab_factories:
+            return None
+        return self._tab_widgets.get(route_key)
+
+    def activateCurrentTab(self) -> QWidget | None:
+        """创建当前页一次，之后复用；空状态宿主可以延后调用。"""
+        route_key = self.pivot.currentRouteKey()
+        factory = self._tab_factories.get(route_key)
+        if factory is None:
+            return self._tab_widgets.get(route_key)
+        widget = factory()
+        placeholder = self._tab_widgets[route_key]
+        index = self.stacked.indexOf(placeholder)
+        widget.setObjectName(route_key)
+        del self._tab_factories[route_key]
+        self._tab_widgets[route_key] = widget
+        with QSignalBlocker(self.stacked):
+            self.stacked.removeWidget(placeholder)
+            self.stacked.insertWidget(index, widget)
+            self.stacked.setCurrentWidget(widget)
+        placeholder.deleteLater()
+        self.currentChanged.emit(index)
+        return widget
 
     def setTabVisible(self, route_key: str, visible: bool):
         """隐藏/显示一整条标签。
@@ -81,6 +125,7 @@ class TabPanel(QWidget):
 
     def setCurrentTab(self, route_key: str):
         self.pivot.setCurrentItem(route_key)
+        self.activateCurrentTab()
 
     # ── 内部方法 ──────────────────────────────
 
@@ -122,7 +167,7 @@ class TabPanel(QWidget):
 
     @Slot(str)
     def __on_pivot_changed(self, route_key: str):
-        w = self.stacked.findChild(QWidget, route_key)
+        w = self.activateCurrentTab()
         if w:
             self.stacked.setCurrentWidget(w)
 

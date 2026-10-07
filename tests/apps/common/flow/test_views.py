@@ -1,13 +1,127 @@
+from __future__ import annotations
+
 import os
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from mitmproxy.test import tflow
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication, QWidget
 
+from ferret.apps.common.flow.columns import default_layout, logical_index
+from ferret.apps.common.flow.models import HIGHLIGHT_ROLE
 from ferret.apps.common.flow.views import FlowViewerPane
+from ferret.core.mitm import WsClose, WsFrame, build_flow_detail, flow_row, parse_sse
+
+
+class _Source:
+    def __init__(self, rows):
+        self.rows = list(rows)
+
+    def __iter__(self):
+        return iter(self.rows)
+
+    def clear(self):
+        self.rows.clear()
+
+    def remove(self, ids):
+        self.rows[:] = [row for row in self.rows if row.id not in ids]
+
+
+class _Controller(QObject):
+    websocket_started = Signal(str)
+    websocket_frame = Signal(str, object)
+    websocket_closed = Signal(str, object)
+    sse_started = Signal(str)
+    sse_event = Signal(str, object)
+    sse_ended = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.details: dict[str, dict] = {}
+        self.requests: list[str] = []
+        self.full_requests: list[str] = []
+        self.body_requests: list[tuple[str, str]] = []
+        self.message_requests: list[str] = []
+        self.events: list = []
+        self.frames: list = []
+
+    def flow_detail(self, flow_id):
+        self.requests.append(flow_id)
+        self.full_requests.append(flow_id)
+        return self.details.get(flow_id, {"id": flow_id})
+
+    def flow_summary(self, flow_id):
+        self.requests.append(flow_id)
+        data = self.details.get(flow_id, {"id": flow_id})
+        summary = {
+            key: value
+            for key, value in data.items()
+            if " Body" not in key
+            and not key.endswith("_decoded_size")
+            and key not in ("raw_state", "curl_command", "Request Form")
+        }
+        if "raw_state" in data:
+            websocket = data["raw_state"].get("websocket") is not None
+            kind = (
+                "websocket"
+                if websocket
+                else (
+                    "sse"
+                    if data.get("Response Content-Type") == "text/event-stream"
+                    else ""
+                )
+            )
+            summary.update(
+                is_websocket=websocket,
+                message_kind=kind,
+                message_count=len(self.frames if websocket else self.events),
+            )
+        return summary
+
+    def flow_body(self, flow_id, side):
+        self.body_requests.append((flow_id, side))
+        return {
+            key: value
+            for key, value in self.details.get(flow_id, {}).items()
+            if key.startswith(f"{side} Body")
+            or key in (f"{side} Content-Type", "Request Form")
+        }
+
+    def flow_messages(self, flow_id):
+        self.message_requests.append(flow_id)
+        data = self.details.get(flow_id, {})
+        websocket = data.get("raw_state", {}).get("websocket") is not None
+        kind = "websocket" if websocket else "sse"
+        items = self.frames if websocket else self.events
+        return {
+            "kind": kind,
+            "count": len(items),
+            "frames": list(self.frames),
+            "close": WsClose(),
+            "events": list(self.events),
+        }
+
+    def total_count(self):
+        return len(self.details)
+
+    def get_raw_request(self, _flow_id):
+        return ""
+
+    def get_raw_response(self, _flow_id):
+        return ""
+
+    def sse_events(self, _flow_id):
+        return list(self.events)
+
+    def websocket_frames(self, _flow_id):
+        return list(self.frames)
+
+    def websocket_close(self, _flow_id):
+        return WsClose()
 
 
 class FlowViewerPaneTests(unittest.TestCase):
@@ -16,7 +130,8 @@ class FlowViewerPaneTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
-        self.viewer = FlowViewerPane()
+        self.controller = _Controller()
+        self.viewer = FlowViewerPane(controller=self.controller)
         self.viewer.resize(900, 600)
         self.viewer.show()
         self.app.processEvents()
@@ -29,23 +144,25 @@ class FlowViewerPaneTests(unittest.TestCase):
         self.app.processEvents()
 
     def test_single_click_does_not_open_collapsed_panel(self) -> None:
-        with patch.object(self.viewer.panel, "set_data") as set_data:
-            self.viewer.table.row_selected.emit({"id": "flow-1"})
-            self.app.processEvents()
+        self._load_flows(tflow.tflow(resp=True))
+        self.viewer.table.selectRow(0)
+        self.app.processEvents()
 
-        set_data.assert_not_called()
+        self.assertIsNone(self.viewer.panel)
+        self.assertEqual(self.controller.requests, [])
         self.assertEqual(self.viewer.sizes()[1], 0)
 
     def test_single_click_updates_open_panel_without_changing_ratio(self) -> None:
         # 4ee294f 起空态会隐藏详情面板，QSplitter 对隐藏件不分配尺寸；
         # 本测试要的是「面板已展开」状态，先显式恢复显示。
-        self.viewer.panel.setVisible(True)
+        panel = self.viewer._ensure_panel()
+        panel.setVisible(True)
         self.viewer.setSizes([650, 250])
         self.app.processEvents()
         before = self.viewer.sizes()
         data = {"id": "flow-2"}
 
-        with patch.object(self.viewer.panel, "set_data") as set_data:
+        with patch.object(panel, "set_data") as set_data:
             self.viewer.table.row_selected.emit(data)
             self.app.processEvents()
 
@@ -55,13 +172,14 @@ class FlowViewerPaneTests(unittest.TestCase):
     def test_double_click_opens_horizontal_panel_equally(self) -> None:
         self.viewer.setOrientation(Qt.Orientation.Horizontal)
         self.viewer.collapse_panel()
-        data = {"id": "flow-3"}
-
-        with patch.object(self.viewer.panel, "set_data") as set_data:
-            self.viewer.table.row_double_clicked.emit(data)
-            self.app.processEvents()
-
-        set_data.assert_called_once_with(data)
+        flow = tflow.tflow(resp=True)
+        self._load_flows(flow)
+        self.viewer.table.row_double_clicked.emit({"id": flow.id})
+        self.app.processEvents()
+        assert self.viewer.panel is not None
+        self.assertEqual(self.viewer.panel.datas["id"], flow.id)
+        self.assertEqual(self.controller.requests, [flow.id])
+        self.assertEqual(self.controller.full_requests, [])
         first, second = self.viewer.sizes()
         self.assertGreater(second, 0)
         self.assertLessEqual(abs(first - second), 1)
@@ -69,13 +187,14 @@ class FlowViewerPaneTests(unittest.TestCase):
     def test_double_click_opens_vertical_panel_equally(self) -> None:
         self.viewer.setOrientation(Qt.Orientation.Vertical)
         self.viewer.collapse_panel()
-
-        with patch.object(self.viewer.panel, "set_data"):
-            self.viewer.table.row_double_clicked.emit({"id": "flow-4"})
-            self.app.processEvents()
+        flow = tflow.tflow(resp=True)
+        self._load_flows(flow)
+        self.viewer.table.row_double_clicked.emit({"id": flow.id})
+        self.app.processEvents()
 
         first, second = self.viewer.sizes()
         available = self.viewer.height() - self.viewer.handleWidth()
+        assert self.viewer.panel is not None
         minimum_detail = self.viewer.panel.minimumSizeHint().height()
         expected_second = max(available - available // 2, minimum_detail)
         self.assertGreater(second, 0)
@@ -83,9 +202,11 @@ class FlowViewerPaneTests(unittest.TestCase):
         self.assertLessEqual(abs(second - expected_second), 1)
 
     def test_close_request_collapses_panel(self) -> None:
+        panel = self.viewer._ensure_panel()
+        panel.setVisible(True)
         self.viewer.setSizes([450, 450])
         self.app.processEvents()
-        self.viewer.panel.collapseRequested.emit()
+        panel.collapseRequested.emit()
         self.app.processEvents()
         self.assertEqual(self.viewer.sizes()[1], 0)
 
@@ -139,16 +260,358 @@ class FlowViewerPaneTests(unittest.TestCase):
     def test_detail_panel_consumes_the_row_data(self) -> None:
         """双击行 → 详情字典进面板并切到详情页（顶部上下文条已随改造移除）。"""
         data = {
+            "id": "flow-5",
             "Method": "GET",
             "URL": "https://api.example.com/v1/users",
             "Status Code": 200,
             "duration_ms": 128.0,
         }
-        self.viewer.table.row_double_clicked.emit(data)
+        self.controller.details["flow-5"] = data
+        self.viewer.table.row_double_clicked.emit({"id": "flow-5"})
         self.app.processEvents()
 
+        assert self.viewer.panel is not None
         self.assertEqual(self.viewer.panel.datas, data)
         self.assertEqual(self.viewer.panel.stack.currentIndex(), 1)
+
+    def _load_flows(self, *flows):
+        self.controller.details = {flow.id: build_flow_detail(flow) for flow in flows}
+        source = _Source(flow_row(flow) for flow in flows)
+        self.viewer.set_source(source)
+        self.app.processEvents()
+        return source
+
+    def test_housekeeping_does_not_create_panel_or_tree(self) -> None:
+        flow = tflow.tflow(resp=True)
+        source = self._load_flows(flow)
+        row = source.rows[0]
+        self.viewer.set_highlight_ids({row.id})
+        self.viewer.on_flow_updated(row)
+        self.viewer.on_view_refreshed()
+        self.viewer.set_controller(self.controller)
+        self.viewer.collapse_panel()
+        self.viewer.clear_all()
+        self.app.processEvents()
+        self.assertIsNone(self.viewer.panel)
+        self.assertIsNone(self.viewer.tree)
+        self.assertEqual(self.controller.requests, [])
+
+    def test_enter_reads_latest_detail_once_and_reuses_panel(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        latest = {**self.controller.details[flow.id], "comment": "latest"}
+        self.controller.details[flow.id] = latest
+        self.viewer.open_selected()
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        self.assertEqual(self.controller.requests, [flow.id])
+        self.assertEqual(self.controller.full_requests, [])
+        self.assertEqual(panel.datas["id"], flow.id)
+        self.assertEqual(panel.datas["comment"], "latest")
+        self.assertNotIn("Response Body", panel.datas)
+        self.assertEqual(self.controller.body_requests, [])
+        self.viewer.collapse_panel()
+        self.viewer.open_selected()
+        self.app.processEvents()
+        self.assertIs(self.viewer.panel, panel)
+        self.assertEqual(self.viewer.count(), 2)
+
+    def test_enter_without_selection_keeps_panel_lazy(self) -> None:
+        self._load_flows(tflow.tflow(resp=True))
+        self.viewer.open_selected()
+        self.assertIsNone(self.viewer.panel)
+        self.assertEqual(self.controller.requests, [])
+
+    def test_drag_opens_latest_selection_and_does_not_refetch_per_pixel(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        self.viewer.setOrientation(Qt.Orientation.Horizontal)
+        self.viewer.moveSplitter(450, 1)
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        self.assertEqual(panel.datas["id"], flow.id)
+        self.assertEqual(self.controller.requests, [flow.id])
+        self.viewer.moveSplitter(400, 1)
+        self.app.processEvents()
+        self.assertEqual(self.controller.requests, [flow.id])
+        self.viewer.collapse_panel()
+        self.viewer.moveSplitter(450, 1)
+        self.app.processEvents()
+        self.assertEqual(self.controller.requests, [flow.id, flow.id])
+
+    def test_drag_without_selection_opens_neutral_empty_page(self) -> None:
+        self._load_flows(tflow.tflow(resp=True))
+        self.viewer.moveSplitter(450, 1)
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        self.assertIs(panel.stack.currentWidget(), panel.empty_page)
+        self.assertEqual(panel.datas, {})
+        self.assertEqual(self.controller.requests, [])
+
+    def test_drag_after_clearing_selection_releases_the_previous_flow(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        self.viewer.collapse_panel()
+        self.viewer.table.clearSelection()
+        self.viewer.moveSplitter(450, 1)
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        self.assertIs(panel.stack.currentWidget(), panel.empty_page)
+        self.assertEqual(panel.datas, {})
+        self.assertEqual(self.controller.requests, [flow.id])
+        self.assertIsNone(panel.messages)
+        self.controller.websocket_frame.emit(
+            flow.id, WsFrame(0, False, 1, b"old", 1.0, False, False)
+        )
+        self.assertIsNone(panel.messages)
+        self.assertEqual(self.controller.message_requests, [])
+
+    def test_queued_callbacks_are_cancelled_when_viewer_is_destroyed(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self.controller.details[flow.id] = build_flow_detail(flow)
+        viewer = FlowViewerPane(controller=self.controller)
+        viewer.resize(900, 600)
+        viewer.show()
+        viewer.set_source(_Source([flow_row(flow)]))
+        viewer.table.selectRow(0)
+        viewer.set_grouping_mode("conn")
+        viewer.set_grouping_mode("flat")
+        viewer.open_selected()
+        with patch("sys.excepthook") as errors:
+            viewer.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            self.app.processEvents()
+        errors.assert_not_called()
+
+    def test_right_click_fetches_context_without_creating_panel(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self._load_flows(flow)
+        index = self.viewer.table.proxy_model.index(0, 0)
+        pos = self.viewer.table.visualRect(index).center()
+        with patch.object(self.viewer.table.context_menu, "exec"):
+            self.viewer.table.customContextMenuRequested.emit(pos)
+        self.assertEqual(self.controller.requests, [flow.id])
+        self.assertEqual(self.viewer.table.context_menu.row_data["id"], flow.id)
+        self.assertIsNone(self.viewer.panel)
+
+    def test_tree_first_open_uses_latest_source_and_highlights(self) -> None:
+        old = tflow.tflow(resp=True)
+        source = self._load_flows(old)
+        added = flow_row(tflow.tflow(resp=True))
+        source.rows.append(added)
+        self.viewer.on_flow_added(added)
+        updated = replace(added, status_code=201)
+        source.rows[1] = updated
+        self.viewer.on_flow_updated(updated)
+        removed = source.rows.pop(0)
+        self.viewer.on_flow_removed(removed, 0)
+        self.viewer.set_highlight_ids({updated.id})
+        self.assertIsNone(self.viewer.tree)
+        self.viewer.set_grouping_mode("conn")
+        self.app.processEvents()
+        tree = self.viewer.tree
+        assert tree is not None
+        self.assertEqual(tree.source_model.child_count(), 1)
+        parent = tree.source_model.index(0, 0)
+        child = tree.source_model.index(0, 0, parent)
+        self.assertEqual(tree.source_model.flow_at(child), updated)
+        self.assertTrue(child.data(HIGHLIGHT_ROLE))
+        self.viewer.set_grouping_mode("flat")
+        self.viewer.set_grouping_mode("conn")
+        self.assertIs(self.viewer.tree, tree)
+        self.assertIsNone(self.viewer.panel)
+
+    def test_late_tree_receives_latest_layout_and_controller(self) -> None:
+        layout = default_layout().with_visible("size", False).with_width("url", 321)
+        with patch("ferret.apps.common.flow.views.save_layout"):
+            self.viewer.table._commit_column_layout(layout)
+        controller = _Controller()
+        self.viewer.set_controller(controller)
+        self.viewer.set_grouping_mode("conn")
+        tree = self.viewer.tree
+        assert tree is not None
+        self.assertIs(tree.controller, controller)
+        self.assertIs(tree.context_menu.controller, controller)
+        self.assertTrue(tree.isColumnHidden(logical_index("size")))
+        self.assertEqual(tree.columnWidth(logical_index("url")), 321)
+        self.assertIsNone(self.viewer.panel)
+
+    def test_connection_selection_is_lazy_and_double_click_only_expands_tree(
+        self,
+    ) -> None:
+        self._load_flows(tflow.tflow(resp=True))
+        self.viewer.set_grouping_mode("conn")
+        tree = self.viewer.tree
+        assert tree is not None
+        parent = tree.proxy_model.index(0, 0)
+        tree.setCurrentIndex(parent)
+        tree.doubleClicked.emit(parent)
+        self.app.processEvents()
+        self.assertIsNone(self.viewer.panel)
+        self.assertEqual(self.controller.requests, [])
+        self.viewer.open_selected()
+        self.app.processEvents()
+        assert self.viewer.panel is not None
+        self.assertEqual(self.viewer.panel.stack.currentIndex(), 2)
+        self.assertEqual(self.controller.requests, [])
+
+    def test_tree_child_selection_is_lazy_until_double_click(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self._load_flows(flow)
+        self.viewer.set_grouping_mode("conn")
+        tree = self.viewer.tree
+        assert tree is not None
+        parent = tree.proxy_model.index(0, 0)
+        child = tree.proxy_model.index(0, 0, parent)
+        tree.setCurrentIndex(child)
+        self.assertEqual(self.controller.requests, [])
+        self.assertIsNone(self.viewer.panel)
+        tree.doubleClicked.emit(child)
+        self.app.processEvents()
+        self.assertEqual(self.controller.requests, [flow.id])
+        assert self.viewer.panel is not None
+        self.assertEqual(self.viewer.panel.datas["id"], flow.id)
+
+    def test_hidden_view_cannot_replace_stats_or_selection(self) -> None:
+        flow = tflow.tflow(resp=True)
+        self._load_flows(flow)
+        self.viewer.set_grouping_mode("conn")
+        tree = self.viewer.tree
+        assert tree is not None
+        self.viewer.set_grouping_mode("flat")
+        self.viewer.table.selectRow(0)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        received = []
+        self.viewer.stats_updated.connect(lambda *values: received.append(values))
+        self.controller.requests.clear()
+        tree.stats_updated.emit(10, 0, 0)
+        tree.row_selected.emit({"id": "hidden"})
+        self.assertEqual(received, [])
+        self.assertEqual(self.controller.requests, [])
+        self.assertIs(self.viewer.table_stack.currentWidget(), self.viewer.table)
+        self.viewer.table.stats_updated.emit(10, 1, 1)
+        self.assertEqual(received, [(10, 1, 1)])
+        self.viewer.set_grouping_mode("conn")
+        received.clear()
+        self.viewer.table.stats_updated.emit(10, 0, 0)
+        self.viewer.table.row_selected.emit({"id": "hidden"})
+        self.assertEqual(received, [])
+        self.assertEqual(self.controller.requests, [])
+        tree.stats_updated.emit(10, 1, 1)
+        self.assertEqual(received, [(10, 1, 1)])
+
+    def test_menus_from_late_tree_use_pane_signals(self) -> None:
+        received = []
+        self.viewer.replay_file_requested.connect(lambda: received.append("replay"))
+        self.viewer.block_host_requested.connect(received.append)
+        self.viewer.edit_in_compose_requested.connect(received.append)
+        self.viewer.add_to_mock_requested.connect(received.append)
+        self.viewer.table.context_menu.replay_file_requested.emit()
+        self.viewer.set_grouping_mode("conn")
+        tree = self.viewer.tree
+        assert tree is not None
+        tree.context_menu.replay_file_requested.emit()
+        tree.context_menu.block_host_requested.emit("host")
+        tree.context_menu.edit_in_compose_requested.emit("flow-id")
+        tree.context_menu.add_to_mock_requested.emit(["flow-id"])
+        self.assertEqual(received, ["replay", "replay", "host", "flow-id", ["flow-id"]])
+
+    def test_late_panel_recovers_sse_archive_and_receives_new_events(self) -> None:
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.headers["content-type"] = "text/event-stream"
+        flow.response.content = b""
+        self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        self.controller.events = parse_sse("data: before-open\n\n")
+        self.controller.sse_started.emit(flow.id)
+        self.assertIsNone(self.viewer.panel)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        self.assertIsNone(panel.messages)
+        self.assertEqual(self.controller.message_requests, [])
+        panel.res_pane.setCurrentTab("Messages")
+        assert panel.messages is not None
+        self.assertEqual(panel.messages.count, 1)
+        self.controller.sse_event.emit(
+            flow.id, replace(parse_sse("data: after-open\n\n")[0], index=1)
+        )
+        self.assertEqual(panel.messages.count, 2)
+        controller = _Controller()
+        controller.details = dict(self.controller.details)
+        controller.events = parse_sse("data: before-open\n\ndata: after-open\n\n")
+        self.viewer.set_controller(controller)
+        self.assertEqual(panel.datas, {})
+        self.controller.sse_event.emit(
+            flow.id, parse_sse("data: old-controller\n\n")[0]
+        )
+        self.assertEqual(panel.messages.count, 2)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        self.assertEqual(panel.messages.count, 2)
+        controller.sse_event.emit(
+            flow.id, replace(parse_sse("data: new-controller\n\n")[0], index=2)
+        )
+        self.assertEqual(panel.messages.count, 3)
+
+    def test_late_panel_recovers_websocket_frames_and_receives_new_frames(self) -> None:
+        flow = tflow.twebsocketflow()
+        self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        self.controller.frames = [WsFrame(0, True, 1, b"before", 1.0, False, False)]
+        self.controller.websocket_started.emit(flow.id)
+        self.assertIsNone(self.viewer.panel)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        self.assertIsNone(panel.messages)
+        self.assertEqual(self.controller.message_requests, [])
+        panel.res_pane.setCurrentTab("Messages")
+        assert panel.messages is not None
+        self.assertEqual(panel.messages.count, 1)
+        self.controller.websocket_frame.emit(
+            flow.id, WsFrame(1, False, 1, b"after", 2.0, False, False)
+        )
+        self.assertEqual(panel.messages.count, 2)
+
+    def test_created_tree_stays_current_when_hidden(self) -> None:
+        source = self._load_flows(tflow.tflow(resp=True))
+        self.viewer.set_grouping_mode("conn")
+        tree = self.viewer.tree
+        assert tree is not None
+        self.viewer.set_grouping_mode("flat")
+        added = flow_row(tflow.tflow(resp=True))
+        source.rows.append(added)
+        self.viewer.on_flow_added(added)
+        updated = replace(added, status_code=201)
+        source.rows[1] = updated
+        self.viewer.on_flow_updated(updated)
+        removed = source.rows.pop(0)
+        self.viewer.on_flow_removed(removed, 0)
+        self.viewer.set_grouping_mode("conn")
+        self.app.processEvents()
+        self.assertEqual(tree.source_model.child_count(), 1)
+        parent = tree.source_model.index(0, 0)
+        child = tree.source_model.index(0, 0, parent)
+        self.assertEqual(tree.source_model.flow_at(child), updated)
+        self.viewer.clear_all()
+        self.app.processEvents()
+        self.assertEqual(tree.source_model.child_count(), 0)
+        self.assertEqual(self.viewer.table.source_model.rowCount(), 0)
+        self.assertIsNone(self.viewer.panel)
 
 
 class MenuReExportTests(unittest.TestCase):

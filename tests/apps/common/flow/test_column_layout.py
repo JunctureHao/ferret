@@ -53,6 +53,9 @@ class ColumnLayoutQtTests(unittest.TestCase):
         self._load_patch.start()
         self.save_mock = self._save_patch.start()
         self.viewer = FlowViewerPane()
+        self.viewer.set_grouping_mode("conn")
+        assert self.viewer.tree is not None
+        self.tree = self.viewer.tree
         self.viewer.resize(1200, 600)
         self.viewer.show()
         self.app.processEvents()
@@ -70,7 +73,7 @@ class ColumnLayoutQtTests(unittest.TestCase):
 
     @property
     def tree_header(self):
-        return self.viewer.tree.header()
+        return self.tree.header()
 
     def test_default_eight_columns_visible(self) -> None:
         for header in (self.table_header, self.tree_header):
@@ -94,15 +97,15 @@ class ColumnLayoutQtTests(unittest.TestCase):
         layout = default_layout().with_visible("status", False)
         self.viewer.table._commit_column_layout(layout)
         self.app.processEvents()
-        for view in (self.viewer.table, self.viewer.tree):
+        for view in (self.viewer.table, self.tree):
             self.assertTrue(view.isColumnHidden(logical_index("status")))
         # 未隐藏列仍在
-        self.assertFalse(self.viewer.tree.isColumnHidden(logical_index("url")))
+        self.assertFalse(self.tree.isColumnHidden(logical_index("url")))
 
     def test_reorder_reflects_visual_order_both_views(self) -> None:
         order = ["index", "url", "time", "method", "mark", "status", "type", "size"]
         layout = default_layout().with_order(order)
-        self.viewer.tree._commit_column_layout(layout)
+        self.tree._commit_column_layout(layout)
         self.app.processEvents()
         self.assertEqual(_visual_order(self.table_header), order)
         self.assertEqual(_visual_order(self.tree_header), order)
@@ -123,7 +126,7 @@ class ColumnLayoutQtTests(unittest.TestCase):
         self.app.processEvents()
         self.save_mock.assert_called()
         # 另一视图（树）被同步
-        self.assertTrue(self.viewer.tree.isColumnHidden(logical_index("size")))
+        self.assertTrue(self.tree.isColumnHidden(logical_index("size")))
 
     def test_responsive_hides_status_type_by_key(self) -> None:
         self.viewer.table._apply_responsive_columns(400)  # 窄

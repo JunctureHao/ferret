@@ -61,6 +61,7 @@ SSE_ARCHIVE_LIMIT = 10 * 1024 * 1024
 SSE_BLOCK_LIMIT = 1024 * 1024
 SSE_BODY_TRUNCATED_KEY = "ferret.sse.body_truncated"
 SSE_EVENTS_TRUNCATED_KEY = "ferret.sse.events_truncated"
+SSE_EVENT_COUNT_KEY = "ferret.sse.event_count"
 
 
 @dataclass(frozen=True, slots=True)
@@ -498,6 +499,7 @@ class FerretSseAddon:
         # runtime 在挂 UiBridgeAddon 时一并补上。没补就等于推送关掉，存档照常。
         self.bridge = bridge
         self._events: dict[str, deque[SseEvent]] = {}
+        self._event_counts: dict[str, int] = {}
         self._archive_sizes: dict[str, int] = {}
         self._taps: dict[str, _SseTap] = {}
         self._flows: dict[str, HTTPFlow] = {}
@@ -530,7 +532,9 @@ class FerretSseAddon:
         self._taps[flow.id] = tap
         self._flows[flow.id] = flow
         self._events.setdefault(flow.id, deque())
+        self._event_counts[flow.id] = 0
         self._archive_sizes.setdefault(flow.id, 0)
+        flow.metadata[SSE_EVENT_COUNT_KEY] = 0
         tap.streamed = response.raw_content is None
         if tap.streamed:
             response.stream = tap.tee
@@ -572,7 +576,11 @@ class FerretSseAddon:
             size -= _event_size(archive.popleft())
             truncated = True
         self._archive_sizes[flow_id] = size
+        if events:
+            self._event_counts[flow_id] = events[-1].index + 1
         flow = self._flows.get(flow_id)
+        if events and flow is not None:
+            flow.metadata[SSE_EVENT_COUNT_KEY] = events[-1].index + 1
         if truncated and flow is not None:
             flow.metadata[SSE_EVENTS_TRUNCATED_KEY] = True
         if self.bridge is None:
@@ -605,6 +613,7 @@ class FerretSseAddon:
     def forget(self, flow_id: str) -> None:
         """flow 从 View 移除时清存档。由 facade 的 remove/clear 路径调用。"""
         self._events.pop(flow_id, None)
+        self._event_counts.pop(flow_id, None)
         self._archive_sizes.pop(flow_id, None)
         tap = self._taps.get(flow_id)
         if tap is not None:
@@ -617,11 +626,16 @@ class FerretSseAddon:
         """整表清空（`clear_flows` 那条路）。"""
         self.done()
         self._events.clear()
+        self._event_counts.clear()
         self._archive_sizes.clear()
 
     def events(self, flow_id: str) -> list[SseEvent]:
         """容量以内的最近事件；绝对 index 保留，可辨别被驱逐的前缀。"""
         return list(self._events.get(flow_id, []))
+
+    def event_count(self, flow_id: str) -> int | None:
+        """已有存档的事件总数；没有存档返回 None，调用方才可解历史 body。"""
+        return self._event_counts.get(flow_id)
 
 
 def _event_size(event: SseEvent) -> int:

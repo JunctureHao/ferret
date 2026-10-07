@@ -83,12 +83,15 @@ _PAGE_PLACEHOLDER, _PAGE_STREAM = range(2)
 def is_websocket(data: dict) -> bool:
     """详情字典描述的是不是一条 WebSocket 流量。
 
-    判据是 `flow.websocket is not None`（原生状态树里的 ``websocket`` 子树）而不是
+    摘要的 ``is_websocket`` 直接记录 `flow.websocket is not None`；完整详情还可
+    从原生状态树里的 ``websocket`` 子树兼容读取。判据不是
     「状态码是 101」：101 只说明握手**请求**被接受了，而 `flow.websocket` 是 mitmproxy
     真的架起 WS 层之后才填的，后者才对得上「有帧可看」。
 
     调用方是详情面板：它得先知道该不该向 controller 要帧，再决定这一页露不露面。
     """
+    if "is_websocket" in data:
+        return bool(data["is_websocket"])
     raw_state = data.get("raw_state")
     if not isinstance(raw_state, dict):
         return False

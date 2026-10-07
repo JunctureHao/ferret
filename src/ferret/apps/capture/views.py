@@ -181,19 +181,11 @@ class CapturesInterface(QWidget):
             self.__on_delete_unmarked_requested
         )
 
-        # 右键菜单"从文件回放…"信号 → 弹 file dialog → 调 controller
-        # 平铺与连接树各有一份 context_menu，两路都接（连接树子流菜单同语义）。
-        for menu in (
-            self.content.table.context_menu,
-            self.content.tree.context_menu,
-        ):
-            menu.replay_file_requested.connect(self.__on_replay_from_file_requested)
-            # 右键"屏蔽此主机"信号 → 冒泡给 MainWindow
-            menu.block_host_requested.connect(self.block_host_requested)
-            # 右键"在 Compose 中编辑"信号 → 冒泡给 MainWindow
-            menu.edit_in_compose_requested.connect(self.edit_in_compose_requested)
-            # 右键"加入 Mock 响应"信号 → 冒泡给 MainWindow
-            menu.add_to_mock_requested.connect(self.add_to_mock_requested)
+        # 由共享查看器汇总菜单信号，连接树首次创建后自动接入同一路径。
+        self.content.replay_file_requested.connect(self.__on_replay_from_file_requested)
+        self.content.block_host_requested.connect(self.block_host_requested)
+        self.content.edit_in_compose_requested.connect(self.edit_in_compose_requested)
+        self.content.add_to_mock_requested.connect(self.add_to_mock_requested)
 
         # Controller 状态信号 → UI 更新
         self.controller.capture_state_changed.connect(self.__on_capture_state_changed)
