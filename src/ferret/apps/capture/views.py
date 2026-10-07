@@ -2254,7 +2254,11 @@ class ProxyPortDialog(MessageBoxBase):
             return
         clipboard.setText(f"{self._lan_address}:{self.port_spin.value()}")
         self.lan_copy_btn.setIcon(FluentIcon.ACCEPT)
-        QTimer.singleShot(1200, lambda: self.lan_copy_btn.setIcon(FluentIcon.COPY))
+        # 回调挂按钮当 context：对话框关闭走 deleteLater，野回调会在 1.2s 后
+        # 摸到已销毁的控件，RuntimeError 进 excepthook（纯噪声）。
+        QTimer.singleShot(
+            1200, self.lan_copy_btn, lambda: self.lan_copy_btn.setIcon(FluentIcon.COPY)
+        )
 
 
 class WireGuardConfigDialog(MessageBoxBase):
