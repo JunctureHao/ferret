@@ -169,7 +169,8 @@ class FlowTableModelTests(unittest.TestCase):
         )
         self.assertEqual(model.data(model.index(0, 3)), row.url)
         self.assertEqual(model.data(model.index(0, 4)), 200)
-        self.assertEqual(model.data(model.index(0, 5)), "JSON")
+        # Type 列一律小写（界面约定）。
+        self.assertEqual(model.data(model.index(0, 5)), "json")
         self.assertEqual(model.data(model.index(0, 6)), "11b")
         self.assertEqual(model.data(model.index(0, 7)), "128 ms")
         self.assertEqual(model.data(model.index(0, 4), STATUS_KIND_ROLE), "success")

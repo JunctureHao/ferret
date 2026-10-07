@@ -223,26 +223,27 @@ class FlowTableModel(QAbstractTableModel):
 
     @staticmethod
     def _mime_label(mime: str) -> str:
+        """Type 列的短标。统一小写（用户约定）：json / html / xml / js / css …"""
         value = mime.lower()
         if not value:
             return "—"
         if "json" in value:
-            return "JSON"
+            return "json"
         if "html" in value:
-            return "HTML"
+            return "html"
         if "xml" in value:
-            return "XML"
+            return "xml"
         if "javascript" in value:
-            return "JS"
+            return "js"
         if "css" in value:
-            return "CSS"
+            return "css"
         if value.startswith("image/"):
-            return value.split("/", 1)[1].upper()
+            return value.split("/", 1)[1]
         if value.startswith("text/"):
-            return "Text"
+            return "text"
         if "form" in value:
-            return "Form"
-        return value.split("/", 1)[-1].upper()
+            return "form"
+        return value.split("/", 1)[-1]
 
     @staticmethod
     def _size_bytes(row: FlowRow) -> int:
@@ -788,7 +789,8 @@ class FlowConnTreeModel(QAbstractItemModel):
             if column_name == "URL":
                 return node.conn_label()
             if column_name == "Type":
-                return node.transport_label()
+                # 与子行 `_mime_label` 同一约定：Type 列一律小写。
+                return node.transport_label().lower()
             if column_name == "Size":
                 return human.pretty_size(node.size_bytes())
             if column_name == "Time":
