@@ -29,6 +29,7 @@ from ferret.core.mitm.bindings import (
     tlsconfig_module,
 )
 from ferret.core.mitm.compose import compose_recording
+from ferret.core.mitm.detail import wire_size
 from ferret.core.mitm.gateway import (
     GATEWAY_METADATA_KEY,
     GATEWAY_STATUS_CLOSE,
@@ -222,9 +223,9 @@ class LogAddon:
             return
         status = response.status_code
         reason = response.reason or status_codes.RESPONSES.get(status, "")
-        friendly_size = human.pretty_size(
-            len(response.content) if response.content else 0
-        )
+        # raw_content 是未解压的线上字节：坏 gzip / 非法编码名下 content
+        # （get_content(strict=True)）会抛 ValueError，访问日志不能跟着遭殃。
+        friendly_size = human.pretty_size(wire_size(response))
         self._log.info(
             "      << %s %s %s %s",
             response.http_version,
@@ -894,8 +895,12 @@ class FerretScriptAddon:
             self.statuses[entry.path] = ScriptStatus(
                 ScriptState.ERROR, traceback.format_exc()
             )
-            with addonmanager.safecall():
-                self._master.addons.remove(ns)
+            # register 先发 LoadHook，再写 lookup：load 炸时还无注册项；重名
+            # 失败时同名项则属于别的 addon。只清理确实注册过的当前 ns，仍覆盖
+            # register 尾部、configure / running 失败时的回滚（含子 addon）。
+            if self._master.addons.get(ns.name) is ns:
+                with addonmanager.safecall():
+                    self._master.addons.remove(ns)
             sys.modules.pop(ns.__name__, None)
             return
         self.loaded[entry.path] = ns

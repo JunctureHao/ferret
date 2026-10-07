@@ -15,6 +15,7 @@ from ferret.core.mitm.addons import (
     GatewayL4Addon,
     GatewayL7Addon,
     GatewayState,
+    LogAddon,
 )
 from ferret.core.mitm.gateway import (
     GATEWAY_METADATA_KEY,
@@ -452,6 +453,24 @@ class FerretMasterGatewayWiringTests(unittest.TestCase):
         for addon in (self.master.readfile, self.master.save, logger):
             with self.subTest(addon=type(addon).__name__):
                 self.assertLess(addons.index(gateway), addons.index(addon))
+
+
+class LogAddonTests(unittest.TestCase):
+    def test_response_logs_wire_bytes_even_with_broken_content_encoding(self) -> None:
+        """坏 gzip 下 content（get_content(strict=True)）抛 ValueError，日志必须量线上字节。
+
+        response 钩子对每条响应执行：量的是未解压的 raw_content（同
+        detail.wire_size 口径），畸形 Content-Encoding 只影响详情解码，不能让
+        每条此类响应丢一条访问日志、打一次错误栈。
+        """
+        flow = http_flow(resp=True)
+        flow.response.headers["Content-Encoding"] = "gzip"
+        flow.response.raw_content = b"not-gzip"
+
+        with self.assertLogs("ferret.mitmproxy", level="INFO") as captured:
+            LogAddon().response(flow)
+
+        self.assertIn("<< HTTP/1.1 200 OK 8b", captured.output[-1])
 
 
 if __name__ == "__main__":

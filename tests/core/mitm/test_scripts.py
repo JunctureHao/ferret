@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import http.client
 import http.server
 import os
 import socket
+import sys
 import tempfile
 import threading
 import unittest
@@ -25,6 +27,7 @@ from ferret.core.mitm import (
     scripts_from_config,
     scripts_to_config,
 )
+from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.scripts import load_script_module
 from tests.core.mitm._qt import start_runtime, wait_until
 
@@ -137,6 +140,77 @@ class LoadScriptModuleTests(unittest.TestCase):
         self.assertIsNot(first, second)
         self.assertEqual(first.MARK, 1)
         self.assertEqual(second.MARK, 2)
+
+
+class ScriptAddonRegistrationTests(unittest.TestCase):
+    """原生注册表：生命周期失败完整回滚，重名失败不误删已有脚本。"""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.loop = asyncio.new_event_loop()
+        self.addCleanup(self.loop.close)
+        self.master = FerretMaster(event_loop=self.loop)
+        self.addon = self.master.scripts
+        self.addCleanup(self.addon.set_scripts, [])
+        self.addon.configure(set())
+
+    def write(self, name: str, text: str) -> str:
+        path = Path(self.dir.name) / name
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def test_lifecycle_failures_leave_no_registration_or_secondary_error(self) -> None:
+        for hook in ("load", "configure", "running"):
+            with self.subTest(hook=hook):
+                path = self.write(
+                    f"{hook}.py",
+                    f"name = 'failed_{hook}'\n"
+                    "class Child:\n"
+                    f"    name = 'failed_{hook}_child'\n"
+                    "addons = [Child()]\n"
+                    f"def {hook}(*args):\n"
+                    f"    raise RuntimeError('boom in {hook} hook')\n",
+                )
+                lookup_before = dict(self.master.addons.lookup)
+                modules_before = {
+                    name
+                    for name in sys.modules
+                    if name.startswith("__mitmproxy_script__.")
+                }
+
+                with self.assertNoLogs("mitmproxy.addonmanager", level="ERROR"):
+                    self.addon.set_scripts([ScriptEntry(path=path)])
+
+                status = self.addon.statuses[path]
+                self.assertEqual(status.state, ScriptState.ERROR)
+                self.assertIn(f"boom in {hook} hook", status.error)
+                self.assertEqual(self.addon.loaded, {})
+                self.assertEqual(self.addon.addons, [])
+                self.assertEqual(self.master.addons.lookup, lookup_before)
+                self.assertEqual(
+                    {
+                        name
+                        for name in sys.modules
+                        if name.startswith("__mitmproxy_script__.")
+                    },
+                    modules_before,
+                )
+
+    def test_duplicate_name_failure_preserves_the_registered_script(self) -> None:
+        good = self.write("good.py", "name = 'same_name'\n" + HEADER_SCRIPT)
+        bad = self.write("duplicate.py", "name = 'same_name'\n")
+        self.addon.set_scripts([ScriptEntry(path=good)])
+        registered = self.addon.loaded[good]
+
+        with self.assertNoLogs("mitmproxy.addonmanager", level="ERROR"):
+            self.addon.set_scripts([ScriptEntry(path=good), ScriptEntry(path=bad)])
+
+        self.assertEqual(self.addon.statuses[bad].state, ScriptState.ERROR)
+        self.assertIn("already exists", self.addon.statuses[bad].error)
+        self.assertIs(self.master.addons.get("same_name"), registered)
+        self.assertEqual(self.addon.addons, [registered])
+        self.assertEqual(self.addon.statuses[good].state, ScriptState.LOADED)
 
 
 class _EchoHandler(http.server.BaseHTTPRequestHandler):
@@ -374,8 +448,10 @@ class RuntimeScriptTests(unittest.TestCase):
         self.facade.set_scripts_enabled(False)
         self.assertTrue(
             wait_until(
-                lambda: self.facade.script_statuses.get(path)
-                == ScriptStatus(ScriptState.DISABLED)
+                lambda: (
+                    self.facade.script_statuses.get(path)
+                    == ScriptStatus(ScriptState.DISABLED)
+                )
             )
         )
         self.assertFalse(self.facade.scripts_enabled)
@@ -387,8 +463,10 @@ class RuntimeScriptTests(unittest.TestCase):
         self.facade.set_scripts_enabled(True)
         self.assertTrue(
             wait_until(
-                lambda: self.facade.script_statuses.get(path)
-                == ScriptStatus(ScriptState.LOADED)
+                lambda: (
+                    self.facade.script_statuses.get(path)
+                    == ScriptStatus(ScriptState.LOADED)
+                )
             )
         )
         self.send_once()
