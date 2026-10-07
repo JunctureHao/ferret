@@ -285,8 +285,10 @@ class _MarkerFilterModel(QSortFilterProxyModel):
 
     def set_filter_text(self, text: str) -> None:
         self._needle = text.strip().lower()
-        # Qt 6.10 起 `invalidateFilter()` 弃用，按行/列拆成了两个。
-        self.invalidateRowsFilter()
+        # Qt 6.10 把 invalidateFilter/invalidateRowsFilter 全家打入弃用，
+        # 推荐 begin/endFilterChange；我们只按行过滤，方向传 Rows。
+        self.beginFilterChange()
+        self.endFilterChange(QSortFilterProxyModel.Direction.Rows)
 
     def filterAcceptsRow(
         self, source_row: int, source_parent: QModelIndex | QPersistentModelIndex
