@@ -1143,9 +1143,7 @@ class MitmFacade:
                     result.append(_snapshot(flow))
             return result
 
-        flows = (
-            self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
-        )
+        flows = self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
         FlowExporter.save_har(flows, path)
 
     def _export(self, flow_id: str, exporter, default):
