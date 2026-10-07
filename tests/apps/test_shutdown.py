@@ -22,11 +22,12 @@ class ShutdownTests(unittest.TestCase):
             ),
             runtime=SimpleNamespace(
                 shutdown=lambda: events.append("runtime") or success,
+                resume_after_failed_apply=lambda: events.append("rearm"),
                 last_shutdown_error="恢复代理失败",
             ),
             intercept_window=SimpleNamespace(hide=lambda: events.append("hide")),
-            settings_interface=SimpleNamespace(
-                update_controller=SimpleNamespace(
+            updates=SimpleNamespace(
+                controller=SimpleNamespace(
                     apply_and_restart=lambda _: events.append("apply")
                 )
             ),
@@ -43,7 +44,17 @@ class ShutdownTests(unittest.TestCase):
             CONFIG, "flush_pending_save", side_effect=lambda: events.append("save")
         ):
             MainWindow._apply_update(window, object())
-        self.assertEqual(events, ["save", "capture", "runtime", "hide", "apply"])
+        self.assertEqual(
+            events, ["save", "capture", "runtime", "hide", "apply", "rearm"]
+        )
+
+    def test_failed_apply_rearms_both_shutdown_gates_for_the_next_exit(self):
+        # SDK 应用失败返回后进程继续存活；两级闸门都复位，二次退出才重跑停机链。
+        window, events = self.window()
+        with patch.object(CONFIG, "flush_pending_save"):
+            MainWindow._apply_update(window, object())
+        self.assertFalse(window._shutdown_complete)
+        self.assertEqual(events, ["capture", "runtime", "hide", "apply", "rearm"])
 
     def test_failed_cleanup_stays_open_and_never_launches_updater(self):
         window, events = self.window(success=False)

@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from ferret.apps.settings.controllers import UpdateController
+from ferret.apps.update.controllers import UpdateController
 from ferret.core import update as update_core
 from tests.core.mitm._qt import wait_until
 
@@ -88,12 +88,15 @@ class CheckChainTests(UpdateControllerTestBase):
         seen: list[str] = []
         self.controller.check_failed.connect(seen.append)
 
-        self.controller.check()
+        with self.assertLogs("ferret.tasks", "ERROR") as logs:
+            self.controller.check()
 
-        self.assertTrue(wait_until(lambda: seen))
+            self.assertTrue(wait_until(lambda: seen))
+            # 失败后 busy 必须复位，否则后续检查全被防重入吞掉。
+            self.assertTrue(wait_until(lambda: not self.controller.busy))
+        self.assertIn("后台任务失败", logs.output[0])
+        self.assertIn("检查更新失败：network down", logs.output[0])
         self.assertIn("network down", seen[0])
-        # 失败后 busy 必须复位，否则后续检查全被防重入吞掉。
-        self.assertTrue(wait_until(lambda: not self.controller.busy))
 
     def test_reentrant_check_is_ignored(self) -> None:
         calls: list = []
@@ -140,9 +143,32 @@ class DownloadChainTests(UpdateControllerTestBase):
         seen: list[str] = []
         self.controller.apply_failed.connect(seen.append)
 
-        self.controller.apply_and_restart(object())
+        with self.assertLogs("ferret.settings", "WARNING") as logs:
+            self.controller.apply_and_restart(object())
 
+        self.assertEqual(
+            logs.output,
+            ["WARNING:ferret.settings:应用更新失败：应用更新失败：denied"],
+        )
         self.assertEqual(seen, ["应用更新失败：denied"])
+
+
+class BusyStateTests(UpdateControllerTestBase):
+    def test_check_and_download_publish_their_busy_state(self) -> None:
+        self.patch_core(check=lambda: None, download=lambda info, on_progress: None)
+        states: list[tuple[bool, bool]] = []
+        self.controller.busy_changed.connect(
+            lambda busy: states.append((busy, self.controller.busy))
+        )
+
+        self.controller.check()
+        self.assertTrue(wait_until(lambda: not self.controller.busy))
+        self.controller.download(object())
+        self.assertTrue(wait_until(lambda: not self.controller.busy))
+
+        self.assertEqual(
+            states, [(True, True), (False, False), (True, True), (False, False)]
+        )
 
 
 if __name__ == "__main__":

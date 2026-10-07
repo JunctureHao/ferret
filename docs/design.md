@@ -86,6 +86,8 @@ HAR 和命令导出复用原生 API，CSV 是 GUI 字段抽取能力，不挂命
 
 安装版通过 Velopack 检查、下载和应用更新；源码与便携版转到发布页。应用更新会终止进程，必须先完成正常 shutdown，清理失败不调用 SDK。更新任务强引用和信号连接在 finished 后释放。
 
+更新协调器由主窗口持有，启动后延迟静默检查，提示与下载不依赖设置页。设置页首次进入时懒加载，只展示当前更新状态并提供手动入口，切页不触发检查。
+
 发布门禁覆盖主套件和独立 sysproxy 包，PR 只验证。比较所有非草稿 release 的 SemVer，API 失败不能当首次发布；发布上传串行且不自动取消。打包干跑不依赖已有编译产物。
 
-入口：`core/update.py`、`apps/settings/controllers.py`、`apps/window.py`、`scripts/package.py`、`.github/workflows/release.yml`。
+入口：`core/update.py`、`apps/update/coordinator.py`、`apps/update/controllers.py`、`apps/window.py`、`scripts/package.py`、`.github/workflows/release.yml`。

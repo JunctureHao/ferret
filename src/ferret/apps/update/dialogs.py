@@ -1,4 +1,4 @@
-"""设置页的更新对话框：「发现新版本 → 下载 → 重启」三态（docs/design.md#update）。
+"""应用级更新对话框：「发现新版本 → 下载 → 重启」三态（docs/design.md#update）。
 
 对话框只做展示与用户意图回收，任务编排全在 ``UpdateController``：状态迁移由外部
 调用 ``set_downloading`` / ``set_ready`` / ``set_failed`` 驱动。
@@ -6,8 +6,8 @@
 「立即更新」为什么不连 clicked：MessageBoxBase 的 yesButton 默认走
 ``validate() → accept()``，点一下对话框就关了，下载就没法在框里进行。所以拦在
 ``validate()`` —— 首次点「立即更新」发 ``download_requested`` 并拒绝关闭；
-进入就绪态后按钮变「重启应用」，validate 放行、对话框以 accepted 收场，由 view
-据此发起 apply。
+进入就绪态后按钮变「重启应用」，validate 放行、对话框以 accepted 收场，由
+UpdateCoordinator 请求主窗口清理并应用更新。
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ class UpdateDialog(MessageBoxBase):
 
     @property
     def ready(self) -> bool:
-        """下载是否已完成（view 据此决定 accept 后要不要发起 apply）。"""
+        """下载是否已完成（协调器据此决定 accept 后要不要请求重启）。"""
         return self._ready
 
     def validate(self) -> bool:

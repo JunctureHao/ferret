@@ -59,7 +59,7 @@ mitmproxy Master 在独立 asyncio 线程，GUI 在主线程：
 - `core/` 不实现业务页面或控件；`core/application.py` 负责 Qt 应用启动与装配，配置、翻译及线程/信号基础设施可依赖 Qt。`core/network.py` 不依赖 mitmproxy。
 - `packages/sysproxy` 是零依赖、零 Qt 的独立 workspace 成员：不许 import ferret / PySide6，不自造默认目录，journal 路径由宿主注入；英文异常常量的展示翻译在 `apps/capture/controllers.py::_SYSTEM_PROXY_ERRORS`，新增常量须同步映射并过 `tests/core/test_system_proxy.py`。
 - `core/mitm/` 不依赖 QtWidgets；`bindings.py` 是唯一 mitmproxy 入口，对外 API 以 `__init__.py` 为准；送到界面的异常文案用 `QCoreApplication.translate("<Ctx>", ...)`，日志与不上界面的 `from_dict` 校验消息不译。
-- `apps/` 后台任务统一用 `apps/common/tasks.py::FunctionTask`，调用方必须持有任务到 finished，避免包装与 signals 被 GC（见 `apps/settings/controllers.py` docstring）。
+- `apps/` 后台任务统一用 `apps/common/tasks.py::FunctionTask`，调用方必须持有任务到 finished，避免包装与 signals 被 GC（见 `apps/update/controllers.py` docstring）。
 - 编辑类 UI 复用 `apps/common/edit/`（`ItemDualPanel` / `ToolPlainTextEdit` / `JsonDualPanel`），不新造编辑器；方法词表复用 `apps/common/http_methods.py`。
 - `utils/` 不再新增依赖；`utils/http_parser.py` 对 `core/mitm/bindings` 的历史误引勿扩散，机理见 `core/mitm/detail.py` 注释。
 

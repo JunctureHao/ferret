@@ -34,6 +34,11 @@ class LazyPage(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
+    @property
+    def is_created(self) -> bool:
+        """查询页面是否已创建，不触发工厂。"""
+        return self._page is not None
+
     def ensure(self) -> QWidget:
         """返回真实页；首次调用才构造，构造后触发一次 on_ensure 供调用方补牵线。"""
         if self._page is None:

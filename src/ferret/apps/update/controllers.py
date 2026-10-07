@@ -1,4 +1,4 @@
-"""设置页控制器：目前只管应用内更新这一件事（docs/design.md#update）。
+"""应用内更新的后台任务编排（docs/design.md#update）。
 
 检查/下载是阻塞网络 IO，一律经 ``FunctionTask`` 挪出主线程；velopack 类型作为
 不透明句柄在 ``core.update`` 的三步之间透传，本层不读其属性。``apply`` 留在主
@@ -30,6 +30,7 @@ class UpdateController(QObject):
     """「检查 → 下载 → 应用」的任务编排：防重入，结果经信号回主线程。"""
 
     check_started = Signal()
+    busy_changed = Signal(bool)
     update_available = Signal(object, object)  # (不透明句柄, UpdateBrief)
     no_update = Signal()
     check_failed = Signal(str)
@@ -55,6 +56,7 @@ class UpdateController(QObject):
             return
         self._busy = True
         self.check_started.emit()
+        self.busy_changed.emit(True)
         self._start(update_core.check, self._on_check_done, self.check_failed)
 
     def download(self, info: Any) -> None:
@@ -63,6 +65,7 @@ class UpdateController(QObject):
             return
         self._busy = True
         self._download_info = info
+        self.busy_changed.emit(True)
         self._start(self._download_work, self._on_download_done, self.download_failed)
 
     def apply_and_restart(self, info: Any) -> None:
@@ -80,9 +83,14 @@ class UpdateController(QObject):
         task = FunctionTask(fn)
         task.setAutoDelete(True)
         self._tasks.add(task)
+        # 具名闭包而非游离 lambda（守则见模块 docstring）：收尾要拿到当次 task
+        # 才能拆连接环，与 session 控制器的 _on_finished 同款。
+        def on_finished() -> None:
+            self._on_task_finished(task)
+
         task.signals.succeeded.connect(on_success)
         task.signals.failed.connect(failure_signal)
-        task.signals.finished.connect(lambda: self._on_task_finished(task))
+        task.signals.finished.connect(on_finished)
         QThreadPool.globalInstance().start(task)
 
     @Slot(object)
@@ -105,4 +113,5 @@ class UpdateController(QObject):
         task.signals.succeeded.disconnect()
         task.signals.failed.disconnect()
         task.signals.finished.disconnect()
+        self.busy_changed.emit(False)
         self.check_finished.emit()

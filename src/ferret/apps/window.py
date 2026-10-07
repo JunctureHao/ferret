@@ -16,6 +16,7 @@ from qfluentwidgets import (
     ToolTipPosition,
     qconfig,
     setTheme,
+    setThemeColor,
 )
 
 from ferret.apps.capture.controllers import CaptureState
@@ -41,8 +42,7 @@ from ferret.apps.rewrite.views import RewriteInterface
 from ferret.apps.scripts.controllers import ScriptsController
 from ferret.apps.scripts.views import ScriptsInterface
 from ferret.apps.session.controllers import SessionController
-from ferret.apps.session.views import SessionsInterface
-from ferret.apps.settings.views import SettingsInterface
+from ferret.apps.update.coordinator import UpdateCoordinator
 from ferret.core.runtime import ApplicationRuntime
 from ferret.core.settings import APP_NAME, CONFIG
 
@@ -55,7 +55,7 @@ class MainWindow(FluentWindow):
         self._owns_runtime = runtime is None
 
         self.session_controller = SessionController(self)
-        self.settings_interface = SettingsInterface(self, mitm=self.runtime.mitm)
+        self.updates = UpdateCoordinator(self)
         # titlebar 搜索宿主先于各页创建：捕获页错误面板「清除表达式」与脚本页
         # clear_search 都经它注入（规格 §5.3 v4 / §6）。
         self.search_host = SearchHost(self)
@@ -65,8 +65,8 @@ class MainWindow(FluentWindow):
             system_proxy=self.runtime.system_proxy,
             search_host=self.search_host,
         )
-        self.sessions_interface = SessionsInterface(
-            controller=self.session_controller, parent=self
+        self.sessions_interface = LazyPage(
+            self.__create_sessions_interface, "SessionsInterface"
         )
         # 规则控制器都建在 runtime.start() 之前：构造时就把已存规则交给 facade，
         # Master 起来时 _run_master 会在服务第一个请求前下发（脚本清单同理）。
@@ -80,7 +80,7 @@ class MainWindow(FluentWindow):
             self, mitm=self.runtime.mitm
         )
 
-        # 七个子页懒构造（LazyPage 占位容器）：每页都是一整套 qfw 控件树（几十 MB
+        # 子页懒构造（LazyPage 占位容器）：每页都是一整套 qfw 控件树（几十 MB
         # 量级），首次切到才建。控制器先行保证规则下发时序；各页构造函数会拉控制器
         # 当前状态（规则 / 池 / 脚本清单 / 证书态 / 断点队列），晚构造不会错过启动期
         # 数据。objectName 由占位容器接管为路由键；断点页的 queue_requested 经
@@ -121,6 +121,9 @@ class MainWindow(FluentWindow):
             lambda: CertificateInterface(controller=self.certificate_controller),
             "CertificateInterface",
         )
+        self.settings_interface = LazyPage(
+            self.__create_settings_interface, "settingInterface"
+        )
 
         self.tray_icon = SystemTray(self)
         self.pin_button = PinButton(self)
@@ -152,8 +155,20 @@ class MainWindow(FluentWindow):
         # 初始路由一次（启动页 = 捕获页 → titlebar 亮出表达式编辑器，规格 §4.3）。
         self.__on_page_changed(self.stackedWidget.currentIndex())
         # 启动自动检查更新（docs/design.md#update）：延迟避开启动高峰；
-        # 开关与形态闸门都收在 check_updates_auto 内部，这里只管定时触发。
-        QTimer.singleShot(5000, self.settings_interface.check_updates_auto)
+        # 开关与形态闸门都收在协调器内部，不依赖设置页构造。
+        QTimer.singleShot(5000, self.updates.check_auto)
+
+    def __create_settings_interface(self) -> QWidget:
+        # 模块和控件树都延后到首次切页，更新入口由主窗口常驻持有。
+        from ferret.apps.settings.views import SettingsInterface
+
+        return SettingsInterface(mitm=self.runtime.mitm, updates=self.updates)
+
+    def __create_sessions_interface(self) -> QWidget:
+        from ferret.apps.session.views import SessionsInterface
+
+        # 首次构造会重新查询会话列表，不依赖页面创建前已发出的 sessions_loaded。
+        return SessionsInterface(controller=self.session_controller)
 
     def __init_navigation(self):
         self.addSubInterface(self.captures_interface, FluentIcon.WIFI, self.tr("捕获"))
@@ -193,9 +208,10 @@ class MainWindow(FluentWindow):
         )
 
     def __connect_signal_to_slot(self):
-        self.settings_interface.update_restart_requested.connect(self._apply_update)
+        self.updates.restart_requested.connect(self._apply_update)
         self.runtime.startup_error.connect(self._show_startup_error)
         qconfig.themeChanged.connect(lambda theme: setTheme(theme))
+        CONFIG.themeColorChanged.connect(setThemeColor)
         self.pin_button.clicked.connect(self.toggleStayOnTop)
         self.tray_icon.activated.connect(self.__on_activated)
         # titlebar 搜索路由（规格 §4.3）：切页三分支 + 键入转发 + Esc 归还焦点。
@@ -310,7 +326,10 @@ class MainWindow(FluentWindow):
 
     @Slot(object)
     def __on_capture_state_changed(self, state: object) -> None:
-        if CaptureState(state) == CaptureState.STOPPED:
+        if (
+            CaptureState(state) == CaptureState.STOPPED
+            and self.sessions_interface.is_created
+        ):
             self.session_controller.refresh()
 
     @Slot(str)
@@ -366,10 +385,13 @@ class MainWindow(FluentWindow):
     def _apply_update(self, info: object) -> None:
         # The update SDK exits the process directly, bypassing Qt's quit hooks.
         if self.shutdown():
-            self.settings_interface.update_controller.apply_and_restart(info)
+            self.updates.controller.apply_and_restart(info)
             # A successful SDK call exits. If it returns after failure, the user
             # can start capture again; a later exit must perform cleanup anew.
+            # 窗口与 runtime 两级停机闸门都要复位，漏掉 runtime 一级时二次退出在
+            # runtime.shutdown() 短路，内核线程带活 Master 撞上进程退出（qFatal）。
             self._shutdown_complete = False
+            self.runtime.resume_after_failed_apply()
 
     @Slot(str)
     def _show_startup_error(self, message: str) -> None:

@@ -130,3 +130,12 @@ class ApplicationRuntime(QObject):
             self.last_shutdown_error = self.tr("抓包内核尚未停止，请稍后再次退出。")
         self._shutdown = runtime_stopped
         return runtime_stopped
+
+    def resume_after_failed_apply(self) -> None:
+        """更新应用失败后进程继续存活，复位停机闸门让下次退出重跑整条停机链。
+
+        此前的 shutdown() 已把 `_shutdown` 置 True；不复位的话二次退出在
+        shutdown() 短路，mitm 线程带着活 Master 撞上进程退出，Qt 销毁运行中的
+        QThread 触发 qFatal。系统代理 detach 与录制停止均幂等，重跑安全。
+        """
+        self._shutdown = False

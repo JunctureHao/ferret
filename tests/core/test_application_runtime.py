@@ -60,6 +60,21 @@ class ApplicationRuntimeTests(unittest.TestCase):
         self.assertTrue(self.runtime.shutdown())
         self.assertEqual(self.runtime.last_shutdown_error, "")
 
+    def test_resume_after_failed_apply_reruns_the_shutdown_chain(self) -> None:
+        self.proxy.detach.return_value = True
+        self.kernel.stop.return_value = True
+        self.assertTrue(self.runtime.shutdown())
+        self.assertTrue(self.runtime._shutdown)
+
+        self.runtime.resume_after_failed_apply()
+        self.assertFalse(self.runtime._shutdown)
+        self.proxy.detach.reset_mock()
+        self.kernel.stop.reset_mock()
+        self.assertTrue(self.runtime.shutdown())
+        self.proxy.detach.assert_called_once()
+        self.kernel.stop.assert_called_once()
+        self.assertTrue(self.runtime._shutdown)
+
     def test_recording_failure_keeps_the_kernel_alive_for_an_exit_retry(self) -> None:
         self.proxy.detach.return_value = True
         self.facade.stop_capture_recording.side_effect = OSError("disk full")

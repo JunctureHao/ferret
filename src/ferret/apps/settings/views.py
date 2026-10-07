@@ -3,8 +3,7 @@ from __future__ import annotations
 import ipaddress
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
@@ -26,24 +25,18 @@ from qfluentwidgets import (
     SubtitleLabel,
     SwitchSettingCard,
     TitleLabel,
-    setTheme,
-    setThemeColor,
 )
 
-from ferret.apps.common.info_bar import show_success, show_warning
-from ferret.apps.settings.controllers import UpdateController
-from ferret.apps.settings.dialogs import UpdateDialog
+from ferret.apps.common.info_bar import show_warning
+from ferret.apps.update.coordinator import UpdateCoordinator
 from ferret.core import update as update_core
 from ferret.core.log import get_logger
-from ferret.core.meta import REPO_URL
 from ferret.core.settings import CONFIG
 
 log = get_logger("settings")
 
 if TYPE_CHECKING:
-    from ferret.apps.window import MainWindow
     from ferret.core.mitm import MitmFacade
-    from ferret.core.update import UpdateBrief
 
 
 class DnsServersDialog(MessageBoxBase):
@@ -136,13 +129,12 @@ class DnsServersDialog(MessageBoxBase):
 
 
 class SettingsInterface(ScrollArea):
-    update_restart_requested = Signal(object)
-
     def __init__(
         self,
-        parent: MainWindow | None = None,
+        parent: QWidget | None = None,
         *,
         mitm: MitmFacade | None = None,
+        updates: UpdateCoordinator,
     ) -> None:
         super().__init__(parent)
         self._mitm = mitm
@@ -152,10 +144,9 @@ class SettingsInterface(ScrollArea):
         self.setting_label = TitleLabel(self)
         self.setting_label.setText(self.tr("设置"))
 
-        self.update_controller = UpdateController(self)
-        self._update_dialog: UpdateDialog | None = None
-        # 本次检查是不是「启动自动检查」：自动入口失败/无更新一律静默。
-        self._auto_check = False
+        # 必填：协调器由主窗口持有并接 restart_requested（apps/window.py）。
+        # 自建回退实例的信号无人监听，更新链路会静默断线。
+        self.updates = updates
 
         # 关于与更新（docs/design.md#update）：版本展示 + 手动检查入口 +
         # 自动检查开关。关于类信息习惯置顶，故排在「个性化」之前。
@@ -329,6 +320,8 @@ class SettingsInterface(ScrollArea):
         self._refresh_dns_servers_content()
 
         self.__init_widget()
+        # 自动检查可能早于首次打开设置：先读当前状态，再由信号持续刷新。
+        self._refresh_update_card()
 
     def __init_widget(self):
         # self.resize(1000, 800)
@@ -378,8 +371,6 @@ class SettingsInterface(ScrollArea):
 
     def __connect_signal_to_slot(self):
         CONFIG.appRestartSig.connect(self.__show_restart_tooltip)
-        CONFIG.themeChanged.connect(setTheme)
-        CONFIG.themeColorChanged.connect(setThemeColor)
         # 开关翻转时卡片自己会把配置落盘，这里只负责把新值热更进内核。
         # 接 valueChanged 而不是卡片的 checkedChanged：配置项是唯一事实源，
         # 程序化改值（以后若有）也走同一条下发路。
@@ -397,16 +388,9 @@ class SettingsInterface(ScrollArea):
         CONFIG.dns_use_hosts_file.valueChanged.connect(self.__on_dns_use_hosts_changed)
         self.dns_servers_card.clicked.connect(self.__on_dns_servers_clicked)
 
-        # 更新链（docs/design.md#update）：卡片入口 → controller 编排 →
-        # 信号回来驱动卡片文案与 UpdateDialog 三态。
-        self.update_card.clicked.connect(self.__on_update_card_clicked)
-        self.update_controller.check_started.connect(self.__on_check_started)
-        self.update_controller.check_finished.connect(self.__on_check_finished)
-        self.update_controller.no_update.connect(self.__on_no_update)
-        self.update_controller.check_failed.connect(self.__on_check_failed)
-        self.update_controller.update_available.connect(self.__on_update_available)
-        self.update_controller.download_failed.connect(self.__on_download_failed)
-        self.update_controller.apply_failed.connect(self.__on_apply_failed)
+        # 设置只提供手动入口和状态展示；启动检查与弹窗由主窗口持有的协调器负责。
+        self.update_card.clicked.connect(self.updates.check_manual)
+        self.updates.state_changed.connect(self._refresh_update_card)
 
     @Slot(bool)
     def __on_sticky_session_changed(self, enabled: bool) -> None:
@@ -509,85 +493,15 @@ class SettingsInterface(ScrollArea):
         finally:
             dialog.deleteLater()
 
-    # ── 应用内更新（docs/design.md#update）──
-
-    def check_updates_auto(self) -> None:
-        """启动自动检查入口：开关与形态闸门都收在这里，主窗口只管定时触发。"""
-        if not CONFIG.get(CONFIG.auto_check_update):
-            return
-        if not update_core.update_supported():
-            return
-        self._auto_check = True
-        self.update_controller.check()
-
     @Slot()
-    def __on_update_card_clicked(self) -> None:
-        # 开发态 / 便携版的降级语义：原地更新不可用，就把人带去发布页。
-        if not update_core.update_supported():
-            QDesktopServices.openUrl(QUrl(f"{REPO_URL}/releases"))
-            return
-        self._auto_check = False
-        self.update_controller.check()
-
-    @Slot()
-    def __on_check_started(self) -> None:
-        self.update_card.button.setEnabled(False)
+    def _refresh_update_card(self) -> None:
+        self.update_card.button.setEnabled(not self.updates.busy)
         if update_core.update_supported():
-            self.update_card.setContent(self.tr("正在检查更新…"))
-
-    @Slot()
-    def __on_check_finished(self) -> None:
-        self.update_card.button.setEnabled(True)
-        if update_core.update_supported():
-            self.update_card.setContent(self.tr("检查 GitHub 上是否有新版本"))
-
-    @Slot()
-    def __on_no_update(self) -> None:
-        # 自动入口静默；手动点了按钮就必须给个交代。
-        if not self._auto_check:
-            show_success("", self.tr("当前已是最新版本"), self.window())
-
-    @Slot(str)
-    def __on_check_failed(self, message: str) -> None:
-        # 同上：自动入口失败只进日志，不弹界面。
-        if not self._auto_check:
-            show_warning(self.tr("检查更新失败"), message, self.window())
-
-    @Slot(object, object)
-    def __on_update_available(self, info: object, brief: UpdateBrief) -> None:
-        """发现新版本：自动/手动入口都弹同一个三态对话框。"""
-        dialog = UpdateDialog(brief, self.window())
-        try:
-            self._update_dialog = dialog
-            dialog.download_requested.connect(
-                lambda: self.__start_download(dialog, info)
+            self.update_card.setContent(
+                self.tr("正在检查更新…")
+                if self.updates.checking
+                else self.tr("检查 GitHub 上是否有新版本")
             )
-            self.update_controller.download_progress.connect(dialog.set_progress)
-            self.update_controller.download_finished.connect(dialog.set_ready)
-            # accepted 且 ready = 用户点了「重启应用」；其余收场（稍后 / Esc）都不动。
-            if dialog.exec() and dialog.ready:
-                self.update_restart_requested.emit(info)
-        finally:
-            self.update_controller.download_progress.disconnect(dialog.set_progress)
-            self.update_controller.download_finished.disconnect(dialog.set_ready)
-            self._update_dialog = None
-            dialog.deleteLater()
-
-    def __start_download(self, dialog: UpdateDialog, info: object) -> None:
-        dialog.set_downloading()
-        self.update_controller.download(info)
-
-    @Slot(str)
-    def __on_download_failed(self, message: str) -> None:
-        # 下载失败的展示位在对话框上；框已关（Esc 走了）就静默。
-        if self._update_dialog is not None:
-            self._update_dialog.set_failed(message)
-
-    @Slot(str)
-    def __on_apply_failed(self, message: str) -> None:
-        # Applying starts after accept()/exec() has hidden the download dialog.
-        # Keep the failure visible after that one-shot dialog is disposed.
-        show_warning(self.tr("应用更新失败"), message, self.window())
 
     @Slot()
     def __show_restart_tooltip(self):
