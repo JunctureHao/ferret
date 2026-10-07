@@ -1079,31 +1079,45 @@ class MitmFacade:
         return self.runtime.call(export) if self.runtime.is_running else export()
 
     def start_capture_recording(self) -> Path:
-        master = self.runtime.master
-        if not self.runtime.is_running or master is None:
+        if not self.runtime.is_running:
             raise RuntimeError(_not_running())
-        if (
-            self._recording_path is not None
-            and master.options.save_stream_file == str(self._recording_path)
-        ):
-            # 同一内核已指向同一录制文件时按幂等处理：抓包中重挂系统代理会再次
-            # 调进来（录制已与系统代理勾选解耦），原生 Save 换路径会先关旧流再
-            # 开新文件，把一段会话拆成两个 capture 文件。内核换血后 options 是
-            # 全新的（save_stream_file=None），落不到本分支，照常重开文件。
-            return self._recording_path
+        # 占位文件先落（唯一性在 Qt 侧定好）；幂等命中时在下方删掉。
         path = _reserve_recording_path(datetime.now().astimezone())
-        try:
-            self.runtime.call(
-                lambda: master.options.update(
-                    save_stream_file=str(path), save_stream_filter="~http"
-                )
+        current = self._recording_path
+
+        def engage() -> str | None:
+            # options 的读与写在同一个 call 闭包里完成：master.options 属内核
+            # 线程，Qt 线程裸读会踩线程纪律，且读/写拆两次 call 可能读到别处
+            # 改了一半的值。master=None 是内核恰好退出的竞态兜底。
+            master = self.runtime.master
+            if master is None:
+                return None
+            if current is not None and master.options.save_stream_file == str(current):
+                # 同一内核已指向同一录制文件时按幂等处理：抓包中重挂系统代理会
+                # 再次调进来（录制已与系统代理勾选解耦），原生 Save 换路径会先
+                # 关旧流再开新文件，把一段会话拆成两个 capture 文件。内核换血后
+                # options 是全新的（save_stream_file=None），落不到本分支，
+                # 照常重开文件。
+                return str(current)
+            master.options.update(
+                save_stream_file=str(path), save_stream_filter="~http"
             )
+            return str(path)
+
+        try:
+            engaged = self.runtime.call(engage)
         except BaseException:
             # 下发失败时把占位空文件删掉，别在会话目录里留垃圾。
             path.unlink(missing_ok=True)
             raise
-        self._recording_path = path
-        return path
+        if engaged is None:
+            path.unlink(missing_ok=True)
+            raise RuntimeError(_not_running())
+        self._recording_path = Path(engaged)
+        if engaged != str(path):
+            # 幂等命中：占位空文件没用上，删掉。
+            path.unlink(missing_ok=True)
+        return self._recording_path
 
     def stop_capture_recording(self) -> Path | None:
         path = self._recording_path

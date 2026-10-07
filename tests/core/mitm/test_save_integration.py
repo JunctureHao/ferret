@@ -54,11 +54,18 @@ class RecordingImportTests(unittest.TestCase):
     """真 Save / ReadFile 与磁盘文件；只替代 runtime 的跨线程调度。"""
 
     def setUp(self) -> None:
+        # AddonManager logs and swallows hook errors; recording assertions alone
+        # must not let a broken lifecycle pass unnoticed.
+        self.enterContext(self.assertNoLogs("mitmproxy.addonmanager", level="ERROR"))
         self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.loop = asyncio.new_event_loop()
         self.addCleanup(self.loop.close)
         self.master = CaptureMaster(event_loop=self.loop)
         self.addCleanup(self.master.save.done)
+        # No master.run() here, so TlsConfig.running() never initializes its CA.
+        # Dispatch the native configure hook before loading live requests, using
+        # an isolated store rather than the user's certificates.
+        self.master.options.update(confdir=str(self.directory / "certs"))
         runtime = mock.Mock(
             spec=MitmRuntime,
             master=self.master,
