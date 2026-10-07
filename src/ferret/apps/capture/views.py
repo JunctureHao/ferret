@@ -518,7 +518,7 @@ class CapturesInterface(QWidget):
                     proxyauth_username=w.get_proxyauth_username(),
                     proxyauth_password=w.get_proxyauth_password(),
                 )
-            except (RuntimeError, ValueError) as exc:
+            except (RuntimeError, TimeoutError, ValueError) as exc:
                 show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
                 return
             # 监听端点也可能顺带变了（端口在对话框里可改），读回刷新。
@@ -559,11 +559,13 @@ class CapturesInterface(QWidget):
 
     @Slot()
     def __on_open_flow_file_requested(self) -> None:
+        # .flow 与 .har 都走 mitmproxy 原生 FlowReader（后者按内容自动识别，
+        # mitmproxy/io/io.py），无需在 ferret 侧再分一次扩展名。
         path, _ = QFileDialog.getOpenFileName(
             self.window(),
-            self.tr("加载 Flow 到当前列表"),
+            self.tr("加载 Flow / HAR 到当前列表"),
             "",
-            self.tr("Flow 文件 (*.flow)"),
+            self.tr("Flow / HAR 文件 (*.flow *.har)"),
         )
         if not path:
             return
@@ -985,7 +987,7 @@ class CaptureCommandBar(QWidget):
     def _build_more_menu(self) -> RoundMenu:
         """低频动作与当前装不下的命令；所有入口复用原有业务信号。"""
         menu = RoundMenu(parent=self)
-        open_action = Action(FluentIcon.FOLDER, self.tr("加载 Flow 到当前列表"), menu)
+        open_action = Action(FluentIcon.FOLDER, self.tr("加载 Flow / HAR 到当前列表"), menu)
         open_action.triggered.connect(self.openRequested.emit)
         menu.addAction(open_action)
         locate_action = Action(BaseIcon.LOCATION_TARGET, self.tr("定位选中"), menu)

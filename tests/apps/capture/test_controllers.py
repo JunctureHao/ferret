@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from ferret.apps.capture.controllers import CaptureController, CaptureState
 from ferret.core.mitm import MitmRuntimeState, View, flow_row
-from ferret.core.network import ANY_HOST, LOOPBACK_HOST
+from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 from ferret.core.settings import CONFIG
 
 
@@ -290,6 +290,21 @@ class FakeFacade:
         if "@" in target:
             raise ValueError("invalid upstream target")
 
+    def validate_reverse_target(
+        self, target: str, *, listen_host: str, listen_port: int
+    ) -> None:
+        # 拦的值与真身一致：坏 scheme / 坏 host 都会被原生解析器拒（实测）。
+        if "://" in target and not target.startswith(
+            ("http://", "https://", "tcp://", "udp://")
+        ):
+            raise ValueError("invalid reverse target")
+        if " " in target:
+            raise ValueError("invalid reverse target")
+
+    def validate_socks5_port(self, port: int, *, listen_host: str) -> None:
+        if not (PORT_MIN <= port <= PORT_MAX):
+            raise ValueError("invalid socks5 port")
+
     def upstream_targets_self(self, target, *, listen_host, listen_port) -> bool:
         return target.endswith(f":{listen_port}")
 
@@ -456,11 +471,16 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller, _, facade, proxy = self.make_controller()
         CONFIG.set(CONFIG.system_proxy_enabled, False)
 
-        with patch.object(
-            facade, "start_capture_recording", side_effect=OSError("disk full")
+        with (
+            patch.object(
+                facade, "start_capture_recording", side_effect=OSError("disk full")
+            ),
+            self.assertLogs("ferret.mitmproxy", "ERROR") as logs,
         ):
             controller.start_capture()
 
+        self.assertIn("failed to start capture recording", logs.output[0])
+        self.assertIn("OSError: disk full", logs.output[0])
         self.assertEqual(controller.capture_state, CaptureState.FAILED)
         self.assertIn("disk full", controller.last_error)
         self.assertFalse(proxy.attached)
@@ -551,11 +571,16 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller, runtime, facade, proxy = self.make_controller()
         controller.start_capture()
 
-        with patch.object(
-            facade, "stop_capture_recording", side_effect=OSError("disk full")
+        with (
+            patch.object(
+                facade, "stop_capture_recording", side_effect=OSError("disk full")
+            ),
+            self.assertLogs("ferret.mitmproxy", "ERROR") as logs,
         ):
             controller.stop_capture()
 
+        self.assertIn("failed to stop capture recording", logs.output[0])
+        self.assertIn("OSError: disk full", logs.output[0])
         self.assertEqual(controller.capture_state, CaptureState.FAILED)
         self.assertIn("disk full", controller.last_error)
         self.assertFalse(proxy.attached)
@@ -574,11 +599,16 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller, runtime, facade, proxy = self.make_controller()
         controller.start_capture()
 
-        with patch.object(
-            facade, "disengage_channels", side_effect=RuntimeError("channel busy")
+        with (
+            patch.object(
+                facade, "disengage_channels", side_effect=RuntimeError("channel busy")
+            ),
+            self.assertLogs("ferret.mitmproxy", "ERROR") as logs,
         ):
             controller.stop_capture()
 
+        self.assertIn("failed to drop capture channels", logs.output[0])
+        self.assertIn("RuntimeError: channel busy", logs.output[0])
         self.assertEqual(controller.capture_state, CaptureState.FAILED)
         self.assertIn("channel busy", controller.last_error)
         self.assertFalse(proxy.attached)
@@ -600,10 +630,13 @@ class CaptureControllerStateTests(unittest.TestCase):
             patch.object(
                 facade, "stop_capture_recording", side_effect=OSError("disk full")
             ),
+            self.assertLogs("ferret.mitmproxy", "ERROR") as logs,
             self.assertRaisesRegex(RuntimeError, "disk full"),
         ):
             controller.update_proxy_settings(listen_port=8081)
 
+        self.assertIn("failed to stop capture recording", logs.output[0])
+        self.assertIn("OSError: disk full", logs.output[0])
         self.assertEqual(runtime.restart_calls, 0)
         self.assertEqual(controller.current_port, 8080)
         self.assertEqual(controller.capture_state, CaptureState.FAILED)
@@ -612,9 +645,14 @@ class CaptureControllerStateTests(unittest.TestCase):
         controller, runtime, facade, proxy = self.make_controller()
         controller.start_capture()
 
-        with patch.object(proxy, "detach", side_effect=OSError("registry busy")):
+        with (
+            patch.object(proxy, "detach", side_effect=OSError("registry busy")),
+            self.assertLogs("ferret.mitmproxy", "ERROR") as logs,
+        ):
             controller.stop_capture()
 
+        self.assertIn("failed to restore system proxy", logs.output[0])
+        self.assertIn("OSError: registry busy", logs.output[0])
         self.assertEqual(controller.capture_state, CaptureState.FAILED)
         self.assertIn("registry busy", controller.last_error)
         self.assertFalse(facade.recording)
@@ -626,12 +664,20 @@ class CaptureControllerStateTests(unittest.TestCase):
     def test_port_change_retries_prior_failed_cleanup_before_restarting(self) -> None:
         controller, runtime, facade, _proxy = self.make_controller()
         controller.start_capture()
-        with patch.object(
-            facade, "stop_capture_recording", side_effect=OSError("disk full")
+        with (
+            patch.object(
+                facade, "stop_capture_recording", side_effect=OSError("disk full")
+            ),
+            self.assertLogs("ferret.mitmproxy", "ERROR") as logs,
         ):
             controller.stop_capture()
             with self.assertRaisesRegex(RuntimeError, "disk full"):
                 controller.update_proxy_settings(listen_port=8081)
+        self.assertEqual(
+            [record.getMessage() for record in logs.records],
+            ["failed to stop capture recording"] * 2,
+        )
+        self.assertTrue(all("OSError: disk full" in output for output in logs.output))
         self.assertEqual(runtime.restart_calls, 0)
         self.assertEqual(controller.current_port, 8080)
 
@@ -906,6 +952,64 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertEqual(CONFIG.get(CONFIG.upstream_target), "ftp://proxy:8080")
         self.assertFalse(runtime.use_upstream)
 
+    def test_update_channels_rejects_a_bad_reverse_target_without_touching_config(
+        self,
+    ) -> None:
+        """坏 reverse 目标与坏 local 过滤串同款：拦在落盘之前，CONFIG 与内核都不动
+        ——否则坏值持久化后重启回填，下次「开始抓包」必失败。"""
+        controller, runtime, _, _ = self.make_controller()
+
+        with self.assertRaises(ValueError):
+            controller.update_channels(
+                use_system_proxy=True,
+                use_local=False,
+                local_spec="",
+                use_wireguard=False,
+                use_reverse=True,
+                reverse_target="ftp://example.com",
+            )
+
+        self.assertFalse(CONFIG.get(CONFIG.reverse_enabled))
+        self.assertEqual(CONFIG.get(CONFIG.reverse_target), "")
+        self.assertFalse(runtime.use_reverse)
+
+    def test_disabling_reverse_skips_target_validation(self) -> None:
+        """「关的动作一律放行」同款：关闭 reverse 不被残留坏目标卡住（坏值仅落盘，
+        开启时再拦）。"""
+        controller, runtime, _, _ = self.make_controller()
+
+        controller.update_channels(
+            use_system_proxy=True,
+            use_local=False,
+            local_spec="",
+            use_wireguard=False,
+            use_reverse=False,
+            reverse_target="ftp://example.com",
+        )
+
+        self.assertFalse(CONFIG.get(CONFIG.reverse_enabled))
+        self.assertEqual(CONFIG.get(CONFIG.reverse_target), "ftp://example.com")
+        self.assertFalse(runtime.use_reverse)
+
+    def test_update_channels_rejects_a_bad_socks5_port_without_touching_config(
+        self,
+    ) -> None:
+        """SOCKS5 端口越界与坏 reverse 目标同款：拦在落盘之前。"""
+        controller, runtime, _, _ = self.make_controller()
+
+        with self.assertRaises(ValueError):
+            controller.update_channels(
+                use_system_proxy=True,
+                use_local=False,
+                local_spec="",
+                use_wireguard=False,
+                use_socks5=True,
+                socks5_port=PORT_MAX + 1,
+            )
+
+        self.assertFalse(CONFIG.get(CONFIG.socks5_enabled))
+        self.assertFalse(runtime.use_socks5)
+
     def test_update_channels_persists_all_four_upstream_values(self) -> None:
         """四个值都要落盘并推到内核 —— 密码也在内，它是 CONFIG 明文项。"""
         controller, runtime, _, _ = self.make_controller()
@@ -1014,6 +1118,26 @@ class CaptureControllerStateTests(unittest.TestCase):
 
         controller.stop_capture()
         self.assertFalse(controller._channel_timer.isActive())
+
+    def test_stop_capture_clears_channel_health_errors(self) -> None:
+        """停止成功即通道全部撤下、轮询停表，旧错误集失去事实来源 —— 不清会让
+        命令栏在已停止状态继续挂 ⚠；清空须伴 channels_changed，视图才即时刷新。"""
+        controller, runtime, _, _ = self.make_controller()
+        runtime.health = {"local": "boom"}
+        controller.start_capture()
+        controller._check_channel_health()
+        self.assertTrue(controller.channel_errors)
+
+        seen: list[dict[str, str]] = []
+        controller.channels_changed.connect(
+            lambda: seen.append(controller.channel_errors)
+        )
+
+        controller.stop_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
+        self.assertEqual(controller.channel_errors, {})
+        self.assertEqual(seen, [{}])
 
 
 class ApplyFilterRawTests(unittest.TestCase):

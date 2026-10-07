@@ -273,7 +273,7 @@ class CaptureCommandBarTests(unittest.TestCase):
 
         menu = self.bar._build_more_menu()
         actions = {action.text(): action for action in menu.actions()}
-        actions["加载 Flow 到当前列表"].trigger()
+        actions["加载 Flow / HAR 到当前列表"].trigger()
         self.assertTrue(actions["定位选中"].isEnabled())
         actions["定位选中"].trigger()
         self.assertEqual(opened, [True])

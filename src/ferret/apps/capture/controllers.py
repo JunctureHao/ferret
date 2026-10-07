@@ -422,6 +422,12 @@ class CaptureController(QObject):
         if self._stop_failed:
             self._set_capture_state(CaptureState.FAILED)
             return
+        # 停止成功即通道全部撤下，健康错误集失去事实来源（轮询已停表）；不清
+        # 会让命令栏在已停止状态继续挂 ⚠。FAILED 路径不清：通道可能仍在，旧
+        # 错误仍是重试停止前唯一的已知事实。
+        if self._channel_errors:
+            self._channel_errors = {}
+            self.channels_changed.emit()
         self._set_capture_state(CaptureState.STOPPED)
 
     @property
@@ -774,11 +780,25 @@ class CaptureController(QObject):
         未抓包时只落盘 + 更新内核意图值，下次「开始抓包」按新配置开会话；抓包中
         则实时增删通道、按需挂/摘系统代理。
         """
-        # 校验先行：坏过滤串连落盘都不该发生（否则坏串会一直躺在配置里）。
-        # 仅在开启本地重定向时校验——关闭通道不该被残留过滤串卡住（关的动作
-        # 本身就值得放行；开启时 apply_channels 还会再过一遍原生解析器）。
+        # 校验先行：坏过滤串、坏 reverse 目标这类原生解析器必拒的值，连落盘都
+        # 不该发生——apply_channels 的同名校验在 CONFIG 写盘之后，失败只回滚
+        # 内核内存意图值，坏值已经躺在配置里，重启回填后下次「开始抓包」必失败。
+        # 各通道只在开启时校验：关闭的动作不该被残留坏值卡住；空 reverse 目标
+        # 按 capture_mode_specs 的语义本就不开通道，同款放行。
         if use_local:
             self._mitm.validate_local_spec(local_spec)
+        if use_reverse and reverse_target.strip():
+            # listen 段照抄 apply_channels 的拼法：host 用内核现值（端点更新
+            # update_proxy_settings 在本方法之后才跑），端口用待提交值。
+            self._mitm.validate_reverse_target(
+                reverse_target,
+                listen_host=self._mitm.listen_host,
+                listen_port=reverse_port,
+            )
+        if use_socks5:
+            self._mitm.validate_socks5_port(
+                socks5_port, listen_host=self._mitm.listen_host
+            )
         # 上游地址同款「关的动作放行」：只在开启时过原生解析器，关闭时哪怕地址
         # 是历史坏值也不该卡住提交。自环那一道在对话框里（它要知道待提交的监听
         # 口，见 apps/capture/views.py::__show_proxy_port_dialog）。

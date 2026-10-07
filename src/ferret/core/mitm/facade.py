@@ -47,6 +47,8 @@ from ferret.core.mitm.intercept import (
 from ferret.core.mitm.io import FlowFile, flow_import
 from ferret.core.mitm.modes import (
     ensure_wireguard_conf,
+    reverse_mode_spec,
+    socks5_mode_spec,
     upstream_mode_spec,
     upstream_targets_self,
     validate_local_spec,
@@ -281,6 +283,20 @@ class MitmFacade:
         需要知道本机监听口的判断留在对话框，那是 UI 的上下文。
         """
         validate_mode_specs([upstream_mode_spec(target)])
+
+    def validate_reverse_target(
+        self, target: str, *, listen_host: str, listen_port: int
+    ) -> None:
+        """Raise ``ValueError`` with a displayable message if the reverse target is invalid.
+
+        listen 段由调用方传齐：落盘前这道校验必须拼出与 apply_channels 真正下发
+        的同一条 spec 才不虚发——host 用内核现值，端口用待提交值。
+        """
+        validate_mode_specs([reverse_mode_spec(target, listen_host, listen_port)])
+
+    def validate_socks5_port(self, port: int, *, listen_host: str) -> None:
+        """Raise ``ValueError`` with a displayable message if the SOCKS5 port is invalid."""
+        validate_mode_specs([socks5_mode_spec(listen_host, port)])
 
     def upstream_targets_self(
         self, target: str, *, listen_host: str, listen_port: int
