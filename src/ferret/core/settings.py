@@ -245,6 +245,22 @@ class Config(QConfig):
                 )
         self.theme = self.get(self.themeMode)
 
+    def reset_to_defaults(self) -> None:
+        """全部配置项恢复出厂默认并立即落盘（设置页「重置所有设置」入口）。
+
+        逐项走 ``set`` 而不是整盘覆写：值真正变化的项会发 ``valueChanged``，
+        已挂接的热更链路（固定会话 / 无缓存 / 协议层 / DNS hosts 等）随之自动重推，
+        绑卡片的控件也自行刷新；``language`` / ``dpi_scale`` 带 restart 标记，
+        ``appRestartSig`` 会提示重启。列表 / dict 默认值必须 deepcopy —— 共享同一
+        可变默认值会让「原地 mutate 再 set」静默不落盘的坑复发。
+        """
+        for name in dir(type(self)):
+            item = getattr(type(self), name)
+            if not isinstance(item, ConfigItem):
+                continue
+            self.set(item, deepcopy(item.defaultValue), save=False)
+        self.save()
+
     # 应用主题：覆盖 qfluentwidgets 基类的出厂默认（Theme.LIGHT），改为跟随系统。
     # 键名 group/name 必须与基类一致（QFluentWidgets/ThemeMode），否则落盘与
     # 框架读取对不上。
