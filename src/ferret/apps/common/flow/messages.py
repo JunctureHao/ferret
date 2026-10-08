@@ -51,6 +51,7 @@ from qfluentwidgets import (
     LineEdit,
     TransparentToolButton,
 )
+from qfluentwidgets.components.widgets.card_widget import SimpleCardWidget
 
 from ferret.apps.common.flow.chat import Bubble, ChatStream, SystemNote
 from ferret.core.mitm import (
@@ -155,7 +156,7 @@ def hex_dump(content: bytes, limit: int = HEX_DUMP_LIMIT) -> str:
     return "\n".join(lines)
 
 
-class MessagesPane(QWidget):
+class MessagesPane(SimpleCardWidget):
     """WS 帧 / SSE 事件共用的聊天气泡页。
 
     对外只有四件事：`set_data` 换一条流量、`append_frame` 追一帧、`set_close` 更新
