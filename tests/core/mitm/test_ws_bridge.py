@@ -13,6 +13,8 @@
 这里刻意不起代理：三个钩子都只读 `flow.websocket`，直接调用即可。
 """
 
+from __future__ import annotations
+
 import os
 import unittest
 
@@ -21,7 +23,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from mitmproxy.test import tflow
 from PySide6.QtCore import QCoreApplication
 
-from ferret.core.mitm import MitmRuntime
+from ferret.core.mitm import FlowRow, MitmRuntime
 from ferret.core.mitm.bindings import Opcode, WebSocketData, WebSocketMessage
 from ferret.core.mitm.runtime import UiBridgeAddon
 from ferret.core.mitm.wsframe import WsClose, WsFrame
@@ -57,6 +59,40 @@ class WebsocketBridgeTests(unittest.TestCase):
         flow = tflow.twebsocketflow()
         self.addon.websocket_start(flow)
         self.assertEqual(self.started, [(flow.id,)])
+
+    def test_upgrade_republishes_a_wss_row_without_changing_the_handshake_snapshot(
+        self,
+    ) -> None:
+        added: list[FlowRow] = []
+        updated: list[FlowRow] = []
+        self.runtime.flow_added.connect(added.append)
+        self.runtime.flow_updated.connect(updated.append)
+        flow = tflow.tflow()
+        flow.request.url = "https://socket.example/chat"
+        flow.request.headers["Connection"] = "Upgrade"
+        flow.request.headers["Upgrade"] = "websocket"
+
+        self.runtime.view.requestheaders(flow)
+        self.assertEqual(added, [])
+        self.runtime.view.request(flow)
+        self.assertEqual(len(added), 1)
+        handshake = added[0]
+        self.assertIsInstance(handshake, FlowRow)
+        self.assertEqual(handshake.url, "https://socket.example/chat")
+
+        flow.response = tflow.tresp()
+        flow.response.status_code = 101
+        flow.websocket = WebSocketData()
+        self.runtime.view.response(flow)
+
+        self.assertEqual(len(updated), 1)
+        self.assertIsInstance(updated[0], FlowRow)
+        self.assertEqual(updated[0].id, handshake.id)
+        self.assertEqual(updated[0].url, "wss://socket.example/chat")
+        self.assertEqual(updated[0].status_code, 101)
+        self.assertEqual(handshake.url, "https://socket.example/chat")
+        self.assertIsNone(handshake.status_code)
+        self.assertEqual(flow.request.url, "https://socket.example/chat")
 
     def test_message_emits_the_newest_frame_as_a_value(self) -> None:
         flow = tflow.twebsocketflow()

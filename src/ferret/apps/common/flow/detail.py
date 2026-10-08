@@ -987,6 +987,12 @@ class FlowDataPanel(QWidget):
         """握手成功。选中时还是普通 HTTP 流量（消息栏藏着）的那一条，从这里开始有帧。"""
         if not self.__is_current(flow_id):
             return
+        # 握手前已展开的概览也要切到 WS URL，并带上刚到达的升级响应。
+        fetch = getattr(self.controller, "flow_summary", None)
+        detail = fetch(flow_id) if fetch is not None else {}
+        if detail:
+            self.set_data(detail)
+            return
         self._message_kind = "websocket"
         self._messages_dirty = True
         self.__refresh_message_page()

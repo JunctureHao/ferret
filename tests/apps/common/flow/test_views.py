@@ -567,6 +567,62 @@ class FlowViewerPaneTests(unittest.TestCase):
         )
         self.assertEqual(panel.messages.count, 3)
 
+    def test_websocket_start_updates_open_overview_and_table_url(self) -> None:
+        flow = tflow.twebsocketflow(messages=False)
+        flow.request.url = "https://example.com/ws?token=a%2Fb"
+        request_state = flow.request.get_state()
+        response, websocket = flow.response, flow.websocket
+        flow.response = None
+        flow.websocket = None
+        source = self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        panel.req_tabs.setCurrentTab("Overview")
+        overview = panel.overview
+        assert overview is not None
+
+        def overview_url() -> str:
+            return next(
+                row.value
+                for card in overview.cards
+                for row in card.rows()
+                if row.label == "URL"
+            )
+
+        model = self.viewer.table.source_model
+        url_index = model.index(0, logical_index("url"))
+        self.assertEqual(model.data(url_index), flow.request.pretty_url)
+        self.assertEqual(overview_url(), flow.request.pretty_url)
+        self.assertEqual(panel.datas["Scheme"], "https")
+        self.controller.requests.clear()
+        with patch.object(overview, "set_data", wraps=overview.set_data) as render:
+            self.controller.websocket_started.emit("another-flow")
+            self.app.processEvents()
+            render.assert_not_called()
+            self.assertEqual(self.controller.requests, [])
+
+            flow.response, flow.websocket = response, websocket
+            self.controller.details[flow.id] = build_flow_detail(flow)
+            source.rows[0] = flow_row(flow)
+            self.viewer.on_flow_updated(source.rows[0])
+            self.controller.websocket_started.emit(flow.id)
+            self.app.processEvents()
+            render.assert_called_once()
+
+        expected_url = "wss://example.com/ws?token=a%2Fb"
+        self.assertEqual(model.data(url_index), expected_url)
+        self.assertEqual(overview_url(), expected_url)
+        self.assertEqual(panel.datas["URL"], expected_url)
+        self.assertEqual(panel.datas["Scheme"], "wss")
+        self.assertEqual(panel.datas["Status Code"], 101)
+        self.assertEqual(self.controller.requests, [flow.id])
+        self.assertEqual(self.controller.full_requests, [])
+        self.assertEqual(self.controller.message_requests, [])
+        self.assertEqual(flow.request.get_state(), request_state)
+
     def test_late_panel_recovers_websocket_frames_and_receives_new_frames(self) -> None:
         flow = tflow.twebsocketflow()
         self._load_flows(flow)

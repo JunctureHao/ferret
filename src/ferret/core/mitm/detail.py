@@ -290,6 +290,23 @@ def response_cookies(response: Response) -> list[dict[str, Any]]:
     return cookies
 
 
+def display_scheme(flow: HTTPFlow) -> str:
+    """只在内核确认升级后展示 WS 协议，握手请求本身仍保留 HTTP(S)。"""
+    scheme = flow.request.scheme
+    if flow.websocket is not None:
+        return {"http": "ws", "https": "wss"}.get(scheme, scheme)
+    return scheme
+
+
+def display_url(flow: HTTPFlow) -> str:
+    """列表与详情共用的 URL；保留 pretty_host、端口及路径的原始转义。"""
+    url = flow.request.pretty_url
+    prefix = f"{flow.request.scheme}://"
+    if flow.websocket is not None and url.startswith(prefix):
+        return f"{display_scheme(flow)}://{url[len(prefix) :]}"
+    return url
+
+
 def request_fields(flow: HTTPFlow) -> dict[str, Any]:
     """请求一侧不依赖 body 的详情字段。
 
@@ -315,10 +332,10 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
 
     fields: dict[str, Any] = {
         "Method": request.method,
-        "URL": request.pretty_url,
+        "URL": display_url(flow),
         "Host": request.host,
         "Path": request.path,
-        "Scheme": request.scheme,
+        "Scheme": display_scheme(flow),
         "Authority": request.authority,
         "HTTP Version": request.http_version,
         "Request Headers": dict(request.headers),

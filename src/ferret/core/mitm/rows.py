@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ferret.core.mitm.bindings import Flow, HTTPFlow
-from ferret.core.mitm.detail import wire_size
+from ferret.core.mitm.detail import display_url, wire_size
 from ferret.core.mitm.gateway import GATEWAY_METADATA_KEY
 
 
@@ -108,7 +108,7 @@ def flow_row(flow: Flow) -> FlowRow:
         conn_id=getattr(client_conn, "id", None) or UNKNOWN_CONN_ID,
         marked=flow.marked or "",
         method=request.method if request is not None else "",
-        url=request.pretty_url if request is not None else "",
+        url=display_url(flow) if is_http and request is not None else "",
         host=(getattr(request, "pretty_host", None) or request.host)
         if request is not None
         else "",

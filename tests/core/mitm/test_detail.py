@@ -32,11 +32,100 @@ from ferret.core.mitm import (
     build_flow_messages,
     build_flow_overview_metadata,
     build_flow_summary,
+    build_request_edit,
+    flow_row,
     head_size,
     infer_state,
     wire_size,
 )
 from ferret.core.mitm.sse import SSE_EVENT_COUNT_KEY
+
+
+class WebsocketUrlTests(unittest.TestCase):
+    def test_confirmed_websockets_share_display_urls_without_reencoding(self) -> None:
+        cases = (
+            (
+                "https://origin.example/chat",
+                "public.example",
+                "wss://public.example/chat",
+            ),
+            (
+                "http://origin.example/chat",
+                "public.example",
+                "ws://public.example/chat",
+            ),
+            (
+                "https://origin.example:8443/chat%2Froom?next=https://other.example/a%2Fb&token=a%2Bb",
+                "public.example:8443",
+                "wss://public.example:8443/chat%2Froom?next=https://other.example/a%2Fb&token=a%2Bb",
+            ),
+            (
+                "http://origin.example:8080/chat%2Froom?token=a%2Bb",
+                "public.example:8080",
+                "ws://public.example:8080/chat%2Froom?token=a%2Bb",
+            ),
+        )
+        for native_url, host, display_url in cases:
+            with self.subTest(url=native_url):
+                flow = tflow.twebsocketflow(messages=False)
+                flow.request.url = native_url
+                flow.request.headers["Host"] = host
+
+                self.assertEqual(flow_row(flow).url, display_url)
+                for build in (build_flow_summary, build_flow_detail):
+                    data = build(flow)
+                    self.assertEqual(data["URL"], display_url)
+                    self.assertEqual(data["Scheme"], display_url.split(":", 1)[0])
+                    self.assertTrue(data["is_websocket"])
+
+    def test_upgrade_headers_and_status_alone_do_not_change_the_display(self) -> None:
+        for scheme in ("http", "https"):
+            for upgrade, status in (
+                (False, None),
+                (True, None),
+                (True, 101),
+                (True, 400),
+            ):
+                with self.subTest(scheme=scheme, upgrade=upgrade, status=status):
+                    flow = tflow.tflow(resp=status is not None)
+                    flow.request.url = f"{scheme}://socket.example/chat"
+                    if upgrade:
+                        flow.request.headers["Connection"] = "Upgrade"
+                        flow.request.headers["Upgrade"] = "websocket"
+                    if flow.response is not None:
+                        assert status is not None
+                        flow.response.status_code = status
+                        flow.response.headers["Upgrade"] = "websocket"
+
+                    self.assertIsNone(flow.websocket)
+                    self.assertEqual(flow_row(flow).url, flow.request.pretty_url)
+                    for build in (build_flow_summary, build_flow_detail):
+                        data = build(flow)
+                        self.assertEqual(data["URL"], flow.request.pretty_url)
+                        self.assertEqual(data["Scheme"], scheme)
+                        self.assertFalse(data["is_websocket"])
+
+    def test_display_does_not_change_native_state_curl_or_compose_request(self) -> None:
+        flow = tflow.twebsocketflow()
+        native_url = "https://socket.example:8443/chat?token=a%2Bb"
+        flow.request.url = native_url
+        original_state = flow.get_state()
+        compose_request = build_request_edit(flow)
+
+        flow_row(flow)
+        build_flow_summary(flow)
+        data = build_flow_detail(flow)
+
+        self.assertEqual(data["URL"], "wss://socket.example:8443/chat?token=a%2Bb")
+        self.assertEqual(data["raw_state"], original_state)
+        self.assertEqual(data["raw_state"]["request"]["scheme"], b"https")
+        self.assertIn(native_url, data["curl_command"])
+        self.assertNotIn("wss://", data["curl_command"])
+        self.assertEqual(build_request_edit(flow), compose_request)
+        self.assertEqual(compose_request.url, native_url)
+        self.assertEqual(flow.request.scheme, "https")
+        self.assertEqual(flow.request.url, native_url)
+        self.assertEqual(flow.get_state(), original_state)
 
 
 def certificate():
