@@ -7,6 +7,7 @@ from PySide6.QtCore import (
     QModelIndex,
     QPersistentModelIndex,
     QPoint,
+    QRect,
     QRectF,
     QSize,
     Qt,
@@ -21,6 +22,7 @@ from PySide6.QtGui import (
     QKeySequence,
     QPainter,
     QPainterPath,
+    QPaintEvent,
     QPalette,
     QShortcut,
 )
@@ -29,6 +31,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QStackedWidget,
     QStyle,
+    QStyleOptionHeader,
     QVBoxLayout,
     QWidget,
 )
@@ -99,6 +102,37 @@ if TYPE_CHECKING:
     _MixinBase = QWidget
 else:
     _MixinBase = object
+
+
+class _FlowHeaderView(QHeaderView):
+    """真实列右侧的剩余宽度显示为空白表头，不占用模型列或列布局配置。"""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self.setSectionsClickable(True)
+        self.setHighlightSections(False)
+        self.setStretchLastSection(False)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        super().paintEvent(event)
+        viewport = self.viewport()
+        left = max(0, self.length() - self.offset())
+        if left >= viewport.width():
+            return
+
+        option = QStyleOptionHeader()
+        self.initStyleOption(option)
+        option.rect = QRect(left, 0, viewport.width() - left, viewport.height())
+        option.position = QStyleOptionHeader.SectionPosition.End
+        painter = QPainter(viewport)
+        try:
+            painter.setClipRegion(event.region())
+            # CE_HeaderEmptyArea 不带 QFW 的 section 边框，沿用当前样式画空表头。
+            self.style().drawControl(
+                QStyle.ControlElement.CE_HeaderSection, option, painter, self
+            )
+        finally:
+            painter.end()
 
 
 class _ColumnLayoutMixin(_MixinBase):
@@ -353,6 +387,7 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
 
     def __init_widget(self):
         """初始化界面组件"""
+        self.setHorizontalHeader(_FlowHeaderView(self))
         self.source_model = FlowTableModel(self)
         self.proxy_model = FlowProxyModel(self)
 
@@ -367,7 +402,7 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         """初始化表格视图"""
         self.setSortingEnabled(True)
         self.setWordWrap(False)
-        # self.setAlternatingRowColors(False) # 斑马纹
+        self.setAlternatingRowColors(True)
 
         # 关闭平滑滚动，避免晃眼
         self.scrollDelagate.verticalSmoothScroll.setDynamicEngineEnabled(False)
@@ -572,6 +607,39 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
         super().resizeEvent(e)
         self._apply_responsive_columns(e.size().width())
 
+    def paintEvent(self, event: QPaintEvent) -> None:
+        super().paintEvent(event)
+        count = self.proxy_model.rowCount()
+        if not self.alternatingRowColors() or not count:
+            return
+
+        viewport = self.viewport()
+        top = self.rowViewportPosition(count - 1) + self.rowHeight(count - 1)
+        if top >= viewport.height():
+            return
+
+        # QFW 只给真实行绘制斑马纹；按同样的颜色、行距和圆角续画下方空区，
+        # 不增加模型行，也不覆盖真实行的选中、悬停或搜索高亮。
+        row_height = self.verticalHeader().defaultSectionSize()
+        header = self.horizontalHeader()
+        left = 4 - header.offset()
+        width = max(header.length(), viewport.width() + header.offset()) - 8
+        margin = self.delegate.margin
+        shade = 255 if isDarkTheme() else 0
+        painter = QPainter(viewport)
+        try:
+            painter.setClipRegion(event.region())
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(shade, shade, shade, 5))
+            for row, y in enumerate(range(top, viewport.height(), row_height), count):
+                if row % 2 == 0:
+                    painter.drawRoundedRect(
+                        QRectF(left, y + margin, width, row_height - 2 * margin), 5, 5
+                    )
+        finally:
+            painter.end()
+
 
 class HighlightTreeDelegate(TreeItemDelegate):
     """连接树版的整行命中高亮委托（平铺侧 `HighlightRowDelegate` 的树孪生）。
@@ -705,6 +773,7 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
         self.__connect_signal_to_slot()
 
     def __init_widget(self):
+        self.setHeader(_FlowHeaderView(self))
         self.source_model = FlowConnTreeModel(self)
         self.proxy_model = FlowConnProxyModel(self)
         self.context_menu = FlowContextMenu(self, self.controller, self.capabilities)
