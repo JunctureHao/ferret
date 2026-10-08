@@ -22,6 +22,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
+from qfluentwidgets import ConfigItem
 
 from ferret.core.settings import BoolConfigItem, Config
 
@@ -256,6 +257,39 @@ class BoolConfigItemLoadTests(unittest.TestCase):
         config = self._load({"Proxy": {"SslInsecure": True}, "Mock": {"Reuse": False}})
         self.assertIs(config.ssl_insecure.value, True)
         self.assertIs(config.mock_reuse.value, False)
+
+    def test_reset_to_defaults_restores_every_item_and_persists(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config = Config()
+        config.file = Path(directory.name) / "config.json"
+        config.set(config.ssl_insecure, True, save=False)
+        config.set(config.dns_name_servers, ["1.1.1.1"], save=False)
+        config.set(config.flow_columns, {"width": 315}, save=False)
+        config.reset_to_defaults()
+        for name in dir(Config):
+            item = getattr(Config, name)
+            if not isinstance(item, ConfigItem):
+                continue
+            with self.subTest(item=name):
+                self.assertEqual(item.value, item.defaultValue)
+                if isinstance(item.defaultValue, (list, dict)):
+                    self.assertIsNot(item.value, item.defaultValue)
+        on_disk = Config()
+        on_disk.load(config.file)
+        self.assertIs(on_disk.ssl_insecure.value, False)
+        self.assertEqual(on_disk.dns_name_servers.value, [])
+
+    def test_reset_to_defaults_emits_value_changed_for_changed_items(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config = Config()
+        config.file = Path(directory.name) / "config.json"
+        config.set(config.http2_enabled, False, save=False)
+        seen: list[bool] = []
+        config.http2_enabled.valueChanged.connect(seen.append)
+        config.reset_to_defaults()
+        self.assertEqual(seen, [True])
 
     def test_every_bool_item_declares_a_bool_default(self) -> None:
         """防止再有人用 `ConfigItem` + 裸 validator 定义 bool 项绕过收紧。"""
