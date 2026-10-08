@@ -24,24 +24,57 @@ _PREVIEW_ENCODINGS = {"", "none", "identity", "gzip", "deflate", "deflateraw", "
 
 
 def build_raw_preview(flow, side: str) -> dict[str, str]:
-    """Bounded wire-format display; full raw export remains a separate API."""
+    """Bounded display message; full raw export remains a separate API.
+
+    The body is decoded (gzip/deflate/zstd) before display: the fallback path in
+    the detail panel also fills the Raw tab with decoded body text, and showing
+    wire bytes here would render compressed bodies as garbage. Copy/save-as
+    still exports the untouched wire bytes via `get_raw_request/response`.
+    """
     message = flow.request if side == "Request" else flow.response
     if message is None:
         return {"text": "", "notice": ""}
+    wire = message.raw_content or b""
+    decoded = _bounded_decoded_content(message, wire)
+    if decoded is None:
+        # 编码不支持有界解码：退回线上字节，至少头部仍然可读。
+        head_message, body = message, wire
+    elif decoded != wire:
+        head_message = _message_copy(message, decoded, decoded=True)
+        head_message.headers["content-length"] = str(len(decoded))
+        body = decoded
+    else:
+        head_message, body = message, wire
     head = (
-        assemble_request_head(message)
+        assemble_request_head(head_message)
         if side == "Request"
-        else assemble_response_head(message)
+        else assemble_response_head(head_message)
     )
-    raw = message.raw_content or b""
-    total = len(head) + len(raw)
-    preview = head[:MAX_TEXT_SIZE] + raw[: max(0, MAX_TEXT_SIZE - len(head))]
+    total = len(head) + len(body)
+    preview = head[:MAX_TEXT_SIZE] + body[: max(0, MAX_TEXT_SIZE - len(head))]
     notice = ""
     if total > MAX_TEXT_SIZE:
         notice = QCoreApplication.translate(
             "FlowDetail", "原始报文仅显示前 {} 字节；完整内容可通过导出查看。"
         ).format(MAX_TEXT_SIZE)
     return {"text": preview.decode("utf-8", "replace"), "notice": notice}
+
+
+def _bounded_decoded_content(message, wire: bytes) -> bytes | None:
+    """Decode the wire body within budget; None means unsupported encoding."""
+    encoding = message.headers.get("content-encoding", "").lower()
+    if encoding in ("", "none", "identity"):
+        return wire
+    if encoding not in _PREVIEW_ENCODINGS:
+        return None
+    preview = _message_copy(message, wire[: MAX_PREVIEW_SIZE + 1])
+    try:
+        with bounded_content_decoding(
+            MAX_PREVIEW_SIZE, incomplete_input=len(wire) > MAX_PREVIEW_SIZE
+        ):
+            return preview.get_content(strict=False) or b""
+    except (PreviewDecodingUnavailable, ValueError):
+        return None
 
 
 def _message_copy(message, raw: bytes, *, decoded: bool = False):
