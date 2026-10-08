@@ -131,6 +131,7 @@ class _ColumnLayoutMixin(_MixinBase):
 
     def _init_columns(self, layout: ColumnLayout) -> None:
         self._column_layout = layout
+        self._column_menu: RoundMenu | None = None
         self._responsive_hidden: set[str] = set()
         self._applying_layout = False
         header = self._column_header()
@@ -198,11 +199,17 @@ class _ColumnLayoutMixin(_MixinBase):
 
     @Slot(QPoint)
     def _on_header_menu(self, pos: QPoint) -> None:
+        # 只保留一份菜单并随视图释放：关闭时仍可能有原生事件引用菜单，不能在
+        # 此时销毁；复用又能避免每次打开都在视图下累积菜单与 QAction。
+        if self._column_menu is None:
+            self._column_menu = self._create_column_menu()
+        self._column_menu.exec(self._column_header().mapToGlobal(pos))
+
+    def _create_column_menu(self) -> RoundMenu:
         # tr 走 QCoreApplication.translate 钉死 context：本方法在 mixin 里，self 运行时是
         # FlowDataTable/FlowConnTree，self.tr 的 runtime context 与 lupdate 静态提取的
         # mixin context 对不上会静默退回中文（§7）。用字面 context 让提取与查表一致。
         menu = RoundMenu(parent=self)
-        menu.closedSignal.connect(menu.deleteLater)
         settings_action = BaseAction(
             FluentIcon.SETTING,
             QCoreApplication.translate("FlowColumnMenu", "列设置…"),
@@ -217,15 +224,18 @@ class _ColumnLayoutMixin(_MixinBase):
         reset_action.triggered.connect(self._reset_columns)
         menu.addAction(settings_action)
         menu.addAction(reset_action)
-        menu.exec(self._column_header().mapToGlobal(pos))
+        return menu
 
     def _open_column_dialog(self) -> None:
         dialog = ColumnSettingsDialog(self._column_layout, self)
-        try:
-            if dialog.exec():
-                self._commit_column_layout(dialog.result_layout())
-        finally:
-            dialog.deleteLater()
+        # 不在菜单鼠标事件里嵌套 exec，让点击立即退栈；保持模态显示，
+        # 结果与释放都交给关闭信号处理，避免窗口关闭后再返回旧的原生调用栈。
+        dialog.accepted.connect(
+            lambda: self._commit_column_layout(dialog.result_layout())
+        )
+        dialog.finished.connect(dialog.deleteLater)
+        dialog.setModal(True)
+        dialog.show()
 
     def _reset_columns(self) -> None:
         self._commit_column_layout(default_layout())

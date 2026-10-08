@@ -24,6 +24,7 @@ from ferret.apps.session.views import SessionListPage
 from ferret.apps.update import coordinator as update_coordinator
 from ferret.core import update as update_core
 from ferret.core.update import UpdateBrief, UpdateError
+from tests.core.mitm._qt import wait_until
 
 
 class TemporaryWidgetTests(unittest.TestCase):
@@ -32,34 +33,47 @@ class TemporaryWidgetTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
+        self.enterContext(patch.object(views, "save_layout"))
         self.addCleanup(self.app.processEvents)
         with patch.object(views, "load_layout", return_value=default_layout()):
             self.pane = views.FlowViewerPane()
         self.addCleanup(self.pane.deleteLater)
 
-    def test_closed_header_menus_do_not_remain_children(self):
+    def test_header_menu_reuses_one_instance(self):
         table = self.pane.table
         persistent = set(table.findChildren(RoundMenu))
+        header_menu = None
         for _ in range(5):
             table._on_header_menu(QPoint(3, 3))
             menus = set(table.findChildren(RoundMenu)) - persistent
-            for menu in menus:
-                menu.close()
+            self.assertEqual(len(menus), 1)
+            menu = menus.pop()
+            if header_menu is None:
+                header_menu = menu
+            self.assertIs(menu, header_menu)
+            menu.close()
             QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        self.assertEqual(set(table.findChildren(RoundMenu)), persistent)
+            self.assertTrue(shiboken6.isValid(menu))
+        self.assertEqual(set(table.findChildren(RoundMenu)), persistent | {header_menu})
 
-    def test_rejected_column_dialog_is_deleted_after_exec_returns(self):
+    def test_rejected_column_dialog_is_deleted_after_close(self):
         dialogs = []
+        closed = []
 
         def create(*args):
             dialog = ColumnSettingsDialog(*args)
             dialogs.append(dialog)
+            dialog.finished.connect(lambda: closed.append(dialog))
             QTimer.singleShot(0, dialog.reject)
             return dialog
 
         with patch.object(views, "ColumnSettingsDialog", side_effect=create):
             for _ in range(3):
                 self.pane.table._open_column_dialog()
+                dialog = dialogs[-1]
+                self.assertTrue(
+                    wait_until(lambda dialog=dialog: dialog in closed, timeout_ms=2000)
+                )
                 QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.assertTrue(all(not shiboken6.isValid(dialog) for dialog in dialogs))
 
