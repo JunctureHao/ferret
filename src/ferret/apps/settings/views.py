@@ -14,6 +14,7 @@ from qfluentwidgets import (
     FluentIcon,
     InfoBar,
     InfoBarPosition,
+    MessageBox,
     MessageBoxBase,
     OptionsSettingCard,
     PlainTextEdit,
@@ -319,6 +320,19 @@ class SettingsInterface(ScrollArea):
         )
         self._refresh_dns_servers_content()
 
+        # 重置：全部配置项回出厂默认（含其他页的规则与开关），二次确认防误触。
+        # 放独立组尾而不是「个性化」里 —— 它是破坏型动作，不该和外观调整并列。
+        self.reset_group = SettingCardGroup(
+            title=self.tr("重置"), parent=self.scroll_widget
+        )
+        self.reset_card = PushSettingCard(
+            self.tr("重置"),
+            FluentIcon.CANCEL,
+            self.tr("重置所有设置"),
+            self.tr("全部设置项恢复出厂默认，规则与开关一并清空"),
+            parent=self.reset_group,
+        )
+
         self.__init_widget()
         # 自动检查可能早于首次打开设置：先读当前状态，再由信号持续刷新。
         self._refresh_update_card()
@@ -363,11 +377,14 @@ class SettingsInterface(ScrollArea):
         self.main_panel_group.addSettingCard(self.dns_servers_card)
         self.main_panel_group.addSettingCard(self.dns_use_hosts_card)
 
+        self.reset_group.addSettingCard(self.reset_card)
+
         self.expand_layout.setSpacing(28)
         self.expand_layout.setContentsMargins(36, 10, 36, 0)
         self.expand_layout.addWidget(self.about_group)
         self.expand_layout.addWidget(self.personalization_group)
         self.expand_layout.addWidget(self.main_panel_group)
+        self.expand_layout.addWidget(self.reset_group)
 
     def __connect_signal_to_slot(self):
         CONFIG.appRestartSig.connect(self.__show_restart_tooltip)
@@ -391,6 +408,45 @@ class SettingsInterface(ScrollArea):
         # 设置只提供手动入口和状态展示；启动检查与弹窗由主窗口持有的协调器负责。
         self.update_card.clicked.connect(self.updates.check_manual)
         self.updates.state_changed.connect(self._refresh_update_card)
+
+        self.reset_card.clicked.connect(self.__on_reset_clicked)
+
+    @Slot()
+    def __on_reset_clicked(self) -> None:
+        """重置提交链：确认 → 逐项回默认并落盘 → 补齐没有 valueChanged 热更的项。
+
+        布尔 / 枚举项经 ``set`` 发 ``valueChanged`` 后热更链路自动重推；
+        ``dns_name_servers`` 没有挂热更（编辑走对话框提交链），这里手动补推，
+        否则运行中的内核仍用着旧 DNS 列表。
+        """
+        dialog = MessageBox(
+            self.tr("重置所有设置"),
+            self.tr(
+                "全部设置项将恢复出厂默认，已保存的规则、脚本与开关一并清空。"
+                "此操作不可撤销，确定继续？"
+            ),
+            self.window(),
+        )
+        if not dialog.exec():
+            return
+        CONFIG.reset_to_defaults()
+        if self._mitm is not None:
+            try:
+                self._mitm.set_dns_options(
+                    name_servers=list(CONFIG.get(CONFIG.dns_name_servers))
+                )
+            except (ValueError, RuntimeError, TimeoutError) as exc:
+                self._show_apply_failure(exc)
+        self._refresh_dns_servers_content()
+        InfoBar.success(
+            title="",
+            content=self.tr("已重置所有设置，部分配置将在重启后生效"),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.BOTTOM,
+            duration=3000,
+            parent=self.window(),
+        )
 
     @Slot(bool)
     def __on_sticky_session_changed(self, enabled: bool) -> None:
