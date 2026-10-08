@@ -531,6 +531,22 @@ def build_flow_body(
         f"{side} Body Notice": body["notice"],
         f"{side} Content-Type": message.headers.get("Content-Type", "-"),
     }
+    if side == "Response":
+        content_type = message.headers.get("Content-Type", "")
+        is_image = content_type.split(";", 1)[0].strip().lower().startswith("image/")
+        image = None
+        image_notice = ""
+        if is_image:
+            if body["raw_complete"]:
+                image = body["raw"]
+            elif body["truncated"]:
+                image_notice = QCoreApplication.translate(
+                    "FlowDetail", "图片超过预览大小限制，请导出完整响应体查看。"
+                )
+            else:
+                image_notice = body["notice"]
+        fields["Response Body Image"] = image
+        fields["Response Body Image Notice"] = image_notice
     if body["decoded_size"] is not None:
         fields["req_decoded_size" if side == "Request" else "res_decoded_size"] = body[
             "decoded_size"

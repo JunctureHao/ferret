@@ -66,6 +66,7 @@ def build_body(flow, message, max_size: int = MAX_PRETTY_SIZE) -> dict:
     wire = message.raw_content or b""
     body = {
         "raw": b"",
+        "raw_complete": False,
         "text": "",
         "pretty": None,
         "view": "",
@@ -77,6 +78,7 @@ def build_body(flow, message, max_size: int = MAX_PRETTY_SIZE) -> dict:
     }
     if not wire:
         body["decoded_size"] = 0
+        body["raw_complete"] = True
         return body
 
     encoding = message.headers.get("content-encoding", "").lower()
@@ -101,6 +103,9 @@ def build_body(flow, message, max_size: int = MAX_PRETTY_SIZE) -> dict:
 
     raw = decoded[:MAX_PREVIEW_SIZE]
     truncated = encoded_limited or len(decoded) > MAX_PREVIEW_SIZE
+    # Binary previews need every byte, but the smaller text budget may truncate
+    # its display while the decoded bytes still contain a complete image.
+    body["raw_complete"] = not truncated
     # For identity bodies the full size is already known without decoding.
     if encoding in ("", "none", "identity"):
         body["decoded_size"] = len(wire)

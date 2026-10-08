@@ -54,7 +54,10 @@
 # nuitka-project: --noinclude-dlls=*qoffscreen*
 
 # Qt 插件 / 翻译
-# nuitka-project: --noinclude-qt-plugins=imageformats
+# 响应图片预览需要 JPEG / GIF / WebP / SVG / ICO 解码插件；PNG / BMP 由 Qt 内建。
+# PDF 后端已裁掉，对应图片插件也不打包。
+# nuitka-project: --include-qt-plugins=imageformats
+# nuitka-project: --noinclude-dlls=*qpdf*
 # nuitka-project: --noinclude-qt-plugins=styles
 # nuitka-project: --noinclude-qt-plugins=tls
 # nuitka-project: --include-qt-plugins=platforms

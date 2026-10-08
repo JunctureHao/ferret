@@ -61,6 +61,7 @@ from ferret.apps.common.edit import (
     ToolPlainTextEdit,
 )
 from ferret.apps.common.flow.fields import OverviewPane, _decoded_size
+from ferret.apps.common.flow.image import ImageBodyPanel
 from ferret.apps.common.flow.messages import (
     MessagesPane,
     is_websocket,
@@ -322,7 +323,7 @@ class CookieWidget(QWidget):
 
 
 class BodyPane(QStackedWidget):
-    """报文体三态：文本/JSON 树双视图 | 表单键值（仅请求）| 空占位。
+    """报文体：文本/JSON 树、图片（仅响应）、表单键值（仅请求）与空占位。
 
     改造前 body 为空的流量把 Body 标签也照常摆出来，点进去是一片编辑器空白；
     现在给一张居中的「无任何数据」占位，读起来不用猜。urlencoded 表单是请求体的
@@ -339,6 +340,8 @@ class BodyPane(QStackedWidget):
         self.json_panel.main_layout.insertWidget(0, self.notice)
         self.addWidget(self.json_panel)
 
+        self.image_panel: ImageBodyPanel | None = None
+
         self.form_panel: ItemDualPanel | None = None
         if allow_form:
             self.form_panel = ItemDualPanel()
@@ -353,6 +356,8 @@ class BodyPane(QStackedWidget):
     def clear(self) -> None:
         """保留懒创建的控件，释放已失效的正文、树、表单和查找游标。"""
         self.json_panel.set_text("")
+        if self.image_panel is not None:
+            self.image_panel.clear()
         if self.form_panel is not None:
             self.form_panel.set_items({})
         self.notice.clear()
@@ -361,7 +366,20 @@ class BodyPane(QStackedWidget):
         self.setCurrentWidget(self.empty_label)
 
     def set_data(self, data: dict, prefix: str) -> None:
-        """按详情字典切页：表单优先，其次报文体文本，最后空占位。"""
+        """图片响应直接预览；其余按表单、文本、空占位依次选择。"""
+        content_type = str(data.get(f"{prefix} Content-Type", ""))
+        if prefix == "Response" and content_type.strip().lower().startswith("image/"):
+            self.json_panel.set_text("")
+            if self.form_panel is not None:
+                self.form_panel.set_items({})
+            if self.image_panel is None:
+                self.image_panel = ImageBodyPanel(self)
+                self.addWidget(self.image_panel)
+            self.image_panel.set_data(data)
+            self.setCurrentWidget(self.image_panel)
+            return
+        if self.image_panel is not None:
+            self.image_panel.clear()
         text = data.get(f"{prefix} Body Pretty")
         if text is None:
             text = data.get(f"{prefix} Body Text") or ""

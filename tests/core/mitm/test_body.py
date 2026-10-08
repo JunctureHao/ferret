@@ -230,5 +230,97 @@ class BodyPreviewTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class ResponseImagePreviewTests(unittest.TestCase):
+    def test_image_snapshot_contains_decoded_bytes_without_live_references(self):
+        image = bytes.fromhex(
+            "47494638396101000100800000000000ffffff21f9040100000000"
+            "2c00000000010001000002024401003b"
+        )
+        flow = _compressed_flow(image)
+        assert flow.response is not None
+        flow.response.headers["content-type"] = " Image/GIF; charset=binary "
+        state = flow.response.get_state()
+
+        body = build_flow_body(flow, "Response")
+
+        self.assertEqual(body["Response Body Image"], image)
+        self.assertIsInstance(body["Response Body Image"], bytes)
+        self.assertEqual(body["Response Body Image Notice"], "")
+        self.assertEqual(flow.response.get_state(), state)
+        flow.response.content = b"changed"
+        self.assertEqual(body["Response Body Image"], image)
+
+    def test_image_keeps_complete_bytes_when_only_the_text_preview_is_truncated(self):
+        for size in (MAX_TEXT_SIZE + 1, MAX_PREVIEW_SIZE):
+            for codec in ("identity", "gzip", "deflate", "deflateraw", "zstd"):
+                with self.subTest(size=size, codec=codec):
+                    image = b"x" * size
+                    if codec == "identity":
+                        flow = tflow.tflow(resp=True)
+                        assert flow.response is not None
+                        flow.response.content = image
+                    else:
+                        flow = _compressed_flow(image, codec)
+                    assert flow.response is not None
+                    flow.response.headers["content-type"] = "image/png"
+
+                    body = build_flow_body(flow, "Response")
+
+                    self.assertEqual(body["Response Body Image"], image)
+                    self.assertEqual(body["Response Body Image Notice"], "")
+                    self.assertTrue(body["Response Body Truncated"])
+                    self.assertEqual(len(body["Response Body Text"]), MAX_TEXT_SIZE)
+
+    def test_image_preview_never_receives_a_partial_image(self):
+        image = b"x" * (MAX_PREVIEW_SIZE + 1)
+        for codec in ("identity", "gzip", "zstd"):
+            with self.subTest(codec=codec):
+                if codec == "identity":
+                    flow = tflow.tflow(resp=True)
+                    assert flow.response is not None
+                    flow.response.content = image
+                else:
+                    flow = _compressed_flow(image, codec)
+                assert flow.response is not None
+                flow.response.headers["content-type"] = "image/png"
+
+                body = build_flow_body(flow, "Response")
+
+                self.assertIsNone(body["Response Body Image"])
+                self.assertEqual(
+                    body["Response Body Image Notice"],
+                    "图片超过预览大小限制，请导出完整响应体查看。",
+                )
+                self.assertEqual(len(body["Response Body"]), MAX_PREVIEW_SIZE)
+                self.assertEqual(FlowExporter.response_body(flow), image)
+
+    def test_unsupported_image_encoding_keeps_the_decoding_notice(self):
+        flow = _compressed_flow(b"image bytes", "br")
+        assert flow.response is not None
+        flow.response.headers["content-type"] = "image/webp"
+
+        body = build_flow_body(flow, "Response")
+
+        self.assertIsNone(body["Response Body Image"])
+        self.assertTrue(body["Response Body Image Notice"])
+        self.assertEqual(
+            body["Response Body Image Notice"], body["Response Body Notice"]
+        )
+
+    def test_text_response_and_image_request_do_not_offer_an_image_preview(self):
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.headers["content-type"] = "text/plain"
+        flow.request.headers["content-type"] = "image/png"
+
+        response = build_flow_body(flow, "Response")
+        request = build_flow_body(flow, "Request")
+
+        self.assertIsNone(response["Response Body Image"])
+        self.assertEqual(response["Response Body Image Notice"], "")
+        self.assertNotIn("Request Body Image", request)
+        self.assertNotIn("Response Body Image", request)
+
+
 if __name__ == "__main__":
     unittest.main()
