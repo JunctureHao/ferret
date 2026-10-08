@@ -265,6 +265,7 @@ class TimingPane(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.summary_label = BodyLabel(self)
+        self.summary_label.setWordWrap(True)
         self.summary_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
@@ -338,6 +339,7 @@ class TimingPane(QWidget):
                 row_layout.setSpacing(8)
                 name = CaptionLabel(phase_label(phase.key), row)
                 name.setFixedWidth(_LABEL_WIDTH)
+                name.setWordWrap(True)
                 row_layout.addWidget(name)
                 bar = _PreBar(phase.ms / scale, _phase_color(phase.key, "pre"), row)
                 row_layout.addWidget(bar, 1)
@@ -352,6 +354,7 @@ class TimingPane(QWidget):
                         else translate("FlowTiming", "目标是域名，这段含 DNS 解析")
                     )
                     caption = CaptionLabel(hint, self.pre_rows)
+                    caption.setWordWrap(True)
                     caption.setIndent(_LABEL_WIDTH + 8)
                     self.pre_layout.addWidget(caption)
             self.pre_label.show()

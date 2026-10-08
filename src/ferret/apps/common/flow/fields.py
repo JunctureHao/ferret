@@ -25,22 +25,37 @@
 `utils/i18n.py` 开了口子，context 写成变量整条都提取不到。
 """
 
+from __future__ import annotations
+
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt, Slot
+from PySide6.QtGui import QColor, QGuiApplication, QPalette, QTextDocument, QTextOption
+from PySide6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QSizePolicy,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 from qfluentwidgets import (
-    BodyLabel,
     CaptionLabel,
     FluentIcon,
     SingleDirectionScrollArea,
     StrongBodyLabel,
+    ThemeColor,
     TransparentToolButton,
+    getFont,
+    isDarkTheme,
+    qconfig,
 )
 from qfluentwidgets.components.widgets.card_widget import SimpleCardWidget
+from qfluentwidgets.components.widgets.menu import TextEditMenu
 
 from ferret.apps.common.flow.marks import marker_glyph
 from ferret.apps.common.font import FontManager
@@ -52,10 +67,10 @@ EMPTY = (None, "", "N/A", "-")
 
 # 标签列压暗到约 62% 不透明度。和 `edit/theme.py::EditorPalette._mono` 同一套办法
 # —— 暗色叠半透明白、亮色叠半透明黑，底图（卡片色、主题色）换了也不会突然对不上。
-# `setTextColor(light, dark)` 两套一起给，主题切换由 `FluentLabelBase` 自己重贴。
+# 通过调色板设置文字颜色，主题取 QFW 当前值。
 _LABEL_ALPHA = 160
 
-# 标签列的最小宽度。窄到一定程度值那侧就没有换行的余地了，这一列先保住。
+# 标签列保留固定宽度，长字段名在列内折行，剩余宽度交给值。
 _LABEL_COLUMN_WIDTH = 108
 
 
@@ -93,7 +108,7 @@ class Section:
     """
 
     title: str
-    fields: tuple["Field | Section", ...]
+    fields: tuple[Field | Section, ...]
     when: Callable[[dict], bool] | None = None
     collapsed: bool = False
 
@@ -758,6 +773,99 @@ SECTIONS: tuple[Section, ...] = (
 )
 
 
+class _FieldText(QTextEdit):
+    """随列宽完整折行的纯文本字段，选择与复制仍由 Qt 处理。
+
+    QLabel 的 WordWrap 不拆连续 URL / 指纹；仅放宽最小宽度会把原文裁掉。
+    这里使用公开的文档换行接口，并把真实折行高度交回父布局；自身不滚动。
+    测量文档独立于显示文档，布局试探不同宽度时不会移动选区或滚动位置。
+    字体、主题色和菜单复用 QFW，不另写 QSS。不用完整 TextEdit 包装，避免为每个
+    字段创建两套用不到的浮动滚条与动画（几十个字段会明显拖慢切换流量）。
+    """
+
+    _measure_document: QTextDocument | None = None
+
+    def __init__(
+        self,
+        text: str,
+        parent: QWidget,
+        *,
+        caption: bool = False,
+        mono: bool = False,
+    ) -> None:
+        super().__init__(parent)
+        self._caption = caption
+        self.setReadOnly(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.viewport().setAutoFillBackground(False)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setFont(
+            FontManager.code_font(9) if mono else getFont(12 if caption else 14)
+        )
+        qconfig.themeChanged.connect(self._apply_palette)
+        # ConfigItem 不依赖 qconfig._cfg 的主题色信号转发，应用接管配置后仍会触发。
+        qconfig.themeColor.valueChanged.connect(self._apply_palette)
+        self._apply_palette()
+
+        self.document().setDocumentMargin(0)
+        self.setPlainText(text)
+        self._measure_document = QTextDocument(self)
+        self._measure_document.setDocumentMargin(0)
+        option = QTextOption()
+        option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self._measure_document.setDefaultTextOption(option)
+        self._measure_document.setPlainText(text)
+        policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    @Slot()
+    def _apply_palette(self) -> None:
+        """与 QFW TextEdit 使用同一组选区主题色，边框和透明背景走控件属性。"""
+        dark = isDarkTheme()
+        foreground = QColor(Qt.GlobalColor.white if dark else Qt.GlobalColor.black)
+        if self._caption:
+            foreground.setAlpha(_LABEL_ALPHA)
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Text, foreground)
+        palette.setColor(
+            QPalette.ColorRole.Highlight,
+            (ThemeColor.PRIMARY if dark else ThemeColor.LIGHT_1).color(),
+        )
+        palette.setColor(
+            QPalette.ColorRole.HighlightedText,
+            Qt.GlobalColor.black if dark else Qt.GlobalColor.white,
+        )
+        self.setPalette(palette)
+
+    def heightForWidth(self, width: int) -> int:
+        if self._measure_document is None:
+            return self.fontMetrics().height()
+        self._measure_document.setDefaultFont(self.font())
+        self._measure_document.setTextWidth(max(1, width))
+        return math.ceil(self._measure_document.size().height())
+
+    def sizeHint(self) -> QSize:
+        return QSize(200, self.heightForWidth(200))
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(1, self.fontMetrics().height())
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self.updateGeometry()
+
+    def wheelEvent(self, event) -> None:
+        event.ignore()
+
+    def contextMenuEvent(self, event) -> None:
+        menu = TextEditMenu(self)
+        menu.exec(event.globalPos())
+
+
 class FieldCard(QWidget):
     """一个分组一段：组头（标题 + 整组复制，整行可点折叠）+ 两列网格。
 
@@ -767,7 +875,7 @@ class FieldCard(QWidget):
 
     也**刻意没用 `SimpleExpandGroupSettingCard` 做折叠组**。那个卡自己按
     ``viewLayout.sizeHint().height()`` 调 `setFixedHeight`，而 `QGridLayout.sizeHint()`
-    不问 height-for-width —— 值那一列是必须换行的 `BodyLabel`，窄面板下真实高度
+    不问 height-for-width —— 字段文字必须换行，窄面板下真实高度
     远超 sizeHint，内容会被裁掉。这里折叠直接 `view.setVisible()`，高度交给布局
     自己算。
 
@@ -802,8 +910,8 @@ class FieldCard(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(4)
         self.title_label = StrongBodyLabel(section_title(section), self.header)
-        header_layout.addWidget(self.title_label)
-        header_layout.addStretch(1)
+        self.title_label.setWordWrap(True)
+        header_layout.addWidget(self.title_label, 1)
 
         self.copy_button = TransparentToolButton(FluentIcon.COPY, self.header)
         self.copy_button.setToolTip(
@@ -903,29 +1011,22 @@ class FieldCard(QWidget):
 
     def __heading(self, row: Row) -> CaptionLabel:
         label = CaptionLabel(row.label, self.view)
+        label.setWordWrap(True)
         font = label.font()
         font.setBold(True)
         label.setFont(font)
         return label
 
-    def __label(self, row: Row) -> CaptionLabel:
-        label = CaptionLabel(row.label, self.view)
-        label.setTextColor(
-            QColor(0, 0, 0, _LABEL_ALPHA), QColor(255, 255, 255, _LABEL_ALPHA)
-        )
+    def __label(self, row: Row) -> _FieldText:
+        label = _FieldText(row.label, self.view, caption=True)
+        label.setMaximumWidth(_LABEL_COLUMN_WIDTH)
         if row.tip:
             label.setToolTip(row.tip)
         return label
 
-    def __value(self, row: Row) -> BodyLabel:
-        label = BodyLabel(row.value, self.view)
-        # 值列承载协议原文与用户备注，锁纯文本：AutoText 会把 `<b>` 之类渲染成
-        # 富文本、选中复制丢标签（issues #87）。
-        label.setTextFormat(Qt.TextFormat.PlainText)
-        label.setWordWrap(True)
-        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        if row.mono:
-            label.setFont(FontManager.code_font(9))
+    def __value(self, row: Row) -> _FieldText:
+        # setPlainText 保留协议原文与备注中的 <b> 等标签（issues #87）。
+        label = _FieldText(row.value, self.view, mono=row.mono)
         if row.tip:
             label.setToolTip(row.tip)
         return label
@@ -955,7 +1056,7 @@ class OverviewPane(SingleDirectionScrollArea):
     ) -> None:
         super().__init__(parent, orient=Qt.Orientation.Vertical)
         self.setWidgetResizable(True)
-        # 关掉横向滚动条，值那侧的 word wrap 才有意义 —— 否则长 URL 会把整页撑宽。
+        # 字段控件按可用宽度折行；隐藏横条本身不会限制内容的最小宽度。
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.container = SimpleCardWidget(self)
