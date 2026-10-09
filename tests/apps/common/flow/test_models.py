@@ -88,9 +88,7 @@ class FlowTableModelTests(unittest.TestCase):
 
     def test_id_lookup_tracks_removal_refresh_and_append(self) -> None:
         """行按 flow.id 寻址：删除/刷新/追加后反查随行集走，同 id 不重复入表。"""
-        first, second, third = [
-            self.completed_row() for _ in range(3)
-        ]
+        first, second, third = [self.completed_row() for _ in range(3)]
         source = _ListSource([first, second])
         model = FlowTableModel(self.app)
         model.set_source(source)
@@ -382,15 +380,6 @@ class FlowTableModelTests(unittest.TestCase):
 
         column = model.data(model.index(0, 6), SIZE_BYTES_ROLE)
         self.assertEqual(data["req_wire_size"] + data["res_wire_size"], column)
-
-    def test_the_size_tooltip_states_the_caliber(self) -> None:
-        """列宽只放得下一个总数，口径得靠 tooltip 说清。"""
-        model = self.model_with(self.completed_row())
-        tooltip = model.data(model.index(0, 6), Qt.ItemDataRole.ToolTipRole)
-
-        self.assertIn("线上", tooltip)
-        self.assertIn("请求", tooltip)
-        self.assertIn("响应", tooltip)
 
 
 if __name__ == "__main__":

@@ -29,8 +29,7 @@ from ferret.apps.common.flow.fields import (
 )
 from ferret.apps.common.flow.marks import emoji_font, marker_glyph
 from ferret.core.log import get_logger
-from ferret.core.mitm import SUSPEND_POLICIES, FlowRow, GatewayPolicy, human
-from ferret.utils.i18n import QT_TRANSLATE_NOOP
+from ferret.core.mitm import SUSPEND_POLICIES, FlowRow, human
 
 log = get_logger("flow")
 
@@ -50,26 +49,6 @@ HIGHLIGHT_ROLE = int(Qt.ItemDataRole.UserRole) + 8
 # 不该认识具体页面。
 _SUSPEND_MARKS: frozenset[str] = frozenset(str(policy) for policy in SUSPEND_POLICIES)
 
-# 文案在这里只做标记、不求值 —— 模块级求值赶在翻译器安装之前（`core/application.py`
-# 顶层就 import 了 MainWindow），译文会永久冻结成英文。求值在 `gateway_note()` 里做。
-_GATEWAY_TOOLTIPS: dict[str, str] = {
-    str(GatewayPolicy.BLOCK): QT_TRANSLATE_NOOP("FlowTableModel", "已被网关屏蔽"),
-    str(GatewayPolicy.BLOCK_OUT): QT_TRANSLATE_NOOP(
-        "FlowTableModel", "已被网关屏蔽：请求没有发往服务器"
-    ),
-    str(GatewayPolicy.BLOCK_IN): QT_TRANSLATE_NOOP(
-        "FlowTableModel",
-        "已被网关屏蔽：响应没有转发给客户端",
-    ),
-    str(GatewayPolicy.SUSPEND_OUT): QT_TRANSLATE_NOOP(
-        "FlowTableModel", "网关挂起中：请求没有发出"
-    ),
-    str(GatewayPolicy.SUSPEND_IN): QT_TRANSLATE_NOOP(
-        "FlowTableModel",
-        "网关挂起中：响应没有转发给客户端",
-    ),
-}
-
 
 def is_suspended(row: FlowRow) -> bool:
     """这条流量此刻是否停着不动 —— 网关挂起或断点拦下都算。
@@ -83,30 +62,6 @@ def is_suspended(row: FlowRow) -> bool:
     if row.intercepted:
         return True
     return row.gateway_policy in _SUSPEND_MARKS
-
-
-def gateway_note(row: FlowRow) -> str:
-    """Status 列的悬浮补充说明；没被网关或断点动过就是空串。
-
-    返回的是**不带括号**的短句，加括号由调用点负责 —— 中文用全角括号、英文用半角，
-    早先把括号写进文案里，单独显示时还得 `strip("（）")` 把它抠掉，换个语言就漏。
-    """
-    translate = QCoreApplication.translate
-    policy = row.gateway_policy
-    if policy:
-        # 网关的挂起标记比断点更具体（能说清是请求还是响应停住了），优先用它。
-        note = _GATEWAY_TOOLTIPS.get(policy)
-        if note is None:
-            return translate("FlowTableModel", "已被网关处理")
-        return translate("FlowTableModel", note)
-    if row.intercepted:
-        # 断点不写 metadata，只能看快照带过来的原生状态。
-        return translate("FlowTableModel", "断点拦下，等你处理")
-    # blocklisted 是原生 BlockList addon 的标记。网关已经取代了它，只有从旧会话
-    # 文件读回来的 flow 才会带（metadata 随 flow 一起存档）。
-    if row.blocklisted:
-        return translate("FlowTableModel", "已被屏蔽规则拦截")
-    return ""
 
 
 class FlowSource(Protocol):
@@ -309,57 +264,6 @@ class FlowTableModel(QAbstractTableModel):
         }
         return QColor(colors.get(kind, colors["neutral"]))
 
-    @staticmethod
-    def _size_tooltip(row: FlowRow) -> str:
-        """Size 列的口径说明 —— 这一列量的是**线上**字节，压缩后。
-
-        列宽只放得下一个总数，而「384b」到底是压缩前还是压缩后，差一个 gzip 就差
-        好几倍。拆成请求/响应两行摆出来，再点明口径，读的人才不用猜；详情面板的
-        「解压后」是另一行，两处口径在 `wire_size()` 上是同一个函数。
-        """
-        translate = QCoreApplication.translate
-        request = translate("FlowTableModel", "请求")
-        response = translate("FlowTableModel", "响应")
-        note = translate("FlowTableModel", "报文体的线上字节（压缩后）")
-        return "\n".join(
-            (
-                f"{request}: {human.pretty_size(row.req_wire)}",
-                f"{response}: {human.pretty_size(row.resp_wire)}",
-                note,
-            )
-        )
-
-    @classmethod
-    def _time_tooltip(cls, row: FlowRow) -> str:
-        start_text = (
-            datetime.fromtimestamp(row.req_start, tz=UTC)
-            .astimezone()
-            .isoformat(timespec="milliseconds")
-            if row.req_start
-            else "—"
-        )
-        end_text = (
-            datetime.fromtimestamp(row.resp_end, tz=UTC)
-            .astimezone()
-            .isoformat(timespec="milliseconds")
-            if row.resp_end
-            else "—"
-        )
-        # 标签单独取：lupdate 的 Python 解析器不往 f-string 里看，写成
-        # f"{translate(...)}: …" 这三条就一条都提不出来（实测填译文时才发现）。
-        translate = QCoreApplication.translate
-        started = translate("FlowTableModel", "开始")
-        ended = translate("FlowTableModel", "结束")
-        elapsed = translate("FlowTableModel", "耗时")
-        duration_text = format_duration(cls._duration_ms(row)) or "—"
-        return "\n".join(
-            (
-                f"{started}: {start_text}",
-                f"{ended}: {end_text}",
-                f"{elapsed}: {duration_text}",
-            )
-        )
-
     # ------------------------------------------------------------------
     # 数据变化处理（由 View 桥接信号驱动）
     # ------------------------------------------------------------------
@@ -482,7 +386,7 @@ def flow_cell(row: FlowRow, column_name: str, role: int):
             return row.url
         if column_name == "Status":
             # 挂起优先于响应码：挂起（入）时响应已经回来了，但客户端一个字节
-            # 都没拿到，显示 200 会骗人。真实码进悬浮提示。
+            # 都没拿到，显示 200 会骗人。
             if is_suspended(row):
                 return translate("FlowTableModel", "挂起中")
             if row.error_msg:
@@ -535,26 +439,7 @@ def flow_cell(row: FlowRow, column_name: str, role: int):
         if column_name == "Mark":
             # 认不出图形的人悬浮看短码原文；未标记不弹空提示。
             return row.marked or None
-        if column_name == "URL":
-            return row.url
-        if column_name == "Status":
-            note = gateway_note(row)
-            suffix = f" ({note})" if note else ""
-            if row.error_msg:
-                return f"{row.error_msg}{suffix}"
-            if row.has_response:
-                status = f"{row.status_code} {row.reason}"
-                return f"{status}{suffix}"
-            if note:
-                return note
-        if column_name == "Type":
-            return FlowTableModel._mime(row) or translate(
-                "FlowTableModel", "未知内容类型"
-            )
-        if column_name == "Size":
-            return FlowTableModel._size_tooltip(row)
-        if column_name == "Time":
-            return FlowTableModel._time_tooltip(row)
+        return None
 
     if role == Qt.ItemDataRole.ForegroundRole and column_name == "Status":
         return FlowTableModel._semantic_color(FlowTableModel._status_kind(row))
@@ -813,8 +698,6 @@ class FlowConnTreeModel(QAbstractItemModel):
             font = QFont()
             font.setBold(True)
             return font
-        if role == Qt.ItemDataRole.ToolTipRole and column_name == "URL":
-            return node.conn_label()
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         return None

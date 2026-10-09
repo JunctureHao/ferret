@@ -1901,12 +1901,12 @@
 <context>
     <name>FlowConnTreeModel</name>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="646"/>
+        <location filename="../../apps/common/flow/models.py" line="531"/>
         <source>未知客户端</source>
         <translation>Unknown client</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="655"/>
+        <location filename="../../apps/common/flow/models.py" line="540"/>
         <source>{client} → {count} 个目标</source>
         <translation>{client} → {count} targets</translation>
     </message>
@@ -2962,94 +2962,19 @@
 <context>
     <name>FlowTableModel</name>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="56"/>
-        <source>已被网关屏蔽</source>
-        <translation>blocked by the gateway</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="57"/>
-        <source>已被网关屏蔽：请求没有发往服务器</source>
-        <translation>blocked by the gateway: the request never left</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="60"/>
-        <source>已被网关屏蔽：响应没有转发给客户端</source>
-        <translation>blocked by the gateway: the response never reached the client</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="64"/>
-        <source>网关挂起中：请求没有发出</source>
-        <translation>suspended by the gateway: the request has not been sent</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="67"/>
-        <source>网关挂起中：响应没有转发给客户端</source>
-        <translation>suspended by the gateway: the response is not being forwarded</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="100"/>
-        <source>已被网关处理</source>
-        <translation>handled by the gateway</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="104"/>
-        <source>断点拦下，等你处理</source>
-        <translation>held at a breakpoint, waiting for you</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="108"/>
-        <source>已被屏蔽规则拦截</source>
-        <translation>blocked by a blocklist rule</translation>
-    </message>
-    <message>
         <location filename="../../apps/common/flow/columns.py" line="58"/>
         <source>标记</source>
         <translation>Mark</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="487"/>
+        <location filename="../../apps/common/flow/models.py" line="391"/>
         <source>挂起中</source>
         <translation>Suspended</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="491"/>
+        <location filename="../../apps/common/flow/models.py" line="395"/>
         <source>等待中</source>
         <translation>Pending</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="551"/>
-        <source>未知内容类型</source>
-        <translation>Unknown content type</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="321"/>
-        <source>请求</source>
-        <translation>Request</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="322"/>
-        <source>响应</source>
-        <translation>Response</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="323"/>
-        <source>报文体的线上字节（压缩后）</source>
-        <translation>Body bytes on the wire (compressed)</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="351"/>
-        <source>开始</source>
-        <translation>Started</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="352"/>
-        <source>结束</source>
-        <translation>Ended</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/models.py" line="353"/>
-        <source>耗时</source>
-        <translation>Elapsed</translation>
     </message>
 </context>
 <context>
