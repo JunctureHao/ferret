@@ -980,6 +980,10 @@ class FlowViewerPane(OrientationSplitter):
         self._source: FlowSource | None = None
         self._highlight_ids: set[str] = set()
         self._panel_expanded = False
+        self._pending_detail_refresh: tuple[str, int] | None = None
+        self._detail_refresh_timer = QTimer(self)
+        self._detail_refresh_timer.setSingleShot(True)
+        self._detail_refresh_timer.timeout.connect(self._refresh_current_detail)
         self._capture_mode = capabilities is None or capabilities.can_delete
         self._grouping_mode = "flat"
         self._grouping_actions: dict[str, Action] = {}
@@ -1166,6 +1170,44 @@ class FlowViewerPane(OrientationSplitter):
         self.table.on_flow_updated(flow)
         if self.tree is not None:
             self.tree.on_flow_updated(flow)
+        panel = self.panel
+        if (
+            panel is not None
+            and self.is_panel_expanded()
+            and panel.datas.get("id") == flow.id
+        ):
+            # 同一批桥接事件只读一次摘要。WS 握手等专用信号可能紧跟在行更新后
+            # 刷新详情；下一轮以数据版本判重，也挡住换选区后迟到的旧刷新。
+            self._pending_detail_refresh = (flow.id, panel.data_revision)
+            if panel.isVisible() and not self._detail_refresh_timer.isActive():
+                self._detail_refresh_timer.start(0)
+
+    @Slot()
+    def _refresh_current_detail(self) -> None:
+        pending = self._pending_detail_refresh
+        panel = self.panel
+        if (
+            pending is None
+            or panel is None
+            or self.controller is None
+            or not self.is_panel_expanded()
+        ):
+            self._pending_detail_refresh = None
+            return
+        flow_id, revision = pending
+        if panel.datas.get("id") != flow_id or panel.data_revision != revision:
+            self._pending_detail_refresh = None
+            return
+        # 切到别的功能页时只保留脏标记；页面恢复可见后再拉最新摘要和当前页。
+        if not panel.isVisible():
+            return
+        self._pending_detail_refresh = None
+        try:
+            data = self.controller.flow_summary(flow_id)
+        except (ValueError, RuntimeError, TimeoutError) as exc:
+            log.warning("failed to refresh flow detail flow_id=%s: %s", flow_id, exc)
+            return
+        panel.refresh_data(data)
 
     def on_flow_removed(self, flow, index) -> None:
         self.table.on_flow_removed(flow, index)
@@ -1198,6 +1240,11 @@ class FlowViewerPane(OrientationSplitter):
     def is_panel_expanded(self) -> bool:
         sizes = self.sizes()
         return len(sizes) >= 2 and sizes[1] > 0
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._pending_detail_refresh is not None:
+            self._detail_refresh_timer.start(0)
 
     @Slot(dict)
     def _on_row_selected(self, data: dict) -> None:

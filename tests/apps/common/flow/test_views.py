@@ -9,12 +9,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mitmproxy.test import tflow
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, Signal
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication, QWidget
 
 from ferret.apps.common.flow.columns import default_layout, logical_index
 from ferret.apps.common.flow.models import HIGHLIGHT_ROLE
 from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.core.mitm import WsClose, WsFrame, build_flow_detail, flow_row, parse_sse
+from tests.core.mitm._qt import wait_until
 
 
 class _Source:
@@ -130,6 +132,9 @@ class FlowViewerPaneTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
+        saving = patch("ferret.apps.common.flow.views.save_layout")
+        saving.start()
+        self.addCleanup(saving.stop)
         self.controller = _Controller()
         self.viewer = FlowViewerPane(controller=self.controller)
         self.viewer.resize(900, 600)
@@ -318,6 +323,208 @@ class FlowViewerPaneTests(unittest.TestCase):
         self.assertIs(self.viewer.panel, panel)
         self.assertEqual(self.viewer.count(), 2)
 
+    def test_http_response_refreshes_open_detail_and_defers_hidden_body(self) -> None:
+        flow = tflow.tflow(resp=False)
+        self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        panel.req_tabs.setCurrentTab("Headers")
+        self.assertTrue(panel.res_pane.isHidden())
+        self.controller.requests.clear()
+
+        flow.response = tflow.tresp(content=b"response body")
+        self.controller.details[flow.id] = build_flow_detail(flow)
+        self.viewer.on_flow_updated(flow_row(flow))
+        self.viewer.on_flow_updated(flow_row(flow))
+        self.assertTrue(
+            wait_until(lambda: panel.datas.get("Status Code") == 200, timeout_ms=1000)
+        )
+
+        self.assertFalse(panel.res_pane.isHidden())
+        self.assertEqual(panel.req_tabs.pivot.currentRouteKey(), "Headers")
+        self.assertEqual(self.controller.requests, [flow.id])
+        self.assertEqual(self.controller.full_requests, [])
+        self.assertEqual(self.controller.body_requests, [])
+        self.assertIsNone(panel.res_pane.body_pane)
+        panel.res_pane.setCurrentTab("Body")
+        self.assertEqual(self.controller.body_requests, [(flow.id, "Response")])
+        assert panel.res_pane.body_pane is not None
+        self.assertEqual(
+            panel.res_pane.body_pane.json_panel.text.text(), "response body"
+        )
+
+    def test_flow_updates_do_not_fetch_other_or_collapsed_detail(self) -> None:
+        flow, other = tflow.tflow(resp=True), tflow.tflow(resp=True)
+        self._load_flows(flow, other)
+        self.viewer.table.row_double_clicked.emit({"id": flow.id})
+        self.app.processEvents()
+        self.controller.requests.clear()
+
+        self.viewer.on_flow_updated(flow_row(other))
+        self.app.processEvents()
+        self.assertEqual(self.controller.requests, [])
+        # 已排队的刷新在收起详情后也必须失效。
+        self.viewer.on_flow_updated(flow_row(flow))
+        self.viewer.collapse_panel()
+        self.app.processEvents()
+        self.viewer.on_flow_updated(flow_row(flow))
+        self.app.processEvents()
+        self.assertEqual(self.controller.requests, [])
+
+    def test_queued_flow_update_does_not_refresh_a_new_selection(self) -> None:
+        flow, other = tflow.tflow(resp=True), tflow.tflow(resp=True)
+        self._load_flows(flow, other)
+        self.viewer.table.row_double_clicked.emit({"id": flow.id})
+        self.app.processEvents()
+        self.viewer.on_flow_updated(flow_row(flow))
+        self.viewer.table.row_selected.emit({"id": other.id})
+        self.controller.requests.clear()
+        self.app.processEvents()
+
+        assert self.viewer.panel is not None
+        self.assertEqual(self.viewer.panel.datas["id"], other.id)
+        self.assertEqual(self.controller.requests, [])
+
+    def test_hidden_detail_defers_response_refresh_until_the_page_is_shown(
+        self,
+    ) -> None:
+        for queued_before_hide in (False, True):
+            with self.subTest(queued_before_hide=queued_before_hide):
+                flow = tflow.tflow(resp=False)
+                self._load_flows(flow)
+                self.viewer.table.selectRow(0)
+                self.viewer.open_selected()
+                self.app.processEvents()
+                panel = self.viewer.panel
+                assert panel is not None
+                self.controller.requests.clear()
+                flow.response = tflow.tresp()
+                self.controller.details[flow.id] = build_flow_detail(flow)
+                if queued_before_hide:
+                    self.viewer.on_flow_updated(flow_row(flow))
+                self.viewer.hide()
+                if not queued_before_hide:
+                    self.viewer.on_flow_updated(flow_row(flow))
+                self.app.processEvents()
+                self.assertEqual(self.controller.requests, [])
+                self.assertTrue(panel.res_pane.isHidden())
+
+                self.viewer.show()
+                self.assertTrue(
+                    wait_until(
+                        lambda panel=panel: panel.datas.get("Status Code") == 200,
+                        timeout_ms=1000,
+                    )
+                )
+                self.assertFalse(panel.res_pane.isHidden())
+                self.assertEqual(self.controller.requests, [flow.id])
+
+    def test_http_updates_preserve_visible_and_hidden_comment_drafts(self) -> None:
+        flow, other = tflow.tflow(resp=True), tflow.tflow(resp=True)
+        other.comment = "other flow"
+        self._load_flows(flow, other)
+        self.viewer.table.row_double_clicked.emit({"id": flow.id})
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        panel.req_tabs.setCurrentTab("Comment")
+        comment = panel.comment_pane
+        assert comment is not None
+        editor = comment.edit.code_widget
+        editor.insertPlainText("unsaved draft")
+        cursor = editor.textCursor()
+        cursor.setPosition(2)
+        cursor.setPosition(7, QTextCursor.MoveMode.KeepAnchor)
+        editor.setTextCursor(cursor)
+
+        for status, tab in ((201, "Comment"), (202, "Overview")):
+            with self.subTest(tab=tab):
+                panel.req_tabs.setCurrentTab(tab)
+                assert flow.response is not None
+                flow.response.status_code = status
+                self.controller.details[flow.id] = build_flow_detail(flow)
+                self.viewer.on_flow_updated(flow_row(flow))
+                self.assertTrue(
+                    wait_until(
+                        lambda status=status: panel.datas.get("Status Code") == status,
+                        timeout_ms=1000,
+                    )
+                )
+                self.assertEqual(panel.req_tabs.pivot.currentRouteKey(), tab)
+                panel.req_tabs.setCurrentTab("Comment")
+                self.assertEqual(comment.text(), "unsaved draft")
+                self.assertTrue(comment.has_unsaved_changes())
+                self.assertTrue(comment.save_button.isEnabled())
+                self.assertTrue(editor.document().isUndoAvailable())
+                self.assertEqual(editor.textCursor().selectedText(), "saved")
+
+        self.viewer.table.row_selected.emit({"id": other.id})
+        self.assertEqual(comment.text(), "other flow")
+        self.assertFalse(comment.has_unsaved_changes())
+
+    def test_http_response_keeps_the_request_raw_tab_and_scroll_position(self) -> None:
+        flow = tflow.tflow(resp=False)
+        self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        raw = "\r\n".join(f"X-{index}: header value" for index in range(500))
+        with patch.object(self.controller, "get_raw_request", return_value=raw):
+            panel.req_tabs.setCurrentTab("Raw")
+            request_raw = panel.req_raw
+            assert request_raw is not None
+            bar = request_raw.code_widget.verticalScrollBar()
+            self.assertTrue(wait_until(lambda: bar.maximum() > 100, timeout_ms=1000))
+            bar.setValue(80)
+            before = bar.value()
+
+            flow.response = tflow.tresp()
+            self.controller.details[flow.id] = build_flow_detail(flow)
+            self.viewer.on_flow_updated(flow_row(flow))
+            self.assertTrue(
+                wait_until(
+                    lambda: (
+                        panel.datas.get("Status Code") == 200 and bar.value() == before
+                    ),
+                    timeout_ms=1000,
+                )
+            )
+            self.app.processEvents()
+
+        self.assertIs(panel.req_raw, request_raw)
+        self.assertEqual(panel.req_tabs.pivot.currentRouteKey(), "Raw")
+        self.assertEqual(bar.value(), before)
+
+    def test_flow_update_invalidates_an_active_body_even_when_size_is_unchanged(
+        self,
+    ) -> None:
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.content = b"old"
+        self._load_flows(flow)
+        self.viewer.table.selectRow(0)
+        self.viewer.open_selected()
+        self.app.processEvents()
+        panel = self.viewer.panel
+        assert panel is not None
+        panel.res_pane.setCurrentTab("Body")
+        body = panel.res_pane.body_pane
+        assert body is not None
+        self.assertEqual(body.json_panel.text.text(), "old")
+
+        flow.response.content = b"new"
+        self.controller.details[flow.id] = build_flow_detail(flow)
+        self.viewer.on_flow_updated(flow_row(flow))
+        self.assertTrue(
+            wait_until(lambda: body.json_panel.text.text() == "new", timeout_ms=1000)
+        )
+        self.assertEqual(panel.res_pane.pivot.currentRouteKey(), "Body")
+
     def test_enter_without_selection_keeps_panel_lazy(self) -> None:
         self._load_flows(tflow.tflow(resp=True))
         self.viewer.open_selected()
@@ -386,6 +593,8 @@ class FlowViewerPaneTests(unittest.TestCase):
         viewer.set_grouping_mode("conn")
         viewer.set_grouping_mode("flat")
         viewer.open_selected()
+        self.app.processEvents()
+        viewer.on_flow_updated(flow_row(flow))
         with patch("sys.excepthook") as errors:
             viewer.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

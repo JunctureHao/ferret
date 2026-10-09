@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
+    QAbstractScrollArea,
     QApplication,
     QHBoxLayout,
     QSizePolicy,
@@ -442,6 +443,9 @@ class CommentPane(QWidget):
     def text(self) -> str:
         return self.edit.text()
 
+    def has_unsaved_changes(self) -> bool:
+        return self.edit.text() != self._saved_text
+
     def mark_saved(self, comment: str) -> None:
         """写回成功后由面板回填「已保存」基线，保存按钮随之熄灭。"""
         self.__load(comment)
@@ -468,7 +472,7 @@ class CommentPane(QWidget):
         self.save_button.setEnabled(
             self.edit.isEnabled()
             and not self.edit.is_read_only()
-            and self.edit.text() != self._saved_text
+            and self.has_unsaved_changes()
         )
 
     def __on_save(self) -> None:
@@ -647,6 +651,7 @@ class FlowDataPanel(QWidget):
         self.controller = controller  # 保存 controller 引用
         self.capabilities = capabilities or CAPTURE_CAPABILITIES
         self.datas: dict = {}
+        self._data_revision = 0
         self._split_normalized = False
         self._setting_data = False
         self._req_dirty: set[str] = set()
@@ -1253,8 +1258,44 @@ class FlowDataPanel(QWidget):
         self.__connect_controller(controller)
         self.set_data({})
 
+    @property
+    def data_revision(self) -> int:
+        return self._data_revision
+
+    def refresh_data(self, data: dict) -> None:
+        """更新同一条流量，保留现有标签和阅读位置；换流量仍走普通装载。"""
+        if not data.get("id") or data.get("id") != self.datas.get("id"):
+            self.set_data(data)
+            return
+        scroll_positions = {
+            area: (
+                area.horizontalScrollBar().value(),
+                area.verticalScrollBar().value(),
+            )
+            for area in self.findChildren(QAbstractScrollArea)
+            if area.isVisibleTo(self)
+        }
+        self.set_data(data)
+        revision = self.data_revision
+
+        def restore_scroll() -> None:
+            if revision != self.data_revision or not self.isVisible():
+                return
+            # 懒页面或 Qt 布局可能已经替换/释放了旧滚动条；只访问当前仍存活的
+            # 滚动区域，并从它重新取得滚动条，不能持有旧条到下一轮使用。
+            for area in self.findChildren(QAbstractScrollArea):
+                if (position := scroll_positions.get(area)) is not None:
+                    area.horizontalScrollBar().setValue(position[0])
+                    area.verticalScrollBar().setValue(position[1])
+
+        restore_scroll()
+        # 响应栏首次出现会在下一轮重排布局；等范围稳定后再恢复一次，旧 flow
+        # 的回调靠版本失效，控件销毁则由 QObject 上下文自动取消。
+        QTimer.singleShot(0, self, restore_scroll)
+
     def set_data(self, data: dict):
         """摘要驱动导航与计数；只填充两栏当前页，其余页留到首次打开。"""
+        self._data_revision += 1
         if (
             not data
             or data.get("id") != self.datas.get("id")
@@ -1388,7 +1429,10 @@ class FlowDataPanel(QWidget):
         elif key == "Cookies" and self.cookie_widget is not None:
             self.cookie_widget.set_cookies(data.get("Request Cookies", {}))
         elif key == "Comment" and self.comment_pane is not None:
-            self.comment_pane.set_data(data)
+            # 同一条流量收到响应/状态更新不能覆盖未提交的备注。换流量时
+            # __release_payloads 已清掉旧草稿，因此不会把草稿带到下一条。
+            if not self.comment_pane.has_unsaved_changes():
+                self.comment_pane.set_data(data)
             editable = bool(self.controller and data.get("id"))
             self.comment_pane.set_read_only(
                 not (self.capabilities.can_comment and editable)
