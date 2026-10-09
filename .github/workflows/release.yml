@@ -91,7 +91,7 @@ jobs:
       # build/ 不进 git，CI 上是空目录 → 只出 full 包；先拉上一版 release 资产，
       # vpk pack 才能生成 delta 增量包；有正式版时下载失败必须可见。
       - name: fetch previous release for delta
-        if: steps.ver.outputs.bump == 'true' && steps.ver.outputs.previous_stable != ''
+        if: steps.ver.outputs.bump == 'true' && steps.ver.outputs.previous != ''
         env:
           VPK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
