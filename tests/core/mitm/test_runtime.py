@@ -17,11 +17,11 @@ from mitmproxy.proxy import mode_specs
 from mitmproxy.test import tflow
 from PySide6.QtCore import QCoreApplication
 
-from ferret.core.mitm import MitmRuntime, MitmRuntimeState
+from ferret.core.mitm import MitmRuntime, MitmRuntimeState, ScriptEntry
 from ferret.core.mitm.bindings import LocalRedirectorInstance, MitmLogHandler
 from ferret.core.mitm.master import FerretMaster
 from ferret.core.mitm.modes import REVERSE_DEFAULT_PORT, SOCKS5_DEFAULT_PORT
-from ferret.core.mitm.runtime import _MitmThread
+from ferret.core.mitm.runtime import UiBridgeAddon, _MitmThread
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST
 
 from ._qt import start_runtime, wait_for_signal, wait_ready, wait_until
@@ -215,6 +215,72 @@ class RuntimeRecoveryTests(unittest.TestCase):
         self.assertEqual(runtime.call(commit, timeout=0.01), "committed")
         self.assertTrue(finished.is_set())
 
+    def test_settings_changed_after_startup_seeding_are_committed_before_ready(self):
+        for enabled in (True, False):
+            with (
+                self.subTest(enabled=enabled),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                seeded = threading.Event()
+                release = threading.Event()
+                original = _MitmThread._apply_serverplayback
+
+                def pause_after_seed(
+                    thread, master, seed=original, reached=seeded, gate=release
+                ):
+                    seed(thread, master)
+                    reached.set()
+                    if not gate.wait(5):
+                        raise RuntimeError("test did not release startup")
+
+                script = Path(directory) / "sample.py"
+                script.write_text("def request(flow):\n    pass\n", encoding="utf-8")
+                runtime = MitmRuntime(listen_port=free_port())
+                runtime.apply_scripts([ScriptEntry(str(script))], enabled=not enabled)
+                runtime.mock_pool = [tflow.tflow(resp=True)]
+                runtime.apply_mock_enabled(not enabled)
+                try:
+                    with patch.object(
+                        _MitmThread, "_apply_serverplayback", pause_after_seed
+                    ):
+                        runtime.start()
+                        self.assertTrue(wait_until(seeded.is_set))
+                        self.assertEqual(runtime.state, MitmRuntimeState.STARTING)
+                        runtime.apply_protocol_options(http2=False, http3=False)
+                        runtime.apply_dns_options(
+                            name_servers=["1.1.1.1"], use_hosts_file=False
+                        )
+                        runtime.apply_ssl_options(
+                            insecure=True, add_upstream_certs=True
+                        )
+                        runtime.apply_client_certs(path=directory)
+                        runtime.apply_scripts(enabled=enabled)
+                        runtime.apply_mock_enabled(enabled)
+                        runtime.apply_mock_knobs({"server_replay_reuse": True})
+                        release.set()
+                        wait_ready(runtime)
+                    master = runtime.master
+                    assert master is not None
+
+                    def inspect(master=master, enabled=enabled, directory=directory):
+                        self.assertFalse(master.options.http2)
+                        self.assertFalse(master.options.http3)
+                        self.assertEqual(master.options.dns_name_servers, ["1.1.1.1"])
+                        self.assertFalse(master.options.dns_use_hosts_file)
+                        self.assertTrue(master.options.ssl_insecure)
+                        self.assertTrue(
+                            master.options.add_upstream_certs_to_client_chain
+                        )
+                        self.assertEqual(master.options.client_certs, directory)
+                        self.assertEqual(bool(master.scripts.loaded), enabled)
+                        self.assertEqual(bool(master.server_playback.flowmap), enabled)
+                        self.assertTrue(master.options.server_replay_reuse)
+
+                    runtime.call(inspect)
+                finally:
+                    release.set()
+                    runtime.stop()
+
     def test_a_timed_out_queued_callback_never_runs_later(self) -> None:
         runtime = self._runtime()
         thread = runtime._thread
@@ -235,6 +301,32 @@ class RuntimeRecoveryTests(unittest.TestCase):
         release.set()
         runtime.call(lambda: None)
         commit.assert_not_called()
+
+    def test_ready_reconciliation_does_not_restore_consumed_mock_responses(self):
+        runtime = MitmRuntime(listen_port=free_port())
+        self.addCleanup(runtime.stop)
+        response = tflow.tflow(resp=True)
+        runtime.mock_pool = [response]
+        runtime.apply_mock_enabled(True)
+        runtime.apply_mock_knobs({"server_replay_reuse": False})
+        original = UiBridgeAddon.running
+        consumed = []
+
+        def consume_before_ready(bridge):
+            master = bridge._master
+            assert master is not None
+            consumed.append(master.server_playback.next_flow(response) is not None)
+            # An unrelated knob change must only rehash the remaining entries.
+            runtime.apply_mock_knobs({"server_replay_refresh": False})
+            original(bridge)
+
+        with patch.object(UiBridgeAddon, "running", consume_before_ready):
+            start_runtime(runtime)
+        self.assertEqual(consumed, [True])
+        master = runtime.master
+        assert master is not None
+        self.assertFalse(runtime.call(lambda: bool(master.server_playback.flowmap)))
+        self.assertFalse(runtime.call(lambda: master.options.server_replay_refresh))
 
     def test_completion_racing_the_timeout_still_returns_the_committed_result(
         self,

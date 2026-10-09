@@ -363,6 +363,9 @@ class _MitmThread(QThread):
         self.loop: asyncio.AbstractEventLoop | None = None
         self.master: FerretMaster | None = None
         self.stop_requested = False
+        self._seeded_scripts: tuple[list[ScriptEntry], bool] | None = None
+        self._seeded_mock_knobs: dict[str, Any] | None = None
+        self._seeded_mock_pool: tuple[bool, list[HTTPFlow]] | None = None
 
     def run(self) -> None:
         try:
@@ -489,9 +492,10 @@ class _MitmThread(QThread):
         （与 `_apply_rewrite_rules` 的播种姿态一致）。
         """
         master.scripts.on_status = self.runtime.script_status_changed.emit
-        master.scripts.set_scripts(
-            self.runtime.scripts, enabled=self.runtime.scripts_enabled
-        )
+        current = (list(self.runtime.scripts), self.runtime.scripts_enabled)
+        if current != self._seeded_scripts:
+            master.scripts.set_scripts(current[0], enabled=current[1])
+            self._seeded_scripts = current
 
     def _apply_intercept_rules(self, master: FerretMaster) -> None:
         """Seed the breakpoint option before serving traffic (on the mitm loop).
@@ -669,14 +673,22 @@ class _MitmThread(QThread):
         抛 OptionsError —— 能到这里的手改坏值已先被 OptionsConfigItem correct
         成默认（core/settings.py::mock_extra），真抛了就与网关同姿态降级忽略。
         """
-        try:
-            knobs = dict(self.runtime.mock_knobs)
-            if knobs:
+        knobs = dict(self.runtime.mock_knobs)
+        if knobs != self._seeded_mock_knobs:
+            try:
                 master.options.update(**knobs)
-        except OptionsError as exc:
-            self._log_warning("mock 旋钮无法应用，已忽略: %s", exc)
-        if self.runtime.mock_enabled and self.runtime.mock_pool:
-            master.server_playback.load_flows(list(self.runtime.mock_pool))
+            except OptionsError as exc:
+                self._log_warning("mock 旋钮无法应用，已忽略: %s", exc)
+            self._seeded_mock_knobs = knobs
+        current = (self.runtime.mock_enabled, list(self.runtime.mock_pool))
+        if current != self._seeded_mock_pool:
+            # A listening master may already have consumed one-shot responses.
+            # Changing knobs only rehashes the remaining pool, never reloads it.
+            if current[0] and current[1]:
+                master.server_playback.load_flows(current[1])
+            else:
+                master.server_playback.clear()
+            self._seeded_mock_pool = current
 
     @staticmethod
     def _log_warning(message: str, *args: object) -> None:
@@ -2042,13 +2054,27 @@ class MitmRuntime(QObject):
             "proxyauth": self._effective_proxyauth(),
         }
 
+        def finish_configuration() -> None:
+            master.options.update(**updates)
+            # The worker's initial seeds can predate edits made while STARTING.
+            # Reuse their validation/fallbacks on the mitm thread before ready;
+            # scripts are differential and the mock seed also handles disabling.
+            thread = self._thread
+            if thread is not None:
+                thread._apply_protocol_options(master)
+                thread._apply_dns_options(master)
+                thread._apply_ssl_options(master)
+                thread._apply_client_certs(master)
+                thread._apply_scripts(master)
+                thread._apply_serverplayback(master)
+
         try:
             # Startup options may predate the latest capture intent. Commit the
             # mode/auth snapshot before announcing readiness; auxiliary listeners
             # still start asynchronously and use the existing health monitor.
             # Waiting for setup_servers here would block the GUI on a local UAC
             # prompt and incorrectly cancel it after the ordinary call deadline.
-            self._call(lambda: master.options.update(**updates), allow_starting=True)
+            self._call(finish_configuration, allow_starting=True)
         except Exception as exc:  # noqa: BLE001
             thread = self._thread
             if thread is not None:
