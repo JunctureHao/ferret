@@ -1225,6 +1225,8 @@ class FlowDataPanel(QWidget):
         """消息栏的可见性与计数徽标 —— 换流量、新帧到达都要过这里。"""
         applicable = bool(self._message_kind)
         self.res_pane.setTabVisible("Messages", applicable)
+        # WS / SSE 流量的内容都在消息流里，响应体恒为空，隐藏「响应体」标签。
+        self.res_pane.setTabVisible("Body", not applicable)
         count = self._message_count
         if not applicable or not count:
             self.message_badge.hide()
