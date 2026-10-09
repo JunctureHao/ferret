@@ -13,6 +13,7 @@ from mitmproxy.test import tflow
 
 from ferret.apps.compose.curl_import import parse_curl
 from ferret.core.mitm import FlowExporter
+from ferret.core.mitm.compose import build_compose_flow
 
 
 class ParseCurlTests(unittest.TestCase):
@@ -38,7 +39,7 @@ class ParseCurlTests(unittest.TestCase):
 
     def test_duplicate_headers_survive(self) -> None:
         edit = parse_curl(
-            'curl https://example.com -H "Cookie: a=1" -H "Cookie: b=2" -H "X-Empty:"'
+            'curl https://example.com -H "Cookie: a=1" -H "Cookie: b=2" -H "X-Empty;"'
         )
         self.assertEqual(
             edit.headers,
@@ -50,6 +51,35 @@ class ParseCurlTests(unittest.TestCase):
         self.assertEqual(edit.method, "GET")
         self.assertEqual(edit.url, "https://example.com/api?keep=1&page=2")
         self.assertEqual(edit.content, b"")
+
+    def test_data_content_type_matches_curl_in_the_composed_request(self) -> None:
+        default_type = "application/x-www-form-urlencoded"
+        cases = (
+            ("-d name=alice", default_type),
+            ("-d ''", default_type),
+            ("--data-ascii x=1", default_type),
+            ("--data-binary x=1", default_type),
+            ("--data-raw x=1", default_type),
+            ("--data-urlencode 'name=a b'", default_type),
+            ("-X GET -d x=1", default_type),
+            ("-G -d x=1", None),
+            ("-G -d ''", None),
+            ("-d x=1 -H 'content-type: text/plain'", "text/plain"),
+            ("-d x=1 -H 'Content-Type:'", None),
+            ("-d x=1 -H 'Content-Type:   '", None),
+            ("-d x=1 -H 'Content-Type;'", ""),
+            ("-d x=1 -H Content-Type", default_type),
+            ("-d x=1 -H 'Content-Type: text/plain' -H 'Content-Type:'", "text/plain"),
+            ("-d x=1 -H 'Content-Type:' -H 'Content-Type: text/plain'", "text/plain"),
+        )
+        for flags, expected in cases:
+            with self.subTest(flags=flags):
+                edit = parse_curl(f"curl https://example.com/api {flags}")
+                flow = build_compose_flow(
+                    edit.method, edit.url, list(edit.headers), edit.content
+                )
+                self.assertEqual(flow.request.headers.get("content-type"), expected)
+                self.assertEqual(flow.request.get_content(strict=False), edit.content)
 
     def test_get_flag_keeps_ampersands_as_parameter_separators(self) -> None:
         """对照真实 curl（issues #81）：`-G -d 'a=1&b=2'` 在线上是两个参数 ——
@@ -71,9 +101,7 @@ class ParseCurlTests(unittest.TestCase):
         self.assertEqual(edit.content, b"raw&name=a%20b%26c")
 
     def test_data_urlencode_with_get_lands_in_the_query(self) -> None:
-        edit = parse_curl(
-            "curl -G --data-urlencode 'q=1 2' https://example.com/api"
-        )
+        edit = parse_curl("curl -G --data-urlencode 'q=1 2' https://example.com/api")
         self.assertEqual(edit.url, "https://example.com/api?q=1%202")
         self.assertEqual(edit.method, "GET")
 

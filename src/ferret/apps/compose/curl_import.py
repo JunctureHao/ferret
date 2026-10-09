@@ -94,6 +94,7 @@ def parse_curl(command: str) -> RequestEdit:
     method = ""
     url = ""
     headers: list[tuple[str, str]] = []
+    content_type_overridden = False
     # 每段数据带各自的编码语义：-d 原样、--data-urlencode 全量编码（curl 允许
     # 两种混用，必须逐段记）。
     data_parts: list[tuple[str, bool]] = []
@@ -113,9 +114,16 @@ def parse_curl(command: str) -> RequestEdit:
             method = value.upper()
         elif token in ("-H", "--header"):
             value, i = _take(args, i, inline, token)
-            # 首个冒号分割；`Key:` 空值照收（curl 会发空值头）。
+            # `Key:` 禁用默认头，`Key;` 才发送空值头；不带分隔符的项被 curl 忽略。
             name, sep, header_value = value.partition(":")
-            headers.append((name.strip(), header_value.strip() if sep else ""))
+            if not sep and value.endswith(";"):
+                name, sep, header_value = value[:-1], ";", ""
+            if sep:
+                name = name.strip()
+                if name.lower() == "content-type":
+                    content_type_overridden = True
+                if header_value.strip() or sep == ";":
+                    headers.append((name, header_value.strip()))
         elif token in ("-d", "--data", "--data-ascii", "--data-binary", "--data-raw"):
             value, i = _take(args, i, inline, token)
             # `@file` 是 curl 的「从文件读体」语法；--data-raw 除外（它按字面发）。
@@ -186,6 +194,8 @@ def parse_curl(command: str) -> RequestEdit:
             _data_urlencode_part(part) if urlencoded else part
             for part, urlencoded in data_parts
         ).encode("utf-8")
+        if not content_type_overridden:
+            headers.append(("Content-Type", "application/x-www-form-urlencoded"))
 
     if compressed:
         # 与导出侧对称：`FlowExporter.curl_command` 见到 Accept-Encoding 就写
