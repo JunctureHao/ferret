@@ -1901,12 +1901,12 @@
 <context>
     <name>FlowConnTreeModel</name>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="531"/>
+        <location filename="../../apps/common/flow/models.py" line="539"/>
         <source>未知客户端</source>
         <translation>Unknown client</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="540"/>
+        <location filename="../../apps/common/flow/models.py" line="548"/>
         <source>{client} → {count} 个目标</source>
         <translation>{client} → {count} targets</translation>
     </message>
@@ -2082,87 +2082,87 @@
         <translation>Comment saved</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1283"/>
+        <location filename="../../apps/common/flow/detail.py" line="1285"/>
         <source>请求头 ({count})</source>
         <translation>Headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1286"/>
+        <location filename="../../apps/common/flow/detail.py" line="1288"/>
         <source>查询参数 ({count})</source>
         <translation>Query ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1289"/>
+        <location filename="../../apps/common/flow/detail.py" line="1291"/>
         <source>Cookie ({count})</source>
         <translation>Cookies ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1408"/>
+        <location filename="../../apps/common/flow/detail.py" line="1410"/>
         <source>{} 个目标</source>
         <translation>{} targets</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1410"/>
+        <location filename="../../apps/common/flow/detail.py" line="1412"/>
         <source>客户端</source>
         <translation>Client</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1411"/>
+        <location filename="../../apps/common/flow/detail.py" line="1413"/>
         <source>目标</source>
         <translation>Target</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1412"/>
+        <location filename="../../apps/common/flow/detail.py" line="1414"/>
         <source>传输协议</source>
         <translation>Transport</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1413"/>
+        <location filename="../../apps/common/flow/detail.py" line="1415"/>
         <source>TLS 版本</source>
         <translation>TLS version</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1414"/>
+        <location filename="../../apps/common/flow/detail.py" line="1416"/>
         <source>ALPN</source>
         <translation>ALPN</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1415"/>
+        <location filename="../../apps/common/flow/detail.py" line="1417"/>
         <source>SNI</source>
         <translation>SNI</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1416"/>
+        <location filename="../../apps/common/flow/detail.py" line="1418"/>
         <source>加密套件</source>
         <translation>Cipher suite</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1417"/>
+        <location filename="../../apps/common/flow/detail.py" line="1419"/>
         <source>流数</source>
         <translation>Flows</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1418"/>
+        <location filename="../../apps/common/flow/detail.py" line="1420"/>
         <source>传输字节</source>
         <translation>Bytes</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1419"/>
+        <location filename="../../apps/common/flow/detail.py" line="1421"/>
         <source>持续时间</source>
         <translation>Duration</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1420"/>
+        <location filename="../../apps/common/flow/detail.py" line="1422"/>
         <source>开始时间</source>
         <translation>Start time</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1421"/>
+        <location filename="../../apps/common/flow/detail.py" line="1423"/>
         <source>结束时间</source>
         <translation>End time</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/detail.py" line="1422"/>
+        <location filename="../../apps/common/flow/detail.py" line="1424"/>
         <source>连接 ID</source>
         <translation>Connection ID</translation>
     </message>
@@ -2967,12 +2967,12 @@
         <translation>Mark</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="391"/>
+        <location filename="../../apps/common/flow/models.py" line="399"/>
         <source>挂起中</source>
         <translation>Suspended</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="395"/>
+        <location filename="../../apps/common/flow/models.py" line="403"/>
         <source>等待中</source>
         <translation>Pending</translation>
     </message>
@@ -4287,71 +4287,145 @@
 <context>
     <name>MessagesPane</name>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="195"/>
+        <location filename="../../apps/common/flow/messages.py" line="152"/>
         <source>过滤消息…</source>
         <translation>Filter messages...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="202"/>
-        <location filename="../../apps/common/flow/messages.py" line="478"/>
+        <location filename="../../apps/common/flow/messages.py" line="153"/>
+        <source>按内容、发送、接收或事件信息过滤</source>
+        <translation>Filter by content, sent or received messages, or event details</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="157"/>
+        <location filename="../../apps/common/flow/messages.py" line="479"/>
         <source>最新在上</source>
         <translation>Newest first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="203"/>
+        <location filename="../../apps/common/flow/messages.py" line="158"/>
         <source>切换消息顺序</source>
         <translation>Toggle message order</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="208"/>
-        <location filename="../../apps/common/flow/messages.py" line="209"/>
+        <location filename="../../apps/common/flow/messages.py" line="160"/>
+        <location filename="../../apps/common/flow/messages.py" line="161"/>
         <source>清空显示的消息</source>
         <translation>Clear the displayed messages</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="298"/>
+        <location filename="../../apps/common/flow/messages.py" line="167"/>
+        <source>消息列表</source>
+        <translation>Message list</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="186"/>
+        <location filename="../../apps/common/flow/messages.py" line="187"/>
+        <source>换行</source>
+        <translation>Word wrap</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="194"/>
+        <source>消息内容</source>
+        <translation>Message content</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="269"/>
         <source>这条流量没有消息</source>
         <translation>This flow carries no messages</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="377"/>
+        <location filename="../../apps/common/flow/messages.py" line="326"/>
+        <source>发送</source>
+        <translation>Sent</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="326"/>
+        <location filename="../../apps/common/flow/messages.py" line="366"/>
+        <source>接收</source>
+        <translation>Received</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="328"/>
         <source>客户端 → 服务端</source>
         <translation>Client → Server</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="379"/>
+        <location filename="../../apps/common/flow/messages.py" line="330"/>
         <source>服务端 → 客户端</source>
         <translation>Server → Client</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="385"/>
-        <source>仅显示前 {} 字节，共 {} 字节；完整消息保留在流量导出中。</source>
-        <translation>Showing the first {} of {} bytes. The complete message is preserved in the flow export.</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/messages.py" line="478"/>
+        <location filename="../../apps/common/flow/messages.py" line="479"/>
         <source>最早在上</source>
         <translation>Oldest first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="457"/>
+        <location filename="../../apps/common/flow/messages.py" line="456"/>
         <source>已关闭</source>
         <translation>Closed</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="459"/>
+        <location filename="../../apps/common/flow/messages.py" line="183"/>
+        <location filename="../../apps/common/flow/messages.py" line="184"/>
+        <source>返回</source>
+        <translation>Back</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="340"/>
+        <source>已丢弃</source>
+        <translation>Dropped</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="342"/>
+        <source>已注入</source>
+        <translation>Injected</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="344"/>
+        <source>内容已截断</source>
+        <translation>Content truncated</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="351"/>
+        <location filename="../../apps/common/flow/messages.py" line="377"/>
+        <source>（空消息）</source>
+        <translation>(Empty message)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="360"/>
+        <source>心跳</source>
+        <translation>Heartbeat</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="362"/>
+        <source>事件信息</source>
+        <translation>Event details</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="417"/>
+        <source>仅显示前 {} 字节，共 {} 字节；可导出流量查看完整消息。</source>
+        <translation>Showing the first {} of {} bytes. Export the flow to view the complete message.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="446"/>
+        <source>没有匹配的消息</source>
+        <translation>No matching messages</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="448"/>
+        <source>暂无消息</source>
+        <translation>No messages yet</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="458"/>
         <source>客户端关闭</source>
         <translation>Closed by client</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="461"/>
+        <location filename="../../apps/common/flow/messages.py" line="460"/>
         <source>服务端关闭</source>
         <translation>Closed by server</translation>
-    </message>
-    <message>
-        <location filename="../../apps/common/flow/messages.py" line="410"/>
-        <source>仅显示前 {} 字节，共 {} 字节</source>
-        <translation>Showing the first {} of {} bytes</translation>
     </message>
 </context>
 <context>

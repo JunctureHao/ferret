@@ -561,25 +561,27 @@ class LazyDetailTests(unittest.TestCase):
         second = replace(first, index=1, content=b"new")
         self.controller.frames.append(second)
         self.controller.websocket_frame.emit(flow.id, second)
-        self.assertEqual(messages.stream.message_count(), 0)
+        self.assertEqual(messages.message_list.message_count(), 0)
 
         self.panel.res_pane.setCurrentTab("Messages")
         self.assertEqual(messages.filter_input.text(), "new")
-        self.assertEqual(messages.stream.filter_text, "new")
-        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [1])
+        self.assertEqual(messages.message_list.filter_text, "new")
+        self.assertEqual([bubble.key for bubble in messages.message_list.rows()], [1])
         self.assertEqual(messages.count, 2)
         # 同流摘要更新也只补增量，不能使刚清空的旧消息复活。
         data["message_count"] = 2
         self.panel.set_data(data)
         self.assertEqual(messages.filter_input.text(), "new")
-        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [1])
+        self.assertEqual([bubble.key for bubble in messages.message_list.rows()], [1])
 
         other = tflow.twebsocketflow()
         other_data = build_flow_summary(other)
         other_data["message_count"] = 2
         self.panel.set_data(other_data)
         self.assertEqual(messages.filter_input.text(), "")
-        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [0, 1])
+        self.assertEqual(
+            [bubble.key for bubble in messages.message_list.rows()], [0, 1]
+        )
 
     def test_coalesced_messages_fetch_only_when_visible_and_recover_missing_indices(
         self,
@@ -597,7 +599,7 @@ class LazyDetailTests(unittest.TestCase):
         self.panel.res_pane.setCurrentTab("Messages")
         messages = self.panel.messages
         assert messages is not None
-        self.assertEqual([b.key for b in messages.stream.bubbles()], [0, 1, 2])
+        self.assertEqual([b.key for b in messages.message_list.rows()], [0, 1, 2])
         self.controller.frames.extend(
             [
                 replace(self.controller.frames[0], index=3),
@@ -606,10 +608,12 @@ class LazyDetailTests(unittest.TestCase):
         )
         self.controller.websocket_frame.emit(flow.id, self.controller.frames[-1])
         self.assertEqual(len(self.controller.message_calls), 2)
-        self.assertEqual([b.key for b in messages.stream.bubbles()], [0, 1, 2, 3, 4])
+        self.assertEqual([b.key for b in messages.message_list.rows()], [0, 1, 2, 3, 4])
         self.controller.frames.append(replace(self.controller.frames[0], index=5))
         self.controller.messages_changed.emit(flow.id, "websocket", 6)
-        self.assertEqual([b.key for b in messages.stream.bubbles()], [0, 1, 2, 3, 4, 5])
+        self.assertEqual(
+            [b.key for b in messages.message_list.rows()], [0, 1, 2, 3, 4, 5]
+        )
         self.assertEqual(messages.count, 6)
         latest = replace(self.controller.frames[0], index=999)
         with patch.object(
@@ -626,7 +630,7 @@ class LazyDetailTests(unittest.TestCase):
         self.assertEqual(messages.count, 1000)
         self.assertEqual(self.panel.message_badge.text(), "1000")
         self.panel.set_data({})
-        self.assertEqual(messages.stream.message_count(), 0)
+        self.assertEqual(messages.message_list.message_count(), 0)
 
     def test_clearing_details_releases_both_hidden_body_documents_without_fetching(
         self,
@@ -875,15 +879,15 @@ class SseRealtimeTests(unittest.TestCase):
         event = replace(self.controller.archived[0], index=1, data="new")
         self.controller.archived.append(event)
         self.controller.sse_event.emit(flow_id, event)
-        self.assertEqual(messages.stream.message_count(), 0)
+        self.assertEqual(messages.message_list.message_count(), 0)
 
         self.panel.res_pane.setCurrentTab("Messages")
         self.assertEqual(messages.filter_input.text(), "new")
-        self.assertEqual(messages.stream.filter_text, "new")
-        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [1])
+        self.assertEqual(messages.message_list.filter_text, "new")
+        self.assertEqual([bubble.key for bubble in messages.message_list.rows()], [1])
         self.assertEqual(messages.count, 2)
         self.controller.sse_event.emit(flow_id, event)
-        self.assertEqual([bubble.key for bubble in messages.stream.bubbles()], [1])
+        self.assertEqual([bubble.key for bubble in messages.message_list.rows()], [1])
 
     def test_a_foreign_flow_id_leaves_the_panel_alone(self) -> None:
         self.__select(self.__pending_detail())

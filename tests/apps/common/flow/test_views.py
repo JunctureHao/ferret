@@ -558,7 +558,7 @@ class FlowViewerPaneTests(unittest.TestCase):
             flow.id, parse_sse("data: old-controller\n\n")[0]
         )
         self.assertEqual(panel.messages.count, 0)
-        self.assertEqual(panel.messages.stream.message_count(), 0)
+        self.assertEqual(panel.messages.message_list.message_count(), 0)
         self.viewer.open_selected()
         self.app.processEvents()
         self.assertEqual(panel.messages.count, 2)

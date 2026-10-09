@@ -177,6 +177,14 @@ class FlowTableModel(QAbstractTableModel):
         return row.resp_mime or row.req_mime
 
     @staticmethod
+    def _type_mime(row: FlowRow) -> str:
+        # 内核只在确认升级后将展示 URL 改为 ws/wss；Type 按消息流展示为 text。
+        # 原始 MIME 仍由 _mime 提供，不能把握手头或二进制帧内容改成文本。
+        if row.url.startswith(("ws://", "wss://")):
+            return "text/plain"
+        return FlowTableModel._mime(row)
+
+    @staticmethod
     def _mime_label(mime: str) -> str:
         """Type 列的短标。统一小写（用户约定）：json / html / xml / js / css …"""
         value = mime.lower()
@@ -395,7 +403,7 @@ def flow_cell(row: FlowRow, column_name: str, role: int):
                 return translate("FlowTableModel", "等待中")
             return row.status_code
         if column_name == "Type":
-            return FlowTableModel._mime_label(FlowTableModel._mime(row))
+            return FlowTableModel._mime_label(FlowTableModel._type_mime(row))
         if column_name == "Size":
             return human.pretty_size(FlowTableModel._size_bytes(row))
         if column_name == "Time":
@@ -416,7 +424,7 @@ def flow_cell(row: FlowRow, column_name: str, role: int):
                 return 600
             return row.status_code if row.has_response else -1
         if column_name == "Type":
-            return FlowTableModel._mime(row).lower()
+            return FlowTableModel._type_mime(row).lower()
         if column_name == "Size":
             return FlowTableModel._size_bytes(row)
         if column_name == "Time":
