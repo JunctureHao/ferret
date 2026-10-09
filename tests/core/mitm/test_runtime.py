@@ -302,6 +302,69 @@ class RuntimeRecoveryTests(unittest.TestCase):
         runtime.call(lambda: None)
         commit.assert_not_called()
 
+    def test_cancelled_setting_changes_restore_mirrors_and_can_be_retried(self):
+        runtime = self._runtime()
+        master = runtime.master
+        thread = runtime._thread
+        assert master is not None and thread is not None and thread.loop is not None
+        runtime.mock_pool = [tflow.tflow(resp=True)]
+        cases = (
+            (
+                "gateway_enabled",
+                lambda: runtime.apply_gateway_rules(enabled=True),
+                lambda: master.gateway._enabled,
+            ),
+            (
+                "intercept_enabled",
+                lambda: runtime.apply_intercept_rules(enabled=True),
+                lambda: master.options.intercept,
+            ),
+            (
+                "mock_enabled",
+                lambda: runtime.apply_mock_enabled(True),
+                lambda: bool(master.server_playback.flowmap),
+            ),
+            (
+                "mock_knobs",
+                lambda: runtime.apply_mock_knobs({"server_replay_reuse": True}),
+                lambda: master.options.server_replay_reuse,
+            ),
+            (
+                "sticky_session_enabled",
+                lambda: runtime.apply_sticky_session(True),
+                lambda: master.options.stickycookie,
+            ),
+        )
+        call = runtime.call
+        for attribute, apply, read_kernel in cases:
+            with self.subTest(attribute=attribute):
+                before = getattr(runtime, attribute)
+                kernel_before = call(read_kernel)
+                blocking, release = threading.Event(), threading.Event()
+
+                def occupy_loop(started=blocking, gate=release):
+                    started.set()
+                    gate.wait(3)
+
+                thread.loop.call_soon_threadsafe(occupy_loop)
+                try:
+                    self.assertTrue(blocking.wait(2))
+                    with (
+                        patch.object(
+                            runtime,
+                            "call",
+                            side_effect=lambda callback: call(callback, timeout=0.01),
+                        ),
+                        self.assertRaises(TimeoutError),
+                    ):
+                        apply()
+                    self.assertEqual(getattr(runtime, attribute), before)
+                finally:
+                    release.set()
+                self.assertEqual(call(read_kernel), kernel_before)
+                apply()
+                self.assertNotEqual(getattr(runtime, attribute), before)
+
     def test_ready_reconciliation_does_not_restore_consumed_mock_responses(self):
         runtime = MitmRuntime(listen_port=free_port())
         self.addCleanup(runtime.stop)

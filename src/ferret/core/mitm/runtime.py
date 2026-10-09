@@ -1356,6 +1356,9 @@ class MitmRuntime(QObject):
             # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
             self.gateway_rules, self.gateway_enabled = previous
             raise ValueError(str(exc)) from exc
+        except Exception:
+            self.gateway_rules, self.gateway_enabled = previous
+            raise
 
     def _gateway_payload(self) -> tuple[GatewayRuleSet, dict[str, list[str]], bool]:
         """Compile both planes' payloads from the stored rules; commits nothing.
@@ -1507,6 +1510,9 @@ class MitmRuntime(QObject):
             # 让 apps/ 只需要认识内建异常，不必 import mitmproxy 的异常类型。
             self.intercept_rules, self.intercept_enabled = previous
             raise ValueError(str(exc)) from exc
+        except Exception:
+            self.intercept_rules, self.intercept_enabled = previous
+            raise
 
     def apply_mock_enabled(self, enabled: bool) -> None:
         """Store the mock master switch and push it to a running Master.
@@ -1514,6 +1520,7 @@ class MitmRuntime(QObject):
         「开关」就是原生 addon 的 flowmap 有没有货（docs/design.md#mock）：开 = 全量池重新 `load_flows`，关 = `clear()`，不在 core 里另设 armed
         标志。内核没跑只对齐内存副本（下次启动 `_apply_serverplayback` 播种）。
         """
+        previous = self.mock_enabled
         self.mock_enabled = enabled
         master = self._master
         if not self.is_running or master is None:
@@ -1525,7 +1532,11 @@ class MitmRuntime(QObject):
             else:
                 master.server_playback.clear()
 
-        self.call(push)
+        try:
+            self.call(push)
+        except Exception:
+            self.mock_enabled = previous
+            raise
 
     def apply_mock_knobs(self, knobs: dict[str, Any]) -> None:
         """Merge mock knob updates and push them to a running Master.
@@ -1544,6 +1555,9 @@ class MitmRuntime(QObject):
         except OptionsError as exc:
             self.mock_knobs = previous
             raise ValueError(str(exc)) from exc
+        except Exception:
+            self.mock_knobs = previous
+            raise
 
     def apply_sticky_session(self, enabled: bool | None = None) -> None:
         """Store the sticky-session switch and push it to a running Master.
@@ -1566,6 +1580,9 @@ class MitmRuntime(QObject):
         except OptionsError as exc:
             self.sticky_session_enabled = previous
             raise ValueError(str(exc)) from exc
+        except Exception:
+            self.sticky_session_enabled = previous
+            raise
 
     def apply_anticache_plaintext(self, enabled: bool | None = None) -> None:
         """Store the anticache/anticomp switch and push it to a running Master.
