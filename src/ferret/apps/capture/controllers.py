@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
-from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QThreadPool, QTimer, Signal
 from sysproxy import (
     ERR_INVALID_ADDRESS,
     ERR_OWNER_ACTIVE,
@@ -17,6 +21,7 @@ from sysproxy import (
 )
 
 from ferret.apps.capture.services import compile_filter
+from ferret.apps.common.tasks import FunctionTask
 from ferret.core.log import get_logger
 from ferret.core.mitm import (
     FlowRow,
@@ -94,6 +99,14 @@ class CaptureState(StrEnum):
     FAILED = "failed"
 
 
+@dataclass(frozen=True)
+class _ArmOutcome:
+    """后台装备序列的结果：成功，或带一条已译错误文案的失败（issues #14）。"""
+
+    ok: bool = False
+    error: str = ""
+
+
 class CaptureController(QObject):
     """Coordinate capture channels, the system proxy and the write gate.
 
@@ -120,6 +133,9 @@ class CaptureController(QObject):
     messages_changed = Signal(str, str, int)
 
     capture_state_changed = Signal(object)
+    # 装备会话时逐步回报的进度文案（配置通道中… / 启动录制中… / 挂载系统代理…），
+    # 后台线程发射、主线程显示，让用户在启动期间感知进展（issues #14）。
+    capture_progress = Signal(str)
     # 写入闸门与通道状态：流量表/命令栏据此显示「抓包中 / 已停止」与通道摘要。
     recordingChanged = Signal(bool)
     channels_changed = Signal()
@@ -154,6 +170,10 @@ class CaptureController(QObject):
         self._last_error = ""
         self._pending_attach = False
         self._stop_failed = False
+        # 后台装备任务（通道热更 + 开录制 + 挂代理）：持到 finished 免被 GC（AGENTS §4），
+        # `_arm_done` 供停止 / 内核故障时等它退出再拆，避免并发碰 facade 与系统代理。
+        self._arm_task: FunctionTask | None = None
+        self._arm_done: threading.Event | None = None
         # 外部流量的写入闸门默认关，点开始抓包才开；Compose 显式记录走独立信号。
         self._recording = False
         self._admitted_ids: set[str] = set()
@@ -367,21 +387,23 @@ class CaptureController(QObject):
         self._pending_attach = True
         self._set_capture_state(CaptureState.STARTING)
 
-        # 通道先行：mode 热更失败（坏过滤串、内核拒绝）说明会话开不起来，整体回落。
-        try:
-            self._mitm.engage_channels()
-        except (RuntimeError, TimeoutError, ValueError) as exc:
-            self._fail_start(self._translate_channel_error(str(exc)))
-            return
-        # 内核还没跑就把监听也拉起来：ready 信号会回来调 _on_runtime_ready → attach。
         if not self._runtime.is_running:
+            # 内核没跑：engage 对未运行内核不触发 call（set_channels_engaged 直接返回），
+            # 同步接通意图位即可；监听拉起后 ready → _on_runtime_ready 异步装备。
+            try:
+                self._mitm.engage_channels()
+            except (RuntimeError, TimeoutError, ValueError) as exc:
+                self._fail_start(self._translate_channel_error(str(exc)))
+                return
             if self._runtime.state in (
                 MitmRuntimeState.STOPPED,
                 MitmRuntimeState.FAILED,
             ):
                 self._runtime.start()
             return
-        self._attach_system_proxy()
+        # 内核已在跑（regular 底座）：通道热更 + 开录制 + 挂系统代理逐个带阻塞 call /
+        # 注册表写入，整段挪到后台线程，别冻结主线程（issues #14）。
+        self._begin_arm(include_engage=True)
 
     def stop_capture(self) -> None:
         """Close the capture session: detach proxy, drop channels, close the gate.
@@ -391,6 +413,10 @@ class CaptureController(QObject):
         self._pending_attach = False
         if self._capture_state == CaptureState.STOPPED:
             return
+        # 后台装备线程可能正在接通通道 / 开录制 / 挂代理：等它退出再拆，两条路都碰
+        # facade 与系统代理，并发会错乱（issues #14）。worker 不含 UAC 等待（通道实例
+        # 异步起、由 channel_health 轮询），耗时有界。
+        self._await_arm()
         self._set_capture_state(CaptureState.STOPPING)
         # 健康轮询随会话一起停（迟到 tick 也会在 _check_channel_health 自我了断，
         # 这里是即刻停表）。
@@ -757,6 +783,123 @@ class CaptureController(QObject):
         self._set_capture_state(CaptureState.RUNNING)
         self._schedule_channel_check()
 
+    # --- 异步装备（issues #14）---------------------------------------------
+
+    def _begin_arm(self, *, include_engage: bool) -> None:
+        """把装备序列（通道热更 + 开录制 + 挂代理）放到后台线程，主线程立刻回事件循环。
+
+        通道实例本就异步起（UAC 由 channel_health 轮询），后台线程只承担那几步带阻塞
+        的 call / 注册表写入；结果经 `_on_arm_outcome` 回主线程落定。只在 STARTING 期间
+        跑：抓包中改通道的重挂走同步的 `_attach_system_proxy`，与此互不重入。
+        """
+        if self._arm_task is not None:
+            return
+        if not self._pending_attach or not self._runtime.is_running:
+            return
+        done = threading.Event()
+        self._arm_done = done
+        work = partial(
+            self._arm_worker,
+            include_engage=include_engage,
+            attach_proxy=self.system_proxy_enabled(),
+            host=self._mitm.local_client_host,
+            port=self._mitm.listen_port,
+            done=done,
+        )
+        self._run_arm(work)
+
+    def _run_arm(self, work: Callable[[], _ArmOutcome]) -> None:
+        """把装备可调用对象投到线程池并持住任务到 finished（测试可换成同步执行）。"""
+        task = FunctionTask(work)
+        task.signals.succeeded.connect(self._on_arm_outcome)
+        task.signals.failed.connect(self._on_arm_crash)
+        task.signals.finished.connect(self._clear_arm_task)
+        self._arm_task = task
+        QThreadPool.globalInstance().start(task)
+
+    def _arm_worker(
+        self,
+        *,
+        include_engage: bool,
+        attach_proxy: bool,
+        host: str,
+        port: int,
+        done: threading.Event,
+    ) -> _ArmOutcome:
+        """后台线程上的装备序列：通道热更 → 开录制 → 挂系统代理，逐步回报进度。
+
+        只碰 facade（内部 `runtime.call` 线程安全）与系统代理（纯 I/O）；不改 Qt 状态、
+        不发状态信号。失败就地回滚录制并回一条已译错误，由 `_on_arm_outcome` 回主线程
+        落定。`done` 在收尾时置位，供停止 / 内核故障等它退出。
+        """
+        try:
+            if include_engage:
+                self.capture_progress.emit(self.tr("配置通道中…"))
+                try:
+                    self._mitm.engage_channels()
+                except (RuntimeError, TimeoutError, ValueError) as exc:
+                    return _ArmOutcome(error=self._translate_channel_error(str(exc)))
+            self.capture_progress.emit(self.tr("启动录制中…"))
+            try:
+                self._mitm.start_capture_recording()
+            except Exception as exc:
+                log.exception("failed to start capture recording")
+                return _ArmOutcome(
+                    error=self.tr("启动录制失败：{error}").format(error=exc)
+                )
+            if attach_proxy:
+                self.capture_progress.emit(self.tr("挂载系统代理…"))
+                try:
+                    self._system_proxy.attach(host, port)
+                except Exception as exc:  # noqa: BLE001
+                    if self._mitm.runtime.is_running:
+                        try:
+                            self._mitm.stop_capture_recording()
+                        except Exception:
+                            log.exception("failed to roll back capture recording")
+                    return _ArmOutcome(
+                        error=resolve_marker(
+                            _SYSTEM_PROXY_ERRORS,
+                            str(exc),
+                            "CaptureController",
+                            fallback=str(exc),
+                        )
+                    )
+            return _ArmOutcome(ok=True)
+        finally:
+            done.set()
+
+    def _on_arm_outcome(self, outcome: object) -> None:
+        """主线程上落定装备结果。会话若在装备期间被拆除则作废（拆除路径已等它退出）。"""
+        if not isinstance(outcome, _ArmOutcome):
+            return
+        if not self._pending_attach or self._capture_state != CaptureState.STARTING:
+            return
+        if outcome.ok:
+            self._pending_attach = False
+            self._set_recording(True)
+            self._set_capture_state(CaptureState.RUNNING)
+            self._schedule_channel_check()
+        else:
+            self._fail_start(outcome.error)
+
+    def _on_arm_crash(self, message: str) -> None:
+        """兜底：`_arm_worker` 已内部兜住所有异常回 outcome，这里只应对意外崩溃。"""
+        if not self._pending_attach or self._capture_state != CaptureState.STARTING:
+            return
+        log.error("capture arm task crashed: %s", message)
+        self._fail_start(message)
+
+    def _clear_arm_task(self) -> None:
+        self._arm_task = None
+        self._arm_done = None
+
+    def _await_arm(self) -> None:
+        """装备线程在跑时等它收尾再拆会话（worker 不含 UAC 等待，耗时有界）。"""
+        done = self._arm_done
+        if done is not None:
+            done.wait(timeout=15.0)
+
     def _set_recording(self, recording: bool) -> None:
         if recording == self._recording:
             return
@@ -907,10 +1050,12 @@ class CaptureController(QObject):
         self.capture_state_changed.emit(state)
 
     def _on_runtime_ready(self, _view: View) -> None:
-        self._attach_system_proxy()
+        self._begin_arm(include_engage=False)
 
     def _on_runtime_failed(self, message: str) -> None:
         self._pending_attach = False
+        # 内核已死，装备 worker 的 call 会超时自败并收尾；等它退出再碰系统代理。
+        self._await_arm()
         if self._system_proxy.is_attached:
             # 内核已死，restore 再失败只能靠 journal 由退出 / 下次启动 recover
             # 兜底，这里保持 fire-and-forget；is_attached 保持为真即是对账事实。

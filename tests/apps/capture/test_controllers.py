@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +17,7 @@ from ferret.apps.capture.controllers import CaptureController, CaptureState
 from ferret.core.mitm import MitmRuntimeState, View, flow_row
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
 from ferret.core.settings import CONFIG
+from tests.core.mitm._qt import wait_until
 
 
 class FakeRuntime(QObject):
@@ -370,6 +372,20 @@ class FakeSystemProxy:
         return True
 
 
+class BlockingSystemProxy(FakeSystemProxy):
+    """attach 卡在 `release` 上，模拟后台装备线程仍在跑（测 `_await_arm`）。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def attach(self, host: str, port: int) -> None:
+        self.entered.set()
+        self.release.wait(timeout=5)
+        super().attach(host, port)
+
+
 class CaptureControllerStateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -402,11 +418,24 @@ class CaptureControllerStateTests(unittest.TestCase):
         CONFIG.file = self._original_file
         self._config_dir.cleanup()
 
-    def make_controller(self, *, fail_attach: bool = False, fail_detach: bool = False):
+    def make_controller(
+        self,
+        *,
+        fail_attach: bool = False,
+        fail_detach: bool = False,
+        sync_arm: bool = True,
+    ):
         runtime = FakeRuntime()
         facade = FakeFacade(runtime)
         proxy = FakeSystemProxy(fail_attach=fail_attach, fail_detach=fail_detach)
         controller = CaptureController(mitm=facade, system_proxy=proxy)  # type: ignore
+        if sync_arm:
+            # 装备序列默认走后台线程池（issues #14）；绝大多数既有用例验的是状态机
+            # 终态，就地同步跑掉省去泵事件。想验「不阻塞主线程」的用例传 sync_arm=False
+            # 用真线程池。
+            controller._run_arm = lambda work: controller._on_arm_outcome(  # ty: ignore[invalid-assignment]
+                work()
+            )
         return controller, runtime, facade, proxy
 
     def test_start_ready_stop_state_sequence(self) -> None:
@@ -452,6 +481,81 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertEqual(controller.last_error, "address already in use")
         self.assertFalse(proxy.attached)
         self.assertFalse(facade.recording)
+
+    # --- 异步装备（issues #14）---------------------------------------------
+
+    def test_start_capture_does_not_block_the_main_thread(self) -> None:
+        """装备在后台线程跑，结果经排队信号回主线程：start_capture 立即返回 STARTING，
+        泵事件后才推进到 RUNNING（issues #14）。"""
+        controller, runtime, facade, proxy = self.make_controller(sync_arm=False)
+
+        controller.start_capture()
+
+        self.assertEqual(controller.capture_state, CaptureState.STARTING)
+        self.assertFalse(facade.recording)
+        self.assertTrue(
+            wait_until(lambda: controller.capture_state == CaptureState.RUNNING)
+        )
+        self.assertTrue(facade.recording)
+        self.assertEqual(proxy.endpoint, ("127.0.0.1", 8080))
+        self.assertTrue(runtime.channels_engaged)
+
+    def test_arm_reports_progress_steps_in_order(self) -> None:
+        controller, _, _, _ = self.make_controller(sync_arm=False)
+        CONFIG.set(CONFIG.system_proxy_enabled, True)
+        steps: list[str] = []
+        controller.capture_progress.connect(steps.append)
+
+        controller.start_capture()
+        self.assertTrue(
+            wait_until(lambda: controller.capture_state == CaptureState.RUNNING)
+        )
+
+        # 内核在跑（engage）+ 开录制 + 挂系统代理：三步齐全且按序。
+        self.assertEqual(len(steps), 3)
+
+    def test_cold_start_arms_asynchronously_once_the_kernel_is_ready(self) -> None:
+        controller, runtime, facade, proxy = self.make_controller(sync_arm=False)
+        runtime.is_running = False
+        runtime.state = MitmRuntimeState.STOPPED
+
+        controller.start_capture()
+
+        # 内核没跑：只接通意图位并 start()，装备留给 ready 回调。
+        self.assertEqual(controller.capture_state, CaptureState.STARTING)
+        self.assertEqual(runtime.start_calls, 1)
+        self.assertTrue(runtime.channels_engaged)
+        self.assertFalse(facade.recording)
+
+        runtime.is_running = True
+        runtime.state = MitmRuntimeState.RUNNING
+        runtime.ready.emit(runtime.view)
+
+        self.assertTrue(
+            wait_until(lambda: controller.capture_state == CaptureState.RUNNING)
+        )
+        self.assertTrue(facade.recording)
+        self.assertEqual(proxy.endpoint, ("127.0.0.1", 8080))
+
+    def test_stop_waits_for_an_in_flight_arm_before_tearing_down(self) -> None:
+        """停止必须等后台装备线程退出再拆：两条路都碰 facade 与系统代理，并发会错乱。"""
+        runtime = FakeRuntime()
+        facade = FakeFacade(runtime)
+        proxy = BlockingSystemProxy()
+        controller = CaptureController(mitm=facade, system_proxy=proxy)  # type: ignore
+
+        controller.start_capture()
+        # 装备线程卡在 attach 上 —— 会话仍是 STARTING。
+        self.assertTrue(proxy.entered.wait(timeout=5))
+        self.assertEqual(controller.capture_state, CaptureState.STARTING)
+
+        proxy.release.set()
+        controller.stop_capture()
+
+        # stop 已等装备线程收尾（_await_arm）再拆：代理最终是摘下的，录制已停。
+        self.assertFalse(proxy.attached)
+        self.assertFalse(facade.recording)
+        self.assertEqual(controller.capture_state, CaptureState.STOPPED)
 
     def test_recording_starts_without_the_system_proxy_checkbox(self) -> None:
         """磁盘录制随会话启停，不随系统代理勾选：不勾代理的五通道同样自动落盘。"""

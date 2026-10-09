@@ -192,6 +192,7 @@ class CapturesInterface(QWidget):
 
         # Controller 状态信号 → UI 更新
         self.controller.capture_state_changed.connect(self.__on_capture_state_changed)
+        self.controller.capture_progress.connect(self.__on_capture_progress)
         self.controller.recordingChanged.connect(
             lambda _on: self._refresh_command_bar()
         )
@@ -266,7 +267,13 @@ class CapturesInterface(QWidget):
         """协调：controller 生命周期状态 → UI 更新。"""
         capture_state = CaptureState(state)
         previous = self._ui_state.capture_state
-        self._ui_state = replace(self._ui_state, capture_state=capture_state)
+        # 离开 STARTING 即清掉逐步进度文案，别让「挂载系统代理…」黏在后续状态上。
+        progress = self._ui_state.capture_progress
+        if capture_state != CaptureState.STARTING:
+            progress = ""
+        self._ui_state = replace(
+            self._ui_state, capture_state=capture_state, capture_progress=progress
+        )
         self._refresh_command_bar()
         if capture_state == CaptureState.RUNNING and previous != CaptureState.RUNNING:
             show_success(
@@ -289,6 +296,15 @@ class CapturesInterface(QWidget):
                 self.controller.last_error or self.tr("请检查监听端口和系统代理设置"),
                 parent=self,
             )
+
+    @Slot(str)
+    def __on_capture_progress(self, text: str):
+        """后台装备逐步进度 → 命令栏启动提示（issues #14）。晚到的 tick 只在仍处
+        STARTING 时采纳，别覆盖已经落定的 RUNNING / FAILED 文案。"""
+        if self._ui_state.capture_state != CaptureState.STARTING:
+            return
+        self._ui_state = replace(self._ui_state, capture_progress=text)
+        self._refresh_command_bar()
 
     @Slot()
     def __on_search_changed(self):
@@ -800,6 +816,9 @@ class CaptureUiState:
     proxy_attached: bool = False
     # 录制/通道清理失败同样需要重试停止，与代理当前是否附着无关。
     stop_failed: bool = False
+    # 启动期间后台装备的逐步进度（配置通道中… / 启动录制中… / 挂载系统代理…）；
+    # 仅 STARTING 期间非空，用作主按钮提示，让用户感知进展（issues #14）。
+    capture_progress: str = ""
 
 
 class CaptureCommandBar(QWidget):
@@ -1072,7 +1091,7 @@ class CaptureCommandBar(QWidget):
             CaptureState.STARTING: (
                 FluentIcon.PLAY,
                 self.tr("启动中"),
-                self.tr("正在开启抓包会话"),
+                state.capture_progress or self.tr("正在开启抓包会话"),
                 False,
             ),
             CaptureState.RUNNING: (

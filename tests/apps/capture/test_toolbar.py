@@ -49,6 +49,15 @@ class CaptureCommandBarTests(unittest.TestCase):
         self.bar.set_state(self.state(capture_state=CaptureState.STARTING))
         self.assertFalse(self.bar.control_btn.isEnabled())
 
+        # 启动期逐步进度覆盖默认提示，让用户感知进展（issues #14）。
+        self.bar.set_state(
+            self.state(
+                capture_state=CaptureState.STARTING,
+                capture_progress="挂载系统代理…",
+            )
+        )
+        self.assertEqual(self.bar.control_btn.toolTip(), "挂载系统代理…")
+
         self.bar.set_state(self.state(capture_state=CaptureState.RUNNING))
         self.assertTrue(self.bar.control_btn.isEnabled())
         self.assertEqual(self.bar.control_btn.toolTip(), "停止抓包")
