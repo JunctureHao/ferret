@@ -760,9 +760,11 @@ class FlowConnTreeModel(QAbstractItemModel):
         node.flows.append(row)
         self._by_flow[row.id] = node
         self.endInsertRows()
-        if child_row > 0:
-            # 已有连接下追加子流：父节点聚合列（#/Size/Time）跟着变。
-            self._emit_conn_changed(top_row)
+        # 不论是不是新连接的首条子流，父节点聚合列（#/Size/Time）都随之变化。新连接
+        # 先作为空节点（Size 0）插进顶层、再挂首条子流，若只在 child_row>0 时通知，
+        # 代理模型会一直按空节点算出的排序位摆放；`~s` 过滤下完整响应可能首次就经
+        # add 出现，之后再没有 update 来纠正顺序。
+        self._emit_conn_changed(top_row)
 
     def handle_update(self, row: FlowRow) -> None:
         node = self._by_flow.get(row.id)

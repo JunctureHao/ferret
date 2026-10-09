@@ -208,6 +208,36 @@ class FlowConnTreeModelTests(unittest.TestCase):
         bottom_size_sort = proxy.data(proxy.index(1, 7, QModelIndex()), SORT_ROLE)
         self.assertLessEqual(top_size_sort, bottom_size_sort)
 
+    def test_a_new_connection_sorts_by_its_real_size_right_after_add(self) -> None:
+        """新连接的首条子流插入后，父节点聚合（Size）必须立即生效，无需额外 update。
+
+        新连接先作为空节点（Size 0）插进顶层、再挂首条子流；若不通知父节点变化，
+        代理模型会一直按 Size 0 的位置摆放。`~s` 过滤下完整响应可能首次就经 add
+        出现，之后再没有 update 来纠正顺序。
+        """
+        small = self.flow_on("conn-A", host="a.example.com")
+        model = self.model_with(small)
+        proxy = FlowConnProxyModel(None)  # type: ignore
+        proxy.setSourceModel(model)
+        proxy.mark_user_sorted()
+        proxy.sort(6, Qt.SortOrder.AscendingOrder)  # Size 升序（第 6 列）
+
+        big_flow = tflow.tflow(resp=True)
+        big_flow.client_conn.id = "conn-B"
+        big_flow.client_conn.peername = ("192.168.1.11", 52342)
+        big_flow.request.host = "b.example.com"
+        big_flow.request.port = 443
+        big_flow.request.timestamp_start = 100.0
+        big_flow.response.timestamp_end = 100.1  # type: ignore
+        big_flow.request.raw_content = b"req"
+        big_flow.response.raw_content = b"x" * 4096  # type: ignore
+        model.handle_add(flow_row(big_flow))
+
+        # Size 升序：小连接在前、大连接在后，不靠事后的 handle_update 纠正。
+        first = proxy.data(proxy.index(0, 6, QModelIndex()), SORT_ROLE)
+        second = proxy.data(proxy.index(1, 6, QModelIndex()), SORT_ROLE)
+        self.assertLess(first, second)
+
     # ------------------------------------------------------------------
     # 高亮
     # ------------------------------------------------------------------
