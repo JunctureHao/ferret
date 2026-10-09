@@ -250,6 +250,16 @@ class MessagesPane(SimpleCardWidget):
         self.notice_label.setText(text)
         self.notice_label.setVisible(bool(text))
 
+    def discard_before(self, index: int) -> None:
+        """同步内核的保留窗口，不重置过滤、清空显示水位或仍有效的选择。"""
+        count = 0
+        for row in self.message_list.rows():
+            if not isinstance(row.key, int) or row.key >= index:
+                break
+            count += 1
+        self.message_list.evict_oldest(count)
+        self.__update_empty()
+
     def set_data(
         self,
         data: dict,

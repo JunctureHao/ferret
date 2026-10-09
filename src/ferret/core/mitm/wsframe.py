@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ferret.core.mitm.bindings import Opcode, WebSocketData, WebSocketMessage
+from ferret.core.mitm.bindings import HTTPFlow, Opcode, WebSocketData, WebSocketMessage
 
 # 界面最多保留多少帧。聊天型 / 行情型 WS 一条连接刷出上万帧是常态，而每帧都要在表格里
 # 占一行、内容还留在内存里。理由与 `intercept.py::INTERCEPT_LIMIT` 同构：原生一个上限
@@ -32,14 +32,21 @@ from ferret.core.mitm.bindings import Opcode, WebSocketData, WebSocketMessage
 WS_FRAME_LIMIT = 2000
 WS_PREVIEW_BYTES = 64 * 1024
 WS_WINDOW_BYTES = 2 * 1024 * 1024
+WS_FRAME_OFFSET_KEY = "ferret.websocket.offset"
+
+
+def ws_frame_offset(flow: HTTPFlow) -> int:
+    """已裁掉的前缀帧数；metadata 随原生快照和 .flow 文件一起保留。"""
+    offset = flow.metadata.get(WS_FRAME_OFFSET_KEY, 0)
+    return offset if type(offset) is int and offset >= 0 else 0
 
 
 @dataclass(frozen=True, slots=True)
 class WsFrame:
     """One assembled WebSocket message, detached from its flow.
 
-    `index` 是它在 `WebSocketData.messages` 里的下标，也就是界面上的帧号：原生
-    `WebSocketMessage` 自己不带序号，而「第几帧」是排查时最常用的坐标。
+    `index` 是累计帧号（已裁前缀 + 当前下标），裁剪历史后也不重复使用；原生
+    `WebSocketMessage` 自己不带序号，界面的增量水位依赖这个稳定坐标。
 
     `opcode` 存 int 而不是 `Opcode`：值对象要能原样穿过 Qt 信号、也能塞进 `.flow`
     状态字典，纯 int 最省事；要拿名字用 :func:`opcode_name`。
@@ -118,7 +125,9 @@ def to_frame(
     )
 
 
-def ws_frames(data: WebSocketData | None, *, limit: int | None = None) -> list[WsFrame]:
+def ws_frames(
+    data: WebSocketData | None, *, limit: int | None = None, offset: int = 0
+) -> list[WsFrame]:
     """Full history, or a bounded tail preview. **Call on the mitm thread.**
 
     `limit` 同时启用消息数、单帧和窗口字节预算；未传时保留完整快照语义。
@@ -131,18 +140,20 @@ def ws_frames(data: WebSocketData | None, *, limit: int | None = None) -> list[W
         for index in range(
             len(data.messages) - 1, max(-1, len(data.messages) - limit - 1), -1
         ):
-            frame = to_frame(data.messages[index], index, preview=True)
+            frame = to_frame(data.messages[index], offset + index, preview=True)
             if frames and used + len(frame.content) > WS_WINDOW_BYTES:
                 break
             used += len(frame.content)
             frames.append(frame)
         frames.reverse()
         return frames
-    return [to_frame(message, index) for index, message in enumerate(data.messages)]
+    return [
+        to_frame(message, offset + index) for index, message in enumerate(data.messages)
+    ]
 
 
 def latest_frame(
-    data: WebSocketData | None, *, preview: bool = False
+    data: WebSocketData | None, *, preview: bool = False, offset: int = 0
 ) -> WsFrame | None:
     """The frame that just arrived. **Call on the mitm thread.**
 
@@ -153,7 +164,7 @@ def latest_frame(
     if data is None or not data.messages:
         return None
     index = len(data.messages) - 1
-    return to_frame(data.messages[index], index, preview=preview)
+    return to_frame(data.messages[index], offset + index, preview=preview)
 
 
 def ws_close(data: WebSocketData | None) -> WsClose:

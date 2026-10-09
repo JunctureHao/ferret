@@ -7,7 +7,12 @@ from collections.abc import Callable, Sequence
 
 from ferret.core.mitm.bindings import Flow, HTTPFlow, View, signals
 from ferret.core.mitm.io import imported_flow_ids
-from ferret.core.mitm.wsframe import WS_FRAME_LIMIT, WS_WINDOW_BYTES
+from ferret.core.mitm.wsframe import (
+    WS_FRAME_LIMIT,
+    WS_FRAME_OFFSET_KEY,
+    WS_WINDOW_BYTES,
+    ws_frame_offset,
+)
 
 FLOW_HISTORY_LIMIT = 10_000
 FLOW_HISTORY_BYTES = 128 * 1024 * 1024
@@ -35,9 +40,7 @@ class FerretView(View):
                 if message is not None
             )
             if flow.websocket is not None:
-                size += sum(
-                    len(message.content) for message in flow.websocket.messages
-                )
+                size += sum(len(message.content) for message in flow.websocket.messages)
         else:
             size += sum(
                 len(message.content) for message in getattr(flow, "messages", ())
@@ -82,6 +85,7 @@ class FerretView(View):
             index += 1
         cut = max(cut, index)
         if cut:
+            flow.metadata[WS_FRAME_OFFSET_KEY] = ws_frame_offset(flow) + cut
             del messages[:cut]
 
     def update(self, flows: Sequence[Flow]) -> None:

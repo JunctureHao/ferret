@@ -44,9 +44,12 @@ from ferret.core.mitm import (
     WsFrame,
     build_flow_body,
     build_flow_detail,
+    build_flow_messages,
     build_flow_summary,
     parse_sse,
 )
+from ferret.core.mitm.bindings import Opcode, WebSocketMessage
+from ferret.core.mitm.view import FerretView
 
 
 class BodyLangTests(unittest.TestCase):
@@ -321,6 +324,55 @@ class LazyDetailTests(unittest.TestCase):
         data = build_flow_summary(flow)
         self.panel.set_data(data)
         return data
+
+    def test_websocket_retention_updates_open_hidden_and_cleared_message_pages(self):
+        for byte_limit, hidden, cleared in (
+            (100, False, False),
+            (6, False, False),
+            (100, True, False),
+            (100, True, True),
+        ):
+            with self.subTest(byte_limit=byte_limit, hidden=hidden, cleared=cleared):
+                flow = tflow.twebsocketflow()
+                assert flow.websocket is not None
+                flow.websocket.messages = [
+                    WebSocketMessage(Opcode.TEXT, True, b"old-0"),
+                    WebSocketMessage(Opcode.TEXT, True, b"old-1"),
+                ]
+                view = FerretView()
+                with (
+                    patch.object(
+                        self.controller,
+                        "flow_messages",
+                        side_effect=lambda _, current=flow: build_flow_messages(
+                            current
+                        ),
+                    ),
+                    patch("ferret.core.mitm.view.WS_FRAME_LIMIT", 2),
+                    patch("ferret.core.mitm.view.WS_WINDOW_BYTES", byte_limit),
+                ):
+                    self.select(flow)
+                    self.panel.res_pane.setCurrentTab("Messages")
+                    messages = self.panel.messages
+                    assert messages is not None
+                    messages.filter_input.setText("old")
+                    if cleared:
+                        messages.clear_btn.click()
+                    if hidden:
+                        self.panel.res_pane.setCurrentTab("Headers")
+                    flow.websocket.messages.append(
+                        WebSocketMessage(Opcode.TEXT, True, b"new-2")
+                    )
+                    view.websocket_message(flow)
+                    self.controller.messages_changed.emit(flow.id, "websocket", 3)
+                    self.panel.res_pane.setCurrentTab("Messages")
+                    expected = [2] if cleared or byte_limit == 6 else [1, 2]
+                    self.assertEqual(
+                        [row.key for row in messages.message_list.rows()], expected
+                    )
+                    self.assertEqual(messages.filter_input.text(), "old")
+                    self.assertEqual(messages.count, 3)
+                    self.assertEqual(self.panel.message_badge.text(), "3")
 
     def test_empty_and_connection_pages_do_not_construct_http_tabs(self) -> None:
         self.panel.set_data({})

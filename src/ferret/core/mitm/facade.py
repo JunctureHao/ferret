@@ -65,6 +65,7 @@ from ferret.core.mitm.wsframe import (
     WsClose,
     WsFrame,
     ws_close,
+    ws_frame_offset,
     ws_frames,
 )
 from ferret.core.network import LOOPBACK_HOST, detect_lan_address
@@ -989,7 +990,9 @@ class MitmFacade:
             flow = self.view.get_by_id(flow_id)
             if not isinstance(flow, HTTPFlow):
                 return []
-            return ws_frames(flow.websocket, limit=WS_FRAME_LIMIT)
+            return ws_frames(
+                flow.websocket, limit=WS_FRAME_LIMIT, offset=ws_frame_offset(flow)
+            )
 
         return self.runtime.call(collect) if self.runtime.is_running else collect()
 

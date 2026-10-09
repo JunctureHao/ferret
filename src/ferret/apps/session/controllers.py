@@ -17,7 +17,6 @@ from ferret.apps.common.tasks import FunctionTask
 from ferret.apps.session.models import SessionMeta, SessionSource
 from ferret.apps.session.repository import SessionRepository
 from ferret.core.mitm import (
-    WS_FRAME_LIMIT,
     FlowExporter,
     FlowFile,
     HTTPFlow,
@@ -32,7 +31,6 @@ from ferret.core.mitm import (
     build_raw_preview,
     parse_filter,
     ws_close,
-    ws_frames,
 )
 
 
@@ -91,8 +89,7 @@ class SessionViewController(QObject):
 
         只读页刻意不接那三个实时信号：这批流量早就结束了，没有「新帧到达」这件事。
         """
-        flow = self.get_flow(flow_id)
-        return ws_frames(flow.websocket, limit=WS_FRAME_LIMIT) if flow else []
+        return self.flow_messages(flow_id)["frames"]
 
     def websocket_close(self, flow_id: str) -> WsClose:
         flow = self.get_flow(flow_id)

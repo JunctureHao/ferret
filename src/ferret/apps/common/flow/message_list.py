@@ -87,10 +87,10 @@ class _MessageModel(QAbstractListModel):
         self.rows.append(row)
         self.endInsertRows()
 
-    def evict_oldest(self) -> None:
-        self.beginRemoveRows(QModelIndex(), 0, 0)
-        self.rows.pop(0)
-        self._first_sequence += 1
+    def evict_oldest(self, count: int = 1) -> None:
+        self.beginRemoveRows(QModelIndex(), 0, count - 1)
+        del self.rows[:count]
+        self._first_sequence += count
         self.endRemoveRows()
 
 
@@ -220,10 +220,11 @@ class MessageList(ListView):
         with self._preserve_state(follow_newest=True):
             self._source.add(row)
 
-    def evict_oldest(self) -> None:
-        if self._source.rows:
+    def evict_oldest(self, count: int = 1) -> None:
+        count = min(count, len(self._source.rows))
+        if count > 0:
             with self._preserve_state(follow_newest=True):
-                self._source.evict_oldest()
+                self._source.evict_oldest(count)
 
     def set_filter(self, text: str) -> None:
         text = text.strip().casefold()

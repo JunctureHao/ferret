@@ -34,7 +34,13 @@ from ferret.core.mitm.sse import (
     SseFeeder,
     is_event_stream,
 )
-from ferret.core.mitm.wsframe import WS_FRAME_LIMIT, WsClose, ws_close, ws_frames
+from ferret.core.mitm.wsframe import (
+    WS_FRAME_LIMIT,
+    WsClose,
+    ws_close,
+    ws_frame_offset,
+    ws_frames,
+)
 
 log = get_logger("mitm.detail")
 
@@ -481,7 +487,7 @@ def build_flow_summary(flow: HTTPFlow) -> dict[str, Any]:
         "is_websocket": websocket is not None,
         "message_kind": "websocket" if websocket is not None else "sse" if sse else "",
         "message_count": (
-            len(websocket.messages)
+            ws_frame_offset(flow) + len(websocket.messages)
             if websocket is not None
             else flow.metadata.get(SSE_EVENT_COUNT_KEY)
             if sse
@@ -583,10 +589,11 @@ def build_flow_messages(
     if flow is None:
         return data
     if flow.websocket is not None:
-        frames = ws_frames(flow.websocket, limit=WS_FRAME_LIMIT)
+        offset = ws_frame_offset(flow)
+        frames = ws_frames(flow.websocket, limit=WS_FRAME_LIMIT, offset=offset)
         data.update(
             kind="websocket",
-            count=len(flow.websocket.messages),
+            count=offset + len(flow.websocket.messages),
             frames=frames,
             close=ws_close(flow.websocket),
         )

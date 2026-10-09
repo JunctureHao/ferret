@@ -49,7 +49,7 @@ from ferret.core.mitm.rows import flow_row
 from ferret.core.mitm.scripts import ScriptEntry
 from ferret.core.mitm.ui_events import UiEventQueue
 from ferret.core.mitm.view import FerretView
-from ferret.core.mitm.wsframe import latest_frame, ws_close
+from ferret.core.mitm.wsframe import latest_frame, ws_close, ws_frame_offset
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
 
@@ -323,7 +323,7 @@ class UiBridgeAddon:
         """
         if not self._connected:
             return
-        frame = latest_frame(flow.websocket, preview=True)
+        frame = latest_frame(flow.websocket, preview=True, offset=ws_frame_offset(flow))
         if frame is not None:
             self._bridge.post_ui_event("websocket_frame", flow.id, frame)
 

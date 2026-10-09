@@ -1189,6 +1189,8 @@ class FlowDataPanel(QWidget):
             and self._rendered_message_kind == self._message_kind
         )
         if same_flow:
+            if websocket and items:
+                self.messages.discard_before(items[0].index)
             # 隐藏期间只更新了收件水位；补齐尚未渲染的条目，保留过滤、清空和滚动。
             # 已清空的旧条目仍在快照里，但不能重新加入显示。
             for item in items:

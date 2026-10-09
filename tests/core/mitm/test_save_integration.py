@@ -18,6 +18,7 @@ from ferret.core.mitm import CaptureMaster, FlowFile, HTTPFlow, MitmFacade, Mitm
 from ferret.core.mitm.bindings import Flow, FlowReadException
 from ferret.core.mitm.gateway import GatewayPolicy
 from ferret.core.mitm.sse import SSE_EVENTS_TRUNCATED_KEY
+from ferret.core.mitm.view import FerretView
 
 from .test_gateway_addons import l7, ruleset
 
@@ -107,6 +108,21 @@ class RecordingImportTests(unittest.TestCase):
         stream = self.master.save.stream
         assert stream is not None
         stream.fo.flush()
+
+    def test_import_preserves_websocket_numbers_after_retention(self) -> None:
+        flow = tflow.twebsocketflow()
+        view = self.master.view
+        assert isinstance(view, FerretView)
+        with mock.patch("ferret.core.mitm.view.WS_FRAME_LIMIT", 2):
+            view.websocket_message(flow)
+            FlowFile.write(self.history, [flow])
+            self.assertEqual(self.facade.load_flow_file(self.history), 1)
+        snapshot = self.facade.flow_messages(flow.id)
+        self.assertEqual([frame.index for frame in snapshot["frames"]], [1, 2])
+        self.assertEqual(snapshot["count"], 3)
+        self.assertEqual(
+            [frame.index for frame in self.facade.websocket_frames(flow.id)], [1, 2]
+        )
 
     def _recorded_paths(self) -> list[str]:
         paths = []

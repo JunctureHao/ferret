@@ -20,11 +20,19 @@ from ferret.core.mitm import (
     MitmRuntimeState,
     Opcode,
     WebSocketMessage,
+    build_flow_messages,
+    build_flow_summary,
 )
 from ferret.core.mitm.rows import flow_row
 from ferret.core.mitm.sse import FerretSseAddon
 from ferret.core.mitm.view import FerretView
-from ferret.core.mitm.wsframe import WS_PREVIEW_BYTES, WsFrame, ws_frames
+from ferret.core.mitm.wsframe import (
+    WS_PREVIEW_BYTES,
+    WsFrame,
+    latest_frame,
+    ws_frame_offset,
+    ws_frames,
+)
 from tests.core.mitm._qt import wait_until
 
 
@@ -117,6 +125,25 @@ class WebSocketRetentionTests(unittest.TestCase):
         messages[0].drop()
         self.assertTrue(messages[0].dropped)
 
+    def test_frame_numbers_and_count_survive_trimming_and_export(self):
+        flow = tflow.twebsocketflow()
+        assert flow.websocket is not None
+        flow.websocket.messages.clear()
+        with patch("ferret.core.mitm.view.WS_FRAME_LIMIT", 2):
+            self._feed(flow, 6)
+        frame = latest_frame(flow.websocket, offset=ws_frame_offset(flow))
+        assert frame is not None
+        self.assertEqual(frame.index, 5)
+        destination = Path(self.directory.name) / "numbered.flow"
+        FlowFile.write(destination, [flow])
+        restored = FlowFile.read(destination)[0]
+        assert isinstance(restored, HTTPFlow)
+        for item in (flow, restored):
+            snapshot = build_flow_messages(item)
+            self.assertEqual([frame.index for frame in snapshot["frames"]], [4, 5])
+            self.assertEqual(snapshot["count"], 6)
+            self.assertEqual(build_flow_summary(item)["message_count"], 6)
+
 
 class HistoryBudgetTests(unittest.TestCase):
     def test_static_sse_archive_is_accounted_after_view_response(self):
@@ -198,7 +225,7 @@ class UiMailboxTests(unittest.TestCase):
         self.post_in_worker(burst)
         gc.collect()
         self.assertEqual(len(self.runtime._ui_events._events), 1)
-        (_, name, args), = self.runtime._ui_events._events.values()
+        ((_, name, args),) = self.runtime._ui_events._events.values()
         self.assertEqual(name, "messages_changed")
         self.assertEqual(args, ("flow", "websocket", 3000))
         self.assertEqual(seen, [])
