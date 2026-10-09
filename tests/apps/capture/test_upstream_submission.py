@@ -67,6 +67,7 @@ class FakeController:
         # upstream_targets_self 的替身行为由用例按需改写。
         self.self_loop = False
         self.target_error: str | None = None
+        self.facade = mock.Mock(wireguard_devices=[])
 
     def lan_address(self) -> str:
         return "192.168.1.9"

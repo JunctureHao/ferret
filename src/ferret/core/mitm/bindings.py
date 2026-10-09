@@ -179,7 +179,10 @@ from mitmproxy.net.http.http1.assemble import (
 )
 from mitmproxy.options import KEY_SIZE, Options
 from mitmproxy.proxy import server_hooks
-from mitmproxy.proxy.mode_servers import LocalRedirectorInstance
+from mitmproxy.proxy.mode_servers import (
+    LocalRedirectorInstance,
+    WireGuardServerInstance,
+)
 from mitmproxy.proxy.mode_specs import ProxyMode, UpstreamMode
 from mitmproxy.tcp import TCPFlow
 from mitmproxy.udp import UDPFlow
@@ -379,6 +382,7 @@ __all__ = [
     "View",
     "WebSocketData",
     "WebSocketMessage",
+    "WireGuardServerInstance",
     "addonmanager",
     "assemble_request_head",
     "assemble_response_head",

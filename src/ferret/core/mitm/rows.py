@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from ferret.core.mitm.bindings import Flow, HTTPFlow
 from ferret.core.mitm.detail import display_url, wire_size
 from ferret.core.mitm.gateway import GATEWAY_METADATA_KEY
+from ferret.core.mitm.wireguard_source import is_wireguard_flow, wireguard_source
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +59,9 @@ class FlowRow:
     client_tls: str
     client_sni: str
     client_cipher: str
+    wireguard_device_id: str = ""
+    wireguard_device_name: str = ""
+    is_wireguard: bool = False
 
 
 # 与 models.py 的 _UNKNOWN_CONN_ID 同一个兜底值：老会话文件、非常规通道可能缺
@@ -101,6 +105,7 @@ def flow_row(flow: Flow) -> FlowRow:
     request = flow.request if is_http else None
     response = flow.response if is_http else None
     error = flow.error
+    device_id, device_name = wireguard_source(flow)
     return FlowRow(
         id=flow.id,
         is_http=is_http,
@@ -136,4 +141,7 @@ def flow_row(flow: Flow) -> FlowRow:
         client_tls=str(getattr(client_conn, "tls_version", None) or ""),
         client_sni=str(getattr(client_conn, "sni", None) or ""),
         client_cipher=str(getattr(client_conn, "cipher", None) or ""),
+        wireguard_device_id=device_id,
+        wireguard_device_name=device_name,
+        is_wireguard=bool(device_id) or is_wireguard_flow(flow),
     )

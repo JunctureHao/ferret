@@ -245,7 +245,7 @@ class FlowViewerPaneTests(unittest.TestCase):
                 self.viewer.table.source_model.headerData(i, Qt.Orientation.Horizontal)
                 for i in range(self.viewer.table.source_model.columnCount())
             ],
-            ["#", "标记", "Method", "URL", "Status", "Type", "Size", "Time"],
+            ["#", "标记", "Method", "URL", "Status", "Type", "Size", "Time", "设备"],
         )
 
     def test_all_table_columns_but_the_mark_are_user_resizable(self) -> None:

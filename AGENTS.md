@@ -66,7 +66,7 @@ mitmproxy Master 在独立 asyncio 线程，GUI 在主线程：
 ## 5. 技术决策（勿推翻；详细理由见对应代码注释）
 
 - **运行期不引入 SQLite / 嵌入式存储**：WS 历史在内核钩子内直接裁剪原生 `flow.websocket.messages`（`core/mitm/view.py::_trim_websocket`，保留窗口 = 界面 = 导出），跨线程 UI 事件用纯内存合并队列（`core/mitm/ui_events.py`）；有界化问题优先裁剪原生结构，勿新建落盘副本。
-- **五通道抓包**：regular + local + wireguard + reverse + socks5 可组合，经原生 `options.update(mode=[...])` 热更；模式串统一复用 `core/mitm/modes.py` 的构造函数。
+- **五通道抓包**：regular + local + wireguard + reverse + socks5 可组合，经原生 `options.update(mode=[...])` 热更；模式串统一复用 `core/mitm/modes.py`。WireGuard 每设备独立密钥文件与 UDP 端口；健康逐设备汇总，来源按实例映射设备 ID，勿按重复的隧道 IP 归属（`core/mitm/wireguard*.py`）。
 - local 保留 `@127.0.0.1:0` 查重占位；reverse / socks5 保留显式 `@host:port` 独立端口，监听地址跟随 `listen_host`；reverse 的 HTTPS 保留原生 TCP+UDP（`BOTH`）语义，勿裁成裸 TCP。
 - SOCKS5 入站仅支持 TCP CONNECT；认证用同一份 `proxyauth`，不因 SOCKS5 接通而关闭认证（见 `core/mitm/runtime.py::_effective_proxyauth`）。
 - **上游代理只替换 regular 的出口**：占 `mode[0]`，二者不并存；spec 不带 `@`、不含凭证，认证走 `upstream_auth`。关闭/无目标/无用户名时返回 `None`，不传空串（见 `core/mitm/runtime.py::_upstream_auth`）。

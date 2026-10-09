@@ -154,6 +154,12 @@ from ferret.core.mitm.sse import (
     is_event_stream,
     parse_sse,
 )
+from ferret.core.mitm.wireguard import (
+    WireGuardDevice,
+    validate_wireguard_devices,
+    wireguard_devices_from_config,
+    wireguard_devices_to_config,
+)
 from ferret.core.mitm.wsframe import (
     WS_FRAME_LIMIT,
     WsClose,
@@ -251,6 +257,7 @@ __all__ = [
     "View",
     "WebSocketData",
     "WebSocketMessage",
+    "WireGuardDevice",
     "WsClose",
     "WsFrame",
     "anticache_option_updates",
@@ -302,8 +309,11 @@ __all__ = [
     "sticky_session_option_updates",
     "validate_local_spec",
     "validate_mode_specs",
+    "validate_wireguard_devices",
     "wire_size",
     "wireguard_client_config",
+    "wireguard_devices_from_config",
+    "wireguard_devices_to_config",
     "wireguard_mode_spec",
     "wireguard_qr_matrix",
     "ws_close",

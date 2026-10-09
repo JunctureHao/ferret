@@ -308,6 +308,11 @@ class CaptureController(QObject):
         return self._mitm.use_wireguard
 
     @property
+    def facade(self) -> MitmFacade:
+        """供独立的设备管理窗口沿既有线程边界操作配置。"""
+        return self._mitm
+
+    @property
     def use_reverse(self) -> bool:
         return self._mitm.use_reverse
 
@@ -360,7 +365,7 @@ class CaptureController(QObject):
         return bool(CONFIG.get(CONFIG.system_proxy_enabled))
 
     def wireguard_client_config(self) -> str:
-        """WireGuard 客户端配置文本（隧道启动过才有，否则抛 FileNotFoundError）。"""
+        """默认设备的客户端配置文本；仅用于旧的单设备调用入口。"""
         return self._mitm.wireguard_client_config()
 
     def start_capture(self, port: int | None = None) -> None:
@@ -928,14 +933,12 @@ class CaptureController(QObject):
         upstream_username: str = "",
         upstream_password: str = "",
     ) -> None:
-        """Commit the capture-channels dialog: persist, then hot-apply what is live.
+        """Commit the capture-channels dialog: apply first, then persist.
 
         未抓包时只落盘 + 更新内核意图值，下次「开始抓包」按新配置开会话；抓包中
         则实时增删通道、按需挂/摘系统代理。
         """
-        # 校验先行：坏过滤串、坏 reverse 目标这类原生解析器必拒的值，连落盘都
-        # 不该发生——apply_channels 的同名校验在 CONFIG 写盘之后，失败只回滚
-        # 内核内存意图值，坏值已经躺在配置里，重启回填后下次「开始抓包」必失败。
+        # 校验先行：坏过滤串、坏 reverse 目标不应触发后续密钥准备与内核热更。
         # 各通道只在开启时校验：关闭的动作不该被残留坏值卡住；空 reverse 目标
         # 按 capture_mode_specs 的语义本就不开通道，同款放行。
         if use_local:
@@ -957,26 +960,8 @@ class CaptureController(QObject):
         # 口，见 apps/capture/views.py::__show_proxy_port_dialog）。
         if use_upstream:
             self._mitm.validate_upstream_target(upstream_target)
-        CONFIG.set(CONFIG.system_proxy_enabled, use_system_proxy)
-        CONFIG.set(CONFIG.local_enabled, use_local)
-        CONFIG.set(CONFIG.local_spec, local_spec)
-        CONFIG.set(CONFIG.wireguard_enabled, use_wireguard)
-        # reverse 三参落盘：reverse 与 regular 共用 listen_host，端口由对话框
-        # 前置校验保证错开（apps/capture/views.py::__show_proxy_port_dialog
-        # 的 try 块之前），这里只走 CONFIG 持久化与 MitmFacade.set_channels。
-        CONFIG.set(CONFIG.reverse_enabled, use_reverse)
-        CONFIG.set(CONFIG.reverse_target, reverse_target)
-        CONFIG.set(CONFIG.reverse_port, reverse_port)
-        # SOCKS5 两参落盘：与 reverse 同姿态，监听地址跟随全局 listen_host。
-        CONFIG.set(CONFIG.socks5_enabled, use_socks5)
-        CONFIG.set(CONFIG.socks5_port, socks5_port)
-        # 上游代理四参落盘：它替换的是 regular 槽位（不是第五条通道），凭证明文
-        # 落盘，语义见 core/settings.py 的注释。
-        CONFIG.set(CONFIG.upstream_enabled, use_upstream)
-        CONFIG.set(CONFIG.upstream_target, upstream_target)
-        CONFIG.set(CONFIG.upstream_username, upstream_username)
-        CONFIG.set(CONFIG.upstream_password, upstream_password)
-        # 提交意图：抓包中会顺带热更 mode 列表与 block 联动（runtime 内部处理）。
+        # 内核先完整验证/准备/应用，成功后才保存意图；多设备固定会话冲突、
+        # 密钥文件损坏或写入失败都不得污染已保存的通道配置。
         self._mitm.set_channels(
             use_local=use_local,
             local_spec=local_spec,
@@ -991,6 +976,25 @@ class CaptureController(QObject):
             upstream_username=upstream_username,
             upstream_password=upstream_password,
         )
+        CONFIG.set(CONFIG.system_proxy_enabled, use_system_proxy)
+        CONFIG.set(CONFIG.local_enabled, use_local)
+        CONFIG.set(CONFIG.local_spec, local_spec)
+        CONFIG.set(CONFIG.wireguard_enabled, use_wireguard)
+        # reverse 三参落盘：reverse 与 regular 共用 listen_host，端口由对话框
+        # 前置校验保证错开（apps/capture/views.py::__show_proxy_port_dialog
+        # 的 try 块之前），内核成功应用后持久化。
+        CONFIG.set(CONFIG.reverse_enabled, use_reverse)
+        CONFIG.set(CONFIG.reverse_target, reverse_target)
+        CONFIG.set(CONFIG.reverse_port, reverse_port)
+        # SOCKS5 两参落盘：与 reverse 同姿态，监听地址跟随全局 listen_host。
+        CONFIG.set(CONFIG.socks5_enabled, use_socks5)
+        CONFIG.set(CONFIG.socks5_port, socks5_port)
+        # 上游代理四参落盘：它替换的是 regular 槽位（不是第五条通道），凭证明文
+        # 落盘，语义见 core/settings.py 的注释。
+        CONFIG.set(CONFIG.upstream_enabled, use_upstream)
+        CONFIG.set(CONFIG.upstream_target, upstream_target)
+        CONFIG.set(CONFIG.upstream_username, upstream_username)
+        CONFIG.set(CONFIG.upstream_password, upstream_password)
         self.channels_changed.emit()
 
         if self._capture_state != CaptureState.RUNNING:

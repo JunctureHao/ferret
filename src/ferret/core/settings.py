@@ -146,6 +146,10 @@ class Config(QConfig):
                 message = QCoreApplication.translate(
                     "Config", "配置项 {} 无效，已使用默认值。"
                 )
+            elif kind == "wireguard":
+                message = QCoreApplication.translate(
+                    "Config", "WireGuard 设备配置无效，已停用设备接入：{}"
+                )
             else:
                 message = QCoreApplication.translate(
                     "Config", "无法读取配置，已使用默认值；原文件将保留：{}"
@@ -415,6 +419,14 @@ class Config(QConfig):
         group="Proxy",
         name="WireGuardEnabled",
         default=False,
+    )
+
+    # None migrates the old single-device identity; [] deliberately keeps all
+    # devices removed. Private keys stay in managed files under the certs dir.
+    wireguard_devices = ConfigItem(
+        group="Proxy",
+        name="WireGuardDevices",
+        default=None,
     )
 
     # 反向代理通道（docs/design.md#capture）：把 ferret 架在目标服务前面，客户端

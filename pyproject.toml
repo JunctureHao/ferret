@@ -1,6 +1,6 @@
 [project]
 name = "ferret"
-version = "0.1.8"
+version = "0.1.9"
 description = "Windows Desktop Packet Capture Tool: mitmproxy Core + PySide6 / QFluentWidgets GUI"
 license = "GPL-3.0-only"
 readme = "README.md"

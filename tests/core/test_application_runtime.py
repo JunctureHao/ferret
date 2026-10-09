@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import os
 import unittest
+from copy import deepcopy
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QCoreApplication
 
+from ferret.core.mitm.wireguard import WireGuardDevice
 from ferret.core.runtime import ApplicationRuntime
+from ferret.core.settings import CONFIG
 
 
 class ApplicationRuntimeTests(unittest.TestCase):
@@ -90,3 +93,51 @@ class ApplicationRuntimeTests(unittest.TestCase):
         self.assertEqual(self.facade.stop_capture_recording.call_count, 2)
         self.kernel.stop.assert_called_once()
         self.assertEqual(self.runtime.last_shutdown_error, "")
+
+
+class WireGuardStartupRegistryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.app = QCoreApplication.instance() or QCoreApplication([])
+        previous = deepcopy(CONFIG.wireguard_devices.value)
+        warnings = CONFIG.load_warnings[:]
+        self.addCleanup(setattr, CONFIG.wireguard_devices, "value", previous)
+        self.addCleanup(setattr, CONFIG, "load_warnings", warnings)
+
+    def build(self):
+        with (
+            patch("ferret.core.runtime.MitmRuntime") as kernel,
+            patch("ferret.core.runtime.MitmFacade"),
+            patch("ferret.core.runtime.SystemProxyService"),
+            patch("ferret.core.runtime.log"),
+        ):
+            ApplicationRuntime()
+        return kernel.call_args.kwargs
+
+    def test_legacy_and_explicit_empty_registries_remain_distinct_at_startup(
+        self,
+    ) -> None:
+        CONFIG.wireguard_devices.value = None
+        self.assertEqual(
+            self.build()["wireguard_devices"], [WireGuardDevice("default", "")]
+        )
+        CONFIG.wireguard_devices.value = []
+        self.assertEqual(self.build()["wireguard_devices"], [])
+
+    def test_saved_devices_are_passed_to_kernel_with_stable_keys_and_ports(
+        self,
+    ) -> None:
+        devices = [
+            WireGuardDevice("phone-a", "A"),
+            WireGuardDevice("phone-b", "B", 51821, False, 2),
+        ]
+        CONFIG.wireguard_devices.value = [device.to_dict() for device in devices]
+        self.assertEqual(self.build()["wireguard_devices"], devices)
+
+    def test_corrupt_registry_reports_failure_without_reviving_legacy_peer(
+        self,
+    ) -> None:
+        CONFIG.wireguard_devices.value = [{"id": "phone-a"}]
+        self.assertEqual(self.build()["wireguard_devices"], [])
+        self.assertEqual(CONFIG.wireguard_devices.value, [])
+        self.assertEqual(CONFIG.load_warnings[-1][0], "wireguard")
+        self.assertIn("已停用设备接入", CONFIG.recovery_messages()[-1])

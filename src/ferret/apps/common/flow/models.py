@@ -367,6 +367,14 @@ class FlowTableModel(QAbstractTableModel):
         self._source.remove(flow_ids)
 
 
+def _device_label(row: FlowRow) -> str:
+    if row.wireguard_device_name or row.wireguard_device_id:
+        return row.wireguard_device_name or row.wireguard_device_id
+    if row.is_wireguard:
+        return QCoreApplication.translate("FlowTableModel", "未知设备")
+    return ""
+
+
 def flow_cell(row: FlowRow, column_name: str, role: int):
     """FlowTableModel 与 FlowConnTreeModel 子行共用的单元格渲染。
 
@@ -377,6 +385,16 @@ def flow_cell(row: FlowRow, column_name: str, role: int):
     渲染只读 Qt 侧自己的不可变数据，不再触碰任何 flow 对象。
     """
     translate = QCoreApplication.translate
+
+    if column_name == "Device":
+        if role == Qt.ItemDataRole.DisplayRole:
+            return _device_label(row)
+        if role == SORT_ROLE:
+            return _device_label(row).casefold()
+        if role == Qt.ItemDataRole.ToolTipRole and row.wireguard_device_id:
+            return translate(
+                "FlowTableModel", "WireGuard 设备：{name}\n设备 ID：{id}"
+            ).format(name=_device_label(row), id=row.wireguard_device_id)
 
     if not row.is_http:
         if role == Qt.ItemDataRole.DisplayRole:
@@ -535,6 +553,9 @@ class _ConnNode:
                 return f.client_tls
         return "TCP"
 
+    def device_label(self) -> str:
+        return next((_device_label(row) for row in self.flows if row.is_wireguard), "")
+
     def conn_label(self) -> str:
         client = self.client_address() or QCoreApplication.translate(
             "FlowConnTreeModel", "未知客户端"
@@ -681,6 +702,8 @@ class FlowConnTreeModel(QAbstractItemModel):
                 return len(node.flows)
             if column_name == "URL":
                 return node.conn_label()
+            if column_name == "Device":
+                return node.device_label()
             if column_name == "Type":
                 # 与子行 `_mime_label` 同一约定：Type 列一律小写。
                 return node.transport_label().lower()
@@ -699,6 +722,8 @@ class FlowConnTreeModel(QAbstractItemModel):
                 return end if end is not None else -1.0
             if column_name == "URL":
                 return node.conn_label().lower()
+            if column_name == "Device":
+                return node.device_label().casefold()
             if column_name == "Type":
                 return node.transport_label().lower()
             return ""
@@ -892,6 +917,8 @@ class FlowConnTreeModel(QAbstractItemModel):
             "kind": "connection",
             "conn_id": node.conn_id,
             "client": node.client_address(),
+            "device": node.device_label(),
+            "device_id": first.wireguard_device_id if first else "",
             "targets": node.hosts(),
             "transport": node.transport_label(),
             "tls_version": first.client_tls or None if first else None,

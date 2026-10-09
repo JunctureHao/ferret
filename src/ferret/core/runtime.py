@@ -10,6 +10,7 @@ from ferret.core.mitm import (
     MitmFacade,
     MitmRuntime,
     validate_local_spec,
+    wireguard_devices_from_config,
 )
 from ferret.core.network import normalize_listen_host, normalize_listen_port
 from ferret.core.settings import CONFIG, get_config_dir
@@ -62,6 +63,20 @@ class ApplicationRuntime(QObject):
         reverse_target = str(CONFIG.get(CONFIG.reverse_target) or "")
         reverse_port = normalize_listen_port(CONFIG.get(CONFIG.reverse_port))
         upstream_target = str(CONFIG.get(CONFIG.upstream_target) or "")
+        try:
+            wireguard_devices = wireguard_devices_from_config(
+                CONFIG.get(CONFIG.wireguard_devices)
+            )
+        except (ValueError, TypeError) as exc:
+            # A malformed registry is not a legacy installation: recreating the
+            # default peer here could reactivate credentials the user revoked.
+            wireguard_devices = []
+            CONFIG.set(CONFIG.wireguard_devices, [], save=False)
+            CONFIG.load_warnings.append(("wireguard", str(exc)))
+            try:
+                log.warning("Invalid WireGuard device registry: %s", exc)
+            except RuntimeError:
+                pass
         return MitmRuntime(
             self,
             listen_host=normalize_listen_host(CONFIG.get(CONFIG.listen_host)),
@@ -71,6 +86,7 @@ class ApplicationRuntime(QObject):
             use_local=bool(CONFIG.get(CONFIG.local_enabled)),
             local_spec=local_spec,
             use_wireguard=bool(CONFIG.get(CONFIG.wireguard_enabled)),
+            wireguard_devices=wireguard_devices,
             use_reverse=bool(CONFIG.get(CONFIG.reverse_enabled)),
             reverse_target=reverse_target,
             reverse_port=reverse_port,

@@ -48,6 +48,7 @@ from ferret.core.mitm.io import (
 )
 from ferret.core.mitm.sse import FerretSseAddon
 from ferret.core.mitm.view import FerretView
+from ferret.core.mitm.wireguard_source import WireGuardSourceAddon
 
 
 class FerretMaster(Master):
@@ -69,6 +70,7 @@ class FerretMaster(Master):
         self._legacy_log_events.uninstall()
         self.view = view if view is not None else FerretView()
         self.proxyserver = Proxyserver()
+        self.wireguard_source = WireGuardSourceAddon()
         self.readfile = FerretReadFile()
         self.client_playback = ClientPlayback()
         self.gateway = GatewayState()
@@ -119,6 +121,11 @@ class FerretMaster(Master):
             #   明文 h2c 升级必须剥头、先验知识前奏必须杀，关掉只会让这类流坏掉。
             #   （http2 选项关的是 TLS 上的 h2 协商，与此正交，开关在设置页。）
             StripDnsHttpsRecords(),
+            # 来源标注必须紧跟兼容垫片、远早于 View.request：按 client_conn.proxy_mode
+            # 把每条流量钉到对应 WireGuard 设备（见 wireguard_source.py），只读连接元
+            # 数据、写 flow.metadata，与下方 AntiCache/AntiComp 的请求改写正交。不插在
+            # block→strip_dns_https_records 之间是为保原生相邻序（test_block 钉死）。
+            self.wireguard_source,
             AntiCache(),
             AntiComp(),
             self.client_playback,

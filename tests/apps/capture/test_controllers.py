@@ -1048,6 +1048,56 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertEqual(CONFIG.get(CONFIG.local_spec), "")
         self.assertEqual(runtime.local_spec, "")
 
+    def test_channel_apply_failure_keeps_all_persisted_intent_values(self) -> None:
+        controller, _, facade, _ = self.make_controller()
+        names = (
+            "system_proxy_enabled",
+            "local_enabled",
+            "local_spec",
+            "wireguard_enabled",
+            "reverse_enabled",
+            "reverse_target",
+            "reverse_port",
+            "socks5_enabled",
+            "socks5_port",
+            "upstream_enabled",
+            "upstream_target",
+            "upstream_username",
+            "upstream_password",
+        )
+        original = {name: CONFIG.get(getattr(CONFIG, name)) for name in names}
+        errors = (
+            ValueError("multiple WireGuard devices cannot use sticky sessions"),
+            OSError("WireGuard key file cannot be written"),
+        )
+        for error in errors:
+            with (
+                self.subTest(error=type(error).__name__),
+                patch.object(facade, "set_channels", side_effect=error),
+                patch.object(CONFIG, "save") as save,
+            ):
+                with self.assertRaises(type(error)):
+                    controller.update_channels(
+                        use_system_proxy=not original["system_proxy_enabled"],
+                        use_local=True,
+                        local_spec="new-process",
+                        use_wireguard=True,
+                        use_reverse=True,
+                        reverse_target="https://new.example",
+                        reverse_port=8093,
+                        use_socks5=True,
+                        socks5_port=1093,
+                        use_upstream=True,
+                        upstream_target="http://proxy.example:3128",
+                        upstream_username="new-user",
+                        upstream_password="new-password",
+                    )
+                save.assert_not_called()
+                self.assertEqual(
+                    {name: CONFIG.get(getattr(CONFIG, name)) for name in names},
+                    original,
+                )
+
     def test_disabling_local_skips_filter_validation(self) -> None:
         """关闭本地重定向不被残留过滤串卡住（坏值仅落盘，开启时再拦）。"""
         controller, runtime, _, _ = self.make_controller()

@@ -1,5 +1,6 @@
 import os
 import unittest
+from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -7,6 +8,7 @@ from mitmproxy.test import tflow
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import QApplication
 
+from ferret.apps.common.flow.columns import logical_index
 from ferret.apps.common.flow.models import (
     HIGHLIGHT_ROLE,
     SORT_ROLE,
@@ -92,6 +94,26 @@ class FlowConnTreeModelTests(unittest.TestCase):
         )
         self.assertEqual(model.child_count(), 3)
         self.assertEqual(model.rowCount(), 2)
+
+    def test_device_identity_is_visible_on_parent_child_and_connection_detail(
+        self,
+    ) -> None:
+        row = replace(
+            self.flow_on("conn-A"),
+            wireguard_device_id="phone-a",
+            wireguard_device_name="Phone A",
+            is_wireguard=True,
+        )
+        model = self.model_with(row)
+        parent = model.index(0, 0)
+        column = logical_index("device")
+        self.assertEqual(model.data(model.index(0, column)), "Phone A")
+        self.assertEqual(model.data(model.index(0, column, parent)), "Phone A")
+        node = model.node_at(parent)
+        assert node is not None
+        detail = model.connection_detail(node)
+        self.assertEqual(detail["device"], "Phone A")
+        self.assertEqual(detail["device_id"], "phone-a")
 
     # ------------------------------------------------------------------
     # 聚合列

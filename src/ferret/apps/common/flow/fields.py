@@ -678,6 +678,14 @@ SECTIONS: tuple[Section, ...] = (
         collapsed=True,
         when=_any_value("Connection ID", "Back Connection ID"),
         fields=(
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "WireGuard 设备"), "WireGuard Device"
+            ),
+            Field(
+                QT_TRANSLATE_NOOP("FlowFields", "设备 ID"),
+                "WireGuard Device ID",
+                mono=True,
+            ),
             Field(QT_TRANSLATE_NOOP("FlowFields", "代理模式"), "Client Proxy Mode"),
             _peer_section(
                 QT_TRANSLATE_NOOP("FlowFields", "前端"), "Front", "Connection ID"

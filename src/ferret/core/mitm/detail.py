@@ -34,6 +34,7 @@ from ferret.core.mitm.sse import (
     SseFeeder,
     is_event_stream,
 )
+from ferret.core.mitm.wireguard_source import is_wireguard_flow, wireguard_source
 from ferret.core.mitm.wsframe import (
     WS_FRAME_LIMIT,
     WsClose,
@@ -372,6 +373,15 @@ def request_fields(flow: HTTPFlow) -> dict[str, Any]:
             fields["Client Mitm Certificate"] = client_conn.mitmcert.cn or ""
         if client_conn.proxy_mode is not None:
             fields["Client Proxy Mode"] = client_conn.proxy_mode.full_spec
+    device_id, device_name = wireguard_source(flow)
+    if device_id or is_wireguard_flow(flow):
+        fields["WireGuard Device"] = (
+            device_name
+            or device_id
+            or QCoreApplication.translate("FlowDetail", "未知设备")
+        )
+        if device_id:
+            fields["WireGuard Device ID"] = device_id
     if request.trailers:
         fields["Request Trailers"] = flatten_multi(request.trailers.items(multi=True))
     return fields

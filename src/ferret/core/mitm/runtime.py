@@ -10,6 +10,7 @@ from collections.abc import Callable
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import StrEnum
+from threading import Lock
 from typing import Any
 
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QThread, Signal
@@ -21,7 +22,9 @@ from ferret.core.mitm.bindings import (
     LocalRedirectorInstance,
     Options,
     OptionsError,
+    ProxyMode,
     View,
+    WireGuardServerInstance,
     net_tls,
     parse_filter,
 )
@@ -43,12 +46,18 @@ from ferret.core.mitm.modes import (
     capture_mode_specs,
     ensure_wireguard_conf,
     validate_mode_specs,
+    wireguard_mode_spec,
 )
 from ferret.core.mitm.rewrite import RewriteRule, RewriteRuleSet
 from ferret.core.mitm.rows import flow_row
 from ferret.core.mitm.scripts import ScriptEntry
 from ferret.core.mitm.ui_events import UiEventQueue
 from ferret.core.mitm.view import FerretView
+from ferret.core.mitm.wireguard import (
+    WireGuardDevice,
+    validate_wireguard_devices,
+    wireguard_devices_from_config,
+)
 from ferret.core.mitm.wsframe import latest_frame, ws_close, ws_frame_offset
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, normalize_listen_host
 from ferret.core.settings import get_certs_dir
@@ -390,7 +399,7 @@ class _MitmThread(QThread):
         # 先到者定密钥，后到者复用。消灭「内核正在 _start 写文件，同一瞬间用户
         # 点二维码」的窗口（facade 侧也走 open("x")，谁赢都用同一份）。
         if self.runtime.use_wireguard:
-            ensure_wireguard_conf(get_certs_dir() / "wireguard.conf")
+            self.runtime._prepare_wireguard_keys()
         options = Options(
             listen_host=self.runtime.listen_host,
             listen_port=self.runtime.listen_port,
@@ -398,6 +407,7 @@ class _MitmThread(QThread):
             mode=self.runtime._mode_specs(),
         )
         master = FerretMaster(options, event_loop=self.loop, view=self.runtime.view)
+        self.runtime._set_wireguard_sources(master)
         bridge = UiBridgeAddon(
             self.runtime.view,
             self.runtime,
@@ -796,6 +806,7 @@ class MitmRuntime(QObject):
         use_local: bool = False,
         local_spec: str = "",
         use_wireguard: bool = False,
+        wireguard_devices: list[WireGuardDevice] | None = None,
         use_reverse: bool = False,
         reverse_target: str = "",
         reverse_port: int = 8081,
@@ -835,6 +846,12 @@ class MitmRuntime(QObject):
         self.use_local = use_local
         self.local_spec = local_spec
         self.use_wireguard = use_wireguard
+        self.wireguard_devices = tuple(
+            wireguard_devices_from_config(None)
+            if wireguard_devices is None
+            else wireguard_devices
+        )
+        validate_wireguard_devices(self.wireguard_devices)
         # reverse 三意图值（docs/design.md#capture）：目标与端口落盘，激活
         # 与否跟随 `use_reverse` + `channels_engaged` 两个开关。reverse 与
         # regular 共用 self.listen_host（spec 里的 @ 地址），spec 端口由调用方
@@ -946,6 +963,8 @@ class MitmRuntime(QObject):
         # 给的原样路径**（可以带 ~）：原生 addons/core.py 与 tlsconfig.py 两处都自己
         # expanduser，我们展开了反而让这份内存副本与 options 对不上。
         self.client_certs_path = client_certs_path
+        self._wireguard_changing = False
+        self._wireguard_edit_lock = Lock()
 
         self._master_created.connect(self._on_master_created)
         self._master_running.connect(self._on_master_running)
@@ -979,6 +998,7 @@ class MitmRuntime(QObject):
             use_local=engaged and self.use_local,
             local_spec=self.local_spec,
             use_wireguard=engaged and self.use_wireguard,
+            wireguard_specs=list(self._wireguard_specs()),
             use_reverse=engaged and self.use_reverse,
             reverse_target=self.reverse_target,
             reverse_port=self.reverse_port,
@@ -988,6 +1008,245 @@ class MitmRuntime(QObject):
             upstream_target=self.upstream_target,
             listen_host=self.listen_host,
         )
+
+    def _wireguard_specs(
+        self, devices: tuple[WireGuardDevice, ...] | None = None
+    ) -> dict[str, WireGuardDevice]:
+        devices = self.wireguard_devices if devices is None else devices
+        return {
+            wireguard_mode_spec(
+                None
+                if device.id == "default" and device.key_revision == 0
+                else device.key_path(get_certs_dir()),
+                port=device.port,
+            ): device
+            for device in devices
+            if device.enabled
+        }
+
+    def _has_wireguard_devices(self) -> bool:
+        return self.use_wireguard and any(d.enabled for d in self.wireguard_devices)
+
+    def _prepare_wireguard_keys(self) -> None:
+        for device in self.wireguard_devices:
+            if device.enabled:
+                ensure_wireguard_conf(device.key_path(get_certs_dir()))
+
+    def _set_wireguard_sources(self, master: FerretMaster) -> None:
+        master.wireguard_source.set_devices(
+            {
+                spec: (device.id, device.display_name)
+                for spec, device in self._wireguard_specs().items()
+            }
+        )
+
+    def _check_wireguard_change(self) -> None:
+        if self._wireguard_changing:
+            raise ValueError(
+                QCoreApplication.translate(
+                    "MitmRuntime", "正在更新 WireGuard 设备，请稍后重试。"
+                )
+            )
+
+    def _validate_wireguard_sticky(self, enabled: bool | None = None) -> None:
+        sticky = self.sticky_session_enabled if enabled is None else enabled
+        if (
+            sticky
+            and self.use_wireguard
+            and sum(device.enabled for device in self.wireguard_devices) > 1
+        ):
+            raise ValueError(
+                QCoreApplication.translate(
+                    "MitmRuntime",
+                    "多台 WireGuard 设备不能同时使用全局固定会话，请先关闭固定会话，避免共享登录状态。",
+                )
+            )
+
+    def _update_channel_options(
+        self, master: FerretMaster, specs: list[str], **updates: Any
+    ) -> Any:
+        self._set_wireguard_sources(master)
+        removed = {
+            spec for spec in master.options.mode if spec.startswith("wireguard")
+        } - set(specs)
+        if not removed:
+            return master.options.update(mode=specs, **updates)
+
+        async def update() -> None:
+            # First remove old WG modes through the native manager, retaining
+            # listener handles until shutdown completes. No other mode changes
+            # in this intermediate step, so surviving devices keep their stacks.
+            await master.proxyserver.setup_servers()
+            saved = {key: getattr(master.options, key) for key in updates}
+            saved["mode"] = list(master.options.mode)
+            handles = [
+                handle
+                for server in master.proxyserver.servers
+                if isinstance(server, WireGuardServerInstance)
+                and server.mode.full_spec in removed
+                for handle in server._servers
+            ]
+            detached = False
+            try:
+                # Remove the instances from the native registry as well as
+                # closing sockets. Otherwise rollback reuses closed handles
+                # whose nonempty _servers list falsely reports is_running.
+                master.options.update(
+                    mode=[s for s in master.options.mode if s not in removed]
+                )
+                detached = True
+                await master.proxyserver.setup_servers()
+                if handles:
+                    await asyncio.gather(*(h.wait_closed() for h in handles))
+                master.options.update(mode=specs, **updates)
+                await master.proxyserver.setup_servers()
+            except BaseException:
+
+                async def restore() -> None:
+                    if detached:
+                        # Cancellation can arrive while Rust is still closing.
+                        # Finish the native removal and drain before rebinding.
+                        await master.proxyserver.setup_servers()
+                        if handles:
+                            await asyncio.gather(*(h.wait_closed() for h in handles))
+                    # Drain any newly started replacements before restoring the
+                    # old port. The normal path also rebuilds removed instances.
+                    result = self._update_channel_options(
+                        master,
+                        saved["mode"],
+                        **{key: value for key, value in saved.items() if key != "mode"},
+                    )
+                    if inspect.isawaitable(result):
+                        await result
+                    await master.proxyserver.setup_servers()
+                    failed = [
+                        s.mode.full_spec
+                        for s in master.proxyserver.servers
+                        if isinstance(s, WireGuardServerInstance)
+                        and s.mode.full_spec in saved["mode"]
+                        and not s.is_running
+                    ]
+                    if failed:
+                        raise RuntimeError(
+                            QCoreApplication.translate(
+                                "MitmRuntime", "WireGuard 设备启动失败：{}"
+                            ).format("; ".join(failed))
+                        )
+
+                await asyncio.shield(restore())
+                raise
+
+        return update()
+
+    def apply_wireguard_devices(self, devices: list[WireGuardDevice]) -> None:
+        """Apply a device edit; await WG liveness and roll back failed additions.
+
+        Callers perform file work off the GUI thread and persist the successful
+        registry on the GUI thread. Unchanged specs retain their native instance.
+        """
+        if not self._wireguard_edit_lock.acquire(blocking=False):
+            raise ValueError(
+                QCoreApplication.translate(
+                    "MitmRuntime", "正在更新 WireGuard 设备，请稍后重试。"
+                )
+            )
+        self._wireguard_changing = True
+        try:
+            self._apply_wireguard_devices(devices)
+        finally:
+            self._wireguard_changing = False
+            self._wireguard_edit_lock.release()
+
+    def _apply_wireguard_devices(self, devices: list[WireGuardDevice]) -> None:
+        validate_wireguard_devices(devices)
+        if self.state in (MitmRuntimeState.STARTING, MitmRuntimeState.STOPPING):
+            raise ValueError(
+                QCoreApplication.translate(
+                    "MitmRuntime", "抓包内核正在启停，请稍后修改 WireGuard 设备。"
+                )
+            )
+        previous = self.wireguard_devices
+        self.wireguard_devices = tuple(devices)
+        try:
+            if self.channels_engaged:
+                self._validate_wireguard_sticky()
+            self._prepare_wireguard_keys()
+            specs = self._mode_specs()
+            validate_mode_specs(specs)
+            # Wildcard WG sockets also conflict with a reverse HTTPS listener
+            # bound to loopback. Native configure only catches identical hosts.
+            ports = {d.port for d in devices if d.enabled}
+            for spec in specs:
+                mode = ProxyMode.parse(spec)
+                if (
+                    mode.type_name != "wireguard"
+                    and mode.transport_protocol in ("udp", "both")
+                    and mode.listen_port(self.listen_port) in ports
+                    and self._has_wireguard_devices()
+                ):
+                    raise ValueError(
+                        QCoreApplication.translate(
+                            "MitmRuntime", "WireGuard 设备端口与其他 UDP 通道冲突。"
+                        )
+                    )
+        except Exception:
+            self.wireguard_devices = previous
+            raise
+        master = self._master
+        if not self.is_running or master is None:
+            return
+
+        async def apply() -> None:
+            assert master is not None
+            old_options = {
+                key: getattr(master.options, key)
+                for key in ("mode", "block_private", "proxyauth")
+            }
+            old_specs = list(old_options.pop("mode"))
+            try:
+                result = self._update_channel_options(
+                    master,
+                    specs,
+                    block_private=self._effective_block_private(),
+                    proxyauth=self._effective_proxyauth(),
+                )
+                if inspect.isawaitable(result):
+                    await result
+                await master.proxyserver.setup_servers()
+                errors = self.wireguard_device_health()
+                failed = [
+                    f"{d.display_name} ({d.port}): {errors.get(d.id, False)}"
+                    for d in self.wireguard_devices
+                    if d.enabled
+                    and self.channels_engaged
+                    and self.use_wireguard
+                    and errors.get(d.id) is not True
+                ]
+                if failed:
+                    raise ValueError(
+                        QCoreApplication.translate(
+                            "MitmRuntime", "WireGuard 设备启动失败：{}"
+                        ).format("; ".join(failed))
+                    )
+            except BaseException:
+                self.wireguard_devices = previous
+
+                async def restore() -> None:
+                    result = self._update_channel_options(
+                        master, old_specs, **old_options
+                    )
+                    if inspect.isawaitable(result):
+                        await result
+                    await master.proxyserver.setup_servers()
+
+                await asyncio.shield(restore())
+                raise
+
+        try:
+            self.call(apply, timeout=15.0)
+        except Exception:
+            self.wireguard_devices = previous
+            raise
 
     def set_channels_engaged(self, engaged: bool) -> None:
         """Open or close the capture session on the kernel.
@@ -1000,6 +1259,11 @@ class MitmRuntime(QObject):
         Raises:
             ValueError: 内核拒绝（坏 spec / 重复监听地址等），内存副本已回滚。
         """
+        self._check_wireguard_change()
+        if engaged:
+            self._validate_wireguard_sticky()
+            if self.use_wireguard:
+                self._prepare_wireguard_keys()
         previous = self.channels_engaged
         self.channels_engaged = engaged
         specs = self._mode_specs()
@@ -1011,8 +1275,9 @@ class MitmRuntime(QObject):
                 # proxyauth 必须与 mode 同一次 update 推下去，理由与
                 # apply_channels 里那条注释同源：分两次推会漏出「local 已接通、
                 # 认证还在挑战」的半拉子中间态，那一瞬里被截流的应用全吃 401。
-                lambda: master.options.update(
-                    mode=specs,
+                lambda: self._update_channel_options(
+                    master,
+                    specs,
                     block_global=self.block_global,
                     block_private=self._effective_block_private(),
                     proxyauth=self._effective_proxyauth(),
@@ -1047,7 +1312,7 @@ class MitmRuntime(QObject):
         socks5_yield = self.use_socks5 and self.listen_host == ANY_HOST
         return self.block_private and not (
             self.channels_engaged
-            and (self.use_wireguard or reverse_yield or socks5_yield)
+            and (self._has_wireguard_devices() or reverse_yield or socks5_yield)
         )
 
     def _upstream_auth(self) -> str | None:
@@ -1121,7 +1386,7 @@ class MitmRuntime(QObject):
             log.warning("代理认证的用户名或密码含冒号，原生无法解析，已停用代理认证")
             return None
         if self.channels_engaged and (
-            self.use_local or self.use_wireguard or self.use_reverse
+            self.use_local or self._has_wireguard_devices() or self.use_reverse
         ):
             return None
         return f"{self.proxyauth_username}:{self.proxyauth_password}"
@@ -1167,6 +1432,7 @@ class MitmRuntime(QObject):
         Raises:
             ValueError: spec 不合法，或内核拒绝（超时/启动失败等，此时内存副本回滚）。
         """
+        self._check_wireguard_change()
         previous = self._channel_intents()
         if use_local is not None:
             self.use_local = use_local
@@ -1195,7 +1461,11 @@ class MitmRuntime(QObject):
         specs = self._mode_specs()
         try:
             validate_mode_specs(specs)
-        except ValueError:
+            if self.channels_engaged:
+                self._validate_wireguard_sticky()
+                if self.use_wireguard:
+                    self._prepare_wireguard_keys()
+        except Exception:
             self._restore_intents(previous)
             raise
 
@@ -1213,8 +1483,9 @@ class MitmRuntime(QObject):
                 # local / wireguard / reverse 要让路（_effective_proxyauth），分两
                 # 次推就会漏出「通道已接通、认证还在挑战」的一瞬，那一瞬里被
                 # 截流的应用全吃 401。
-                lambda: master.options.update(
-                    mode=specs,
+                lambda: self._update_channel_options(
+                    master,
+                    specs,
                     upstream_auth=self._upstream_auth(),
                     block_global=self.block_global,
                     block_private=self._effective_block_private(),
@@ -1568,6 +1839,9 @@ class MitmRuntime(QObject):
         hosts 缓存刻意不倒，重开开关立即复用（只在代理内存、不落盘）。
         """
         wanted = self.sticky_session_enabled if enabled is None else enabled
+        self._check_wireguard_change()
+        if self.channels_engaged:
+            self._validate_wireguard_sticky(wanted)
         previous = self.sticky_session_enabled
         self.sticky_session_enabled = wanted
         master = self._master
@@ -1803,6 +2077,32 @@ class MitmRuntime(QObject):
             return 0
         return int(self.call(lambda: master.intercept_state.release_all()))
 
+    def wireguard_device_health(self) -> dict[str, bool | str]:
+        """Per-device listener state, read only on the mitm thread."""
+        expected = self._wireguard_specs()
+        health: dict[str, bool | str] = {d.id: False for d in self.wireguard_devices}
+        master = self._master
+        if (
+            not self.is_running
+            or master is None
+            or not self.channels_engaged
+            or not self.use_wireguard
+        ):
+            return health
+        servers = {s.mode.full_spec: s for s in master.proxyserver.servers}
+        for spec, device in expected.items():
+            server = servers.get(spec)
+            if server is None:
+                if not master.proxyserver.servers.is_updating:
+                    health[device.id] = QCoreApplication.translate(
+                        "MitmRuntime", "WireGuard 监听实例缺失。"
+                    )
+            elif server.is_running:
+                health[device.id] = True
+            elif server.last_exception is not None:
+                health[device.id] = str(server.last_exception)
+        return health
+
     def channel_health(self) -> dict[str, bool | str]:
         """Report per-channel liveness of the running kernel.
 
@@ -1822,7 +2122,7 @@ class MitmRuntime(QObject):
             if spec.startswith("local"):
                 key = "local"
             elif spec.startswith("wireguard"):
-                key = "wireguard"
+                continue
             elif spec.startswith("reverse"):
                 key = "reverse"
             elif spec.startswith("socks5"):
@@ -1832,6 +2132,20 @@ class MitmRuntime(QObject):
             health[key] = server.is_running
             if not server.is_running and server.last_exception is not None:
                 health[key] = str(server.last_exception)
+        if self.channels_engaged and self._has_wireguard_devices():
+            devices = self.wireguard_device_health()
+            errors = [
+                f"{d.display_name} ({d.port}): {devices[d.id]}"
+                for d in self.wireguard_devices
+                if d.enabled and isinstance(devices[d.id], str)
+            ]
+            health["wireguard"] = (
+                "; ".join(errors)
+                if errors
+                else all(
+                    devices[d.id] is True for d in self.wireguard_devices if d.enabled
+                )
+            )
         return health
 
     def apply_block_options(
@@ -2072,6 +2386,7 @@ class MitmRuntime(QObject):
         }
 
         def finish_configuration() -> None:
+            self._set_wireguard_sources(master)
             master.options.update(**updates)
             # The worker's initial seeds can predate edits made while STARTING.
             # Reuse their validation/fallbacks on the mitm thread before ready;

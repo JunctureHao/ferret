@@ -11,8 +11,8 @@
   `flow_cell` / `_conn_data` 按它分派渲染。逻辑列顺序＝`HEADERS` 顺序恒定不动，
   所以 key→逻辑列是一张常量表（`logical_index`）。
 
-显示标题走 `column_display_title`：context 钉死 "FlowTableModel"，只有 `mark`
-译成「标记」、其余列头用 header 原文 —— 与 `headerData` 同一条翻译路径（§4.4），
+显示标题走 `column_display_title`：context 钉死 "FlowTableModel"，有标记的列
+求值译文、其余列头用 header 原文 —— 与 `headerData` 同一条翻译路径（§4.4），
 列设置对话框和表头必须复用它，不另起 context。
 """
 
@@ -93,6 +93,16 @@ COLUMNS: tuple[ColumnDef, ...] = (
     ),
     ColumnDef(
         "time", "Time", None, True, 80, required=False, pinned=False, fixed_width=False
+    ),
+    ColumnDef(
+        "device",
+        "Device",
+        QT_TRANSLATE_NOOP("FlowTableModel", "设备"),
+        True,
+        120,
+        required=False,
+        pinned=False,
+        fixed_width=False,
     ),
 )
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Collection
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -46,6 +47,7 @@ from ferret.core.mitm.intercept import (
 )
 from ferret.core.mitm.io import FlowFile, flow_import
 from ferret.core.mitm.modes import (
+    WIREGUARD_PORT,
     ensure_wireguard_conf,
     reverse_mode_spec,
     socks5_mode_spec,
@@ -60,6 +62,8 @@ from ferret.core.mitm.rows import FlowRow, flow_row
 from ferret.core.mitm.runtime import MitmRuntime
 from ferret.core.mitm.scripts import ScriptEntry, ScriptStatus
 from ferret.core.mitm.sse import SseEvent
+from ferret.core.mitm.wireguard import WireGuardDevice, validate_wireguard_devices
+from ferret.core.mitm.wireguard_source import clear_wireguard_source
 from ferret.core.mitm.wsframe import (
     WS_FRAME_LIMIT,
     WsClose,
@@ -324,14 +328,82 @@ class MitmFacade:
             return {}
         return self.runtime.call(self.runtime.channel_health)
 
-    def wireguard_client_config(self) -> str:
+    @property
+    def channels_engaged(self) -> bool:
+        return self.runtime.channels_engaged
+
+    @property
+    def wireguard_devices(self) -> list[WireGuardDevice]:
+        return list(self.runtime.wireguard_devices)
+
+    def new_wireguard_device(self, name: str) -> WireGuardDevice:
+        used = {d.port for d in self.wireguard_devices}
+        # Reserve reverse's UDP side even before capture starts. Binding remains
+        # authoritative; another process may claim the chosen port afterwards.
+        if self.runtime.use_reverse and self.runtime.reverse_target.startswith("https"):
+            used.add(self.runtime.reverse_port)
+        port = next((p for p in range(WIREGUARD_PORT, 65536) if p not in used), None)
+        if port is None:
+            raise ValueError(
+                QCoreApplication.translate(
+                    "MitmFacade", "没有可分配的 WireGuard 设备端口。"
+                )
+            )
+        device = WireGuardDevice(id=uuid4().hex, name=name.strip(), port=port)
+        validate_wireguard_devices([device])
+        return device
+
+    def set_wireguard_devices(self, devices: list[WireGuardDevice]) -> None:
+        """Prepare/apply devices off the GUI thread; the caller persists on success."""
+        validate_wireguard_devices(devices)
+        previous = {d.id: d for d in self.wireguard_devices}
+        for device in devices:
+            if (
+                device.id not in previous
+                or previous[device.id].key_revision != device.key_revision
+            ):
+                ensure_wireguard_conf(device.key_path(get_certs_dir()))
+        self.runtime.apply_wireguard_devices(devices)
+
+    def rotate_wireguard_device(self, device_id: str) -> None:
+        devices = self.wireguard_devices
+        device = self._wireguard_device(device_id)
+        replacement = replace(device, key_revision=device.key_revision + 1)
+        while replacement.key_path(get_certs_dir()).exists():
+            replacement = replace(
+                replacement, key_revision=replacement.key_revision + 1
+            )
+        self.set_wireguard_devices(
+            [replacement if d.id == device_id else d for d in devices]
+        )
+
+    def _wireguard_device(self, device_id: str | None) -> WireGuardDevice:
+        devices = self.wireguard_devices
+        if device_id is None and devices:
+            return next((d for d in devices if d.id == "default"), devices[0])
+        for device in devices:
+            if device.id == device_id:
+                return device
+        raise ValueError(
+            QCoreApplication.translate(
+                "MitmFacade", "WireGuard 设备不存在，请重新选择。"
+            )
+        )
+
+    def wireguard_device_health(self) -> dict[str, bool | str]:
+        if not self.runtime.is_running:
+            return {d.id: False for d in self.wireguard_devices}
+        return self.runtime.call(self.runtime.wireguard_device_health)
+
+    def wireguard_client_config(self, device_id: str | None = None) -> str:
         """The client profile for the WireGuard tunnel, ready to import on a phone.
 
         用户勾上 WireGuard 的那刻就该能拿到码：文件不存在时现场生成（与内核
         ``_start`` 同格式，后到者复用），不再需要「先开始抓包一次」。文件损坏
         或目录不可写时抛已翻译的 ``OSError`` / ``ValueError`` 文案。
         """
-        conf_path = get_certs_dir() / "wireguard.conf"
+        device = self._wireguard_device(device_id)
+        conf_path = device.key_path(get_certs_dir())
         try:
             ensure_wireguard_conf(conf_path)
         except OSError as exc:
@@ -340,15 +412,25 @@ class MitmFacade:
                     "MitmFacade", "无法写入 WireGuard 密钥文件：{}"
                 ).format(exc)
             ) from exc
+        except ValueError as exc:
+            raise ValueError(
+                QCoreApplication.translate(
+                    "MitmFacade",
+                    "WireGuard 设备密钥文件无效，请更换此设备密钥后重新扫码：{}",
+                ).format(conf_path)
+            ) from exc
         try:
-            return wireguard_client_config(conf_path, self.lan_address())
+            return wireguard_client_config(
+                conf_path, self.lan_address(), port=device.port
+            )
         except (ValueError, KeyError, TypeError) as exc:
             # 坏 JSON → JSONDecodeError(ValueError)；缺键 → KeyError；键不是字符串
             # → TypeError；密钥非法 → rs_wireguard.pubkey 的 ValueError。四种都是
             # 同一回事：这份文件没救了，删掉重新生成。
             raise ValueError(
                 QCoreApplication.translate(
-                    "MitmFacade", "WireGuard 密钥文件已损坏，删除 {} 后重试"
+                    "MitmFacade",
+                    "WireGuard 设备密钥文件无效，请更换此设备密钥后重新扫码：{}",
                 ).format(conf_path)
             ) from exc
 
@@ -1286,6 +1368,7 @@ class MitmFacade:
                 replay = flow.copy()
                 # 普通重发沿用抓包闸门，不继承原 Compose 的记录选择。
                 replay.metadata.pop(COMPOSE_RECORD_METADATA_KEY, None)
+                clear_wireguard_source(replay)
                 replay.response = None
                 replay.error = None
                 replay.is_replay = "request"

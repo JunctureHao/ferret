@@ -1,6 +1,6 @@
-"""Capture channel specs: the four ways traffic is allowed to reach the kernel.
+"""Capture channel specs: the five ways traffic is allowed to reach the kernel.
 
-四条通道对应原生 ``mode`` 选项（``mode_specs.ProxyMode``）里的条目，可任意组合：
+五条通道对应原生 ``mode`` 选项（``mode_specs.ProxyMode``）里的条目，可任意组合：
 
 - **系统代理（regular）** —— 内核的常驻底盘，负责监听 TCP 端口；本机客户端与
   局域网设备都连它。「开始/停止抓包」控制的是系统代理注册表与写入闸门，
@@ -9,12 +9,13 @@
   零配置。Windows 上由提权子进程 windows-redirector.exe 实现（首次开启弹 UAC）。
   它不监听任何端口，spec 只认进程名 / PID（逗号分隔，``!`` 取反）。
 - **WireGuard（wireguard）** —— 内核作为 WireGuard 服务端收别的设备接入的流量；
-  UDP 51820，密钥文件由上游写在 confdir（``wireguard.conf``）。
+  每个设备使用独立密钥文件与 UDP 端口，默认设备保留 51820 和旧密钥。
 - **反向代理（reverse）** —— 把 ferret 架在目标服务前面：客户端把监听口当
   服务器直连，一个通道只指向一个固定目标（spec 写死，spec 语法与查重动机见
   ``reverse_mode_spec``）。适配「客户端改不了代理配置」的场景。
+- **SOCKS5（socks5）** —— 独立 TCP 监听端口，使用原生 SOCKS5 CONNECT。
 
-上游代理（upstream）**不是第五条通道**，而是第一个槽位的替换：开启后 ``regular``
+上游代理（upstream）不是独立通道，而是第一个槽位的替换：开启后 ``regular``
 整条换成 ``upstream:<目标>``（见 ``upstream_mode_spec``），监听地址与端口一字不动，
 只把系统代理这条通道的出口从直连换成「先交给上游代理」。local / wireguard / reverse
 的出口仍是直连 —— 它们的实例顶层是 ``TransparentProxy``，而原生只在 upstream 的
@@ -30,7 +31,9 @@ windows-redirector.exe 内嵌字符串逐字一致）在驱动层放行全部环
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,8 +75,11 @@ def local_mode_spec(local_spec: str) -> str:
     return head + LOCAL_DUP_DODGE
 
 
-def wireguard_mode_spec() -> str:
-    return f"wireguard@{WIREGUARD_HOST}:{WIREGUARD_PORT}"
+def wireguard_mode_spec(
+    conf_path: Path | None = None, port: int = WIREGUARD_PORT
+) -> str:
+    head = "wireguard" if conf_path is None else f"wireguard:{conf_path.absolute()}"
+    return f"{head}@{WIREGUARD_HOST}:{port}"
 
 
 REVERSE_DEFAULT_PORT = 8081
@@ -166,6 +172,7 @@ def capture_mode_specs(
     use_local: bool,
     local_spec: str,
     use_wireguard: bool,
+    wireguard_specs: list[str] | None = None,
     use_reverse: bool = False,
     reverse_target: str = "",
     reverse_port: int = REVERSE_DEFAULT_PORT,
@@ -206,7 +213,9 @@ def capture_mode_specs(
     if use_local:
         specs.append(local_mode_spec(local_spec))
     if use_wireguard:
-        specs.append(wireguard_mode_spec())
+        specs.extend(
+            [wireguard_mode_spec()] if wireguard_specs is None else wireguard_specs
+        )
     if use_socks5:
         specs.append(socks5_mode_spec(listen_host, socks5_port))
     return specs
@@ -236,29 +245,59 @@ def validate_local_spec(local_spec: str) -> None:
     validate_mode_specs([local_mode_spec(local_spec)])
 
 
-def ensure_wireguard_conf(conf_path: Path) -> None:
-    """确保 WireGuard 密钥文件存在，键结构与内核写的一致。
+def _wireguard_keys(conf_path: Path) -> tuple[str, str]:
+    """Validate both keys without allowing secret-bearing parser errors out."""
+    try:
+        data = json.loads(conf_path.read_text(encoding="utf-8"))
+        server_key, client_key = data["server_key"], data["client_key"]
+        rs_wireguard.pubkey(server_key)
+        rs_wireguard.pubkey(client_key)
+    except (ValueError, TypeError, KeyError, UnicodeError):
+        raise ValueError(
+            QCoreApplication.translate(
+                "WireGuard", "WireGuard 密钥文件无效：{}"
+            ).format(conf_path)
+        ) from None
+    return server_key, client_key
 
-    内核 WireGuardServerInstance._start() 只在文件不存在时写，所以这里抢先
-    生成不会与它打架：先到者定密钥，后到者复用。用 "x" 独占创建关掉
-    「两边同时发现文件不存在」的竞态，撞上了就认对方那份。缩进按项目 2 空格
-    惯例（内核自己写是 4）：两边读回都只走 json.loads，字节外观无关紧要。
+
+def ensure_wireguard_conf(conf_path: Path) -> None:
+    """Publish complete native key files without replacing an existing identity.
+
+    Linking a flushed temporary file into place publishes both keys at once and
+    fails if another creator won. Existing corrupt files are reported, never
+    silently replaced, so opening a QR code cannot invalidate a device profile.
     """
     if conf_path.exists():
+        _wireguard_keys(conf_path)
         return
     conf_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(
-        {"server_key": rs_wireguard.genkey(), "client_key": rs_wireguard.genkey()},
-        indent=2,
-    )
+    fd, name = tempfile.mkstemp(prefix=f".{conf_path.name}.", dir=conf_path.parent)
+    temporary = Path(name)
     try:
-        with conf_path.open("x", encoding="utf-8") as fp:
-            fp.write(payload)
-    except FileExistsError:
-        return  # 内核（或另一个 ferret 实例）刚写完，用它那份
+        with os.fdopen(fd, "w", encoding="utf-8") as fp:
+            json.dump(
+                {
+                    "server_key": rs_wireguard.genkey(),
+                    "client_key": rs_wireguard.genkey(),
+                },
+                fp,
+                indent=2,
+            )
+            fp.flush()
+            os.fsync(fp.fileno())
+        try:
+            os.link(temporary, conf_path)
+        except FileExistsError:
+            pass
+    finally:
+        temporary.unlink(missing_ok=True)
+    _wireguard_keys(conf_path)
 
 
-def wireguard_client_config(conf_path: Path, lan_address: str | None) -> str:
+def wireguard_client_config(
+    conf_path: Path, lan_address: str | None, port: int = WIREGUARD_PORT
+) -> str:
     """从上游落盘的 ``wireguard.conf``（JSON）生成可导入的客户端配置文本。
 
     上游 `WireGuardServerInstance` 启动时把服务端/客户端密钥写进 confdir 的
@@ -267,10 +306,10 @@ def wireguard_client_config(conf_path: Path, lan_address: str | None) -> str:
     （同机测试仍可用）。文件缺失/损坏抛 ``FileNotFoundError`` / ``ValueError``，
     由调用方转成界面提示。
     """
-    data = json.loads(conf_path.read_text(encoding="utf-8"))
-    server_key, client_key = data["server_key"], data["client_key"]
-    rs_wireguard.pubkey(server_key)  # 校验密钥格式，坏文件在这里炸而不是进了剪贴板
+    server_key, client_key = _wireguard_keys(conf_path)
     endpoint_host = lan_address or "127.0.0.1"
+    if ":" in endpoint_host and not endpoint_host.startswith("["):
+        endpoint_host = f"[{endpoint_host}]"
     return textwrap.dedent(
         f"""
         [Interface]
@@ -281,12 +320,14 @@ def wireguard_client_config(conf_path: Path, lan_address: str | None) -> str:
         [Peer]
         PublicKey = {rs_wireguard.pubkey(server_key)}
         AllowedIPs = 0.0.0.0/0
-        Endpoint = {endpoint_host}:{WIREGUARD_PORT}
+        Endpoint = {endpoint_host}:{port}
         """
     ).strip()
 
 
-def wireguard_qr_matrix(conf_path: Path, lan_address: str | None) -> list[list[bool]]:
+def wireguard_qr_matrix(
+    conf_path: Path, lan_address: str | None, port: int = WIREGUARD_PORT
+) -> list[list[bool]]:
     """客户端配置的 QR 矩阵（不含静区），供界面用 QPainter 自绘。
 
     WireGuard 官方 App 的「扫描二维码」扫的就是 wg-quick 配置原文——解码出的
@@ -294,7 +335,7 @@ def wireguard_qr_matrix(conf_path: Path, lan_address: str | None) -> list[list[b
     `wireguard_client_config` 同源同刻，码和文本框不会各说一套。一份配置实测
     ~224 字节 → 纠错 M 下 version 11（61×61 模块），手机正常扫。
     """
-    return qr_matrix(wireguard_client_config(conf_path, lan_address))
+    return qr_matrix(wireguard_client_config(conf_path, lan_address, port))
 
 
 def qr_matrix(text: str, *, error: str = "m") -> list[list[bool]]:

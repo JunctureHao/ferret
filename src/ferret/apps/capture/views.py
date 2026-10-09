@@ -62,6 +62,7 @@ from qfluentwidgets import (
 from sysproxy import SystemProxyService
 
 from ferret.apps.capture.controllers import CaptureController, CaptureState
+from ferret.apps.capture.wireguard import WireGuardDevicesDialog
 from ferret.apps.common.filter import CaptureFilterActions, FlowFilterErrorPanel
 from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseIcon
@@ -180,9 +181,7 @@ class CapturesInterface(QWidget):
         self.command_bar.deleteUnmarkedRequested.connect(
             self.__on_delete_unmarked_requested
         )
-        self.command_bar.clearMarkedRequested.connect(
-            self.__on_clear_marked_requested
-        )
+        self.command_bar.clearMarkedRequested.connect(self.__on_clear_marked_requested)
 
         # 由共享查看器汇总菜单信号，连接树首次创建后自动接入同一路径。
         self.content.replay_file_requested.connect(self.__on_replay_from_file_requested)
@@ -385,6 +384,7 @@ class CapturesInterface(QWidget):
             proxyauth_username=self.controller.proxyauth_username,
             proxyauth_password=self.controller.proxyauth_password,
             wireguard_config=self.controller.wireguard_client_config,
+            wireguard_facade=self.controller.facade,
         )
         try:
             if not w.exec():
@@ -392,7 +392,7 @@ class CapturesInterface(QWidget):
             # 端口撞车前置（docs/design.md#capture）：把最常见的撞车在对话框侧
             # 拦下，给中文文案；内核拒绝→回滚（plan §7）仍是兜底。注意 reverse 与
             # regular 共用 listen_host，撞端口必炸；reverse_port 还可能与
-            # WIREGUARD_PORT（UDP 侧）撞（reverse https 是 BOTH）。
+            # WireGuard 的设备端口（UDP 侧）撞（reverse https 是 BOTH）。
             reverse_port = w.get_reverse_port()
             listen_port = w.get_port()
             if w.get_use_reverse() and reverse_port == listen_port:
@@ -407,12 +407,18 @@ class CapturesInterface(QWidget):
             if (
                 w.get_use_reverse()
                 and w.get_use_wireguard()
-                and reverse_port == WIREGUARD_PORT
+                and w.get_reverse_target().lower().startswith("https://")
+                and reverse_port
+                in {
+                    device.port
+                    for device in self.controller.facade.wireguard_devices
+                    if device.enabled
+                }
             ):
                 show_warning(
                     self.tr("抓包设置未生效"),
                     self.tr(
-                        "反向代理端口 {} 与 WireGuard UDP 51820 撞车，请换一个。"
+                        "反向代理端口 {} 与 WireGuard 设备的 UDP 端口冲突，请换一个。"
                     ).format(reverse_port),
                     self.window(),
                 )
@@ -534,7 +540,7 @@ class CapturesInterface(QWidget):
                     proxyauth_username=w.get_proxyauth_username(),
                     proxyauth_password=w.get_proxyauth_password(),
                 )
-            except (RuntimeError, TimeoutError, ValueError) as exc:
+            except (OSError, RuntimeError, ValueError) as exc:
                 show_warning(self.tr("抓包设置未生效"), str(exc), self.window())
                 return
             # 监听端点也可能顺带变了（端口在对话框里可改），读回刷新。
@@ -543,9 +549,10 @@ class CapturesInterface(QWidget):
                 endpoint=self.controller.local_endpoint,
                 lan_exposed=self.controller.is_lan_exposed,
             )
-            self._refresh_command_bar()
         finally:
             w.deleteLater()
+            # 设备管理独立保存，父设置取消时也必须刷新已经变化的设备摘要。
+            self._refresh_command_bar()
 
     @Slot(int, int, int)
     def __on_stats_updated(self, total: int, shown: int, selected: int) -> None:
@@ -729,7 +736,10 @@ class CapturesInterface(QWidget):
             label = self.tr("本地重定向")
             parts.append(f"{label} ({spec})" if spec else label)
         if self.controller.use_wireguard:
-            parts.append(self.tr("WireGuard :{}").format(WIREGUARD_PORT))
+            device_count = sum(
+                device.enabled for device in self.controller.facade.wireguard_devices
+            )
+            parts.append(self.tr("WireGuard · {} 台设备").format(device_count))
         if self.controller.use_reverse:
             target = self.controller.reverse_target
             label = self.tr("反向代理 → {}").format(target or "—")
@@ -1006,7 +1016,9 @@ class CaptureCommandBar(QWidget):
     def _build_more_menu(self) -> RoundMenu:
         """低频动作与当前装不下的命令；所有入口复用原有业务信号。"""
         menu = RoundMenu(parent=self)
-        open_action = Action(FluentIcon.FOLDER, self.tr("加载 Flow / HAR 到当前列表"), menu)
+        open_action = Action(
+            FluentIcon.FOLDER, self.tr("加载 Flow / HAR 到当前列表"), menu
+        )
         open_action.triggered.connect(self.openRequested.emit)
         menu.addAction(open_action)
         locate_action = Action(BaseIcon.LOCATION_TARGET, self.tr("定位选中"), menu)
@@ -1530,6 +1542,7 @@ class ProxyPortDialog(MessageBoxBase):
         proxyauth_username: str = "",
         proxyauth_password: str = "",
         wireguard_config: Callable[[], str] | None = None,
+        wireguard_facade: MitmFacade | None = None,
     ):
         """初始化代理监听设置对话框
 
@@ -1558,10 +1571,12 @@ class ProxyPortDialog(MessageBoxBase):
             proxyauth_username: 代理认证用户名（必填且不得含冒号）
             proxyauth_password: 代理认证密码（可空，同样不得含冒号）
             wireguard_config: 取客户端配置文本的回调（None 表示按钮隐藏）
+            wireguard_facade: 独立设备管理入口；设置窗口未应用时也可管理设备
         """
         super().__init__(parent)
         self._lan_address = lan_address
         self._wireguard_config = wireguard_config
+        self._wireguard_facade = wireguard_facade
         self.__init_widget(
             current_port,
             is_running,
@@ -1743,7 +1758,7 @@ class ProxyPortDialog(MessageBoxBase):
         # 勾选后的默认是收起；展开态只活在对话框存续期，不落盘。
         self._process_list_expanded = False
 
-        # —— WireGuard 通道：勾选框 + UDP 端口标签 + 二维码按钮同行 ——
+        # —— WireGuard 通道：勾选框 + 设备摘要 + 管理入口同行 ——
         self.wireguard_check = CheckBox(self.tr("WireGuard"), self)
         self.wireguard_check.setToolTip(
             self.tr("手机等设备经隧道接入，二维码导入客户端")
@@ -1756,6 +1771,10 @@ class ProxyPortDialog(MessageBoxBase):
         self.wireguard_config_btn.setToolTip(self.tr("查看客户端配置，扫码导入手机"))
         self.wireguard_config_btn.setAccessibleName(self.tr("查看客户端配置"))
         self.wireguard_config_btn.setFixedSize(28, 26)
+        if self._wireguard_facade is not None:
+            self.wireguard_config_btn.setIcon(FluentIcon.SETTING)
+            self.wireguard_config_btn.setToolTip(self.tr("管理设备与二维码"))
+            self.wireguard_config_btn.setAccessibleName(self.tr("管理 WireGuard 设备"))
 
         # —— 反向代理通道（docs/design.md#capture）：勾选框 + 目标 URL + 监听端口 ——
         self.reverse_check = CheckBox(self.tr("反向代理"), self)
@@ -2056,6 +2075,15 @@ class ProxyPortDialog(MessageBoxBase):
         return self.upstream_password_edit.text()
 
     def _show_wireguard_config(self) -> None:
+        if self._wireguard_facade is not None:
+            dialog = WireGuardDevicesDialog(self._wireguard_facade, self.window())
+            dialog.devicesChanged.connect(self._sync_exposure)
+            try:
+                dialog.exec()
+            finally:
+                dialog.deleteLater()
+                self._sync_exposure()
+            return
         if self._wireguard_config is None:
             return
         try:
@@ -2132,6 +2160,16 @@ class ProxyPortDialog(MessageBoxBase):
         port = self.port_spin.value()
         system_on = self.get_use_system_proxy()
         wireguard_on = self.get_use_wireguard()
+        wireguard_ports = (
+            {
+                device.port
+                for device in self._wireguard_facade.wireguard_devices
+                if device.enabled
+            }
+            if self._wireguard_facade is not None
+            else {WIREGUARD_PORT}
+        )
+        wireguard_active = wireguard_on and bool(wireguard_ports)
         local_on = self.get_use_local()
         reverse_on = self.get_use_reverse()
         socks5_on = self.get_use_socks5()
@@ -2167,10 +2205,10 @@ class ProxyPortDialog(MessageBoxBase):
         # 免得用户以为勾选生效了）；reverse 开启且绑非环回时同理。
         self.block_global_check.setEnabled(exposed)
         self.block_private_check.setEnabled(
-            exposed and not wireguard_on and not reverse_yield and not socks5_yield
+            exposed and not wireguard_active and not reverse_yield and not socks5_yield
         )
         # R3：提示只报异常。置灰本身已说明「仅本机不生效」，不再配一句话。
-        if wireguard_on:
+        if wireguard_active:
             self.source_hint.setText(
                 self.tr("! WireGuard 开启期间「拒绝局域网」暂停生效")
             )
@@ -2185,7 +2223,8 @@ class ProxyPortDialog(MessageBoxBase):
         elif lan_unknown:
             self.source_hint.setText(self.tr("! 未能识别局域网地址"))
         self.source_hint.setVisible(
-            exposed and (wireguard_on or reverse_yield or socks5_yield or lan_unknown)
+            exposed
+            and (wireguard_active or reverse_yield or socks5_yield or lan_unknown)
         )
 
         # 代理认证：整块随勾选显隐。与上面两个开关有两处**刻意的**差异 ——
@@ -2196,7 +2235,7 @@ class ProxyPortDialog(MessageBoxBase):
         # 判据与内核侧 runtime._effective_proxyauth 同式（那边多一个接通位闸门，
         # 这里的勾选本就是「按开始抓包后会接通什么」）。
         auth_on = self.get_proxyauth_enabled()
-        auth_yield = local_on or wireguard_on or reverse_on
+        auth_yield = local_on or wireguard_active or reverse_on
         self.proxyauth_check.setEnabled(not auth_yield)
         self.proxyauth_cred_row.setVisible(auth_on)
         self.proxyauth_cred_row.setEnabled(not auth_yield)
@@ -2214,10 +2253,15 @@ class ProxyPortDialog(MessageBoxBase):
         self.local_fold_btn.setVisible(local_on)
         self.local_spec_edit.setVisible(local_on and self._process_list_expanded)
 
-        # WireGuard：二维码按钮与 UDP 标签只在勾选后出现（勾上即生码，见 facade）。
+        # 设备管理独立保存；新入口始终可见，未勾选通道也能准备各设备的二维码。
+        if self._wireguard_facade is not None:
+            self.wireguard_port_label.setText(
+                self.tr("{} 台已启用").format(len(wireguard_ports))
+            )
         self.wireguard_port_label.setVisible(wireguard_on)
         self.wireguard_config_btn.setVisible(
-            wireguard_on and self._wireguard_config is not None
+            self._wireguard_facade is not None
+            or (wireguard_on and self._wireguard_config is not None)
         )
 
         # 反向代理：参数区随勾选显隐；hint 只报端口冲突（常态 CA 说明在标题 tooltip）。
@@ -2227,8 +2271,14 @@ class ProxyPortDialog(MessageBoxBase):
             reverse_port = self.reverse_port_spin.value()
             if reverse_port == port:
                 conflict = self.tr("! 端口与系统代理 {} 冲突").format(port)
-            elif reverse_port == WIREGUARD_PORT and wireguard_on:
-                conflict = self.tr("! 端口与 WireGuard UDP 51820 冲突")
+            elif (
+                reverse_port in wireguard_ports
+                and wireguard_active
+                and self.get_reverse_target().lower().startswith("https://")
+            ):
+                conflict = self.tr("! 端口与 WireGuard 设备的 UDP {} 冲突").format(
+                    reverse_port
+                )
         self.reverse_hint.setVisible(conflict is not None)
         if conflict is not None:
             self.reverse_hint.setText(conflict)
@@ -2291,16 +2341,27 @@ class WireGuardConfigDialog(MessageBoxBase):
     QUIET_ZONE = 4
     """QR 规范静区（模块数）。"""
 
-    def __init__(self, config: str, parent: QWidget | None = None):
+    def __init__(
+        self,
+        config: str,
+        parent: QWidget | None = None,
+        *,
+        device_name: str = "",
+    ):
         super().__init__(parent)
         self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr("WireGuard 客户端配置"))
+        self.title_label.setText(
+            self.tr("WireGuard · {}").format(device_name)
+            if device_name
+            else self.tr("WireGuard 客户端配置")
+        )
 
         self.desc_label = CaptionLabel(self)
         self.desc_label.setWordWrap(True)
         self.desc_label.setText(
             self.tr(
-                "在设备的 WireGuard 应用中导入此配置；该设备的全部流量将经由 Ferret。"
+                "在此设备的 WireGuard 应用中扫码导入。此二维码仅供一台设备使用；"
+                "IPv4 流量将经由 Ferret，HTTPS 解密仍需安装并信任 Ferret CA。"
             )
         )
 

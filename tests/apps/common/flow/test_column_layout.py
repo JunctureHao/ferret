@@ -1,6 +1,6 @@
 """流列表列布局的 Qt 行为（docs/design.md#ui）。
 
-平铺表格与连接树共用同一份布局，两套视图都要覆盖：默认 8 列、显隐、重排（视觉
+平铺表格与连接树共用同一份布局，两套视图都要覆盖：默认列、显隐、重排（视觉
 列序 + 无串列）、响应式按稳定 key、用户隐藏不被响应式复原、列宽按 key、Mark 固定宽、
 高亮圆角按视觉首末列。持久化用 patch 隔离，不碰真实 config.json。
 """
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from ferret.apps.common.flow import views
 from ferret.apps.common.flow.columns import (
+    DEFAULT_ORDER,
     default_layout,
     logical_index,
     normalize,
@@ -75,12 +76,12 @@ class ColumnLayoutQtTests(unittest.TestCase):
     def tree_header(self):
         return self.tree.header()
 
-    def test_default_eight_columns_visible(self) -> None:
+    def test_default_columns_visible(self) -> None:
         for header in (self.table_header, self.tree_header):
-            self.assertEqual(header.count(), 8)
+            self.assertEqual(header.count(), len(DEFAULT_ORDER))
             self.assertEqual(
                 _visible_visual_order(header),
-                ["index", "mark", "method", "url", "status", "type", "size", "time"],
+                list(DEFAULT_ORDER),
             )
 
     def test_mark_is_fixed_width_mode(self) -> None:
@@ -107,8 +108,8 @@ class ColumnLayoutQtTests(unittest.TestCase):
         layout = default_layout().with_order(order)
         self.tree._commit_column_layout(layout)
         self.app.processEvents()
-        self.assertEqual(_visual_order(self.table_header), order)
-        self.assertEqual(_visual_order(self.tree_header), order)
+        self.assertEqual(_visual_order(self.table_header), [*order, "device"])
+        self.assertEqual(_visual_order(self.tree_header), [*order, "device"])
 
     def test_reorder_does_not_swap_data_columns(self) -> None:
         # 逻辑列恒定：重排只动视觉位，url 的逻辑列永远是 3（数据不串列）。
@@ -179,7 +180,17 @@ class ColumnLayoutQtTests(unittest.TestCase):
         self.assertFalse(received)
 
     def test_visual_caps_after_reorder(self) -> None:
-        order = ["index", "url", "time", "method", "mark", "status", "type", "size"]
+        order = [
+            "index",
+            "url",
+            "time",
+            "method",
+            "mark",
+            "status",
+            "type",
+            "device",
+            "size",
+        ]
         layout = default_layout().with_order(order)
         self.viewer.table._commit_column_layout(layout)
         self.app.processEvents()
@@ -230,7 +241,7 @@ class ColumnSettingsDialogTests(unittest.TestCase):
         ]
         self.assertEqual(
             keys,
-            ["index", "mark", "method", "url", "status", "type", "size", "time"],
+            list(DEFAULT_ORDER),
         )
 
     def test_result_reflects_unchecked_optional(self) -> None:

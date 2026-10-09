@@ -1469,5 +1469,9 @@ class FlowDataPanel(QWidget):
             self.tr("结束时间"): data.get("end") or "—",
             self.tr("连接 ID"): data.get("conn_id") or "—",
         }
+        if data.get("device"):
+            fields[self.tr("WireGuard 设备")] = data["device"]
+        if data.get("device_id"):
+            fields[self.tr("设备 ID")] = data["device_id"]
         self.conn_fields.set_items(fields)
         self.stack.setCurrentIndex(2)

@@ -10,6 +10,7 @@ from mitmproxy.test import tflow
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from ferret.apps.common.flow.columns import logical_index
 from ferret.apps.common.flow.marks import FALLBACK_GLYPH, emoji_font, marker_glyph
 from ferret.apps.common.flow.models import (
     DURATION_MS_ROLE,
@@ -163,7 +164,7 @@ class FlowTableModelTests(unittest.TestCase):
 
         self.assertEqual(
             model.HEADERS,
-            ("#", "Mark", "Method", "URL", "Status", "Type", "Size", "Time"),
+            ("#", "Mark", "Method", "URL", "Status", "Type", "Size", "Time", "Device"),
         )
         self.assertEqual(model.data(model.index(0, 3)), row.url)
         self.assertEqual(model.data(model.index(0, 4)), 200)
@@ -176,6 +177,29 @@ class FlowTableModelTests(unittest.TestCase):
         self.assertEqual(model.data(model.index(0, 5), MIME_ROLE), "application/json")
         self.assertAlmostEqual(model.data(model.index(0, 7), DURATION_MS_ROLE), 128)
         self.assertEqual(model.data(model.index(0, 6), SIZE_BYTES_ROLE), 11)
+
+    def test_device_column_uses_snapshot_and_does_not_guess_from_peer_address(
+        self,
+    ) -> None:
+        row = replace(
+            self.completed_row(),
+            wireguard_device_id="phone-a",
+            wireguard_device_name="Phone A",
+            is_wireguard=True,
+        )
+        unknown = replace(
+            row, id="unknown", wireguard_device_id="", wireguard_device_name=""
+        )
+        regular = replace(unknown, id="regular", is_wireguard=False)
+        model = self.model_with(row, unknown, regular)
+        column = logical_index("device")
+        self.assertEqual(model.data(model.index(0, column)), "Phone A")
+        self.assertEqual(model.data(model.index(1, column)), "未知设备")
+        self.assertEqual(model.data(model.index(2, column)), "")
+        self.assertEqual(model.data(model.index(0, column), SORT_ROLE), "phone a")
+        self.assertIn(
+            "phone-a", model.data(model.index(0, column), Qt.ItemDataRole.ToolTipRole)
+        )
 
     def test_highlight_role_reports_membership_for_every_column(self) -> None:
         """命中判定是整行的：HIGHLIGHT_ROLE 在任意列都回同一个真值，委托据此整行铺底。

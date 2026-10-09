@@ -362,8 +362,9 @@ class EnsureWireGuardConfTests(unittest.TestCase):
     def test_yields_to_an_existing_file(self) -> None:
         self.conf_path.parent.mkdir(parents=True)
         self.conf_path.write_text('{"server_key": "x", "client_key": "y"}')
-        ensure_wireguard_conf(self.conf_path)
-        # 已存在的文件原样保留：内核后到会直接复用这份密钥。
+        with self.assertRaises(ValueError):
+            ensure_wireguard_conf(self.conf_path)
+        # 坏文件仍原样保留：报错不能偷偷换钥，使已导入的二维码失效。
         self.assertEqual(
             self.conf_path.read_text(encoding="utf-8"),
             '{"server_key": "x", "client_key": "y"}',

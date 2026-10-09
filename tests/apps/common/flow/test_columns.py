@@ -24,7 +24,17 @@ class DefaultLayoutTests(unittest.TestCase):
         layout = default_layout()
         self.assertEqual(
             layout.order,
-            ("index", "mark", "method", "url", "status", "type", "size", "time"),
+            (
+                "index",
+                "mark",
+                "method",
+                "url",
+                "status",
+                "type",
+                "size",
+                "time",
+                "device",
+            ),
         )
         self.assertEqual(layout.order, DEFAULT_ORDER)
 
@@ -187,7 +197,7 @@ class MutatorTests(unittest.TestCase):
     def test_with_order_moves_column(self) -> None:
         order = ["index", "url", "method", "mark", "status", "type", "size", "time"]
         layout = default_layout().with_order(order)
-        self.assertEqual(layout.order, tuple(order))
+        self.assertEqual(layout.order, (*order, "device"))
 
     def test_frozen_returns_new_object(self) -> None:
         base = default_layout()
