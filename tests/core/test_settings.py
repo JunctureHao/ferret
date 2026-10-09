@@ -174,6 +174,64 @@ class ConfigRecoveryTests(unittest.TestCase):
             json.loads(self.path.read_text())["FlowList"]["Columns"], {"width": 19}
         )
 
+    def test_invalid_string_lists_recover_only_the_bad_field(self) -> None:
+        items = (
+            self.config.dns_name_servers,
+            self.config.ssl_trusted_ca_files,
+            self.config.mock_ignore_params,
+            self.config.mock_use_headers,
+        )
+        for item in items:
+            for value in (None, "1.1.1.1", 1, False, {}, [1], [None], [{}]):
+                with self.subTest(field=item.key, value=value):
+                    data: dict = {"Proxy": {"ListenPort": 8899}}
+                    data.setdefault(item.group, {})[item.name] = value
+                    self.path.write_text(json.dumps(data), encoding="utf-8")
+                    with self.assertLogs("ferret.settings", level="WARNING"):
+                        self.config.load(self.path)
+                    self.assertEqual(item.value, [])
+                    self.assertIsNot(item.value, item.defaultValue)
+                    self.assertEqual(self.config.listen_port.value, 8899)
+                    self.assertEqual(self.config.load_warnings, [("field", item.key)])
+
+    def test_valid_string_lists_are_preserved_without_warnings(self) -> None:
+        data = {
+            "Proxy": {
+                "DnsNameServers": ["1.1.1.1", "::1"],
+                "SslTrustedCaFiles": ["C:/certs/root.pem"],
+            },
+            "Mock": {"IgnoreParams": ["timestamp", "nonce"], "UseHeaders": []},
+        }
+        self.path.write_text(json.dumps(data), encoding="utf-8")
+        self.config.load(self.path)
+        for item in (
+            self.config.dns_name_servers,
+            self.config.ssl_trusted_ca_files,
+            self.config.mock_ignore_params,
+            self.config.mock_use_headers,
+        ):
+            self.assertEqual(item.value, data[item.group][item.name])
+        self.assertEqual(self.config.load_warnings, [])
+
+    def test_recovered_lists_allow_runtime_construction(self) -> None:
+        from ferret.core.runtime import ApplicationRuntime
+
+        self.path.write_text(
+            json.dumps({"Proxy": {"DnsNameServers": None, "SslTrustedCaFiles": None}}),
+            encoding="utf-8",
+        )
+        with self.assertLogs("ferret.settings", level="WARNING"):
+            self.config.load(self.path)
+        with (
+            patch("ferret.core.runtime.CONFIG", self.config),
+            patch("ferret.core.runtime.get_config_dir", return_value=self.path.parent),
+            patch("ferret.core.runtime.SystemProxyService"),
+        ):
+            runtime = ApplicationRuntime()
+        self.addCleanup(runtime.deleteLater)
+        self.assertEqual(runtime.mitm_runtime.dns_name_servers, [])
+        self.assertEqual(runtime.mitm_runtime.ssl_trusted_ca_files, [])
+
     def test_deferred_write_failure_is_retried_by_exit_flush(self) -> None:
         self.config.save()
         before = self.path.read_bytes()

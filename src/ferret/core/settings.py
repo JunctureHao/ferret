@@ -91,6 +91,17 @@ class BoolConfigItem(ConfigItem):
         )
 
 
+class _StringListSerializer(ConfigSerializer):
+    """加载边界拒绝错误结构，让 Config.load 恢复本项默认并记录警告。"""
+
+    def deserialize(self, value: Any) -> list[str]:
+        if not isinstance(value, list) or any(
+            not isinstance(item, str) for item in value
+        ):
+            raise TypeError("Expected a list of strings")
+        return list(value)
+
+
 class Config(QConfig):
     def __init__(self) -> None:
         super().__init__()
@@ -497,6 +508,7 @@ class Config(QConfig):
         group="Proxy",
         name="DnsNameServers",
         default=[],
+        serializer=_StringListSerializer(),
     )
 
     # 解析时查操作系统 hosts 文件（原生默认 True，开关方向不反转 —— 呈现语义
@@ -527,6 +539,7 @@ class Config(QConfig):
         group="Proxy",
         name="SslTrustedCaFiles",
         default=[],
+        serializer=_StringListSerializer(),
     )
 
     # 向客户端拼接上游真实证书链（原生默认 False）。给做了证书锁定的 App 用，
@@ -703,12 +716,14 @@ class Config(QConfig):
         group="Mock",
         name="IgnoreParams",
         default=[],
+        serializer=_StringListSerializer(),
     )
 
     mock_use_headers = ConfigItem(
         group="Mock",
         name="UseHeaders",
         default=[],
+        serializer=_StringListSerializer(),
     )
 
     # 「导出字段为 CSV」上次勾选的列（存 flow_detail 的 dict key，跨语言稳定；
