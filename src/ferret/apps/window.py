@@ -212,7 +212,6 @@ class MainWindow(FluentWindow):
         self.runtime.startup_error.connect(self._show_startup_error)
         qconfig.themeChanged.connect(lambda theme: setTheme(theme))
         CONFIG.themeColorChanged.connect(setThemeColor)
-        self.pin_button.clicked.connect(self.toggleStayOnTop)
         self.tray_icon.activated.connect(self.__on_activated)
         # titlebar 搜索路由（规格 §4.3）：切页三分支 + 键入转发 + Esc 归还焦点。
         self.stackedWidget.currentChanged.connect(self.__on_page_changed)
@@ -479,8 +478,17 @@ class PinButton(FluentTitleBarButton):
 
     @Slot()
     def toggle(self):
-        """切换置顶状态"""
-        self._is_pinned = not self._is_pinned
+        """切换置顶：真正翻转窗口标志，再按窗口实际状态同步图标与提示。
+
+        快捷键与点击共用这一个入口。此前快捷键只连 `toggle` 翻图标，点击另连窗口的
+        `toggleStayOnTop` 翻窗口，两条路各走一半：按 Ctrl+T 图标变了窗口没置顶，随后
+        点击又让图标与窗口状态反向。图标状态一律取自窗口真实标志，不再各记一份。
+        """
+        window = cast("MainWindow", self.window())
+        window.toggleStayOnTop()
+        self._is_pinned = bool(
+            window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+        )
         self.__update_ui()
 
     def __update_ui(self):

@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import QApplication
 
 from ferret.apps import window as window_module
@@ -22,10 +22,18 @@ from ferret.core.settings import CONFIG
 from tests.core.mitm._qt import wait_until
 
 
-class StartupLazyLoadingTests(unittest.TestCase):
+class _MainWindowHarness(unittest.TestCase):
+    """构造真实 MainWindow 的公共夹具（应用、临时配置目录、清理）。无测试方法。"""
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
+
+    def _dispose(self, window, runtime) -> None:
+        window.tray_icon.hide()
+        window.deleteLater()
+        runtime.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def create_window(self):
         with (
@@ -44,6 +52,8 @@ class StartupLazyLoadingTests(unittest.TestCase):
         self.addCleanup(self._dispose, window, runtime)
         return window, runtime, schedule
 
+
+class StartupLazyLoadingTests(_MainWindowHarness):
     def test_startup_update_and_repeated_navigation_keep_settings_lazy(self) -> None:
         window, runtime, schedule = self.create_window()
         self.assertIsInstance(window.settings_interface, LazyPage)
@@ -116,11 +126,27 @@ class StartupLazyLoadingTests(unittest.TestCase):
             self.assertEqual(window.findChildren(SessionsInterface), [page])
             self.assertEqual(page.current_search_text(), "saved")
 
-    def _dispose(self, window, runtime) -> None:
-        window.tray_icon.hide()
-        window.deleteLater()
-        runtime.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+class PinButtonTests(_MainWindowHarness):
+    """置顶按钮：快捷键与点击必须走同一入口，图标跟随窗口真实状态（issues #13）。"""
+
+    def test_shortcut_and_click_toggle_the_real_window_state(self) -> None:
+        window, _runtime, _schedule = self.create_window()
+        button = window.pin_button
+        flag = Qt.WindowType.WindowStaysOnTopHint
+
+        self.assertFalse(bool(window.windowFlags() & flag))
+        self.assertFalse(button._is_pinned)
+
+        # 快捷键：真正置顶，不再是「只翻图标」。图标与真实窗口状态同步。
+        button._shortcut_obj.activated.emit()
+        self.assertTrue(bool(window.windowFlags() & flag))
+        self.assertTrue(button._is_pinned)
+
+        # 随后点击取消置顶：图标与窗口状态保持一致，不反向。
+        button.click()
+        self.assertFalse(bool(window.windowFlags() & flag))
+        self.assertFalse(button._is_pinned)
 
 
 if __name__ == "__main__":
