@@ -187,6 +187,28 @@ class ScriptsInterfaceTests(unittest.TestCase):
         self.assertTrue(self.view.panel.hint_label.text())
         self.assertTrue(self.view.panel.error_view.isVisible())
 
+    def test_a_legal_non_utf8_script_loads_its_source(self) -> None:
+        # 带 PEP 263 声明的 latin-1 脚本应正常读出，而不是抛 UnicodeDecodeError。
+        target = self.root / "latin.py"
+        target.write_bytes(b'# coding: latin-1\nname = "caf\xe9"\n')
+        self.controller.import_scripts([str(target)])
+        app.processEvents()
+        self.select_row(0)
+        self.assertEqual(
+            self.view.panel.editor.text(), '# coding: latin-1\nname = "café"\n'
+        )
+        self.assertFalse(self.view.panel.error_view.isVisible())
+
+    def test_undecodable_bytes_show_the_unreadable_branch(self) -> None:
+        # 真解不出来的文件要落到读取失败面板，不能让解码异常冒出去崩掉界面。
+        target = self.root / "broken.py"
+        target.write_bytes(b'name = "\xff\xfe"\n')
+        self.controller.import_scripts([str(target)])
+        app.processEvents()
+        self.select_row(0)
+        self.assertEqual(self.view.panel.editor.text(), "")
+        self.assertTrue(self.view.panel.error_view.isVisible())
+
     def test_clearing_the_selection_clears_the_panel(self) -> None:
         self.add_import("a.py")
         self.select_row(0)

@@ -504,6 +504,32 @@ class ScriptsControllerTests(unittest.TestCase):
         with self.assertRaises(OSError):
             self.controller.read_script(str(self.root / "ghost.py"))
 
+    def test_read_script_honours_a_source_encoding_declaration(self) -> None:
+        # 合法的非 UTF-8 脚本（PEP 263 声明）要能按声明解码，和内核加载器一致。
+        path = self.root / "latin.py"
+        path.write_bytes(b'# coding: latin-1\nname = "caf\xe9"\n')
+        self.assertEqual(
+            self.controller.read_script(str(path)),
+            '# coding: latin-1\nname = "café"\n',
+        )
+
+    def test_read_script_raises_on_undecodable_bytes(self) -> None:
+        # 真读不出来时如实抛（UnicodeError），由界面翻成读取失败面板，不该崩。
+        path = self.root / "broken.py"
+        path.write_bytes(b'name = 1\nvalue = 2\nx = "\xff\xfe"\n')
+        with self.assertRaises(UnicodeError):
+            self.controller.read_script(str(path))
+
+    def test_save_script_preserves_the_source_encoding_declaration(self) -> None:
+        # 读进来是声明编码，存回去也得是，否则下次按声明解码会读到乱码。
+        path = self.controller.create_script("latin.py")
+        text = '# coding: latin-1\nname = "café"\n'
+        self.assertTrue(self.controller.save_script(path, text))
+        data = Path(path).read_bytes()
+        self.assertIn(b"\xe9", data)  # latin-1 的 é，不是 UTF-8 的 \xc3\xa9
+        self.assertNotIn(b"\xc3\xa9", data)
+        self.assertEqual(self.controller.read_script(path), text)
+
     def test_save_script_writes_and_announces(self) -> None:
         path = self.controller.create_script("a.py")
         messages: list[str] = []

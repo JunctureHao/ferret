@@ -318,7 +318,7 @@ class ScriptsInterface(QWidget):
         status = self.controller.status_of(entry.path)
         try:
             text = self.controller.read_script(entry.path)
-        except OSError as exc:
+        except (OSError, UnicodeError, SyntaxError, LookupError) as exc:
             self.panel.show_unreadable(entry, status, str(exc))
             return
         self.panel.show_entry(entry, status, text)

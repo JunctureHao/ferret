@@ -1,6 +1,8 @@
 """User-script state owner: persistence, file management, kernel push-down."""
 
+import tokenize
 from dataclasses import replace
+from io import BytesIO
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -45,6 +47,22 @@ def _usable(entry: ScriptEntry) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _source_encoding(text: str) -> str:
+    """按 PEP 263（`# coding:` cookie / BOM）判定正文该用哪个编码写盘。
+
+    读进来时用 `tokenize.open` 跟内核加载器一样尊重源码声明，写回去也必须回到
+    同一编码，否则「读得进、存出来声明不匹配」会让内核下次按声明解码时读到乱码。
+    声明缺失或无法识别时回落 UTF-8。
+    """
+    lines = BytesIO(text.encode("utf-8", "surrogatepass"))
+    try:
+        encoding, _ = tokenize.detect_encoding(lines.readline)
+    except (SyntaxError, LookupError):
+        return "utf-8"
+    return encoding
+
 
 
 class ScriptsController(QObject):
@@ -228,18 +246,27 @@ class ScriptsController(QObject):
     # --- 文件内容 ---
 
     def read_script(self, path: str) -> str:
-        """读脚本正文。
+        """读脚本正文，按 Python 源码编码规则（PEP 263 / BOM）解码，与内核加载器一致。
+
+        合法的 `# coding: latin-1` / GBK 等非 UTF-8 脚本能正常读出；声明无效或正文
+        无法按声明解码时如实抛出，由调用方翻成读取失败面板。
 
         Raises:
-            OSError: 文件不存在 / 读不动（调用方翻成面板上的提示）。
+            OSError: 文件不存在 / 读不动。
+            UnicodeError / SyntaxError / LookupError: 声明的编码无效或正文解码失败。
         """
-        return Path(path).read_text(encoding="utf-8")
+        with tokenize.open(path) as handle:
+            return handle.read()
 
     def save_script(self, path: str, text: str) -> bool:
-        """写盘后尝试重载；返回值仅表示文件已保存，供编辑器清除待保存状态。"""
+        """写盘后尝试重载；返回值仅表示文件已保存，供编辑器清除待保存状态。
+
+        按正文里的源码编码声明写盘（见 `_source_encoding`），避免读进来是声明编码、
+        存回去却成了 UTF-8 的声明不匹配。
+        """
         try:
-            Path(path).write_text(text, encoding="utf-8")
-        except OSError as exc:
+            Path(path).write_text(text, encoding=_source_encoding(text))
+        except (OSError, UnicodeError, LookupError) as exc:
             self.operation_failed.emit(self.tr("保存失败"), str(exc))
             return False
         if self._reload_script(path, self.tr("脚本已保存，但重载失败，请重试重载")):
