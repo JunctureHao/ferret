@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from ferret.core.settings import _migrate_legacy_config_dir
+from ferret.core.settings import Config, _migrate_legacy_config_dir
 
 
 class ConfigMigrationTests(unittest.TestCase):
@@ -158,3 +158,67 @@ class ConfigMigrationTests(unittest.TestCase):
                 expected = self.write_config(path, malformed)
                 _migrate_legacy_config_dir(self.new)
                 self.assertEqual(json.loads(path.read_text(encoding="utf-8")), expected)
+
+    def _assert_migrated_backup_recovers(self, *, damaged_primary: bool) -> None:
+        config = Config()
+        restore = self.old.parent / "restore.json"
+        Config._write(restore, config.toDict())
+        self.addCleanup(config.load, restore)
+        source = self.old / "scripts" / "demo.py"
+        self.write_script(source)
+        data = {
+            "Proxy": {"ListenPort": 8899},
+            "Scripts": {"Scripts": [{"origin": "new", "path": str(source)}]},
+        }
+        Config._write(self.old / "config.json.bak", data)
+        if damaged_primary:
+            (self.old / "config.json").write_bytes(b"{")
+        _migrate_legacy_config_dir(self.new)
+        self.assertFalse((self.old / "config.json.bak").exists())
+        self.assertTrue((self.new / "config.json.bak").is_file())
+        with self.assertLogs("ferret.settings", level="WARNING"):
+            config.load(self.new / "config.json")
+        self.assertEqual(config.listen_port.value, 8899)
+        self.assertEqual(config.load_warnings[0][0], "recovered")
+        script = Path(config.scripts.value[0]["path"])
+        self.assertEqual(script, self.new / "scripts" / "demo.py")
+        self.assertTrue(script.is_file())
+        evidence = list(self.new.glob("config.json.corrupt-*"))
+        self.assertEqual(len(evidence), int(damaged_primary))
+        if evidence:
+            self.assertEqual(evidence[0].read_bytes(), b"{")
+
+    def test_corrupt_primary_recovers_the_migrated_backup(self) -> None:
+        self._assert_migrated_backup_recovers(damaged_primary=True)
+
+    def test_backup_only_installation_recovers_after_migration(self) -> None:
+        self._assert_migrated_backup_recovers(damaged_primary=False)
+
+    def test_existing_primary_and_backup_are_not_overwritten(self) -> None:
+        for name in ("config.json", "config.json.bak"):
+            Config._write(self.old / name, {"source": "old"})
+            Config._write(self.new / name, {"source": "new"})
+        before = {
+            path: path.read_bytes()
+            for path in (*self.old.iterdir(), *self.new.iterdir())
+        }
+        _migrate_legacy_config_dir(self.new)
+        for path, content in before.items():
+            self.assertEqual(path.read_bytes(), content)
+
+    def test_failed_backup_move_preserves_the_source_for_retry(self) -> None:
+        source = self.old / "config.json.bak"
+        Config._write(source, {"Proxy": {"ListenPort": 8899}})
+        before = source.read_bytes()
+        with (
+            patch(
+                "ferret.core.settings.shutil.move",
+                side_effect=PermissionError("locked"),
+            ),
+            self.assertLogs("ferret.settings", level="WARNING"),
+        ):
+            _migrate_legacy_config_dir(self.new)
+        self.assertEqual(source.read_bytes(), before)
+        self.assertFalse((self.new / "config.json.bak").exists())
+        _migrate_legacy_config_dir(self.new)
+        self.assertEqual((self.new / "config.json.bak").read_bytes(), before)

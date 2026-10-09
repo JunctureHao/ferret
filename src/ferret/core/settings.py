@@ -764,6 +764,7 @@ class Config(QConfig):
 # 数据项，绝不整目录删除。
 _LEGACY_CONFIG_ITEMS = (
     CONFIG_NAME,
+    f"{CONFIG_NAME}.bak",
     "certs",
     "sessions",
     "scripts",
