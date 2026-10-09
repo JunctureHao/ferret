@@ -45,6 +45,16 @@ def build_raw_preview(flow, side: str) -> dict[str, str]:
         body = decoded
     else:
         head_message, body = message, wire
+    if side == "Request" and not head_message.authority:
+        # origin-form 请求 authority 为空，原生拼装只会在请求行里放路径，
+        # host 只剩 Host 头。展示层统一补成完整 URL，直观且与 h2 一致。
+        authority = head_message.host_header or head_message.pretty_host
+        default_port = 443 if head_message.scheme == "https" else 80
+        if authority and ":" not in authority and head_message.port != default_port:
+            authority = f"{authority}:{head_message.port}"
+        if authority:
+            head_message = _message_copy(head_message, head_message.raw_content or b"")
+            head_message.authority = authority
     head = (
         assemble_request_head(head_message)
         if side == "Request"
