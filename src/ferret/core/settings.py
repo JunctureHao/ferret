@@ -757,6 +757,48 @@ _LEGACY_CONFIG_ITEMS = (
 )
 
 
+def _migrate_script_paths(path: Path, old_dir: Path, new_dir: Path) -> None:
+    """修正已搬走的托管脚本引用；直接保留原始 JSON 中的其他配置。"""
+    try:
+        data = Config._read(path)
+    except (OSError, ValueError, UnicodeError):
+        # 主配置损坏时仍要继续处理备份，恢复与损坏提示留给 Config.load。
+        return
+    group = data.get("Scripts")
+    entries = group.get("Scripts") if isinstance(group, dict) else None
+    if not isinstance(entries, list):
+        return
+    old_scripts = (old_dir / "scripts").resolve()
+    new_scripts = new_dir / "scripts"
+    changed = False
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("origin") != "new":
+            continue
+        raw_path = entry.get("path")
+        if not isinstance(raw_path, str):
+            continue
+        try:
+            source = Path(raw_path)
+            if not source.is_absolute():
+                continue
+            source = source.resolve()
+            target = new_scripts / source.relative_to(old_scripts)
+            # 旧文件仍在表示未迁移成功或目标冲突，不能改绑到另一份同名脚本。
+            if source.exists() or not target.is_file():
+                continue
+        except (OSError, ValueError, RuntimeError):
+            continue
+        entry["path"] = str(target)
+        changed = True
+    if changed:
+        try:
+            Config._write(path, data)
+        except OSError as exc:
+            logging.getLogger("ferret.settings").warning(
+                "托管脚本路径迁移失败 %s: %s", path, exc
+            )
+
+
 def _migrate_legacy_config_dir(new_dir: Path) -> None:
     """把 AppConfigLocation 时代的自有数据一次性搬到 Roaming（幂等，不覆盖新数据）。"""
     old_dir = Path(
@@ -764,7 +806,7 @@ def _migrate_legacy_config_dir(new_dir: Path) -> None:
             QStandardPaths.StandardLocation.AppConfigLocation
         )
     )
-    if old_dir == new_dir or not old_dir.is_dir():
+    if old_dir == new_dir:
         return
     candidates = [old_dir / name for name in _LEGACY_CONFIG_ITEMS]
     candidates.extend(old_dir.glob("ferret.log*"))
@@ -779,6 +821,9 @@ def _migrate_legacy_config_dir(new_dir: Path) -> None:
             logging.getLogger("ferret.settings").warning(
                 "旧配置目录迁移失败 %s: %s", src, exc
             )
+    # 文件移动成功而原子写配置失败时，下次仍须重试；旧目录已消失也不例外。
+    for name in (CONFIG_NAME, f"{CONFIG_NAME}.bak"):
+        _migrate_script_paths(new_dir / name, old_dir, new_dir)
 
 
 def get_config_dir() -> Path:
