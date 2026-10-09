@@ -236,22 +236,26 @@ class ScriptsController(QObject):
         return Path(path).read_text(encoding="utf-8")
 
     def save_script(self, path: str, text: str) -> bool:
-        """保存 = 写盘 + 立即重载（docs/design.md#scripts）。"""
+        """写盘后尝试重载；返回值仅表示文件已保存，供编辑器清除待保存状态。"""
         try:
             Path(path).write_text(text, encoding="utf-8")
         except OSError as exc:
             self.operation_failed.emit(self.tr("保存失败"), str(exc))
             return False
-        self.reload_script(path)
-        self.operation_succeeded.emit(self.tr("已保存并重载"))
+        if self._reload_script(path, self.tr("脚本已保存，但重载失败，请重试重载")):
+            # 装载语法错误等结果由异步 ScriptStatus 回报，调用返回不代表已生效。
+            self.operation_succeeded.emit(self.tr("脚本已保存"))
         return True
 
     def reload_script(self, path: str) -> bool:
         """强制重载一条（外部编辑器改完必点）；内核没跑时只是 no-op。"""
+        return self._reload_script(path, self.tr("重载失败"))
+
+    def _reload_script(self, path: str, failure_title: str) -> bool:
         try:
             self._mitm.reload_script(path)
         except (RuntimeError, TimeoutError, ValueError) as exc:
-            self.operation_failed.emit(self.tr("重载失败"), str(exc))
+            self.operation_failed.emit(failure_title, str(exc))
             return False
         return True
 

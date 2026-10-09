@@ -510,7 +510,27 @@ class ScriptsControllerTests(unittest.TestCase):
         self.controller.operation_succeeded.connect(messages.append)
         self.assertTrue(self.controller.save_script(path, "z = 3\n"))
         self.assertEqual(Path(path).read_text(encoding="utf-8"), "z = 3\n")
-        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages, ["脚本已保存"])
+
+    def test_saved_file_does_not_claim_reload_success_after_a_timeout(self) -> None:
+        path = self.controller.create_script("a.py")
+        messages: list[str] = []
+        failures: list[tuple[str, str]] = []
+        self.controller.operation_succeeded.connect(messages.append)
+        self.controller.operation_failed.connect(
+            lambda title, detail: failures.append((title, detail))
+        )
+        with mock.patch.object(
+            self.controller._mitm, "reload_script", side_effect=TimeoutError("busy")
+        ) as reload:
+            self.assertTrue(self.controller.save_script(path, "saved = True\n"))
+            reload.assert_called_once_with(path)
+            self.assertEqual(Path(path).read_text(encoding="utf-8"), "saved = True\n")
+            self.assertEqual(messages, [])
+            self.assertEqual(failures, [("脚本已保存，但重载失败，请重试重载", "busy")])
+            reload.side_effect = None
+            self.assertTrue(self.controller.reload_script(path))
+            self.assertEqual(reload.call_count, 2)
 
     def test_save_script_reports_failures(self) -> None:
         failures: list[tuple[str, str]] = []

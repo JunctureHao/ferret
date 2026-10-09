@@ -331,6 +331,22 @@ class ScriptsInterfaceTests(unittest.TestCase):
         assert entry is not None
         self.assertEqual(entry.path, str(self.managed / "copy.py"))
 
+    def test_reload_failure_after_saving_clears_only_the_editor_dirty_state(
+        self,
+    ) -> None:
+        path = self.add_new("mine.py")
+        self.select_row(0)
+        self.view.panel.editor.code_widget.setPlainText("saved = True\n")
+        self.assertTrue(self.view.panel.dirty)
+        with mock.patch.object(
+            self.controller._mitm, "reload_script", side_effect=TimeoutError("busy")
+        ):
+            self.view.panel.save_btn.click()
+            app.processEvents()
+        self.assertFalse(self.view.panel.dirty)
+        self.assertEqual(Path(path).read_text(encoding="utf-8"), "saved = True\n")
+        self.assertTrue(self.view.reload_btn.isEnabled())
+
     def test_the_new_button_selects_what_it_created(self) -> None:
         FakeNewScriptDialog.filename = "fresh.py"
         with mock.patch.object(views, "NewScriptDialog", FakeNewScriptDialog):
