@@ -172,6 +172,44 @@ class SeparatorTests(unittest.TestCase):
                 self.assertEqual(events[0].data, f"a{char}b")
 
 
+class BomTests(unittest.TestCase):
+    """流首的单个 U+FEFF BOM 要丢掉（WHATWG），否则首字段名被 BOM 污染、首事件解错。"""
+
+    def test_a_leading_bom_does_not_corrupt_the_first_field(self) -> None:
+        events = parse_sse("﻿data: first\n\ndata: second\n\n")
+        self.assertEqual([e.data for e in events], ["first", "second"])
+        self.assertEqual(events[0].event, DEFAULT_EVENT)
+
+    def test_only_the_single_leading_bom_is_stripped(self) -> None:
+        # 规范只让丢开头那一个；第二个是数据，留在字段名里。
+        events = parse_sse("﻿﻿data: x\n\n")
+        self.assertEqual(events[0].data, "")
+        self.assertEqual(events[0].raw, "﻿data: x")
+
+    def test_a_bom_inside_the_body_is_preserved(self) -> None:
+        # 正文中间合法的 BOM 字符不能动，不能对每段 lstrip。
+        events = parse_sse("data: a\n\ndata: ﻿b\n\n")
+        self.assertEqual([e.data for e in events], ["a", "﻿b"])
+
+    def test_a_bom_arriving_in_a_later_chunk_is_still_stripped(self) -> None:
+        # 增量解码器可能先吐空串再吐 BOM；过早置位会漏掉分块到货的 BOM。
+        feeder = SseFeeder()
+        self.assertEqual(feeder.feed(""), [])
+        events = [*feeder.feed("﻿data: first\n\n"), *feeder.flush()]
+        self.assertEqual([e.data for e in events], ["first"])
+        self.assertEqual(events[0].event, DEFAULT_EVENT)
+
+    def test_a_bom_split_across_byte_chunks_is_ignored(self) -> None:
+        # 真实 tee：BOM 三字节被 TCP 劈成三段，增量解码器凑齐才吐 `﻿`。
+        harness = _TapHarness("identity")
+        for byte in (b"\xef", b"\xbb", b"\xbf"):
+            harness.tap.tee(byte)
+        harness.tap.tee(b"data: first\n\n")
+        harness.tap.tee(b"")
+        self.assertEqual([e.data for e in harness.events], ["first"])
+        self.assertEqual(harness.events[0].event, DEFAULT_EVENT)
+
+
 class UnterminatedTests(unittest.TestCase):
     def test_a_trailing_block_without_a_blank_line_is_still_dispatched(self) -> None:
         """规范面对的是还在流动的连接；这里的 body 已经收完了，不派发就是凭空少一条。"""

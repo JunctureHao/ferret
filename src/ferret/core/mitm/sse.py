@@ -198,10 +198,18 @@ class SseFeeder:
         self._block = _Block()
         self._count = 0
         self._block_size = 0
+        self._started = False
 
     def feed(self, text: str) -> list[SseEvent]:
         """喂一段解码后的文本，吐出这一段凑齐的所有事件。"""
         events: list[SseEvent] = []
+        if not self._started and text:
+            # WHATWG SSE：整个流开头的单个 U+FEFF BOM 要丢掉，且只丢这一个。只在收到
+            # 第一段非空文本时判定 —— BOM 的三个字节可能被 TCP 劈进不同 chunk，增量
+            # 解码器要凑齐才吐出 `﻿`，过早置位会漏掉分块到货的 BOM。正文中间
+            # 合法的 BOM 字符要原样保留，所以不能对每段都 `lstrip`。
+            text = text.removeprefix("﻿")
+            self._started = True
         data = self._pending + text
         if len(data) + self._block_size > SSE_BLOCK_LIMIT and not any(
             sep in data for sep in ("\n\n", "\r\r", "\r\n\r\n")
