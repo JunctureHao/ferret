@@ -97,7 +97,7 @@ class WireGuardDeviceTests(unittest.TestCase):
     def _cleanup(self) -> None:
         if self.facade.block is not None:
             self.facade.block.set()
-        wait_until(lambda: self.dialog._task is None)
+        wait_until(lambda: self.dialog._task is None and self.dialog._poll is None)
         self.dialog.reject()
         self.dialog.deleteLater()
         self.host.close()
@@ -105,7 +105,9 @@ class WireGuardDeviceTests(unittest.TestCase):
         self.app.processEvents()
 
     def _finish(self) -> None:
-        self.assertTrue(wait_until(lambda: self.dialog._task is None))
+        self.assertTrue(
+            wait_until(lambda: self.dialog._task is None and self.dialog._poll is None)
+        )
 
     def _item(self, row: int, column: int) -> QTableWidgetItem:
         item = self.dialog.table.item(row, column)

@@ -114,8 +114,11 @@ class _DeviceConfirmationDialog(MessageBoxBase):
 class WireGuardDevicesDialog(MessageBoxBase):
     """设备操作独立保存，不依赖父抓包设置窗口是否点应用。
 
-    一次只运行一个任务，且持有至 finished。关闭请求延迟到任务结束，避免父窗口
-    在密钥写入或热更中途销毁任务持有者；所有 Qt 更新由具名槽回主线程完成。
+    写操作（新增/保存/回滚/二维码）互斥在 ``_task``；只读健康轮询单独跑在
+    ``_poll`` 上，不占 ``_task``、不禁用按钮，遇写操作在跑即跳过本拍或作废结果，
+    让界面不随 1.5 秒一拍的轮询闪烁。两类任务都持有至 finished；关闭请求延迟到
+    任务结束，避免父窗口在密钥写入或热更中途销毁任务持有者；所有 Qt 更新由具名
+    槽回主线程完成。
     """
 
     devicesChanged = Signal()
@@ -127,6 +130,9 @@ class WireGuardDevicesDialog(MessageBoxBase):
         self._task: FunctionTask | None = None
         self._operation = ""
         self._result: object = None
+        self._poll: FunctionTask | None = None
+        self._poll_result: object = None
+        self._rendered: _DeviceSnapshot | None = None
         self._selected_id: str | None = None
         self._close_requested = False
         self._loaded = False
@@ -243,8 +249,42 @@ class WireGuardDevicesDialog(MessageBoxBase):
 
     @Slot()
     def refresh(self) -> None:
-        if self._task is None and not self._close_requested:
-            self._start("refresh", self._snapshot)
+        # 只读健康轮询独立于写操作：不占 _task、不禁用按钮。写操作在跑、上一拍未
+        # 结束或已请求关闭时跳过本拍，避免与写操作并发访问配置。
+        if self._task is not None or self._poll is not None or self._close_requested:
+            return
+        poll = FunctionTask(self._snapshot)
+        self._poll = poll
+        poll.signals.succeeded.connect(self._on_poll_succeeded)
+        poll.signals.finished.connect(self._on_poll_finished)
+        QThreadPool.globalInstance().start(poll)
+
+    @Slot(object)
+    def _on_poll_succeeded(self, result: object) -> None:
+        self._poll_result = result
+
+    @Slot()
+    def _on_poll_finished(self) -> None:
+        poll, self._poll = self._poll, None
+        result, self._poll_result = self._poll_result, None
+        if poll is not None:
+            poll.signals.succeeded.disconnect(self._on_poll_succeeded)
+            poll.signals.finished.disconnect(self._on_poll_finished)
+        if self._close_requested:
+            if self._task is None:
+                self.reject()
+            return
+        # 写操作在跑时丢弃迟到的只读结果，由该操作权威重画，避免覆盖刚保存的状态。
+        if self._task is not None or not isinstance(result, _DeviceSnapshot):
+            return
+        changed = result != self._rendered
+        self._render(result)
+        if changed:
+            self._sync_actions()
+        # 没有通道在监听时「监听状态」是静态的，停表免去无谓轮询；本窗口为应用级
+        # 模态，engaged/enabled 不会从外部重新开启，无需再唤醒定时器。
+        if not (result.engaged and result.enabled):
+            self._timer.stop()
 
     def _start(self, operation: str, work: Callable[[], object]) -> None:
         if self._task is not None:
@@ -256,10 +296,9 @@ class WireGuardDevicesDialog(MessageBoxBase):
         task.signals.succeeded.connect(self._on_succeeded)
         task.signals.failed.connect(self._on_failed)
         task.signals.finished.connect(self._on_finished)
-        if operation != "refresh":
-            self.error_label.hide()
-            self.progress_label.setText(self.tr("正在处理设备配置…"))
-            self.progress_label.show()
+        self.error_label.hide()
+        self.progress_label.setText(self.tr("正在处理设备配置…"))
+        self.progress_label.show()
         self._sync_actions()
         QThreadPool.globalInstance().start(task)
 
@@ -339,6 +378,12 @@ class WireGuardDevicesDialog(MessageBoxBase):
         return True
 
     def _render(self, snapshot: _DeviceSnapshot) -> None:
+        if snapshot == self._rendered:
+            # 快照与上次渲染相同就不重建：空转轮询每拍返回相同数据，重建既闪烁又会
+            # 重置选中高亮。此时 self._devices 已等于 snapshot.devices，无需更新。
+            self._selected_id = None
+            return
+        self._rendered = snapshot
         selected = self._selected_device()
         selected_id = self._selected_id or (selected.id if selected else None)
         self._devices = snapshot.devices
@@ -389,7 +434,8 @@ class WireGuardDevicesDialog(MessageBoxBase):
 
     @Slot()
     def _sync_actions(self) -> None:
-        # 健康读取与修改串行，避免后台刷新覆盖刚保存的选择或并发访问配置。
+        # 只有写操作（占用 _task）才禁用按钮；只读健康轮询跑在 _poll 上，不参与
+        # busy，否则每 1.5 秒一拍会把工具栏按钮禁用再启用，造成闪烁。
         busy = self._task is not None
         self.add_button.setEnabled(self._loaded and not busy)
         device = self._selected_device()
@@ -503,9 +549,10 @@ class WireGuardDevicesDialog(MessageBoxBase):
 
     def reject(self) -> None:
         self._timer.stop()
-        if self._task is not None:
+        if self._task is not None or self._poll is not None:
             self._close_requested = True
-            self.progress_label.setText(self.tr("正在完成设备操作，请稍候…"))
-            self.progress_label.show()
+            if self._task is not None:
+                self.progress_label.setText(self.tr("正在完成设备操作，请稍候…"))
+                self.progress_label.show()
             return
         super().reject()
