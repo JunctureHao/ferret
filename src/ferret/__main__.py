@@ -1,7 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════
 # Nuitka 基础配置
 # ═══════════════════════════════════════════════════════════════════════
-# nuitka-project-set: STAMP = __import__("time").strftime("%Y%m%d_%H%M")
+# CI 里固定成 build/dist/ci：标准 runner 上 build/ 每次都是空的，时间戳只会让
+# clcache 的编译命令行（含指向 build 的 -I 路径）每 run 变化、跨 run 命中率归零。
+# 本地保留时间戳，避免多次构建互相覆盖。
+# nuitka-project-set: STAMP = "ci" if __import__("os").getenv("CI") == "true" else __import__("time").strftime("%Y%m%d_%H%M")
 # nuitka-project: --mode=standalone
 # nuitka-project: --output-dir=build/dist/{STAMP}
 # nuitka-project: --output-filename=Ferret

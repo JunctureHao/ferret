@@ -41,6 +41,17 @@ jobs:
 
       - run: uv sync --locked
 
+      # release job 受版本闸门卡着，发版间隔可能 >7 天，而 GitHub 驱逐 7 天未访问的
+      # 缓存。gate 每次 push 都跑，这里只读 restore 一下 Nuitka 缓存刷新其最后访问
+      # 时间，让发版时的编译缓存不被回收（纯保活：不编译、不保存，故不设 run_id key）。
+      - name: keep Nuitka cache warm
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: build/nuitka-cache
+          key: nuitka-${{ runner.os }}-keepalive
+          restore-keys: nuitka-${{ runner.os }}-
+
       # 预发布也参与 SemVer 比较；只有成功读取到空列表才按首次发布处理。
       - name: compare version with published releases
         id: ver
@@ -64,6 +75,10 @@ jobs:
       contents: write
     if: needs.gate.outputs.bump == 'true'
     runs-on: windows-latest
+    # Nuitka 缓存重定向进 build/（已 gitignore），供下方 actions/cache 持久化：
+    # clcache 对象、下载的 Dependency Walker、DLL 依赖解析结果都落在这里。
+    env:
+      NUITKA_CACHE_DIR: ${{ github.workspace }}/build/nuitka-cache
     timeout-minutes: 60 # Nuitka 全量编译（PySide6 + mitmproxy）约 15-30 分钟
     steps:
       # 全量历史 + tags：发布说明要从上一版 tag 起 git log
@@ -76,6 +91,19 @@ jobs:
           enable-cache: true
 
       - run: uv sync --locked
+
+      # Nuitka 冷编译 15-30 分钟；跨 run 持久化 clcache 对象 + 下载工具 + DLL 依赖缓存。
+      # key 带 run_id：每次精确未命中→走 restore-keys 恢复最近一份→结束再存新的
+      # （always-update，靠 clcache 内部 LRU 淘汰旧对象）。uv.lock 变更（含 Nuitka /
+      # PySide6 / mitmproxy 版本）会换 key，restore-keys 仍回退上一份，只重编变化模块。
+      - name: cache Nuitka build (clcache + downloads + dll deps)
+        uses: actions/cache@v4
+        with:
+          path: build/nuitka-cache
+          key: nuitka-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            nuitka-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
+            nuitka-${{ runner.os }}-
 
       # 等待发布锁期间可能已有新版发布；锁内复查，旧 gate 结果不授权覆盖。
       - name: recheck version after acquiring the publish lock
