@@ -1,13 +1,13 @@
 """流列表「列设置」对话框（docs/design.md#ui）。
 
 一个 `MessageBoxBase`：勾选决定显隐、拖拽决定顺序、「恢复默认列」一键回落。产出经
-`columns.normalize` 收敛，所以对话框侧不必自己保证「必需列不被隐藏 / index 居首」——
+`columns.normalize` 收敛，所以对话框侧不必自己保证「必需列不被隐藏 / 标记与序号在前」——
 这些不变量由归一化兜底（§3.2）。UI 只负责表达用户意图。
 
 - 显示标题走 `column_display_title`：与 `headerData` 同一条翻译路径（context 钉死
   "FlowTableModel"，§4.4），列头译文不另起 context。
-- 必需列（index/method/url）复选框禁用、恒勾选；`index` 额外不可拖动（连接树装饰绑
-  逻辑列 0，§0）。可选列可勾可拖。
+- 必需列（index/method/url）复选框禁用、恒勾选；`mark` / `index` 不可拖动，
+  标记列仍可隐藏。其余可选列可勾可拖。
 - 列宽不在此配置（表头拖动实时存），`result_layout` 沿用传入布局的 widths。
 """
 
@@ -81,7 +81,7 @@ class ColumnSettingsDialog(MessageBoxBase):
             flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
             if not required:  # 必需列复选框禁用（恒勾选），其余可勾
                 flags |= Qt.ItemFlag.ItemIsUserCheckable
-            if not is_pinned(key):  # index 钉死首位、不可拖（连接树装饰绑逻辑列 0）
+            if not is_pinned(key):  # 标记 / 序号固定在前，其余列可拖动。
                 flags |= Qt.ItemFlag.ItemIsDragEnabled
             item.setFlags(flags)
             self.list_widget.addItem(item)
@@ -92,7 +92,7 @@ class ColumnSettingsDialog(MessageBoxBase):
     def result_layout(self) -> ColumnLayout:
         """读当前列表：顺序＝自上而下，可见＝勾选态；沿用原 widths，交 normalize 收敛。
 
-        归一化会强制 index 居首、必需列可见、补齐缺列，所以这里不必自己守这些不变量。
+        归一化会固定标记 / 序号的位置、强制必需列可见并补齐缺列。
         """
         order: list[str] = []
         visible: list[str] = []

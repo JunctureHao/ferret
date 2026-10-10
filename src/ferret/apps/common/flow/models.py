@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
@@ -19,7 +21,7 @@ from qfluentwidgets import isDarkTheme
 # re-export：表格 Time 列与详情页总时长第一次走同一个格式化器，旧导入点不动。
 # 冗余别名是 PEP 484 的显式 re-export 写法（ty 认这个标记）。
 from ferret.apps.common.flow.columns import (
-    DEFAULT_ORDER,
+    LOGICAL_ORDER,
     column_display_title,
     header_of,
     key_of_header,
@@ -80,10 +82,10 @@ class FlowSource(Protocol):
 
 
 class FlowTableModel(QAbstractTableModel):
-    # 表头分派串由 columns.py 派生（稳定 key → header），逻辑列顺序恒＝DEFAULT_ORDER。
-    # Mark 列紧随 #：标记载的是 emoji 短码（`flow.marked`），显示经 `marker_glyph`
+    # 表头分派串按固定逻辑序派生；视觉位置只经表头重排，不能影响模型索引。
+    # 标记载的是 emoji 短码（`flow.marked`），显示经 `marker_glyph`
     # 翻译成图形字符；只占一个字符位，宽度在视图侧钉死（columns.py 的 fixed_width）。
-    HEADERS = tuple(header_of(key) for key in DEFAULT_ORDER)
+    HEADERS = tuple(header_of(key) for key in LOGICAL_ORDER)
 
     def __init__(self, parent: QObject):
         super().__init__(parent)
@@ -113,9 +115,8 @@ class FlowTableModel(QAbstractTableModel):
         role: int = Qt.ItemDataRole.DisplayRole,
     ):
         if orientation == Qt.Orientation.Horizontal:
-            if role == Qt.ItemDataRole.DisplayRole:
-                # 显示标题走 columns.column_display_title：只 "Mark"→「标记」，其余列头
-                # 用原文，context 钉死 "FlowTableModel"，与列设置对话框共用一条路径。
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
+                # 所有标题与列设置共用翻译；图标列的悬浮提示仍显示完整标题。
                 return column_display_title(key_of_header(self._headers[section]))
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 # 横向表头统一左对齐（垂直居中），不按列名区分。
@@ -659,7 +660,7 @@ class FlowConnTreeModel(QAbstractItemModel):
         role: int = Qt.ItemDataRole.DisplayRole,
     ):
         if orientation == Qt.Orientation.Horizontal:
-            if role == Qt.ItemDataRole.DisplayRole:
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
                 return column_display_title(key_of_header(self._headers[section]))
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)

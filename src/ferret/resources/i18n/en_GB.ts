@@ -1909,12 +1909,12 @@
 <context>
     <name>FlowColumnMenu</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="249"/>
+        <location filename="../../apps/common/flow/views.py" line="275"/>
         <source>列设置…</source>
         <translation>Column settings…</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="254"/>
+        <location filename="../../apps/common/flow/views.py" line="280"/>
         <source>恢复默认列</source>
         <translation>Reset to default columns</translation>
     </message>
@@ -1922,12 +1922,12 @@
 <context>
     <name>FlowConnTreeModel</name>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="560"/>
+        <location filename="../../apps/common/flow/models.py" line="561"/>
         <source>未知客户端</source>
         <translation>Unknown client</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="569"/>
+        <location filename="../../apps/common/flow/models.py" line="570"/>
         <source>{client} → {count} 个目标</source>
         <translation>{client} → {count} targets</translation>
     </message>
@@ -2245,12 +2245,12 @@
 <context>
     <name>FlowEmptyState</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1406"/>
+        <location filename="../../apps/common/flow/views.py" line="1520"/>
         <source>暂无流量</source>
         <translation>No traffic yet</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1406"/>
+        <location filename="../../apps/common/flow/views.py" line="1520"/>
         <source>代理已停止</source>
         <translation>Proxy stopped</translation>
     </message>
@@ -3008,34 +3008,69 @@
 <context>
     <name>FlowTableModel</name>
     <message>
-        <location filename="../../apps/common/flow/columns.py" line="58"/>
+        <location filename="../../apps/common/flow/columns.py" line="55"/>
+        <source>序号</source>
+        <translation>No.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/columns.py" line="65"/>
         <source>标记</source>
         <translation>Mark</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/columns.py" line="100"/>
+        <location filename="../../apps/common/flow/columns.py" line="75"/>
+        <source>方法</source>
+        <translation>Method</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/columns.py" line="85"/>
+        <source>地址</source>
+        <translation>URL</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/columns.py" line="95"/>
+        <source>状态</source>
+        <translation>Status</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/columns.py" line="105"/>
+        <source>类型</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/columns.py" line="115"/>
+        <source>大小</source>
+        <translation>Size</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/columns.py" line="125"/>
+        <source>耗时</source>
+        <translation>Time</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/columns.py" line="135"/>
         <source>设备</source>
         <translation>Device</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="374"/>
+        <location filename="../../apps/common/flow/models.py" line="375"/>
         <source>未知设备</source>
         <translation>Unknown device</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="395"/>
+        <location filename="../../apps/common/flow/models.py" line="396"/>
         <source>WireGuard 设备：{name}
 设备 ID：{id}</source>
         <translation>WireGuard device: {name}
 Device ID: {id}</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="417"/>
+        <location filename="../../apps/common/flow/models.py" line="418"/>
         <source>挂起中</source>
         <translation>Suspended</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/models.py" line="421"/>
+        <location filename="../../apps/common/flow/models.py" line="422"/>
         <source>等待中</source>
         <translation>Pending</translation>
     </message>
@@ -3107,56 +3142,56 @@ Device ID: {id}</translation>
 <context>
     <name>FlowViewerPane</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1007"/>
-        <location filename="../../apps/common/flow/views.py" line="1022"/>
-        <location filename="../../apps/common/flow/views.py" line="1147"/>
+        <location filename="../../apps/common/flow/views.py" line="1121"/>
+        <location filename="../../apps/common/flow/views.py" line="1136"/>
+        <location filename="../../apps/common/flow/views.py" line="1261"/>
         <source>平铺</source>
         <translation>Flat</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1025"/>
+        <location filename="../../apps/common/flow/views.py" line="1139"/>
         <source>切换显示模式：平铺 / 按连接</source>
         <translation>Switch view: flat / by connection</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1008"/>
-        <location filename="../../apps/common/flow/views.py" line="1144"/>
+        <location filename="../../apps/common/flow/views.py" line="1122"/>
+        <location filename="../../apps/common/flow/views.py" line="1258"/>
         <source>按连接</source>
         <translation>By connection</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1002"/>
-        <location filename="../../apps/common/flow/views.py" line="1004"/>
+        <location filename="../../apps/common/flow/views.py" line="1116"/>
+        <location filename="../../apps/common/flow/views.py" line="1118"/>
         <source>视图</source>
         <translation>View</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1369"/>
+        <location filename="../../apps/common/flow/views.py" line="1483"/>
         <source>没有匹配结果</source>
         <translation>No matches</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1370"/>
+        <location filename="../../apps/common/flow/views.py" line="1484"/>
         <source>当前有 {} 个有效条件</source>
         <translation>{} active condition(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1374"/>
+        <location filename="../../apps/common/flow/views.py" line="1488"/>
         <source>等待流量</source>
         <translation>Waiting for traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1379"/>
+        <location filename="../../apps/common/flow/views.py" line="1493"/>
         <source>代理已停止</source>
         <translation>Proxy stopped</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1381"/>
+        <location filename="../../apps/common/flow/views.py" line="1495"/>
         <source>当前会话没有 HTTP 流量</source>
         <translation>This session has no HTTP traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1383"/>
+        <location filename="../../apps/common/flow/views.py" line="1497"/>
         <source>暂无流量</source>
         <translation>No traffic yet</translation>
     </message>

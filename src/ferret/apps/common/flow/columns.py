@@ -12,7 +12,7 @@
   所以 key→逻辑列是一张常量表（`logical_index`）。
 
 显示标题走 `column_display_title`：context 钉死 "FlowTableModel"，有标记的列
-求值译文、其余列头用 header 原文 —— 与 `headerData` 同一条翻译路径（§4.4），
+在显示时求值译文 —— 与 `headerData` 同一条翻译路径（§4.4），
 列设置对话框和表头必须复用它，不另起 context。
 """
 
@@ -43,29 +43,36 @@ class ColumnDef(NamedTuple):
     default_visible: bool
     default_width: int
     required: bool  # 必需列：不可隐藏
-    pinned: bool  # 固定视觉最左、不可移动（仅 index：连接树装饰绑逻辑列 0）
+    pinned: bool  # 固定在视觉前部、不可移动（mark / index）
     fixed_width: bool  # 视图侧 Fixed resize、宽度钉死，widths 配置对它无效（仅 mark）
 
 
-# 默认顺序＝HEADERS 顺序＝逻辑列顺序，三者恒等。改这里等于改默认布局。
+# 模型逻辑列顺序恒定；视觉顺序单独由 DEFAULT_ORDER / ColumnLayout.order 决定。
 COLUMNS: tuple[ColumnDef, ...] = (
     ColumnDef(
-        "index", "#", None, True, 80, required=True, pinned=True, fixed_width=False
+        "index",
+        "#",
+        QT_TRANSLATE_NOOP("FlowTableModel", "序号"),
+        True,
+        80,
+        required=True,
+        pinned=True,
+        fixed_width=False,
     ),
     ColumnDef(
         "mark",
         "Mark",
         QT_TRANSLATE_NOOP("FlowTableModel", "标记"),
         True,
-        64,
+        40,
         required=False,
-        pinned=False,
+        pinned=True,
         fixed_width=True,
     ),
     ColumnDef(
         "method",
         "Method",
-        None,
+        QT_TRANSLATE_NOOP("FlowTableModel", "方法"),
         True,
         80,
         required=True,
@@ -73,12 +80,19 @@ COLUMNS: tuple[ColumnDef, ...] = (
         fixed_width=False,
     ),
     ColumnDef(
-        "url", "URL", None, True, 420, required=True, pinned=False, fixed_width=False
+        "url",
+        "URL",
+        QT_TRANSLATE_NOOP("FlowTableModel", "地址"),
+        True,
+        420,
+        required=True,
+        pinned=False,
+        fixed_width=False,
     ),
     ColumnDef(
         "status",
         "Status",
-        None,
+        QT_TRANSLATE_NOOP("FlowTableModel", "状态"),
         True,
         65,
         required=False,
@@ -86,13 +100,34 @@ COLUMNS: tuple[ColumnDef, ...] = (
         fixed_width=False,
     ),
     ColumnDef(
-        "type", "Type", None, True, 100, required=False, pinned=False, fixed_width=False
+        "type",
+        "Type",
+        QT_TRANSLATE_NOOP("FlowTableModel", "类型"),
+        True,
+        100,
+        required=False,
+        pinned=False,
+        fixed_width=False,
     ),
     ColumnDef(
-        "size", "Size", None, True, 80, required=False, pinned=False, fixed_width=False
+        "size",
+        "Size",
+        QT_TRANSLATE_NOOP("FlowTableModel", "大小"),
+        True,
+        80,
+        required=False,
+        pinned=False,
+        fixed_width=False,
     ),
     ColumnDef(
-        "time", "Time", None, True, 80, required=False, pinned=False, fixed_width=False
+        "time",
+        "Time",
+        QT_TRANSLATE_NOOP("FlowTableModel", "耗时"),
+        True,
+        80,
+        required=False,
+        pinned=False,
+        fixed_width=False,
     ),
     ColumnDef(
         "device",
@@ -109,7 +144,12 @@ COLUMNS: tuple[ColumnDef, ...] = (
 _BY_KEY: dict[str, ColumnDef] = {col.key: col for col in COLUMNS}
 _BY_HEADER: dict[str, ColumnDef] = {col.header: col for col in COLUMNS}
 
-DEFAULT_ORDER: tuple[str, ...] = tuple(col.key for col in COLUMNS)
+LOGICAL_ORDER: tuple[str, ...] = tuple(col.key for col in COLUMNS)
+DEFAULT_ORDER: tuple[str, ...] = (
+    "mark",
+    "index",
+    *[key for key in LOGICAL_ORDER if key not in ("mark", "index")],
+)
 REQUIRED_KEYS: frozenset[str] = frozenset(col.key for col in COLUMNS if col.required)
 # 响应式窄窗优先隐藏的列（原 setColumnHidden(4/5)＝Status/Type，按 key 固定）。
 RESPONSIVE_KEYS: tuple[str, ...] = ("status", "type")
@@ -127,7 +167,7 @@ def key_of_header(header: str) -> str:
 
 def logical_index(key: str) -> int:
     """稳定 key → 逻辑列索引（恒定：＝HEADERS 里的位置，moveSection 不改逻辑列）。"""
-    return DEFAULT_ORDER.index(key)
+    return LOGICAL_ORDER.index(key)
 
 
 def is_pinned(key: str) -> bool:
@@ -156,7 +196,7 @@ def column_display_title(key: str) -> str:
 class ColumnLayout:
     """一份已归一化、必然自洽的列布局。frozen＝改动一律产出新对象（§3.2 写回红线）。
 
-    - `order`：全部已知列的稳定 key，index 恒在首位。
+    - `order`：全部已知列的稳定 key，mark / index 恒在前两位。
     - `visible`：可见列集（必含全部必需列，至少非空）。
     - `widths`：非固定宽列的宽度（mark 不入表）。
     """
@@ -227,7 +267,7 @@ def normalize(raw: object) -> ColumnLayout:
     """把任意持久化产物（或 None / 脏数据）收敛成自洽的 ColumnLayout。
 
     容错口径见 §3.2：未配置 / 错误版本回落默认；未知 key 忽略；缺失的新列按默认
-    位置与默认可见性追加、不覆盖用户已有列；order 去重补齐、index 强制首位；
+    位置与默认可见性追加、不覆盖用户已有列；order 去重补齐、mark / index 固定在前；
     visible 与 order 求交后强制加必需列；非法/过小宽度回落默认；mark 宽度忽略。
     """
     if not isinstance(raw, dict) or raw.get("version") != SCHEMA_VERSION:
@@ -246,9 +286,9 @@ def normalize(raw: object) -> ColumnLayout:
     for col in COLUMNS:
         if col.key not in known:
             order.append(col.key)
-    # index 钉死视觉/逻辑首位（连接树装饰绑逻辑列 0，见 §0/§1）。
-    if "index" in order:
-        order = ["index", *[k for k in order if k != "index"]]
+    # 旧配置也将标记收至最前；保留其它列的用户顺序、显隐和宽度。
+    pinned = [key for key in DEFAULT_ORDER if is_pinned(key)]
+    order = [*pinned, *[key for key in order if key not in pinned]]
 
     visible_raw = raw.get("visible")
     visible_set = (
@@ -310,6 +350,7 @@ def save_layout(layout: ColumnLayout) -> None:
 __all__ = [
     "COLUMNS",
     "DEFAULT_ORDER",
+    "LOGICAL_ORDER",
     "REQUIRED_KEYS",
     "RESPONSIVE_KEYS",
     "SCHEMA_VERSION",

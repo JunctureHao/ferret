@@ -5,6 +5,8 @@
 高亮圆角按视觉首末列。持久化用 patch 隔离，不碰真实 config.json。
 """
 
+from __future__ import annotations
+
 import os
 import unittest
 from unittest.mock import patch
@@ -16,6 +18,7 @@ from PySide6.QtWidgets import QApplication
 from ferret.apps.common.flow import views
 from ferret.apps.common.flow.columns import (
     DEFAULT_ORDER,
+    LOGICAL_ORDER,
     default_layout,
     logical_index,
     normalize,
@@ -25,16 +28,12 @@ from ferret.apps.common.flow.views import FlowViewerPane, _visual_caps
 
 def _visual_order(header) -> list[str]:
     """表头当前视觉顺序 → 稳定 key 列表（隐藏列也算，只看排布）。"""
-    from ferret.apps.common.flow.columns import DEFAULT_ORDER
-
-    return [DEFAULT_ORDER[header.logicalIndex(v)] for v in range(header.count())]
+    return [LOGICAL_ORDER[header.logicalIndex(v)] for v in range(header.count())]
 
 
 def _visible_visual_order(header) -> list[str]:
-    from ferret.apps.common.flow.columns import DEFAULT_ORDER
-
     return [
-        DEFAULT_ORDER[header.logicalIndex(v)]
+        LOGICAL_ORDER[header.logicalIndex(v)]
         for v in range(header.count())
         if not header.isSectionHidden(header.logicalIndex(v))
     ]
@@ -93,6 +92,8 @@ class ColumnLayoutQtTests(unittest.TestCase):
                 header.sectionResizeMode(mark_logical),
                 QHeaderView.ResizeMode.Fixed,
             )
+            self.assertEqual(header.sectionSize(mark_logical), 40)
+            self.assertEqual(header.visualIndex(mark_logical), 0)
 
     def test_hide_column_reflects_in_both_views(self) -> None:
         layout = default_layout().with_visible("status", False)
@@ -103,8 +104,49 @@ class ColumnLayoutQtTests(unittest.TestCase):
         # 未隐藏列仍在
         self.assertFalse(self.tree.isColumnHidden(logical_index("url")))
 
+    def test_tree_expander_stays_in_sequence_column(self) -> None:
+        from mitmproxy.test import tflow
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+
+        from ferret.core.mitm import flow_row
+        from tests.apps.common.flow.test_views import _Source
+
+        self.viewer.set_source(_Source([flow_row(tflow.tflow(resp=True))]))
+        self.app.processEvents()
+        parent = self.tree.model().index(0, logical_index("index"))
+        self.assertEqual(self.tree.treePosition(), logical_index("index"))
+        y = self.tree.visualRect(parent).center().y()
+        # QFW 原本在 x=20..30 硬编码展开点击区，前置标记不能触发它。
+        QTest.mouseClick(
+            self.tree.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(25, y)
+        )
+        self.assertFalse(self.tree.isExpanded(parent))
+
+        for show_mark in (True, False):
+            with self.subTest(show_mark=show_mark):
+                self.tree.apply_column_layout(
+                    default_layout().with_visible("mark", show_mark)
+                )
+                self.app.processEvents()
+                self.tree.collapse(parent)
+                x = self.tree_header.sectionViewportPosition(logical_index("index"))
+                point = QPoint(x + self.tree.indentation() // 2, y)
+                QTest.mouseClick(
+                    self.tree.viewport(), Qt.MouseButton.LeftButton, pos=point
+                )
+                self.assertTrue(self.tree.isExpanded(parent))
+
+    def test_sequence_width_persists_under_its_logical_key(self) -> None:
+        self.viewer.table.setColumnWidth(logical_index("index"), 100)
+        self.app.processEvents()
+        saved = self.save_mock.call_args.args[0]
+        self.assertEqual(saved.width("index"), 100)
+        self.assertEqual(saved.width("mark"), 40)
+        self.assertEqual(self.tree_header.sectionSize(logical_index("index")), 100)
+
     def test_reorder_reflects_visual_order_both_views(self) -> None:
-        order = ["index", "url", "time", "method", "mark", "status", "type", "size"]
+        order = ["mark", "index", "url", "time", "method", "status", "type", "size"]
         layout = default_layout().with_order(order)
         self.tree._commit_column_layout(layout)
         self.app.processEvents()
@@ -117,8 +159,8 @@ class ColumnLayoutQtTests(unittest.TestCase):
         layout = default_layout().with_order(order)
         self.viewer.table._commit_column_layout(layout)
         self.app.processEvents()
-        # url 视觉位变 1，逻辑列仍 3
-        self.assertEqual(self.table_header.visualIndex(logical_index("url")), 1)
+        # 标记 / 序号固定在前，url 视觉位变 2，逻辑列仍 3。
+        self.assertEqual(self.table_header.visualIndex(logical_index("url")), 2)
         self.assertEqual(logical_index("url"), 3)
 
     def test_commit_persists_and_syncs_other_view(self) -> None:
@@ -168,7 +210,7 @@ class ColumnLayoutQtTests(unittest.TestCase):
     def test_width_resize_ignores_mark_fixed(self) -> None:
         received: list = []
         self.viewer.table.column_layout_changed.connect(received.append)
-        self.viewer.table._on_section_resized(logical_index("mark"), 64, 120)
+        self.viewer.table._on_section_resized(logical_index("mark"), 40, 120)
         self.assertFalse(received)  # 固定宽列不记
 
     def test_width_resize_suppressed_while_applying(self) -> None:
@@ -195,8 +237,8 @@ class ColumnLayoutQtTests(unittest.TestCase):
         self.viewer.table._commit_column_layout(layout)
         self.app.processEvents()
         header = self.table_header
-        # index 仍视觉首（pinned），size 视觉末
-        first_first, first_last = _visual_caps(header, logical_index("index"))
+        # mark 固定在视觉首位，size 视觉末。
+        first_first, first_last = _visual_caps(header, logical_index("mark"))
         self.assertTrue(first_first)
         self.assertFalse(first_last)
         last_first, last_last = _visual_caps(header, logical_index("size"))

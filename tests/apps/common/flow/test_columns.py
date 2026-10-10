@@ -5,6 +5,8 @@
 key 迁移、非法宽度回落、错误版本整体回落、翻译不影响 key。
 """
 
+from __future__ import annotations
+
 import os
 import unittest
 
@@ -25,8 +27,8 @@ class DefaultLayoutTests(unittest.TestCase):
         self.assertEqual(
             layout.order,
             (
-                "index",
                 "mark",
+                "index",
                 "method",
                 "url",
                 "status",
@@ -52,7 +54,7 @@ class DefaultLayoutTests(unittest.TestCase):
         # mark 固定宽：不入 widths 表，取值回落默认。
         layout = default_layout()
         self.assertNotIn("mark", dict(layout.widths))
-        self.assertEqual(layout.width("mark"), 64)
+        self.assertEqual(layout.width("mark"), 40)
 
     def test_roundtrip_through_dict(self) -> None:
         layout = default_layout()
@@ -101,7 +103,7 @@ class RequiredColumnTests(unittest.TestCase):
 
 
 class OrderTests(unittest.TestCase):
-    def test_index_forced_first(self) -> None:
+    def test_mark_and_index_forced_first(self) -> None:
         raw = default_layout().to_dict()
         raw["order"] = [
             "url",
@@ -114,7 +116,7 @@ class OrderTests(unittest.TestCase):
             "time",
         ]
         layout = normalize(raw)
-        self.assertEqual(layout.order[0], "index")
+        self.assertEqual(layout.order[:2], ("mark", "index"))
 
     def test_dedupe_order(self) -> None:
         raw = default_layout().to_dict()
@@ -131,12 +133,12 @@ class OrderTests(unittest.TestCase):
         self.assertEqual(set(layout.order), set(DEFAULT_ORDER))
 
     def test_missing_columns_appended_not_reordered(self) -> None:
-        # 用户旧配置只排了前四列；新/缺列按默认顺序追加到末尾，不打乱已排部分。
+        # 固定列收至最前，其余已配置列保留相对顺序，缺列追加。
         raw = default_layout().to_dict()
         raw["order"] = ["index", "url", "method", "mark"]
         raw["visible"] = ["index", "url", "method", "mark"]
         layout = normalize(raw)
-        self.assertEqual(layout.order[:4], ("index", "url", "method", "mark"))
+        self.assertEqual(layout.order[:4], ("mark", "index", "url", "method"))
         self.assertEqual(set(layout.order), set(DEFAULT_ORDER))
 
     def test_new_column_uses_default_visibility(self) -> None:
@@ -177,7 +179,7 @@ class WidthTests(unittest.TestCase):
         raw["widths"] = {"mark": 999}
         layout = normalize(raw)
         self.assertNotIn("mark", dict(layout.widths))
-        self.assertEqual(layout.width("mark"), 64)
+        self.assertEqual(layout.width("mark"), 40)
 
 
 class MutatorTests(unittest.TestCase):
@@ -197,7 +199,20 @@ class MutatorTests(unittest.TestCase):
     def test_with_order_moves_column(self) -> None:
         order = ["index", "url", "method", "mark", "status", "type", "size", "time"]
         layout = default_layout().with_order(order)
-        self.assertEqual(layout.order, (*order, "device"))
+        self.assertEqual(
+            layout.order,
+            (
+                "mark",
+                "index",
+                "url",
+                "method",
+                "status",
+                "type",
+                "size",
+                "time",
+                "device",
+            ),
+        )
 
     def test_frozen_returns_new_object(self) -> None:
         base = default_layout()

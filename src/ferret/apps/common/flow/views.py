@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import (
     QCoreApplication,
+    QEvent,
     QModelIndex,
     QPersistentModelIndex,
     QPoint,
@@ -32,6 +33,8 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QStyle,
     QStyleOptionHeader,
+    QStyleOptionViewItem,
+    QTreeView,
     QVBoxLayout,
     QWidget,
 )
@@ -55,7 +58,7 @@ from qfluentwidgets import (
 from ferret.apps.common.flow.column_settings import ColumnSettingsDialog
 from ferret.apps.common.flow.columns import (
     COLUMNS,
-    DEFAULT_ORDER,
+    LOGICAL_ORDER,
     RESPONSIVE_KEYS,
     ColumnLayout,
     default_layout,
@@ -113,6 +116,25 @@ class _FlowHeaderView(QHeaderView):
         self.setHighlightSections(False)
         self.setStretchLastSection(False)
 
+    def paintSection(self, painter: QPainter, rect: QRect, logical: int) -> None:
+        if logical != logical_index("mark"):
+            super().paintSection(painter, rect, logical)
+            return
+        # 窄标记列用图标；完整标题仍由模型提供给悬浮提示和辅助功能。
+        option = QStyleOptionHeader()
+        self.initStyleOption(option)
+        self.initStyleOptionForIndex(option, logical)
+        option.rect = rect
+        option.text = ""
+        painter.save()
+        self.style().drawControl(QStyle.ControlElement.CE_Header, option, painter, self)
+        sorted_column = option.sortIndicator != QStyleOptionHeader.SortIndicator.None_
+        left = rect.x() + (rect.width() - 16) // 2 - (5 if sorted_column else 0)
+        FluentIcon.TAG.render(
+            painter, QRectF(left, rect.y() + (rect.height() - 16) / 2, 16, 16)
+        )
+        painter.restore()
+
     def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)
         viewport = self.viewport()
@@ -169,8 +191,7 @@ class _ColumnLayoutMixin(_MixinBase):
         self._responsive_hidden: set[str] = set()
         self._applying_layout = False
         header = self._column_header()
-        # 表头 section 全程不可拖动：重排只经列设置对话框（§0：连接树装饰绑逻辑列 0，
-        # 原生拖拽把 index 拖离视觉 0 会让树形装饰跟着跑）。
+        # 重排统一经列设置，固定的标记 / 序号前缀由列布局归一化维护。
         header.setSectionsMovable(False)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._on_header_menu)
@@ -189,6 +210,8 @@ class _ColumnLayoutMixin(_MixinBase):
             for col in COLUMNS:
                 lg = logical_index(col.key)
                 width = col.default_width if col.fixed_width else layout.width(col.key)
+                if not col.fixed_width:
+                    width = max(44, width)
                 self.setColumnWidth(lg, width)
             # Mark 固定宽：按 key 取逻辑列（moveSection 不改逻辑列，仍是它本来的位置）。
             header.setSectionResizeMode(
@@ -223,10 +246,13 @@ class _ColumnLayoutMixin(_MixinBase):
     def _on_section_resized(self, logical: int, _old: int, new: int) -> None:
         if self._applying_layout or new <= 0:
             return
-        if not (0 <= logical < len(DEFAULT_ORDER)):
+        if not (0 <= logical < len(LOGICAL_ORDER)):
             return
-        key = DEFAULT_ORDER[logical]
+        key = LOGICAL_ORDER[logical]
         if is_fixed_width(key):  # Mark 固定宽，不记
+            return
+        if new < 44:
+            self.setColumnWidth(logical, 44)
             return
         self._column_layout = self._column_layout.with_width(key, new)
         self.column_layout_changed.emit(self._column_layout)
@@ -299,6 +325,21 @@ def _visual_caps(header: QHeaderView | None, logical_col: int) -> tuple[bool, bo
     return (visual == visibles[0], visual == visibles[-1])
 
 
+def _paint_marker(painter: QPainter, option, index) -> None:
+    """在完整单元格内画标记，避开 Fluent 通用文本的左右大 padding。"""
+    if index.column() != logical_index("mark"):
+        return
+    glyph = index.data(Qt.ItemDataRole.DisplayRole)
+    if not glyph:
+        return
+    painter.save()
+    painter.setClipRect(option.rect)
+    painter.setFont(index.data(Qt.ItemDataRole.FontRole) or getFont(13))
+    painter.setPen(Qt.GlobalColor.white if isDarkTheme() else Qt.GlobalColor.black)
+    painter.drawText(option.rect, Qt.AlignmentFlag.AlignCenter, glyph)
+    painter.restore()
+
+
 class HighlightRowDelegate(TableItemDelegate):
     """命中搜索表达式的行整行垫一层琥珀底。
 
@@ -320,11 +361,50 @@ class HighlightRowDelegate(TableItemDelegate):
         option,
         index: QModelIndex | QPersistentModelIndex,
     ) -> None:
+        marker_option = QStyleOptionViewItem(option)
         if index.data(HIGHLIGHT_ROLE) and not (
             option.state & QStyle.StateFlag.State_Selected
         ):
             self._fill_highlight(painter, option, index)
         super().paint(painter, option, index)
+        # QFW 只在逻辑列 0 调指示条；标记前置后需补画视觉首列。
+        if (
+            index.column() != 0
+            and index.row() in self.selectedRows
+            and cast(TableView, self.parent()).horizontalScrollBar().value() == 0
+        ):
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setClipRect(option.rect)
+            self._drawIndicator(painter, option, index)
+            painter.restore()
+        _paint_marker(painter, marker_option, index)
+
+    def initStyleOption(self, option, index) -> None:
+        super().initStyleOption(option, index)
+        if index.column() == logical_index("mark"):
+            option.text = ""
+
+    def _drawIndicator(self, painter, option, index) -> None:
+        if _visual_caps(
+            cast(TableView, self.parent()).horizontalHeader(), index.column()
+        )[0]:
+            super()._drawIndicator(painter, option, index)
+
+    def _drawBackground(self, painter, option, index) -> None:
+        header = cast(TableView, self.parent()).horizontalHeader()
+        is_first, is_last = _visual_caps(header, index.column())
+        rect = option.rect
+        radius = 5
+        if is_first:
+            painter.drawRoundedRect(rect.adjusted(4, 0, radius + 1, 0), radius, radius)
+        elif is_last:
+            painter.drawRoundedRect(
+                rect.adjusted(-radius - 1, 0, -4, 0), radius, radius
+            )
+        else:
+            painter.drawRect(rect.adjusted(-1, 0, 1, 0))
 
     def _fill_highlight(
         self, painter: QPainter, option, index: QModelIndex | QPersistentModelIndex
@@ -413,7 +493,7 @@ class FlowDataTable(_ColumnLayoutMixin, TableView):  # ty: ignore[invalid-method
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         h_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        h_header.setMinimumSectionSize(44)
+        h_header.setMinimumSectionSize(40)
         # 列宽 / Mark 固定宽 / 顺序 / 显隐全由列布局收敛（消除写死的 widths 数组与
         # setSectionResizeMode(1, Fixed)）；持久布局的读取与应用在 FlowViewerPane。
         self._init_columns(default_layout())
@@ -664,6 +744,19 @@ class HighlightTreeDelegate(TreeItemDelegate):
         ):
             self._fill_highlight(painter, option, index)
         super().paint(painter, option, index)
+        _paint_marker(painter, option, index)
+
+    def _drawBackground(self, painter, option, index) -> None:
+        self._paint_background(
+            painter,
+            option,
+            index,
+            QColor(255, 255, 255, 9) if isDarkTheme() else QColor(0, 0, 0, 9),
+        )
+
+    def _drawIndicator(self, painter, option, index) -> None:
+        if _visual_caps(cast(TreeView, self.parent()).header(), index.column())[0]:
+            super()._drawIndicator(painter, option, index)
 
     def sizeHint(self, option, index: QModelIndex | QPersistentModelIndex) -> QSize:
         # 与平铺表格 34px 行高对齐（树无 verticalHeader，靠委托定高）。
@@ -686,24 +779,35 @@ class HighlightTreeDelegate(TreeItemDelegate):
             text_color = QBrush(brush).color()
         option.palette.setColor(QPalette.ColorRole.Text, text_color)
         option.palette.setColor(QPalette.ColorRole.HighlightedText, text_color)
+        if index.column() == logical_index("mark"):
+            option.text = ""
 
     def _fill_highlight(
         self, painter: QPainter, option, index: QModelIndex | QPersistentModelIndex
     ) -> None:
+        self._paint_background(
+            painter, option, index, self._DARK if isDarkTheme() else self._LIGHT
+        )
+
+    def _paint_background(self, painter, option, index, color: QColor) -> None:
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setClipRect(option.rect)
-        painter.setBrush(self._DARK if isDarkTheme() else self._LIGHT)
+        painter.setBrush(color)
         # 复刻 qfw TreeItemDelegate._drawBackground 的圆角规则（含 2px 行距 margin）。
         radius = 4.0
-        header = option.widget.header() if option.widget is not None else None
+        tree = cast(TreeView, self.parent())
+        header = tree.header()
         is_first, is_last = _visual_caps(header, index.column())
         rect = QRectF(option.rect)
         rect.setTop(option.rect.y() + 2)
         rect.setHeight(option.rect.height() - 4)
+        if index.column() == tree.treePosition():
+            # 树列前的缩进也属于这一行，标记前置后仍须连上整行背景。
+            rect.setLeft(header.sectionViewportPosition(index.column()))
         if is_first:
-            rect.setX(4)
+            rect.setLeft(header.sectionViewportPosition(index.column()) + 4)
+        painter.setClipRect(rect)
         path = QPainterPath()
         if is_first and is_last:
             path.addRoundedRect(rect, radius, radius)
@@ -785,6 +889,8 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
         self.setSortingEnabled(True)
         self.setWordWrap(False)
         self.setUniformRowHeights(True)
+        # 子节点仍归属于逻辑列 0；标记占视觉首列不能带走树形装饰。
+        self.setTreePosition(logical_index("index"))
         self.setExpandsOnDoubleClick(True)  # 父节点双击=展开/折叠（Qt 默认）
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -795,7 +901,7 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         h_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        h_header.setMinimumSectionSize(44)
+        h_header.setMinimumSectionSize(40)
         # 列宽 / Mark 固定宽 / 顺序 / 显隐全由列布局收敛（与平铺表格共用同一份布局，
         # 持久布局的读取与应用在 FlowViewerPane）。
         self._init_columns(default_layout())
@@ -804,6 +910,14 @@ class FlowConnTree(_ColumnLayoutMixin, TreeView):
         # 用户点列头才切聚合排序（默认锁首见序，见 FlowConnProxyModel）。
         self.header().sortIndicatorChanged.connect(self.__on_sort_requested)
         self.setItemDelegate(HighlightTreeDelegate(self))
+
+    def drawBranches(self, painter, rect, index) -> None:
+        # QFW 把分支无条件移到 x=15；使用 Qt 的列位置，同时保留 Fluent 分支样式。
+        QTreeView.drawBranches(self, painter, rect, index)
+
+    def viewportEvent(self, event: QEvent) -> bool:
+        # QFW 的展开点击区也固定在 x=20..30，会误触视觉首列中的标记。
+        return QTreeView.viewportEvent(self, event)
 
     def __connect_signal_to_slot(self):
         self.proxy_model.rowsInserted.connect(self.__on_sync_visual)
