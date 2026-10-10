@@ -120,7 +120,8 @@ class _FlowHeaderView(QHeaderView):
         if logical != logical_index("mark"):
             super().paintSection(painter, rect, logical)
             return
-        # 窄标记列用图标；完整标题仍由模型提供给悬浮提示和辅助功能。
+        # 标记列表头留空：窄列放不下文字，也不画图标；完整标题仍由模型提供给悬浮
+        # 提示和辅助功能。
         option = QStyleOptionHeader()
         self.initStyleOption(option)
         self.initStyleOptionForIndex(option, logical)
@@ -128,11 +129,6 @@ class _FlowHeaderView(QHeaderView):
         option.text = ""
         painter.save()
         self.style().drawControl(QStyle.ControlElement.CE_Header, option, painter, self)
-        sorted_column = option.sortIndicator != QStyleOptionHeader.SortIndicator.None_
-        left = rect.x() + (rect.width() - 16) // 2 - (5 if sorted_column else 0)
-        FluentIcon.TAG.render(
-            painter, QRectF(left, rect.y() + (rect.height() - 16) / 2, 16, 16)
-        )
         painter.restore()
 
     def paintEvent(self, event: QPaintEvent) -> None:

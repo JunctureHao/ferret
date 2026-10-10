@@ -52,7 +52,7 @@ COLUMNS: tuple[ColumnDef, ...] = (
     ColumnDef(
         "index",
         "#",
-        QT_TRANSLATE_NOOP("FlowTableModel", "序号"),
+        None,  # 显示标题＝header 原文「#」，不另立译名
         True,
         80,
         required=True,

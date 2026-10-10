@@ -1909,12 +1909,12 @@
 <context>
     <name>FlowColumnMenu</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="275"/>
+        <location filename="../../apps/common/flow/views.py" line="271"/>
         <source>列设置…</source>
         <translation>Column settings…</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="280"/>
+        <location filename="../../apps/common/flow/views.py" line="276"/>
         <source>恢复默认列</source>
         <translation>Reset to default columns</translation>
     </message>
@@ -2245,12 +2245,12 @@
 <context>
     <name>FlowEmptyState</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1520"/>
+        <location filename="../../apps/common/flow/views.py" line="1516"/>
         <source>暂无流量</source>
         <translation>No traffic yet</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1520"/>
+        <location filename="../../apps/common/flow/views.py" line="1516"/>
         <source>代理已停止</source>
         <translation>Proxy stopped</translation>
     </message>
@@ -3008,11 +3008,6 @@
 <context>
     <name>FlowTableModel</name>
     <message>
-        <location filename="../../apps/common/flow/columns.py" line="55"/>
-        <source>序号</source>
-        <translation>No.</translation>
-    </message>
-    <message>
         <location filename="../../apps/common/flow/columns.py" line="65"/>
         <source>标记</source>
         <translation>Mark</translation>
@@ -3142,56 +3137,56 @@ Device ID: {id}</translation>
 <context>
     <name>FlowViewerPane</name>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1121"/>
-        <location filename="../../apps/common/flow/views.py" line="1136"/>
-        <location filename="../../apps/common/flow/views.py" line="1261"/>
+        <location filename="../../apps/common/flow/views.py" line="1117"/>
+        <location filename="../../apps/common/flow/views.py" line="1132"/>
+        <location filename="../../apps/common/flow/views.py" line="1257"/>
         <source>平铺</source>
         <translation>Flat</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1139"/>
+        <location filename="../../apps/common/flow/views.py" line="1135"/>
         <source>切换显示模式：平铺 / 按连接</source>
         <translation>Switch view: flat / by connection</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1122"/>
-        <location filename="../../apps/common/flow/views.py" line="1258"/>
+        <location filename="../../apps/common/flow/views.py" line="1118"/>
+        <location filename="../../apps/common/flow/views.py" line="1254"/>
         <source>按连接</source>
         <translation>By connection</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1116"/>
-        <location filename="../../apps/common/flow/views.py" line="1118"/>
+        <location filename="../../apps/common/flow/views.py" line="1112"/>
+        <location filename="../../apps/common/flow/views.py" line="1114"/>
         <source>视图</source>
         <translation>View</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1483"/>
+        <location filename="../../apps/common/flow/views.py" line="1479"/>
         <source>没有匹配结果</source>
         <translation>No matches</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1484"/>
+        <location filename="../../apps/common/flow/views.py" line="1480"/>
         <source>当前有 {} 个有效条件</source>
         <translation>{} active condition(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1488"/>
+        <location filename="../../apps/common/flow/views.py" line="1484"/>
         <source>等待流量</source>
         <translation>Waiting for traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1493"/>
+        <location filename="../../apps/common/flow/views.py" line="1489"/>
         <source>代理已停止</source>
         <translation>Proxy stopped</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1495"/>
+        <location filename="../../apps/common/flow/views.py" line="1491"/>
         <source>当前会话没有 HTTP 流量</source>
         <translation>This session has no HTTP traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/views.py" line="1497"/>
+        <location filename="../../apps/common/flow/views.py" line="1493"/>
         <source>暂无流量</source>
         <translation>No traffic yet</translation>
     </message>
@@ -7106,17 +7101,17 @@ Device ID: {id}</translation>
         <translation>Unknown</translation>
     </message>
     <message>
-        <location filename="../../core/update.py" line="88"/>
+        <location filename="../../core/update.py" line="92"/>
         <source>检查更新失败</source>
         <translation>Failed to Check for Updates</translation>
     </message>
     <message>
-        <location filename="../../core/update.py" line="98"/>
+        <location filename="../../core/update.py" line="102"/>
         <source>下载更新失败</source>
         <translation>Failed to Download the Update</translation>
     </message>
     <message>
-        <location filename="../../core/update.py" line="108"/>
+        <location filename="../../core/update.py" line="112"/>
         <source>应用更新失败</source>
         <translation>Failed to Apply the Update</translation>
     </message>
@@ -7297,170 +7292,170 @@ Device ID: {id}</translation>
 <context>
     <name>WireGuardDevicesDialog</name>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="136"/>
+        <location filename="../../apps/capture/wireguard.py" line="142"/>
         <source>WireGuard 设备</source>
         <translation>WireGuard devices</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="139"/>
+        <location filename="../../apps/capture/wireguard.py" line="145"/>
         <source>一份二维码仅供一台设备使用。设备更改立即保存；开始抓包后接通已启用设备。</source>
         <translation>Each QR code is for one device only. Device changes are saved immediately; enabled devices can connect when capture starts.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="145"/>
+        <location filename="../../apps/capture/wireguard.py" line="151"/>
         <source>添加设备</source>
         <translation>Add device</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="147"/>
+        <location filename="../../apps/capture/wireguard.py" line="153"/>
         <source>编辑</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="148"/>
-        <location filename="../../apps/capture/wireguard.py" line="399"/>
+        <location filename="../../apps/capture/wireguard.py" line="154"/>
+        <location filename="../../apps/capture/wireguard.py" line="445"/>
         <source>停用</source>
         <translation>Disable</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="150"/>
-        <location filename="../../apps/capture/wireguard.py" line="477"/>
+        <location filename="../../apps/capture/wireguard.py" line="156"/>
+        <location filename="../../apps/capture/wireguard.py" line="523"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="152"/>
-        <location filename="../../apps/capture/wireguard.py" line="487"/>
+        <location filename="../../apps/capture/wireguard.py" line="158"/>
+        <location filename="../../apps/capture/wireguard.py" line="533"/>
         <source>更换密钥</source>
         <translation>Replace keys</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="154"/>
+        <location filename="../../apps/capture/wireguard.py" line="160"/>
         <source>二维码</source>
         <translation>QR code</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="174"/>
+        <location filename="../../apps/capture/wireguard.py" line="180"/>
         <source>设备名称</source>
         <translation>Device name</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="175"/>
+        <location filename="../../apps/capture/wireguard.py" line="181"/>
         <source>UDP 端口</source>
         <translation>UDP port</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="176"/>
+        <location filename="../../apps/capture/wireguard.py" line="182"/>
         <source>启用状态</source>
         <translation>Enabled</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="177"/>
+        <location filename="../../apps/capture/wireguard.py" line="183"/>
         <source>监听状态</source>
         <translation>Listener status</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="198"/>
+        <location filename="../../apps/capture/wireguard.py" line="204"/>
         <source>尚无设备，请先添加设备。</source>
         <translation>No devices yet. Add a device to get started.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="214"/>
+        <location filename="../../apps/capture/wireguard.py" line="220"/>
         <source>关闭</source>
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="261"/>
+        <location filename="../../apps/capture/wireguard.py" line="300"/>
         <source>正在处理设备配置…</source>
         <translation>Updating device configuration…</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="273"/>
+        <location filename="../../apps/capture/wireguard.py" line="312"/>
         <source>设备配置保存失败：{}；恢复原配置也失败：{}</source>
         <translation>Failed to save device configuration: {}; restoring the previous configuration also failed: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="277"/>
+        <location filename="../../apps/capture/wireguard.py" line="316"/>
         <source>设备操作失败：{}</source>
         <translation>Device operation failed: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="327"/>
+        <location filename="../../apps/capture/wireguard.py" line="366"/>
         <source>设备配置保存失败：{}</source>
         <translation>Failed to save device configuration: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="350"/>
+        <location filename="../../apps/capture/wireguard.py" line="395"/>
         <source>未监听</source>
         <translation>Not listening</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="352"/>
+        <location filename="../../apps/capture/wireguard.py" line="397"/>
         <source>通道未启用</source>
         <translation>Channel disabled</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="354"/>
+        <location filename="../../apps/capture/wireguard.py" line="399"/>
         <source>未开始抓包</source>
         <translation>Capture not started</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="356"/>
+        <location filename="../../apps/capture/wireguard.py" line="401"/>
         <source>监听失败</source>
         <translation>Listener failed</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="358"/>
+        <location filename="../../apps/capture/wireguard.py" line="403"/>
         <source>监听就绪</source>
         <translation>Listener ready</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="360"/>
+        <location filename="../../apps/capture/wireguard.py" line="405"/>
         <source>正在启动</source>
         <translation>Starting</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="364"/>
+        <location filename="../../apps/capture/wireguard.py" line="409"/>
         <source>已启用</source>
         <translation>Enabled</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="364"/>
+        <location filename="../../apps/capture/wireguard.py" line="409"/>
         <source>已停用</source>
         <translation>Disabled</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="401"/>
+        <location filename="../../apps/capture/wireguard.py" line="447"/>
         <source>启用</source>
         <translation>Enable</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="406"/>
+        <location filename="../../apps/capture/wireguard.py" line="452"/>
         <source>设备 {}</source>
         <translation>Device {}</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="475"/>
+        <location filename="../../apps/capture/wireguard.py" line="521"/>
         <source>删除设备“{}”？</source>
         <translation>Delete device “{}”?</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="476"/>
+        <location filename="../../apps/capture/wireguard.py" line="522"/>
         <source>此设备将断开，原二维码将失效。其他设备继续使用各自的配置。</source>
         <translation>This device will disconnect and its current QR code will no longer work. Other devices will continue using their own configurations.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="485"/>
+        <location filename="../../apps/capture/wireguard.py" line="531"/>
         <source>更换“{}”的密钥？</source>
         <translation>Replace keys for “{}”?</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="486"/>
+        <location filename="../../apps/capture/wireguard.py" line="532"/>
         <source>原二维码将失效，此设备需要重新扫码导入。其他设备不受影响。</source>
         <translation>The current QR code will no longer work. Scan and import the new code on this device. Other devices are unaffected.</translation>
     </message>
     <message>
-        <location filename="../../apps/capture/wireguard.py" line="508"/>
+        <location filename="../../apps/capture/wireguard.py" line="555"/>
         <source>正在完成设备操作，请稍候…</source>
         <translation>Finishing the device operation. Please wait…</translation>
     </message>
