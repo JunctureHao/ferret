@@ -16,8 +16,14 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
-def _make_fake_velopack(*, info=None, raises: Exception | None = None, portable=False):
-    """造一个 velopack 替身模块：check 返回 info、抛 raises、或报便携版。"""
+def _make_fake_velopack(
+    *, info=None, raises: Exception | None = None, portable=False, delta_sizes=()
+):
+    """造一个 velopack 替身模块：check 返回 info、抛 raises、或报便携版。
+
+    ``delta_sizes`` 非空时填充 ``DeltasToTarget``（镜像真实 velopack 的增量列表），
+    用来覆盖 check() 里「按增量总和预估下载大小」的分支。
+    """
     fake = types.ModuleType("velopack")
 
     class FakeAsset:
@@ -25,8 +31,15 @@ def _make_fake_velopack(*, info=None, raises: Exception | None = None, portable=
         Size = 1024
         NotesMarkdown = ""
 
+    class FakeDelta:
+        def __init__(self, size):
+            self.Size = size
+
+    deltas = [FakeDelta(size) for size in delta_sizes]
+
     class FakeInfo:
         TargetFullRelease = FakeAsset()
+        DeltasToTarget = deltas
 
     class FakeManager:
         def __init__(self, source):
@@ -129,6 +142,14 @@ class CheckTests(_FakeModuleTestBase):
         # 句柄不透明但能喂回 download / apply（同一次检查的产物）。
         self.update_core.download(info)
         self.update_core.apply_and_restart(info)
+
+    def test_delta_download_size_prefers_delta_total(self) -> None:
+        """有可用增量包时，size 取增量总和而非全量包大小。"""
+        self.inject(_make_fake_velopack(delta_sizes=(100, 150)))
+        result = self.update_core.check()
+        assert result is not None
+        _info, brief = result
+        self.assertEqual(brief.size, 250)
 
     def test_check_failure_is_wrapped_as_update_error(self) -> None:
         self.inject(_make_fake_velopack(raises=RuntimeError("network down")))
