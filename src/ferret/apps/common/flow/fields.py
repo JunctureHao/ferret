@@ -1014,7 +1014,11 @@ class FieldCard(QWidget):
             item = self.grid.takeAt(0)
             widget = item.widget() if item is not None else None
             if widget is not None:
-                widget.setParent(None)
+                # 只 hide + deleteLater，不 setParent(None)：条目已被 takeAt 摘出
+                # 布局，无需手工脱离父窗口；而 setParent(None) 会把仍可见的字段
+                # 变成无父的 Qt.Window 顶层窗口，在 deleteLater 执行前闪出一帧
+                # 「Ferret」空白原生小窗（详情面板展开时每次切换选中都会闪）。
+                widget.hide()
                 widget.deleteLater()
 
     def __heading(self, row: Row) -> CaptionLabel:
