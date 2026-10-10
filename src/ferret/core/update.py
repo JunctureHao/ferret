@@ -76,10 +76,14 @@ def check() -> tuple[Any, UpdateBrief] | None:
         if info is None:
             return None
         asset = info.TargetFullRelease
+        # 实际下载优先走增量：有可用 delta 时显示其总大小，而非恒为全量包大小。
+        # 基线失配时 velopack 会静默回退全量，此处只是尽力预估。
+        deltas = list(info.DeltasToTarget)
+        size = sum(d.Size for d in deltas) if deltas else asset.Size
         return info, UpdateBrief(
             current=manager.get_current_version(),
             target=asset.Version,
-            size=asset.Size,
+            size=size,
             notes_markdown=asset.NotesMarkdown or "",
             release_page=f"{REPO_URL}/releases/tag/v{asset.Version}",
         )
