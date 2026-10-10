@@ -112,6 +112,23 @@ class UpdateDialog(MessageBoxBase):
         self.yesButton.setText(self.tr("重启应用"))
         self.yesButton.setEnabled(True)
         self.cancelButton.setEnabled(True)
+        self._reveal_host_window()
+
+    def _reveal_host_window(self) -> None:
+        """下载完毕后把承载本框的主窗口主动唤回前台。
+
+        下载是后台任务，用户常在等待时点关闭把主窗口收进托盘（``window.closeEvent``
+        → ``minimize_to_tray`` → ``hide``）。本框是 MaskDialogBase，为主窗口的子部件，
+        会跟着一起藏起来；就绪态要用户点「重启应用」才装得了更新，若不主动露面，更新
+        下载完就一直缩在托盘里不弹出。show / raise / activate 抢回前台（与断点窗口
+        ``InterceptWindow`` 抢焦点同款）。"""
+        window = self.window()
+        if window.isMinimized():
+            window.showNormal()
+        else:
+            window.show()
+        window.raise_()
+        window.activateWindow()
 
     def set_failed(self, message: str) -> None:
         """下载/应用失败：展示原因，放人走（择日再手动检查）。"""
