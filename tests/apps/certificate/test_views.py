@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import unittest
 from typing import cast
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -199,7 +199,7 @@ class CertificateInterfaceTests(unittest.TestCase):
 
     def test_skeleton_matches_the_settings_page(self) -> None:
         """版式和设置页对齐：同样的视口边距、同样的 36px 内容边距、同样的标题位置。"""
-        settings = SettingsInterface(updates=Mock())
+        settings = SettingsInterface()
         self.addCleanup(settings.deleteLater)
         self.assertEqual(self.page.viewportMargins(), settings.viewportMargins())
         self.assertEqual(

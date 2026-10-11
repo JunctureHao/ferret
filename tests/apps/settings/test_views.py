@@ -6,12 +6,10 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication
 
 from ferret.apps.capture.views import CapturesInterface
 from ferret.apps.settings.views import SettingsInterface
-from ferret.apps.update.coordinator import UpdateCoordinator
-from ferret.core import update as update_core
 from ferret.core.settings import CONFIG
 
 
@@ -20,8 +18,10 @@ class AutoSaveSettingsTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_settings_exposes_auto_save_switch(self) -> None:
-        settings = SettingsInterface(updates=Mock())
+    def test_settings_has_no_update_service_or_update_cards(self) -> None:
+        settings = SettingsInterface()
+        for name in ("updates", "about_group", "update_card", "auto_update_card"):
+            self.assertFalse(hasattr(settings, name))
         settings.deleteLater()
 
     def test_capture_toolbar_does_not_restore_removed_buttons(self) -> None:
@@ -40,9 +40,7 @@ class ProtocolSwitchCardTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
-        # 这些用例不碰更新卡片；协调器本就必填（主窗口持有那个实例才是真的），
-        # 给个 Mock 顶位即可。
-        self.settings = SettingsInterface(updates=Mock())
+        self.settings = SettingsInterface()
         self.addCleanup(self.settings.deleteLater)
 
     def test_cards_are_bound_to_the_config_items(self) -> None:
@@ -118,85 +116,6 @@ class ProtocolSwitchCardTests(unittest.TestCase):
             calls,
             [{"http2": not bool(original_http2), "http3": bool(original_http3)}],
         )
-
-
-class UpdateCardTests(unittest.TestCase):
-    """设置页只反映更新协调器状态，首次构造也要接上已有任务。"""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.app = QApplication.instance() or QApplication([])
-
-    def setUp(self) -> None:
-        self.window = QWidget()
-        self.addCleanup(self.window.deleteLater)
-        self.updates = UpdateCoordinator(self.window)
-        supported = patch.object(update_core, "update_supported", return_value=True)
-        supported.start()
-        self.addCleanup(supported.stop)
-
-    def create_settings(self) -> SettingsInterface:
-        return SettingsInterface(self.window, updates=self.updates)
-
-    def test_auto_check_card_is_bound_to_the_config_item(self) -> None:
-        settings = self.create_settings()
-        self.assertIs(settings.auto_update_card.configItem, CONFIG.auto_check_update)
-
-    def test_constructing_and_showing_settings_does_not_check_for_updates(self) -> None:
-        with (
-            patch.object(self.updates, "check_auto") as auto,
-            patch.object(self.updates, "check_manual") as manual,
-            patch.object(self.updates.controller, "check") as check,
-        ):
-            settings = self.create_settings()
-            for _ in range(2):
-                settings.show()
-                settings.hide()
-            auto.assert_not_called()
-            manual.assert_not_called()
-            check.assert_not_called()
-
-    def test_manual_button_uses_the_shared_coordinator(self) -> None:
-        with patch.object(self.updates, "check_manual") as manual:
-            settings = self.create_settings()
-            settings.update_card.button.click()
-        manual.assert_called_once_with()
-
-    def test_page_created_during_check_displays_and_follows_current_state(self) -> None:
-        self.updates.controller._busy = True
-        self.updates.controller.check_started.emit()
-        self.updates.controller.busy_changed.emit(True)
-        settings = self.create_settings()
-
-        self.assertFalse(settings.update_card.button.isEnabled())
-        self.assertEqual(settings.update_card.contentLabel.text(), "正在检查更新…")
-
-        self.updates.controller._busy = False
-        self.updates.controller.busy_changed.emit(False)
-        self.updates.controller.check_finished.emit()
-
-        self.assertTrue(settings.update_card.button.isEnabled())
-        self.assertEqual(
-            settings.update_card.contentLabel.text(), "检查 GitHub 上是否有新版本"
-        )
-
-    def test_page_created_during_download_disables_the_check_button(self) -> None:
-        self.updates.controller._busy = True
-        settings = self.create_settings()
-
-        self.assertFalse(settings.update_card.button.isEnabled())
-        self.assertNotEqual(settings.update_card.contentLabel.text(), "正在检查更新…")
-
-        self.updates.controller._busy = False
-        self.updates.controller.busy_changed.emit(False)
-        self.updates.controller.check_finished.emit()
-        self.assertTrue(settings.update_card.button.isEnabled())
-
-    def test_unsupported_installation_keeps_the_release_page_fallback(self) -> None:
-        with patch.object(update_core, "update_supported", return_value=False):
-            settings = self.create_settings()
-        self.assertEqual(settings.update_card.button.text(), "发布页")
-        self.assertFalse(settings.auto_update_card.isEnabled())
 
 
 if __name__ == "__main__":

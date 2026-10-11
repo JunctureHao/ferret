@@ -20,7 +20,6 @@ from qfluentwidgets import (
     PlainTextEdit,
     PushSettingCard,
     ScrollArea,
-    SettingCard,
     SettingCardGroup,
     SmoothMode,
     SubtitleLabel,
@@ -29,8 +28,6 @@ from qfluentwidgets import (
 )
 
 from ferret.apps.common.info_bar import show_warning
-from ferret.apps.update.coordinator import UpdateCoordinator
-from ferret.core import update as update_core
 from ferret.core.log import get_logger
 from ferret.core.settings import CONFIG
 
@@ -135,7 +132,6 @@ class SettingsInterface(ScrollArea):
         parent: QWidget | None = None,
         *,
         mitm: MitmFacade | None = None,
-        updates: UpdateCoordinator,
     ) -> None:
         super().__init__(parent)
         self._mitm = mitm
@@ -144,44 +140,6 @@ class SettingsInterface(ScrollArea):
 
         self.setting_label = TitleLabel(self)
         self.setting_label.setText(self.tr("设置"))
-
-        # 必填：协调器由主窗口持有并接 restart_requested（apps/window.py）。
-        # 自建回退实例的信号无人监听，更新链路会静默断线。
-        self.updates = updates
-
-        # 关于与更新（docs/design.md#update）：版本展示 + 手动检查入口 +
-        # 自动检查开关。关于类信息习惯置顶，故排在「个性化」之前。
-        self.about_group = SettingCardGroup(
-            title=self.tr("关于与更新"), parent=self.scroll_widget
-        )
-        self.version_card = SettingCard(
-            FluentIcon.INFO,
-            self.tr("当前版本"),
-            f"v{update_core.current_version()}",
-            parent=self.about_group,
-        )
-        self.update_card = PushSettingCard(
-            self.tr("检查"),
-            FluentIcon.UPDATE,
-            self.tr("检查更新"),
-            self.tr("检查 GitHub 上是否有新版本"),
-            parent=self.about_group,
-        )
-        self.auto_update_card = SwitchSettingCard(
-            FluentIcon.SYNC,
-            self.tr("自动检查更新"),
-            self.tr("启动后在后台静默检查，发现新版本才提示"),
-            configItem=CONFIG.auto_check_update,
-            parent=self.about_group,
-        )
-        # 开发态 / 便携版不支持原地更新（Velopack 物理限制，见 core/update.py
-        # docstring）：手动入口降级为「去发布页下载」。
-        if not update_core.update_supported():
-            self.update_card.button.setText(self.tr("发布页"))
-            self.update_card.setContent(
-                self.tr("便携版 / 开发环境不支持原地更新，请前往发布页下载")
-            )
-            self.auto_update_card.setEnabled(False)
 
         # 分组
         self.personalization_group = SettingCardGroup(
@@ -334,8 +292,6 @@ class SettingsInterface(ScrollArea):
         )
 
         self.__init_widget()
-        # 自动检查可能早于首次打开设置：先读当前状态，再由信号持续刷新。
-        self._refresh_update_card()
 
     def __init_widget(self):
         # self.resize(1000, 800)
@@ -359,10 +315,6 @@ class SettingsInterface(ScrollArea):
     def __init_layout(self):
         self.setting_label.move(36, 30)
 
-        self.about_group.addSettingCard(self.version_card)
-        self.about_group.addSettingCard(self.update_card)
-        self.about_group.addSettingCard(self.auto_update_card)
-
         self.personalization_group.addSettingCard(self.theme_card)
         self.personalization_group.addSettingCard(self.theme_color_card)
         self.personalization_group.addSettingCard(self.zoom_card)
@@ -381,7 +333,6 @@ class SettingsInterface(ScrollArea):
 
         self.expand_layout.setSpacing(28)
         self.expand_layout.setContentsMargins(36, 10, 36, 0)
-        self.expand_layout.addWidget(self.about_group)
         self.expand_layout.addWidget(self.personalization_group)
         self.expand_layout.addWidget(self.main_panel_group)
         self.expand_layout.addWidget(self.reset_group)
@@ -404,10 +355,6 @@ class SettingsInterface(ScrollArea):
         # 走对话框提交链（校验通过才落盘，见 __on_dns_servers_clicked）。
         CONFIG.dns_use_hosts_file.valueChanged.connect(self.__on_dns_use_hosts_changed)
         self.dns_servers_card.clicked.connect(self.__on_dns_servers_clicked)
-
-        # 设置只提供手动入口和状态展示；启动检查与弹窗由主窗口持有的协调器负责。
-        self.update_card.clicked.connect(self.updates.check_manual)
-        self.updates.state_changed.connect(self._refresh_update_card)
 
         self.reset_card.clicked.connect(self.__on_reset_clicked)
 
@@ -548,16 +495,6 @@ class SettingsInterface(ScrollArea):
             self._refresh_dns_servers_content()
         finally:
             dialog.deleteLater()
-
-    @Slot()
-    def _refresh_update_card(self) -> None:
-        self.update_card.button.setEnabled(not self.updates.busy)
-        if update_core.update_supported():
-            self.update_card.setContent(
-                self.tr("正在检查更新…")
-                if self.updates.checking
-                else self.tr("检查 GitHub 上是否有新版本")
-            )
 
     @Slot()
     def __show_restart_tooltip(self):
