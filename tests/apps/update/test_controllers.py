@@ -8,14 +8,17 @@ from __future__ import annotations
 
 import gc
 import os
+import threading
 import time
 import unittest
 import weakref
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtWidgets import QApplication
 
+from ferret.apps.common.tasks import FunctionTask
 from ferret.apps.update.controllers import UpdateController
 from ferret.core import update as update_core
 from tests.core.mitm._qt import wait_until
@@ -48,6 +51,56 @@ class UpdateControllerTestBase(unittest.TestCase):
 
 
 class CheckChainTests(UpdateControllerTestBase):
+    def test_check_uses_its_own_worker_and_keeps_gui_responsive(self) -> None:
+        global_pool = QThreadPool.globalInstance()
+        original_max = global_pool.maxThreadCount()
+        global_started = threading.Event()
+        global_release = threading.Event()
+        check_started = threading.Event()
+        check_release = threading.Event()
+        worker_threads: list[int] = []
+        result_threads: list[int] = []
+        ticks: list[bool] = []
+        gui_thread = threading.get_ident()
+
+        def occupy_global_pool() -> None:
+            global_started.set()
+            global_release.wait(5)
+
+        def slow_check() -> None:
+            worker_threads.append(threading.get_ident())
+            check_started.set()
+            check_release.wait(5)
+
+        self.patch_core(check=slow_check)
+        self.controller.no_update.connect(
+            lambda: result_threads.append(threading.get_ident())
+        )
+        timer = QTimer()
+        timer.timeout.connect(lambda: ticks.append(True))
+        blocker = FunctionTask(occupy_global_pool)
+        global_pool.setMaxThreadCount(1)
+        try:
+            global_pool.start(blocker)
+            self.assertTrue(wait_until(global_started.is_set))
+            timer.start(10)
+            self.controller.check()
+            self.assertTrue(wait_until(check_started.is_set, timeout_ms=1000))
+            self.assertTrue(wait_until(lambda: len(ticks) >= 3, timeout_ms=1000))
+            self.assertTrue(self.controller.busy)
+            self.assertNotEqual(worker_threads, [gui_thread])
+            check_release.set()
+            self.assertTrue(wait_until(lambda: result_threads, timeout_ms=1000))
+            self.assertEqual(result_threads, [gui_thread])
+            self.assertFalse(global_release.is_set())
+        finally:
+            timer.stop()
+            check_release.set()
+            global_release.set()
+            self.assertTrue(wait_until(lambda: not self.controller.busy))
+            self.assertTrue(wait_until(lambda: global_pool.activeThreadCount() == 0))
+            global_pool.setMaxThreadCount(original_max)
+
     def test_finished_tasks_are_collectible(self) -> None:
         self.patch_core(check=lambda: None)
         refs = []
@@ -79,6 +132,54 @@ class CheckChainTests(UpdateControllerTestBase):
         self.controller.check()
 
         self.assertTrue(wait_until(lambda: seen))
+
+    def test_result_slot_can_start_download_after_check_cleanup(self) -> None:
+        handle = object()
+        downloads: list[object] = []
+        finished: list[object] = []
+        check_finishes: list[bool] = []
+        self.patch_core(
+            check=lambda: (handle, _brief()),
+            download=lambda info, on_progress: downloads.append(info),
+        )
+        self.controller.update_available.connect(
+            lambda info, brief: self.controller.download(info)
+        )
+        self.controller.download_finished.connect(finished.append)
+        self.controller.check_finished.connect(lambda: check_finishes.append(True))
+
+        self.controller.check()
+
+        self.assertTrue(wait_until(lambda: finished))
+        self.assertEqual(downloads, [handle])
+        self.assertEqual(finished, [handle])
+        self.assertEqual(check_finishes, [True])
+        self.assertFalse(self.controller.busy)
+        self.assertFalse(self.controller._tasks)
+
+    def test_failure_slot_can_retry_immediately(self) -> None:
+        calls: list[bool] = []
+        success: list[bool] = []
+        finishes: list[bool] = []
+
+        def check() -> None:
+            calls.append(True)
+            if len(calls) == 1:
+                raise update_core.UpdateError("network down")
+
+        self.patch_core(check=check)
+        self.controller.check_failed.connect(lambda message: self.controller.check())
+        self.controller.no_update.connect(lambda: success.append(True))
+        self.controller.check_finished.connect(lambda: finishes.append(True))
+
+        with self.assertLogs("ferret.tasks", "ERROR"):
+            self.controller.check()
+            self.assertTrue(wait_until(lambda: success))
+
+        self.assertEqual(calls, [True, True])
+        self.assertEqual(finishes, [True, True])
+        self.assertFalse(self.controller.busy)
+        self.assertFalse(self.controller._tasks)
 
     def test_failure_emits_message_and_recovers(self) -> None:
         def _boom():
@@ -134,6 +235,47 @@ class DownloadChainTests(UpdateControllerTestBase):
         self.assertTrue(wait_until(lambda: finished))
         self.assertIs(finished[0], handle)
         self.assertEqual(progress, [0, 50, 100])
+
+    def test_download_result_can_check_again_without_extra_check_finished(self) -> None:
+        self.patch_core(check=lambda: None, download=lambda info, on_progress: None)
+        finished: list[bool] = []
+        self.controller.download_finished.connect(lambda info: self.controller.check())
+        self.controller.check_finished.connect(lambda: finished.append(True))
+
+        self.controller.download(object())
+
+        self.assertTrue(wait_until(lambda: finished))
+        self.assertEqual(finished, [True])
+        self.assertFalse(self.controller.busy)
+        self.assertFalse(self.controller._tasks)
+
+    def test_download_failure_can_retry_with_its_new_handle(self) -> None:
+        first, second = object(), object()
+        downloads: list[object] = []
+        finished: list[object] = []
+        check_finishes: list[bool] = []
+
+        def download(info, on_progress) -> None:
+            downloads.append(info)
+            if info is first:
+                raise update_core.UpdateError("connection lost")
+
+        self.patch_core(download=download)
+        self.controller.download_failed.connect(
+            lambda message: self.controller.download(second)
+        )
+        self.controller.download_finished.connect(finished.append)
+        self.controller.check_finished.connect(lambda: check_finishes.append(True))
+
+        with self.assertLogs("ferret.tasks", "ERROR"):
+            self.controller.download(first)
+            self.assertTrue(wait_until(lambda: finished))
+
+        self.assertEqual(downloads, [first, second])
+        self.assertEqual(finished, [second])
+        self.assertEqual(check_finishes, [])
+        self.assertFalse(self.controller.busy)
+        self.assertFalse(self.controller._tasks)
 
     def test_apply_failure_emits_apply_failed(self) -> None:
         def _boom(info):

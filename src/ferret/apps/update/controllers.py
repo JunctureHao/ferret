@@ -5,6 +5,9 @@
 线程同步调用：它只是启动 Update.exe 并退出进程，耗时极短，且成功即退出、
 无所谓阻塞。
 
+更新使用独立的单线程池，不与抓包、证书和会话任务争用全局池；空闲 30 秒后
+回收线程。先完成任务收尾再公布结果，结果槽可立即下载或重试。
+
 两个沿用 session 控制器的既定模式，勿「简化」掉：
 
 - 任务对象进 ``self._tasks`` 集合持有，finished 时才丢弃 —— 池的 autoDelete 只
@@ -15,9 +18,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QObject, QThreadPool, Signal, SignalInstance, Slot
+from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ferret.apps.common.tasks import FunctionTask
 from ferret.core import update as update_core
@@ -42,9 +46,15 @@ class UpdateController(QObject):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
+        self._pool.setExpiryTimeout(30_000)
         self._busy = False
         self._tasks: set[FunctionTask] = set()
-        self._download_info: Any = None
+        self._active_task: FunctionTask | None = None
+        self._is_check = False
+        self._result: Any = None
+        self._error: str | None = None
 
     @property
     def busy(self) -> bool:
@@ -54,19 +64,13 @@ class UpdateController(QObject):
         """发起一次检查；任务在飞时直接忽略（防重入）。"""
         if self._busy:
             return
-        self._busy = True
-        self.check_started.emit()
-        self.busy_changed.emit(True)
-        self._start(update_core.check, self._on_check_done, self.check_failed)
+        self._start(update_core.check, is_check=True)
 
     def download(self, info: Any) -> None:
         """后台下载更新包；进度回调在工作线程上发信号（Qt 自动排队回主线程）。"""
         if self._busy:
             return
-        self._busy = True
-        self._download_info = info
-        self.busy_changed.emit(True)
-        self._start(self._download_work, self._on_download_done, self.download_failed)
+        self._start(self._download_work, info, is_check=False)
 
     def apply_and_restart(self, info: Any) -> None:
         """同步调用：成功即进程退出，失败才发 ``apply_failed``。"""
@@ -76,22 +80,32 @@ class UpdateController(QObject):
             log.warning("应用更新失败：%s", exc)
             self.apply_failed.emit(str(exc))
 
-    def _download_work(self) -> None:
-        update_core.download(self._download_info, self.download_progress.emit)
+    def _download_work(self, info: Any) -> Any:
+        update_core.download(info, self.download_progress.emit)
+        return info
 
-    def _start(self, fn, on_success, failure_signal: SignalInstance) -> None:
-        task = FunctionTask(fn)
+    def _start(self, fn: Callable[..., Any], *args: Any, is_check: bool) -> None:
+        task = FunctionTask(fn, *args)
         task.setAutoDelete(True)
         self._tasks.add(task)
-        # 具名闭包而非游离 lambda（守则见模块 docstring）：收尾要拿到当次 task
-        # 才能拆连接环，与 session 控制器的 _on_finished 同款。
-        def on_finished() -> None:
-            self._on_task_finished(task)
+        self._active_task = task
+        self._is_check = is_check
+        self._busy = True
+        task.signals.succeeded.connect(self._on_task_succeeded)
+        task.signals.failed.connect(self._on_task_failed)
+        task.signals.finished.connect(self._on_task_finished)
+        if is_check:
+            self.check_started.emit()
+        self.busy_changed.emit(True)
+        self._pool.start(task)
 
-        task.signals.succeeded.connect(on_success)
-        task.signals.failed.connect(failure_signal)
-        task.signals.finished.connect(on_finished)
-        QThreadPool.globalInstance().start(task)
+    @Slot(object)
+    def _on_task_succeeded(self, result: Any) -> None:
+        self._result = result
+
+    @Slot(str)
+    def _on_task_failed(self, message: str) -> None:
+        self._error = message
 
     @Slot(object)
     def _on_check_done(self, result: Any) -> None:
@@ -102,16 +116,31 @@ class UpdateController(QObject):
             self.update_available.emit(info, brief)
 
     @Slot(object)
-    def _on_download_done(self, _result: Any) -> None:
-        info, self._download_info = self._download_info, None
+    def _on_download_done(self, info: Any) -> None:
         self.download_finished.emit(info)
 
-    def _on_task_finished(self, task: FunctionTask) -> None:
-        self._busy = False
+    @Slot()
+    def _on_task_finished(self) -> None:
+        task = self._active_task
+        assert task is not None
+        is_check, result, error = self._is_check, self._result, self._error
         self._tasks.discard(task)
-        self._download_info = None
         task.signals.succeeded.disconnect()
         task.signals.failed.disconnect()
         task.signals.finished.disconnect()
+        self._active_task = None
+        self._is_check = False
+        self._result = None
+        self._error = None
+        self._busy = False
+        # 之后的信号可能立即启动下一项任务；旧任务不得再改动共享状态。
         self.busy_changed.emit(False)
-        self.check_finished.emit()
+        if error is not None:
+            failure_signal = self.check_failed if is_check else self.download_failed
+            failure_signal.emit(error)
+        elif is_check:
+            self._on_check_done(result)
+        else:
+            self._on_download_done(result)
+        if is_check:
+            self.check_finished.emit()
