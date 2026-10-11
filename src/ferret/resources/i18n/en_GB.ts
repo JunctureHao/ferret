@@ -4109,12 +4109,12 @@ Device ID: {id}</translation>
 <context>
     <name>ItemDualPanel</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="871"/>
+        <location filename="../../apps/common/edit/widgets.py" line="877"/>
         <source>文本模式</source>
         <translation>Text view</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="873"/>
+        <location filename="../../apps/common/edit/widgets.py" line="879"/>
         <source>表格模式</source>
         <translation>Table view</translation>
     </message>
@@ -4122,94 +4122,107 @@ Device ID: {id}</translation>
 <context>
     <name>ItemTableToolWidget</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="311"/>
+        <location filename="../../apps/common/edit/widgets.py" line="317"/>
         <source>升序</source>
         <translation>Ascending</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="316"/>
+        <location filename="../../apps/common/edit/widgets.py" line="322"/>
         <source>降序</source>
         <translation>Descending</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="321"/>
+        <location filename="../../apps/common/edit/widgets.py" line="327"/>
         <source>原始顺序</source>
         <translation>Original order</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="354"/>
-        <location filename="../../apps/common/edit/widgets.py" line="454"/>
+        <location filename="../../apps/common/edit/widgets.py" line="360"/>
+        <location filename="../../apps/common/edit/widgets.py" line="460"/>
         <source>新增行</source>
         <translation>Add row</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="358"/>
-        <location filename="../../apps/common/edit/widgets.py" line="459"/>
+        <location filename="../../apps/common/edit/widgets.py" line="364"/>
+        <location filename="../../apps/common/edit/widgets.py" line="465"/>
         <source>删除选中行</source>
         <translation>Delete selected rows</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="362"/>
+        <location filename="../../apps/common/edit/widgets.py" line="368"/>
         <source>复制</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="366"/>
-        <location filename="../../apps/common/edit/widgets.py" line="420"/>
+        <location filename="../../apps/common/edit/widgets.py" line="372"/>
+        <location filename="../../apps/common/edit/widgets.py" line="426"/>
         <source>排序</source>
         <translation>Sort</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="370"/>
+        <location filename="../../apps/common/edit/widgets.py" line="376"/>
         <source>复制JSON</source>
         <translation>Copy as JSON</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="441"/>
-        <location filename="../../apps/common/edit/widgets.py" line="476"/>
+        <location filename="../../apps/common/edit/widgets.py" line="447"/>
+        <location filename="../../apps/common/edit/widgets.py" line="482"/>
         <source>提示</source>
         <translation>Notice</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="442"/>
+        <location filename="../../apps/common/edit/widgets.py" line="448"/>
         <source>请先选中要删除的行</source>
         <translation>Select the rows you want to delete first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="476"/>
+        <location filename="../../apps/common/edit/widgets.py" line="482"/>
         <source>没有可复制的内容</source>
         <translation>Nothing to copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="479"/>
+        <location filename="../../apps/common/edit/widgets.py" line="485"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="484"/>
+        <location filename="../../apps/common/edit/widgets.py" line="490"/>
         <source>已复制到剪贴板</source>
         <translation>Copied to clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="503"/>
+        <location filename="../../apps/common/edit/widgets.py" line="509"/>
         <source>JSON 已复制到剪贴板</source>
         <translation>JSON copied to clipboard</translation>
     </message>
 </context>
 <context>
+    <name>ItemTableWidget</name>
+    <message>
+        <location filename="../../apps/common/edit/widgets.py" line="168"/>
+        <source>键</source>
+        <translation>Key</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/widgets.py" line="168"/>
+        <source>值</source>
+        <translation>Value</translation>
+    </message>
+</context>
+<context>
     <name>JsonDualPanel</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1168"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1174"/>
         <source>文本模式</source>
         <translation>Text view</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1227"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1233"/>
         <source>嵌套层级过深，请使用文本视图查看内容</source>
         <translation>The nesting is too deep. Use the text view to see the content.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1148"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1154"/>
         <source>树形模式</source>
         <translation>Tree view</translation>
     </message>
@@ -4217,27 +4230,27 @@ Device ID: {id}</translation>
 <context>
     <name>JsonTreeWidget</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="956"/>
+        <location filename="../../apps/common/edit/widgets.py" line="962"/>
         <source>键</source>
         <translation>Key</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="956"/>
+        <location filename="../../apps/common/edit/widgets.py" line="962"/>
         <source>值</source>
         <translation>Value</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1014"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1020"/>
         <source>嵌套层级过深，请使用文本视图查看其余内容</source>
         <translation>The nesting is too deep. Use the text view to see the remaining content.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1026"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1032"/>
         <source>已达到树节点上限，请使用文本视图查看其余内容</source>
         <translation>The tree node limit has been reached. Use the text view to see the remaining content.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1033"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1039"/>
         <source>加载更多（剩余 {} 项）</source>
         <translation>Load more ({} items remaining)</translation>
     </message>
@@ -6990,62 +7003,62 @@ Device ID: {id}</translation>
 <context>
     <name>ToolPlainTextEdit</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="564"/>
+        <location filename="../../apps/common/edit/widgets.py" line="570"/>
         <source>复制</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="566"/>
+        <location filename="../../apps/common/edit/widgets.py" line="572"/>
         <source>换行</source>
         <translation>Word wrap</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="568"/>
+        <location filename="../../apps/common/edit/widgets.py" line="574"/>
         <source>查找</source>
         <translation>Find</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="572"/>
+        <location filename="../../apps/common/edit/widgets.py" line="578"/>
         <source>查找...</source>
         <translation>Find...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="576"/>
+        <location filename="../../apps/common/edit/widgets.py" line="582"/>
         <source>上一个</source>
         <translation>Previous</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="581"/>
+        <location filename="../../apps/common/edit/widgets.py" line="587"/>
         <source>下一个</source>
         <translation>Next</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="586"/>
+        <location filename="../../apps/common/edit/widgets.py" line="592"/>
         <source>关闭</source>
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="647"/>
+        <location filename="../../apps/common/edit/widgets.py" line="653"/>
         <source>提示</source>
         <translation>Notice</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="647"/>
+        <location filename="../../apps/common/edit/widgets.py" line="653"/>
         <source>没有可复制的内容</source>
         <translation>Nothing to copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="650"/>
+        <location filename="../../apps/common/edit/widgets.py" line="656"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="650"/>
+        <location filename="../../apps/common/edit/widgets.py" line="656"/>
         <source>已复制到剪贴板</source>
         <translation>Copied to clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="732"/>
+        <location filename="../../apps/common/edit/widgets.py" line="738"/>
         <source>无匹配</source>
         <translation>No matches</translation>
     </message>

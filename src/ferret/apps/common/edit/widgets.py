@@ -165,14 +165,20 @@ class ItemTableWidget(TableWidget):
     def _init_table(self):
         self.verticalHeader().setDefaultSectionSize(28)
         self.setColumnCount(2)
+        self.setHorizontalHeaderLabels([self.tr("键"), self.tr("值")])
         self.setWordWrap(False)
-        self.horizontalHeader().setVisible(False)
         self.verticalHeader().setVisible(False)
 
-        # 设置列宽策略：第0列=key(自适应)，第1列=value(拉伸)
         header = self.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        header.setFixedHeight(28)
+        # 拖动列间分隔线调整键列，值列随之填满剩余空间。
+        header.setMinimumSectionSize(80)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.setColumnWidth(0, 200)
 
         self._apply_edit_triggers()
 
