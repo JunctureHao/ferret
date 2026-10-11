@@ -758,8 +758,8 @@ class Config(QConfig):
         default={},
     )
 
-    # 启动后自动检查更新（docs/design.md#update）：只控制「启动那一次静默
-    # 检查」，设置页的手动入口恒可用，不受此开关影响。BoolConfigItem 而非裸
+    # 自动检查更新（docs/design.md#update）：控制启动、每小时检查与失败重试，
+    # 版本窗口的手动入口恒可用，不受此开关影响。BoolConfigItem 而非裸
     # validator=BoolValidator()：坏值回落本项默认（#88 的收口语义）。
     auto_check_update = BoolConfigItem(
         group="Update",
