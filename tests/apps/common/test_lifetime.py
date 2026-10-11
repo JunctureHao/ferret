@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import shiboken6
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QTimer
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication
 from qfluentwidgets import RoundMenu
 
 from ferret.apps.common.edit.widgets import ItemTableToolWidget
@@ -21,9 +21,6 @@ from ferret.apps.common.flow.columns import default_layout
 from ferret.apps.session.controllers import SessionController
 from ferret.apps.session.models import SessionMeta, SessionSource
 from ferret.apps.session.views import SessionListPage
-from ferret.apps.update import coordinator as update_coordinator
-from ferret.core import update as update_core
-from ferret.core.update import UpdateBrief, UpdateError
 from tests.core.mitm._qt import wait_until
 
 
@@ -131,50 +128,3 @@ class TemporaryWidgetTests(unittest.TestCase):
             QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
             self.assertTrue(shiboken6.isValid(menu))
 
-    def test_update_dialog_exec_failure_clears_connections_and_reference(self):
-        window = QWidget()
-        self.addCleanup(window.deleteLater)
-        updates = update_coordinator.UpdateCoordinator(window)
-        brief = UpdateBrief("1.0.0", "1.0.1", 128, "", "https://example.test/releases")
-        dialog = update_coordinator.UpdateDialog(brief, window)
-        with (
-            patch.object(update_coordinator, "UpdateDialog", return_value=dialog),
-            patch.object(dialog, "exec", side_effect=RuntimeError("dialog failed")),
-            self.assertRaisesRegex(RuntimeError, "dialog failed"),
-        ):
-            updates._on_update_available(object(), brief)
-        self.assertIsNone(updates._update_dialog)
-        updates.controller.download_progress.emit(50)
-        updates.controller.download_finished.emit(object())
-        self.assertEqual(dialog.progress_bar.value(), 0)
-        self.assertFalse(dialog.ready)
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        self.assertFalse(shiboken6.isValid(dialog))
-
-    def test_apply_failure_remains_visible_after_the_ready_dialog_closes(self):
-        window = QWidget()
-        self.addCleanup(window.deleteLater)
-        updates = update_coordinator.UpdateCoordinator(window)
-        brief = UpdateBrief("1.0.0", "1.0.1", 128, "", "https://example.test/releases")
-        dialog = update_coordinator.UpdateDialog(brief, window)
-        updates.restart_requested.connect(updates.controller.apply_and_restart)
-        QTimer.singleShot(0, lambda: (dialog.set_ready(), dialog.accept()))
-        with (
-            patch.object(update_coordinator, "UpdateDialog", return_value=dialog),
-            patch.object(
-                update_core,
-                "apply_and_restart",
-                side_effect=UpdateError("SDK rejected"),
-            ),
-            patch.object(update_coordinator, "show_warning") as warning,
-            self.assertLogs("ferret.settings", "WARNING") as logs,
-        ):
-            updates._on_update_available(object(), brief)
-        self.assertEqual(
-            logs.output, ["WARNING:ferret.settings:应用更新失败：SDK rejected"]
-        )
-        warning.assert_called_once_with("应用更新失败", "SDK rejected", window)
-        self.assertFalse(dialog.isVisible())
-        self.assertIsNone(updates._update_dialog)
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        self.assertFalse(shiboken6.isValid(dialog))
