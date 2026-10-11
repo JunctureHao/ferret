@@ -16,6 +16,7 @@ from ferret.apps.capture.controllers import CaptureState
 from ferret.apps.common.lazy_page import LazyPage
 from ferret.apps.session.views import SessionsInterface
 from ferret.apps.settings.views import SettingsInterface
+from ferret.apps.update.dialogs import UpdateDialog
 from ferret.core import update as update_core
 from ferret.core.runtime import ApplicationRuntime
 from ferret.core.settings import CONFIG
@@ -45,27 +46,27 @@ class _MainWindowHarness(unittest.TestCase):
             ),
             patch.object(window_module.SessionController, "refresh"),
             patch.object(window_module.SystemTray, "show"),
-            patch.object(window_module.QTimer, "singleShot") as schedule,
+            patch.object(window_module.QTimer, "singleShot"),
+            patch.object(
+                window_module.UpdateCoordinator, "start_auto_checking"
+            ) as start_updates,
         ):
             runtime = ApplicationRuntime()
             window = window_module.MainWindow(runtime)
         self.addCleanup(self._dispose, window, runtime)
-        return window, runtime, schedule
+        return window, runtime, start_updates
 
 
 class StartupLazyLoadingTests(_MainWindowHarness):
     def test_startup_update_and_repeated_navigation_keep_settings_lazy(self) -> None:
-        window, runtime, schedule = self.create_window()
+        window, runtime, start_updates = self.create_window()
         self.assertIsInstance(window.settings_interface, LazyPage)
         self.assertEqual(window.settings_interface.objectName(), "settingInterface")
         self.assertIsNone(window.settings_interface._page)
         self.assertEqual(window.findChildren(SettingsInterface), [])
         self.assertFalse(runtime.mitm_runtime.is_running)
 
-        startup_checks = [
-            call.args[1] for call in schedule.call_args_list if call.args[0] == 5000
-        ]
-        self.assertEqual(startup_checks, [window.updates.check_auto])
+        start_updates.assert_called_once_with()
         original = CONFIG.get(CONFIG.auto_check_update)
         self.addCleanup(CONFIG.set, CONFIG.auto_check_update, original, False)
         CONFIG.set(CONFIG.auto_check_update, True, False)
@@ -74,7 +75,7 @@ class StartupLazyLoadingTests(_MainWindowHarness):
             patch.object(update_core, "update_supported", return_value=True),
             patch.object(update_core, "check", return_value=None) as check,
         ):
-            startup_checks[0]()
+            window.updates.check_auto()
             self.assertTrue(wait_until(lambda: not window.updates.busy))
             check.assert_called_once_with()
             self.assertIsNone(window.settings_interface._page)
@@ -85,7 +86,7 @@ class StartupLazyLoadingTests(_MainWindowHarness):
             )
             page = window.settings_interface.ensure()
             self.assertIsInstance(page, SettingsInterface)
-            self.assertIs(page.updates, window.updates)
+            self.assertFalse(hasattr(page, "updates"))
             self.assertFalse(window.search_host.isVisible())
 
             window.switchTo(window.captures_interface)
@@ -93,6 +94,37 @@ class StartupLazyLoadingTests(_MainWindowHarness):
             self.assertIs(window.settings_interface.ensure(), page)
             self.assertEqual(window.findChildren(SettingsInterface), [page])
             check.assert_called_once_with()
+
+    def test_update_menu_opens_a_single_dialog_without_changing_page(self) -> None:
+        window, _runtime, _start_updates = self.create_window()
+        page = window.stackedWidget.currentWidget()
+        self.assertFalse(window.update_item.isSelectable)
+        self.assertEqual(window.findChildren(UpdateDialog), [])
+
+        window.update_item.clicked.emit(True)
+        first_dialogs = window.findChildren(UpdateDialog)
+        self.assertEqual(len(first_dialogs), 1)
+        self.assertFalse(first_dialogs[0].isHidden())
+        window.update_item.clicked.emit(True)
+        self.assertEqual(window.findChildren(UpdateDialog), first_dialogs)
+        self.assertIs(window.stackedWidget.currentWidget(), page)
+        self.assertIsNone(window.settings_interface._page)
+
+    def test_background_update_only_changes_the_navigation_badge(self) -> None:
+        window, _runtime, _start_updates = self.create_window()
+        window.show()
+        self.app.processEvents()
+        self.assertTrue(window.update_badge.isHidden())
+        window.resize(1080, 780)
+        self.app.processEvents()
+        self.assertTrue(window.update_badge.isHidden())
+        brief = update_core.UpdateBrief(
+            "1.0.0", "1.0.1", 128, "", "https://example.test/releases"
+        )
+        window.updates.controller.update_available.emit(object(), brief)
+        self.assertFalse(window.update_badge.isHidden())
+        self.assertTrue(window.update_item.rect().contains(window.update_badge.pos()))
+        self.assertEqual(window.findChildren(UpdateDialog), [])
 
     def test_sessions_are_created_and_refreshed_only_when_first_opened(self) -> None:
         window, _runtime, _schedule = self.create_window()

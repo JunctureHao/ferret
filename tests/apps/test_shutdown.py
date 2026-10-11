@@ -27,9 +27,11 @@ class ShutdownTests(unittest.TestCase):
             ),
             intercept_window=SimpleNamespace(hide=lambda: events.append("hide")),
             updates=SimpleNamespace(
+                stop_auto_checking=lambda: events.append("stop_updates"),
+                start_auto_checking=lambda: events.append("start_updates"),
                 controller=SimpleNamespace(
                     apply_and_restart=lambda _: events.append("apply")
-                )
+                ),
             ),
             tr=lambda text: text,
             show=Mock(),
@@ -45,7 +47,17 @@ class ShutdownTests(unittest.TestCase):
         ):
             MainWindow._apply_update(window, object())
         self.assertEqual(
-            events, ["save", "capture", "runtime", "hide", "apply", "rearm"]
+            events,
+            [
+                "save",
+                "capture",
+                "runtime",
+                "stop_updates",
+                "hide",
+                "apply",
+                "rearm",
+                "start_updates",
+            ],
         )
 
     def test_failed_apply_rearms_both_shutdown_gates_for_the_next_exit(self):
@@ -54,7 +66,18 @@ class ShutdownTests(unittest.TestCase):
         with patch.object(CONFIG, "flush_pending_save"):
             MainWindow._apply_update(window, object())
         self.assertFalse(window._shutdown_complete)
-        self.assertEqual(events, ["capture", "runtime", "hide", "apply", "rearm"])
+        self.assertEqual(
+            events,
+            [
+                "capture",
+                "runtime",
+                "stop_updates",
+                "hide",
+                "apply",
+                "rearm",
+                "start_updates",
+            ],
+        )
 
     def test_failed_cleanup_stays_open_and_never_launches_updater(self):
         window, events = self.window(success=False)
@@ -64,6 +87,7 @@ class ShutdownTests(unittest.TestCase):
         ):
             MainWindow._apply_update(window, object())
         self.assertNotIn("apply", events)
+        self.assertNotIn("stop_updates", events)
         self.assertFalse(window._shutdown_complete)
         warning.assert_called_once_with("退出未完成", "恢复代理失败", window)
         window.show.assert_called_once()

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import cast
 
-from PySide6.QtCore import Qt, QTimer, Slot
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Slot
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QWidget
 from qfluentwidgets import (
     CheckableSystemTrayMenu,
+    DotInfoBadge,
     FluentIcon,
     FluentTitleBar,
     FluentTitleBarButton,
@@ -154,15 +155,14 @@ class MainWindow(FluentWindow):
         self.__connect_signal_to_slot()
         # 初始路由一次（启动页 = 捕获页 → titlebar 亮出表达式编辑器，规格 §4.3）。
         self.__on_page_changed(self.stackedWidget.currentIndex())
-        # 启动自动检查更新（docs/design.md#update）：延迟避开启动高峰；
-        # 开关与形态闸门都收在协调器内部，不依赖设置页构造。
-        QTimer.singleShot(5000, self.updates.check_auto)
+        # 协调器负责启动延迟和每小时检测；与切页、抓包启停和托盘状态无关。
+        self.updates.start_auto_checking()
 
     def __create_settings_interface(self) -> QWidget:
         # 模块和控件树都延后到首次切页，更新入口由主窗口常驻持有。
         from ferret.apps.settings.views import SettingsInterface
 
-        return SettingsInterface(mitm=self.runtime.mitm, updates=self.updates)
+        return SettingsInterface(mitm=self.runtime.mitm)
 
     def __create_sessions_interface(self) -> QWidget:
         from ferret.apps.session.views import SessionsInterface
@@ -200,6 +200,21 @@ class MainWindow(FluentWindow):
             NavigationItemPosition.BOTTOM,
         )
 
+        self.update_item = self.navigationInterface.addItem(
+            "VersionUpdates",
+            FluentIcon.UPDATE,
+            self.tr("版本与更新"),
+            onClick=self.updates.show_dialog,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM,
+        )
+        # 上游 NAVIGATION_ITEM 管理器会在菜单 show/resize 时无条件亮起角标；
+        # 这里由更新状态独占可见性，位置用导航项内的局部坐标。
+        self.update_badge = DotInfoBadge(self.update_item)
+        self.update_badge.setFixedSize(6, 6)
+        self.update_item.installEventFilter(self)
+        self.__refresh_update_badge()
+
         self.addSubInterface(
             self.settings_interface,
             FluentIcon.SETTING,
@@ -209,6 +224,7 @@ class MainWindow(FluentWindow):
 
     def __connect_signal_to_slot(self):
         self.updates.restart_requested.connect(self._apply_update)
+        self.updates.state_changed.connect(self.__refresh_update_badge)
         self.runtime.startup_error.connect(self._show_startup_error)
         qconfig.themeChanged.connect(lambda theme: setTheme(theme))
         CONFIG.themeColorChanged.connect(setThemeColor)
@@ -350,6 +366,24 @@ class MainWindow(FluentWindow):
             self.raise_()
             self.activateWindow()
 
+    @Slot()
+    def __refresh_update_badge(self) -> None:
+        self.update_badge.setVisible(self.updates.has_update)
+        self.update_badge.move(
+            self.update_item.width() - 12,
+            6
+            if self.update_item.isCompacted
+            else (self.update_item.height() - self.update_badge.height()) // 2,
+        )
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is getattr(self, "update_item", None) and event.type() in (
+            QEvent.Type.Show,
+            QEvent.Type.Resize,
+        ):
+            self.__refresh_update_badge()
+        return super().eventFilter(watched, event)
+
     def shutdown(self) -> bool:
         """统一退出流程：关闭 Save、停止代理、提交录制。"""
         if self._shutdown_complete:
@@ -363,6 +397,7 @@ class MainWindow(FluentWindow):
         complete = self.runtime.shutdown()
         self._shutdown_complete = complete
         if complete:
+            self.updates.stop_auto_checking()
             # hide 而不是 close：`closeEvent` 在队列非空时会弹确认框，而这里用户已经
             # 决定退出了，再问一遍「挂着的怎么办」只是噪音 —— 内核马上停，挂起的连接
             # 跟着断，这就是退出该有的语义（本轮刻意不做超时自动放行）。窗口可能
@@ -391,6 +426,7 @@ class MainWindow(FluentWindow):
             # runtime.shutdown() 短路，内核线程带活 Master 撞上进程退出（qFatal）。
             self._shutdown_complete = False
             self.runtime.resume_after_failed_apply()
+            self.updates.start_auto_checking()
 
     @Slot(str)
     def _show_startup_error(self, message: str) -> None:
