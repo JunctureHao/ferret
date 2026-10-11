@@ -1,138 +1,230 @@
-"""应用级更新对话框：「发现新版本 → 下载 → 重启」三态（docs/design.md#update）。
+"""版本与更新弹窗：展示协调器保存的状态，关闭弹窗不影响后台任务。
 
-对话框只做展示与用户意图回收，任务编排全在 ``UpdateController``：状态迁移由外部
-调用 ``set_downloading`` / ``set_ready`` / ``set_failed`` 驱动。
-
-「立即更新」为什么不连 clicked：MessageBoxBase 的 yesButton 默认走
-``validate() → accept()``，点一下对话框就关了，下载就没法在框里进行。所以拦在
-``validate()`` —— 首次点「立即更新」发 ``download_requested`` 并拒绝关闭；
-进入就绪态后按钮变「重启应用」，validate 放行、对话框以 accepted 收场，由
-UpdateCoordinator 请求主窗口清理并应用更新。
+按钮只发出用户意图；协调器负责检查、下载、应用更新与对象生命周期。
+``validate`` 拦住 MessageBoxBase 的自动 accept，任务状态更新不会关闭弹窗。
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QUrl, Signal
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from datetime import datetime
+
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
+    FluentIcon,
     HyperlinkButton,
     MessageBoxBase,
     ProgressBar,
+    PushButton,
     SubtitleLabel,
+    SwitchSettingCard,
 )
 
+from ferret.core.meta import REPO_URL
 from ferret.core.mitm import human
+from ferret.core.settings import APP_NAME, CONFIG
 from ferret.core.update import UpdateBrief
 
 
 class UpdateDialog(MessageBoxBase):
+    check_requested = Signal()
     download_requested = Signal()
+    restart_requested = Signal()
 
-    def __init__(self, brief: UpdateBrief, parent: QWidget | None = None):
+    def __init__(
+        self,
+        *,
+        current_version: str,
+        supported: bool,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._brief = brief
-        self._download_started = False
+        self._supported = supported
+        self._action = "check"
         self._ready = False
-        self.__init_widget()
+        self.__init_widget(current_version)
         self.__init_layout()
-
-    def __init_widget(self) -> None:
-        brief = self._brief
-        self.title_label = SubtitleLabel(self)
-        self.title_label.setText(self.tr("发现新版本 v{}").format(brief.target))
-
-        self.desc_label = BodyLabel(self)
-        self.desc_label.setWordWrap(True)
-        self.desc_label.setText(
-            self.tr("当前版本 v{}，新版本包大小 {}。").format(
-                brief.current, human.pretty_size(brief.size)
-            )
+        self.render_state(
+            status="idle" if supported else "unsupported",
+            brief=None,
+            last_checked=None,
+            error="",
+            progress=0,
+            busy=False,
+            ready=False,
         )
 
+    def __init_widget(self, current_version: str) -> None:
+        self.title_label = SubtitleLabel(self.tr("版本与更新"), self)
+        self.version_label = BodyLabel(self)
+        self.version_label.setText(
+            self.tr("{} · 当前版本 v{}").format(APP_NAME, current_version)
+        )
+        self.installation_label = CaptionLabel(self)
+        self.installation_label.setText(
+            self.tr("安装版") if self._supported else self.tr("便携版 / 开发环境")
+        )
+
+        self.status_label = BodyLabel(self)
+        self.status_label.setWordWrap(True)
+        self.last_checked_label = CaptionLabel(self)
+        self.desc_label = BodyLabel(self)
+        self.desc_label.setWordWrap(True)
+        self.desc_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.notes_label = CaptionLabel(self)
+        self.notes_label.setWordWrap(True)
+        self.notes_label.setTextFormat(Qt.TextFormat.PlainText)
+
         self.release_link = HyperlinkButton(self)
-        self.release_link.setText(self.tr("查看更新内容"))
-        self.release_link.setUrl(QUrl(brief.release_page))
+        self.release_link.setText(self.tr("查看完整发布说明"))
+        self.check_button = PushButton(self.tr("检查更新"), self)
+        self.check_button.clicked.connect(self.check_requested)
 
         self.progress_bar = ProgressBar(self)
         self.progress_bar.setRange(0, 100)
-        self.progress_bar.setVisible(False)
-
         self.error_label = CaptionLabel(self)
         self.error_label.setWordWrap(True)
-        # 警示色与 DNS 对话框同款（不做主题分叉，两主题下可读）。
+        self.error_label.setTextFormat(Qt.TextFormat.PlainText)
         self.error_label.setStyleSheet("color: #c07000;")
-        self.error_label.setVisible(False)
 
-        self.yesButton.setText(self.tr("立即更新"))
-        self.cancelButton.setText(self.tr("稍后"))
+        self.auto_update_card = SwitchSettingCard(
+            FluentIcon.SYNC,
+            self.tr("自动检查更新"),
+            configItem=CONFIG.auto_check_update,
+            parent=self,
+        )
+        self.auto_update_card.setEnabled(self._supported)
+        self.auto_update_hint = CaptionLabel(
+            self.tr("启动后及每小时检测，发现新版时在菜单上提示"), self
+        )
+        self.auto_update_hint.setWordWrap(True)
+        self.cancelButton.setText(self.tr("关闭"))
 
     def __init_layout(self) -> None:
         layout = QVBoxLayout()
-        layout.setSpacing(8)
+        layout.setSpacing(10)
         layout.addWidget(self.title_label)
+        layout.addWidget(self.version_label)
+        layout.addWidget(self.installation_label)
+        layout.addSpacing(6)
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.last_checked_label)
         layout.addWidget(self.desc_label)
-        layout.addWidget(self.release_link)
+        layout.addWidget(self.notes_label)
+        links = QHBoxLayout()
+        links.setContentsMargins(0, 0, 0, 0)
+        links.addWidget(self.release_link)
+        links.addStretch(1)
+        links.addWidget(self.check_button)
+        layout.addLayout(links)
         layout.addWidget(self.progress_bar)
         layout.addWidget(self.error_label)
+        layout.addWidget(self.auto_update_card)
+        layout.addWidget(self.auto_update_hint)
         self.viewLayout.addLayout(layout)
-        self.widget.setMinimumWidth(420)
+        self.widget.setFixedWidth(540)
 
     @property
     def ready(self) -> bool:
-        """下载是否已完成（协调器据此决定 accept 后要不要请求重启）。"""
         return self._ready
 
     def validate(self) -> bool:
-        """yes 按钮的关闭闸门（机理见模块 docstring）。"""
-        if self._ready:
-            return True
-        if not self._download_started:
-            self._download_started = True
-            self.download_requested.emit()
+        if self.yesButton.isEnabled():
+            if self._action == "restart":
+                self.restart_requested.emit()
+            elif self._action == "download":
+                self.download_requested.emit()
+            else:
+                self.check_requested.emit()
         return False
 
-    def set_downloading(self) -> None:
-        """进入下载态：进度条亮相，两个按钮都锁死（velopack 没有取消语义）。"""
-        self.error_label.setVisible(False)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(True)
-        self.yesButton.setEnabled(False)
-        self.cancelButton.setEnabled(False)
-
-    def set_progress(self, percent: int) -> None:
-        self.progress_bar.setValue(max(0, min(100, int(percent))))
-
-    def set_ready(self) -> None:
-        """下载完成：按钮变「重启应用」，点击即应用更新并退出进程。"""
-        self._ready = True
-        self.progress_bar.setValue(100)
-        self.desc_label.setText(self.tr("下载完成，重启后生效。"))
-        self.yesButton.setText(self.tr("重启应用"))
-        self.yesButton.setEnabled(True)
-        self.cancelButton.setEnabled(True)
-        self._reveal_host_window()
-
-    def _reveal_host_window(self) -> None:
-        """下载完毕后把承载本框的主窗口主动唤回前台。
-
-        下载是后台任务，用户常在等待时点关闭把主窗口收进托盘（``window.closeEvent``
-        → ``minimize_to_tray`` → ``hide``）。本框是 MaskDialogBase，为主窗口的子部件，
-        会跟着一起藏起来；就绪态要用户点「重启应用」才装得了更新，若不主动露面，更新
-        下载完就一直缩在托盘里不弹出。show / raise / activate 抢回前台（与断点窗口
-        ``InterceptWindow`` 抢焦点同款）。"""
-        window = self.window()
-        if window.isMinimized():
-            window.showNormal()
+    def render_state(
+        self,
+        *,
+        status: str,
+        brief: UpdateBrief | None,
+        last_checked: datetime | None,
+        error: str,
+        progress: int,
+        busy: bool,
+        ready: bool,
+    ) -> None:
+        """一次刷新完整状态；弹窗在任务中途重建时也能恢复进度与操作。"""
+        self._ready = ready
+        self.status_label.setText(self._status_text(status))
+        if last_checked is None:
+            self.last_checked_label.setText(self.tr("最近检查：尚未检查"))
         else:
-            window.show()
-        window.raise_()
-        window.activateWindow()
+            self.last_checked_label.setText(
+                self.tr("最近检查：{}").format(
+                    last_checked.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                )
+            )
 
-    def set_failed(self, message: str) -> None:
-        """下载/应用失败：展示原因，放人走（择日再手动检查）。"""
-        self.error_label.setText(message)
-        self.error_label.setVisible(True)
-        self.yesButton.setEnabled(False)
+        self.desc_label.setVisible(brief is not None)
+        if brief is not None:
+            self.desc_label.setText(
+                self.tr("新版本 v{}，预计下载 {}。").format(
+                    brief.target, human.pretty_size(brief.size)
+                )
+            )
+        notes = brief.notes_markdown.strip() if brief is not None else ""
+        # 这里只放短摘要，长发布说明交给发布页，避免弹窗和常驻状态无界增长。
+        excerpt = "\n".join(notes.splitlines()[:8])[:600]
+        if len(excerpt) < len(notes):
+            excerpt = excerpt.rstrip() + "…"
+        self.notes_label.setText(excerpt)
+        self.notes_label.setVisible(bool(excerpt))
+        self.release_link.setUrl(
+            QUrl(brief.release_page if brief is not None else f"{REPO_URL}/releases")
+        )
+        self.check_button.setVisible(
+            self._supported and brief is not None and not ready
+        )
+        self.check_button.setEnabled(not busy)
+
+        self.progress_bar.setValue(max(0, min(100, int(progress))))
+        self.progress_bar.setVisible(status == "downloading" or ready)
+        self.error_label.setText(error)
+        self.error_label.setVisible(bool(error))
+        self.yesButton.setEnabled(not busy)
+        # Velopack 没有取消下载的接口；关闭只释放 UI，不取消后台任务。
         self.cancelButton.setEnabled(True)
+        if ready:
+            self._action = "restart"
+            self.yesButton.setText(self.tr("重启更新"))
+        elif brief is not None:
+            self._action = "download"
+            self.yesButton.setText(
+                self.tr("重试下载")
+                if status == "download_failed"
+                else self.tr("下载更新")
+            )
+        else:
+            self._action = "check"
+            self.yesButton.setText(
+                self.tr("检查更新") if self._supported else self.tr("打开发布页")
+            )
+
+    def _status_text(self, status: str) -> str:
+        if status == "unsupported":
+            return self.tr("当前运行方式不支持应用内更新，请前往发布页下载。")
+        if status == "checking":
+            return self.tr("正在检查更新…")
+        if status == "latest":
+            return self.tr("当前已是最新版本")
+        if status == "available":
+            return self.tr("发现新版本")
+        if status == "downloading":
+            return self.tr("正在下载更新，关闭此窗口后仍会继续。")
+        if status == "ready":
+            return self.tr("下载完成，重启后生效。")
+        if status == "check_failed":
+            return self.tr("检查更新失败")
+        if status == "download_failed":
+            return self.tr("下载更新失败，可以重试。")
+        if status == "apply_failed":
+            return self.tr("应用更新失败，可以重试。")
+        return self.tr("尚未检查更新")
