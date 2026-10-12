@@ -242,7 +242,7 @@ class RewriteInterface(QWidget):
     @Slot(int)
     def _on_kind_filter_changed(self, index: int):
         """下拉第 0 项 = 全部类型；其余按 `RewriteKind` 枚举序一一对应。"""
-        kind = RewriteKind(index - 1) if index > 0 else None
+        kind = list(RewriteKind)[index - 1] if index > 0 else None
         self.proxy_model.set_filter_kind(kind)
         self._update_action_state()
 

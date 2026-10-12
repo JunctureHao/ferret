@@ -16,6 +16,7 @@ from ferret.apps.rewrite.models import (
     kind_label,
     logic_label,
 )
+from ferret.apps.rewrite.views import RewriteInterface
 from ferret.core.mitm import (
     WHOLE_BODY_PATTERN,
     MitmFacade,
@@ -205,6 +206,58 @@ class RewriteRuleFilterProxyModelTests(unittest.TestCase):
     def test_no_match_yields_no_rows(self) -> None:
         self.proxy.set_filter_text("nothing-here")
         self.assertEqual(self.proxy.rowCount(), 0)
+
+
+class KindFilterComboTests(unittest.TestCase):
+    """类型筛选下拉：第 0 项=全部，其余按 `RewriteKind` 枚举序一一对应。
+
+    走的是真的 `currentIndexChanged` 那条路（§4.2）。这里专防 int↔StrEnum 的坑：
+    `RewriteKind` 是 `StrEnum`，用序号查会抛 `ValueError`，必须按枚举顺序取。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        config_file = Path(self._tmp.name) / "config.json"
+        self.addCleanup(setattr, CONFIG, "file", CONFIG.file)
+        qconfig.load(str(config_file), CONFIG)
+        self.addCleanup(CONFIG.set, CONFIG.rewrite_rules, [])
+        controller = RewriteController(mitm=MitmFacade(MitmRuntime()))
+        self.view = RewriteInterface(controller)
+        self.addCleanup(self.view.deleteLater)
+        self.view.source_model.set_rules(
+            [
+                make_rule("https://a.com/x"),  # MAP_REMOTE（枚举第 0 个）
+                RewriteRule(
+                    kind=RewriteKind.MODIFY_RESPONSE_BODY,
+                    logic=RewriteLogic.CONTAINS,
+                    value="b.com",
+                ),
+            ]
+        )
+
+    def test_the_all_kinds_item_keeps_every_row(self) -> None:
+        self.view.kind_combo.setCurrentIndex(0)
+        self.assertIsNone(self.view.proxy_model._filter_kind)
+        self.assertEqual(self.view.proxy_model.rowCount(), 2)
+
+    def test_each_item_maps_to_its_kind_in_enum_order(self) -> None:
+        for offset, kind in enumerate(RewriteKind):
+            with self.subTest(kind=kind):
+                # 选具体类型不该抛 ValueError，且筛出对应 kind。
+                self.view.kind_combo.setCurrentIndex(offset + 1)
+                self.assertEqual(self.view.proxy_model._filter_kind, kind)
+
+    def test_picking_a_specific_kind_filters_the_rows(self) -> None:
+        order = list(RewriteKind)
+        self.view.kind_combo.setCurrentIndex(order.index(RewriteKind.MAP_REMOTE) + 1)
+        self.assertEqual(self.view.proxy_model.rowCount(), 1)
+        self.view.kind_combo.setCurrentIndex(
+            order.index(RewriteKind.MODIFY_RESPONSE_BODY) + 1
+        )
+        self.assertEqual(self.view.proxy_model.rowCount(), 1)
+        self.view.kind_combo.setCurrentIndex(order.index(RewriteKind.MAP_LOCAL) + 1)
+        self.assertEqual(self.view.proxy_model.rowCount(), 0)
 
 
 class RewriteControllerTests(unittest.TestCase):
