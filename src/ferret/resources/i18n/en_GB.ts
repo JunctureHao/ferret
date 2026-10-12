@@ -1428,9 +1428,19 @@
 <context>
     <name>ComposeController</name>
     <message>
-        <location filename="../../apps/compose/controllers.py" line="56"/>
+        <location filename="../../apps/compose/controllers.py" line="62"/>
         <source>发送失败</source>
         <translation>Send failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/controllers.py" line="88"/>
+        <source>发送已取消</source>
+        <translation>Send cancelled</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/controllers.py" line="88"/>
+        <source>内核已停止，本次发送已取消</source>
+        <translation>The core has stopped and this send has been cancelled</translation>
     </message>
 </context>
 <context>
