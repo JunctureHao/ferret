@@ -372,7 +372,9 @@ class ContextMenuMarkTests(unittest.TestCase):
         标记 / 备注是人肉标注两件套，挨着放。"""
         self.assertIn(self.menu.mark_menu, self.menu._subMenus)
         texts = self._view_texts(self.menu)
-        self.assertEqual(texts[texts.index("标记") :][:2], ["标记", "备注..."])
+        self.assertEqual(
+            texts[texts.index("标记流量") :][:2], ["标记流量", "编辑备注…"]
+        )
 
     def test_the_submenu_holds_set_toggle_and_clear(self) -> None:
         submenu = self.menu.mark_menu
@@ -383,7 +385,7 @@ class ContextMenuMarkTests(unittest.TestCase):
         """会话页那批流量是死对象，写回无处可去 —— 入口整个不出现，不是置灰。"""
         menu = FlowContextMenu(self.parent, _MarkStub(), READONLY_CAPABILITIES)
         self.assertNotIn(menu.mark_menu, menu._subMenus)
-        self.assertNotIn("标记", self._view_texts(menu))
+        self.assertNotIn("标记流量", self._view_texts(menu))
 
     def test_picking_a_marker_writes_it_to_the_single_selected_flow(self) -> None:
         flows = self._flows("")

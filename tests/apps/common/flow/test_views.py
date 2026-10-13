@@ -976,13 +976,13 @@ class FlowContextMenuTests(unittest.TestCase):
     def test_capture_capabilities_show_replay_action(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertIn("重发", actions_text)
+        self.assertIn("重发请求", actions_text)
         self.assertNotIn("从文件重发请求…", actions_text)
 
     def test_readonly_capabilities_hide_replay_action(self) -> None:
         menu = self._make_menu(self.READONLY_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertNotIn("重发", actions_text)
+        self.assertNotIn("重发请求", actions_text)
 
     def test_single_selection_calls_replay_flow(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
@@ -1009,12 +1009,12 @@ class FlowContextMenuTests(unittest.TestCase):
     def test_capture_capabilities_show_block_host_action(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertIn("屏蔽此主机", actions_text)
+        self.assertIn("屏蔽主机", actions_text)
 
     def test_readonly_capabilities_hide_block_host_action(self) -> None:
         menu = self._make_menu(self.READONLY_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertNotIn("屏蔽此主机", actions_text)
+        self.assertNotIn("屏蔽主机", actions_text)
 
     def test_block_host_requested_carries_the_row_host(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
@@ -1027,12 +1027,12 @@ class FlowContextMenuTests(unittest.TestCase):
     def test_capture_capabilities_show_edit_in_compose(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertIn("在 Compose 中编辑", actions_text)
+        self.assertIn("编辑请求", actions_text)
 
     def test_readonly_capabilities_hide_edit_in_compose(self) -> None:
         menu = self._make_menu(self.READONLY_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
-        self.assertNotIn("在 Compose 中编辑", actions_text)
+        self.assertNotIn("编辑请求", actions_text)
 
     def test_edit_in_compose_is_enabled_for_a_single_http_flow(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
@@ -1091,11 +1091,11 @@ class FlowContextMenuTests(unittest.TestCase):
                     if action.text()
                 ]
                 for text in (
-                    "另存请求体为文件…",
-                    "另存响应体为文件…",
-                    "另存原始请求为文件…",
-                    "另存原始响应为文件…",
-                    "另存原始流量为文件…",
+                    "保存请求体…",
+                    "保存响应体…",
+                    "保存原始请求…",
+                    "保存原始响应…",
+                    "保存原始流量…",
                 ):
                     self.assertIn(text, actions_text)
 

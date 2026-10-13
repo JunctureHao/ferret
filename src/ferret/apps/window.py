@@ -352,7 +352,7 @@ class MainWindow(FluentWindow):
         try:
             edit = self.captures_interface.controller.request_edit(flow_id)
         except (ValueError, RuntimeError) as exc:
-            show_warning(self.tr("在 Compose 中编辑失败"), str(exc), self)
+            show_warning(self.tr("编辑请求失败"), str(exc), self)
             return
         self.compose_interface.ensure().prefill(edit)
         self.switchTo(self.compose_interface)

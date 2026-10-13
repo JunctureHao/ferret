@@ -151,7 +151,7 @@ class MockInterface(QWidget):
         label = BodyLabel(self.tr("Mock 响应池是空的"), page)
         hint = CaptionLabel(
             self.tr(
-                "在捕获页右键流量选择「加入 Mock 响应」，或从 Flow 文件导入；"
+                "在抓包页右键流量选择「加入 Mock」，或从 Flow 文件导入；"
                 "开启总开关后，匹配到的请求将直接用录好的响应顶回"
             ),
             page,

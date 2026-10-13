@@ -352,10 +352,12 @@ class SessionListPage(QWidget):
 
         menu = RoundMenu(parent=self)
         menu.closedSignal.connect(menu.deleteLater)
-        menu.addAction(self._make_action(menu, self.tr("打开"), self._open_selected))
+        menu.addAction(
+            self._make_action(menu, self.tr("打开会话"), self._open_selected)
+        )
         # 重命名是单条语义：多选时菜单项置灰（工具栏按钮同一口径），
         # 点了没反应的死菜单项比没有更糟。
-        rename_action = self._make_action(menu, self.tr("重命名"), self._on_rename)
+        rename_action = self._make_action(menu, self.tr("修改名称…"), self._on_rename)
         rename_action.setEnabled(len(selected) == 1)
         menu.addAction(rename_action)
         # 导出按选区分支：单条走存文件对话框，多条选一个目录按名字各落一个
@@ -364,26 +366,33 @@ class SessionListPage(QWidget):
             menu.addAction(
                 self._make_action(
                     menu,
-                    self.tr("导出 {} 个会话").format(len(selected)),
+                    self.tr("导出会话（{} 个）…").format(len(selected)),
                     lambda: self._export_selected(selected),
                 )
             )
         else:
             menu.addAction(
                 self._make_action(
-                    menu, self.tr("导出 Flow"), lambda: self._export_session(meta)
+                    menu, self.tr("导出会话…"), lambda: self._export_session(meta)
                 )
             )
         menu.addAction(
             self._make_action(
                 menu,
-                self.tr("在文件管理器中显示"),
+                self.tr("打开位置"),
                 lambda: self._show_in_explorer(meta),
             )
         )
         menu.addSeparator()
         menu.addAction(
-            self._make_action(menu, self.tr("删除"), self._on_delete, FluentIcon.DELETE)
+            self._make_action(
+                menu,
+                self.tr("删除会话…")
+                if len(selected) <= 1
+                else self.tr("删除会话（{} 个）…").format(len(selected)),
+                self._on_delete,
+                FluentIcon.DELETE,
+            )
         )
         menu.exec(self.table.viewport().mapToGlobal(pos))
 

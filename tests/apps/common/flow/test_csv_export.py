@@ -171,7 +171,10 @@ class ExportCsvMenuTests(unittest.TestCase):
 
         # 真 flow：__default_file_name 会读 method / host / timestamp_created，
         # thin stub 不够。菜单选区收行快照（#90），在内核侧同位置折叠。
-        self.flows = [flow_row(tflow.tflow(resp=True)), flow_row(tflow.tflow(resp=True))]
+        self.flows = [
+            flow_row(tflow.tflow(resp=True)),
+            flow_row(tflow.tflow(resp=True)),
+        ]
         details = {
             self.flows[0].id: {"Method": "GET", "Host": "a.com", "Status Code": 200},
             self.flows[1].id: {"Method": "POST", "Host": "b.com", "Status Code": 201},
@@ -204,7 +207,7 @@ class ExportCsvMenuTests(unittest.TestCase):
     def test_csv_action_present_and_labelled_by_count(self) -> None:
         texts = [a.text() for a in self.menu.export_menu.actions() if a.text()]
         # 两条选区 → 文案带条数。
-        self.assertIn("导出 2 条字段为 CSV…", texts)
+        self.assertIn("导出 CSV（2 条）…", texts)
 
     def test_save_writes_csv_with_header_and_rows(self) -> None:
         import csv as _csv

@@ -43,11 +43,11 @@ class FlowContextMenu(RoundMenu):
     # 删除请求信号：载荷是选区而非行号 —— 行删除由表格侧按选区批量走，
     # 菜单只负责报「用户点了删除」（多选时右键行号只是选区之一，发它会漏删）。
     delete_requested = Signal()
-    block_host_requested = Signal(str)  # 屏蔽此主机请求信号（携带 host）
-    # 「在 Compose 中编辑」请求信号（携带 flow id）。载荷是 id 不是 flow：
+    block_host_requested = Signal(str)  # 屏蔽主机请求信号（携带 host）
+    # 「编辑请求」请求信号（携带 flow id）。载荷是 id 不是 flow：
     # handler 只拿 id 去 facade 提取，活 flow 引用不进 Qt 槽。
     edit_in_compose_requested = Signal(str)
-    # 「加入 Mock 响应」请求信号（携带 flow id 列表）。同样只带 id：副本由
+    # 「加入 Mock」请求信号（携带 flow id 列表）。同样只带 id：副本由
     # facade 在 mitm 线程上做（docs/design.md#mock）。
     add_to_mock_requested = Signal(list)
 
@@ -90,7 +90,9 @@ class FlowContextMenu(RoundMenu):
         self._refresh_replay_label()
         count = len(self.flows)
         self.delete_action.setText(
-            self.tr("删除") if count <= 1 else self.tr("删除 {} 条").format(count)
+            self.tr("删除流量")
+            if count <= 1
+            else self.tr("删除流量（{} 条）").format(count)
         )
         # 多选禁用（「编辑并重放」语义不明）、CONNECT 禁用（隧道请求没有可编辑的
         # 报文形态）。判据都来自既有入参，不新读活 flow。
@@ -98,15 +100,15 @@ class FlowContextMenu(RoundMenu):
             len(self.flows) == 1 and self.row_data.get("Method") != "CONNECT"
         )
         self.export_menu.refresh_selection_labels()
-        # 「加入 Mock 响应」要求选区每一条都带响应（无响应源流回不了任何东西，
+        # 「加入 Mock」要求选区每一条都带响应（无响应源流回不了任何东西，
         # 原生 next_flow 会跳过它们）；单选文案不带条数，多选带。
         if self.capabilities.can_mock:
             mockable = bool(self.flows) and all(row.has_response for row in self.flows)
             self.add_to_mock_action.setEnabled(mockable)
             self.add_to_mock_action.setText(
-                self.tr("加入 Mock 响应")
+                self.tr("加入 Mock")
                 if count <= 1
-                else self.tr("加入 Mock 响应 ({} 条)").format(count)
+                else self.tr("加入 Mock（{} 条）").format(count)
             )
         # 杀死只接单行：多选批量断连语义太重，一期不做（plan: docs/design.md#capture）。
         if self.capabilities.can_kill:
@@ -144,34 +146,34 @@ class FlowContextMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.client_replay_action = BaseAction(
-            parent=self, icon=FluentIcon.SYNC, text=self.tr("重发")
+            parent=self, icon=FluentIcon.SYNC, text=self.tr("重发请求")
         )
         self.edit_in_compose_action = BaseAction(
-            parent=self, icon=FluentIcon.EDIT, text=self.tr("在 Compose 中编辑")
+            parent=self, icon=FluentIcon.EDIT, text=self.tr("编辑请求")
         )
         self.add_to_mock_action = BaseAction(
-            parent=self, icon=FluentIcon.ROBOT, text=self.tr("加入 Mock 响应")
+            parent=self, icon=FluentIcon.ROBOT, text=self.tr("加入 Mock")
         )
         self.delete_action = BaseAction(
             parent=self,
             icon=FluentIcon.DELETE,
-            text=self.tr("删除"),
+            text=self.tr("删除流量"),
             shortcut=QKeySequence.StandardKey.Delete,
         )
         self.kill_action = BaseAction(
             parent=self,
             icon=FluentIcon.CANCEL,
-            text=self.tr("杀死"),
+            text=self.tr("终止流量"),
         )
         self.block_host_action = BaseAction(
             parent=self,
             icon=FluentIcon.CANCEL_MEDIUM,
-            text=self.tr("屏蔽此主机"),
+            text=self.tr("屏蔽主机"),
         )
         self.comment_action = BaseAction(
             parent=self,
             icon=FluentIcon.MESSAGE,
-            text=self.tr("备注..."),
+            text=self.tr("编辑备注…"),
         )
         self.mark_menu = FlowMarkMenu(self)
         self.export_menu = FlowExportMenu(self, self.controller)
@@ -180,26 +182,41 @@ class FlowContextMenu(RoundMenu):
     def __init_action(self):
         """初始化菜单动作"""
         self.addMenu(self.view_menu)
+        self.addMenu(self.export_menu)
+        if (
+            self.capabilities.can_replay
+            or self.capabilities.can_edit_compose
+            or self.capabilities.can_mock
+        ):
+            self.addSeparator()
         if self.capabilities.can_replay:
             self.addAction(self.client_replay_action)
-        if self.capabilities.can_mock:
-            self.addAction(self.add_to_mock_action)
         if self.capabilities.can_edit_compose:
             self.addAction(self.edit_in_compose_action)
-        self.addMenu(self.export_menu)
-        if self.capabilities.can_block:
-            self.addAction(self.block_host_action)
-        if self.capabilities.can_delete:
-            self.addAction(self.delete_action)
-        if self.capabilities.can_kill:
-            self.addAction(self.kill_action)
+        if self.capabilities.can_mock:
+            self.addAction(self.add_to_mock_action)
 
+        if self.capabilities.can_mark or self.capabilities.can_comment:
+            self.addSeparator()
         if self.capabilities.can_mark:
             self.addMenu(self.mark_menu)
         # 备注要在活 flow 上写（can_comment 同 can_mark 的理由）：会话查看器
         # 的控制器没有 set_flow_comment，不门控右键就是必崩的 AttributeError。
         if self.capabilities.can_comment:
             self.addAction(self.comment_action)
+
+        if (
+            self.capabilities.can_block
+            or self.capabilities.can_kill
+            or self.capabilities.can_delete
+        ):
+            self.addSeparator()
+        if self.capabilities.can_block:
+            self.addAction(self.block_host_action)
+        if self.capabilities.can_kill:
+            self.addAction(self.kill_action)
+        if self.capabilities.can_delete:
+            self.addAction(self.delete_action)
 
     def __connect_signal_to_slot(self):
         """连接信号与槽函数"""
@@ -218,12 +235,14 @@ class FlowContextMenu(RoundMenu):
         self.mark_menu.clear_requested.connect(self.__on_unmark_triggered)
 
     def _refresh_replay_label(self) -> None:
-        """根据当前选中数量刷新重发动作文案：单选=重发，多选=重发 N 条。"""
+        """根据当前选中数量刷新重发动作文案，多选统一追加数量后缀。"""
         count = len(self.flows)
         if count <= 1:
-            self.client_replay_action.setText(self.tr("重发"))
+            self.client_replay_action.setText(self.tr("重发请求"))
         else:
-            self.client_replay_action.setText(self.tr("重发 {} 条").format(count))
+            self.client_replay_action.setText(
+                self.tr("重发请求（{} 条）").format(count)
+            )
 
     @Slot()
     def __on_comment_triggered(self) -> None:
@@ -266,7 +285,7 @@ class FlowContextMenu(RoundMenu):
         try:
             self.controller.kill_flow(flow_id)
         except (ValueError, RuntimeError) as exc:
-            show_warning(self.tr("杀死流量失败"), str(exc), self.main_window)
+            show_warning(self.tr("终止流量失败"), str(exc), self.main_window)
 
     @Slot()
     def __on_mark_triggered(self) -> None:
@@ -372,7 +391,7 @@ class FlowContextMenu(RoundMenu):
 
     @Slot()
     def __on_add_to_mock_triggered(self):
-        """发出「加入 Mock 响应」请求，载荷是选区内带响应流的 id 列表。"""
+        """发出「加入 Mock」请求，载荷是选区内带响应流的 id 列表。"""
         flow_ids = [row.id for row in self.flows if row.has_response]
         if flow_ids:
             self.add_to_mock_requested.emit(flow_ids)
@@ -459,7 +478,7 @@ class FlowExportMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.setIcon(FluentIcon.SAVE)
-        self.setTitle(self.tr("导出"))
+        self.setTitle(self.tr("导出流量"))
 
         self.curl_action = BaseAction(
             parent=self,
@@ -490,38 +509,38 @@ class FlowExportMenu(RoundMenu):
         self.save_request_body_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("另存请求体为文件…"),
+            text=self.tr("保存请求体…"),
         )
         self.save_response_body_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("另存响应体为文件…"),
+            text=self.tr("保存响应体…"),
         )
         self.save_raw_request_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("另存原始请求为文件…"),
+            text=self.tr("保存原始请求…"),
         )
         self.save_raw_response_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("另存原始响应为文件…"),
+            text=self.tr("保存原始响应…"),
         )
         self.save_raw_flow_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("另存原始流量为文件…"),
+            text=self.tr("保存原始流量…"),
         )
         self.har_action = BaseAction(
             parent=self,
             icon=FluentIcon.SAVE,
-            text=self.tr("导出为 HAR"),
+            text=self.tr("导出 HAR…"),
         )
         self.save_flows_action = BaseAction(
-            parent=self, icon=FluentIcon.SAVE, text=self.tr("导出为 FLOW")
+            parent=self, icon=FluentIcon.SAVE, text=self.tr("导出 FLOW…")
         )
         self.csv_action = BaseAction(
-            parent=self, icon=FluentIcon.SAVE, text=self.tr("导出字段为 CSV…")
+            parent=self, icon=FluentIcon.SAVE, text=self.tr("导出 CSV…")
         )
 
     def __init_action(self):
@@ -577,16 +596,16 @@ class FlowExportMenu(RoundMenu):
         self.csv_action.triggered.connect(self.__export_csv)
 
     def refresh_selection_labels(self) -> None:
-        """和重发一致：两个文件导出都作用于整个选区，把条数写进文案避免歧义。"""
+        """文件导出作用于整个选区，和重发一致追加数量后缀。"""
         count = len(self.context_menu.flows)
         if count <= 1:
-            self.har_action.setText(self.tr("导出为 HAR"))
-            self.save_flows_action.setText(self.tr("导出为 FLOW"))
-            self.csv_action.setText(self.tr("导出字段为 CSV…"))
+            self.har_action.setText(self.tr("导出 HAR…"))
+            self.save_flows_action.setText(self.tr("导出 FLOW…"))
+            self.csv_action.setText(self.tr("导出 CSV…"))
         else:
-            self.har_action.setText(self.tr("导出 {} 条为 HAR").format(count))
-            self.save_flows_action.setText(self.tr("导出 {} 条为 FLOW").format(count))
-            self.csv_action.setText(self.tr("导出 {} 条字段为 CSV…").format(count))
+            self.har_action.setText(self.tr("导出 HAR（{} 条）…").format(count))
+            self.save_flows_action.setText(self.tr("导出 FLOW（{} 条）…").format(count))
+            self.csv_action.setText(self.tr("导出 CSV（{} 条）…").format(count))
 
     def __flow_id(self) -> str:
         """从上下文行数据取出 flow id"""
@@ -956,7 +975,7 @@ class FlowMarkMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.setIcon(FluentIcon.TAG)
-        self.setTitle(self.tr("标记"))
+        self.setTitle(self.tr("标记流量"))
         self.set_action = BaseAction(
             parent=self, icon=FluentIcon.TAG, text=self.tr("设置标记…")
         )
@@ -1003,11 +1022,11 @@ class FlowSubViewMenu(RoundMenu):
     def __init_widget(self):
         """初始化界面组件"""
         self.setIcon(FluentIcon.VIEW)
-        self.setTitle(self.tr("查看"))
+        self.setTitle(self.tr("查看信息"))
         self.url_action = BaseAction(
             parent=self,
             icon=FluentIcon.LINK,
-            text=self.tr("URL"),
+            text=self.tr("请求地址…"),
             shortcut=QKeySequence("Ctrl+U"),
         )
 
