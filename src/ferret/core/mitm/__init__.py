@@ -15,7 +15,14 @@ from ferret.core.mitm.bindings import (
     human,
     parse_filter,
 )
-from ferret.core.mitm.body import build_raw_preview
+from ferret.core.mitm.body import (
+    FormField,
+    build_raw_preview,
+    encode_multipart,
+    multipart_boundary,
+    parse_multipart,
+    read_body_file,
+)
 from ferret.core.mitm.certificate import (
     CA_ARTIFACTS,
     CLIENT_CERTS_SCAN_LIMIT,
@@ -221,6 +228,7 @@ __all__ = [
     "FlowExporter",
     "FlowFile",
     "FlowRow",
+    "FormField",
     "GatewayField",
     "GatewayLayer",
     "GatewayLogic",
@@ -273,6 +281,7 @@ __all__ = [
     "client_certs_option_updates",
     "client_certs_suggest_dir",
     "emoji",
+    "encode_multipart",
     "ensure_wireguard_conf",
     "escape_literal",
     "escape_template",
@@ -294,12 +303,15 @@ __all__ = [
     "latest_frame",
     "list_local_targets",
     "local_mode_spec",
+    "multipart_boundary",
     "opcode_name",
     "parse_filter",
+    "parse_multipart",
     "parse_sse",
     "protocol_option_updates",
     "qr_matrix",
     "quote_value",
+    "read_body_file",
     "read_replacement",
     "rewrite_rules_from_config",
     "rewrite_rules_to_config",

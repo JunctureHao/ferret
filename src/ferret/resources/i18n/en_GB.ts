@@ -33,6 +33,36 @@
     </message>
 </context>
 <context>
+    <name>BodyFilePicker</name>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="151"/>
+        <location filename="../../apps/compose/forms.py" line="154"/>
+        <location filename="../../apps/compose/forms.py" line="200"/>
+        <source>选择文件</source>
+        <translation>Pick a file</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="157"/>
+        <source>清除文件</source>
+        <translation>Clear file selection</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="188"/>
+        <source>内存文件</source>
+        <translation>File in memory</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="190"/>
+        <source>{}（{} 字节）</source>
+        <translation>{} ({} bytes)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="194"/>
+        <source>未选择文件</source>
+        <translation>No file selected</translation>
+    </message>
+</context>
+<context>
     <name>BodyPane</name>
     <message>
         <location filename="../../apps/common/flow/detail.py" line="352"/>
@@ -1431,6 +1461,167 @@
     </message>
 </context>
 <context>
+    <name>ComposeBody</name>
+    <message>
+        <location filename="../../core/mitm/body.py" line="95"/>
+        <source>表单边界无效：须为 1 至 70 个有效 ASCII 字符，且不能以空格结尾。</source>
+        <translation>Invalid form boundary: use 1 to 70 valid ASCII characters, with no trailing space.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="119"/>
+        <source>multipart 请求头格式无效。</source>
+        <translation>Invalid multipart header format.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="131"/>
+        <source>请先选择要发送的文件。</source>
+        <translation>Select a file to send first.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="137"/>
+        <source>文件不存在或不是普通文件：{}</source>
+        <translation>The file does not exist or is not a regular file: {}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="144"/>
+        <source>无法读取文件：{}（{}）</source>
+        <translation>Unable to read file: {} ({})</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="153"/>
+        <source>表单字段名和文件名不能包含换行或控制字符。</source>
+        <translation>Form field names and filenames cannot contain line breaks or control characters.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="170"/>
+        <source>表单文件字段“{}”尚未选择文件。</source>
+        <translation>No file is selected for form field “{}”.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="183"/>
+        <source>不支持的表单字段类型。</source>
+        <translation>Unsupported form field type.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="189"/>
+        <source>表单字段“{}”的 Content-Type 无效。</source>
+        <translation>Invalid Content-Type for form field “{}”.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="197"/>
+        <source>表单字段“{}”使用了不支持的字符集：{}。</source>
+        <translation>Form field “{}” uses an unsupported character set: {}.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="205"/>
+        <source>表单字段“{}”的文本无法使用字符集 {} 编码。</source>
+        <translation>The text in form field “{}” cannot be encoded using the character set {}.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="225"/>
+        <source>表单内容包含无法编码为 UTF-8 的字符。</source>
+        <translation>The form contains characters that cannot be encoded as UTF-8.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="239"/>
+        <source>表单内容与 boundary 冲突，请修改请求头中的 boundary。</source>
+        <translation>The boundary conflicts with the form content. Change the boundary in the request header.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/body.py" line="246"/>
+        <source>无法生成与表单内容兼容的 boundary。</source>
+        <translation>Unable to generate a boundary that is compatible with the form content.</translation>
+    </message>
+</context>
+<context>
+    <name>ComposeBodyEditor</name>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="39"/>
+        <source>无请求体</source>
+        <translation>No body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="40"/>
+        <source>JSON</source>
+        <translation>JSON</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="41"/>
+        <source>Text</source>
+        <translation>Text</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="42"/>
+        <source>XML</source>
+        <translation>XML</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="43"/>
+        <source>Raw</source>
+        <translation>Raw</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="44"/>
+        <source>Urlencoded</source>
+        <translation>Urlencoded</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="45"/>
+        <source>Form-data</source>
+        <translation>Form-data</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="46"/>
+        <source>文件</source>
+        <translation>File</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="87"/>
+        <source>请先选择请求体文件</source>
+        <translation>Select a request body file first</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="125"/>
+        <source>数据类型</source>
+        <translation>Body type</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="136"/>
+        <source>该请求不带请求体</source>
+        <translation>This request has no body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="302"/>
+        <source>这段内容不是合法的 UTF-8，已锁定为只读；发送时按原样发出。</source>
+        <translation>This content is not valid UTF-8. It is read-only and will be sent unchanged.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="318"/>
+        <source>请求头中的 Content-Type 与所选类型不同，将保留你填写的请求头。</source>
+        <translation>The Content-Type header differs from the selected body type. Your header will be kept.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="354"/>
+        <source>此 multipart 正文无法完整转换为字段表，已保留原始正文。</source>
+        <translation>This multipart body cannot be fully converted to form fields. The original body has been kept.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="371"/>
+        <source>此表单包含非 UTF-8 字段，已保留原始正文。</source>
+        <translation>This form contains fields that are not UTF-8. The original body has been kept.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="407"/>
+        <source>Form-data 需要唯一的 Content-Type 请求头，请重新选择类型或修正请求头。</source>
+        <translation>Form-data requires exactly one Content-Type header. Select the body type again or correct the headers.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/body_editor.py" line="428"/>
+        <source>Form-data 的 Content-Type 必须是 multipart/form-data 并包含有效的 boundary。</source>
+        <translation>Form-data requires a Content-Type of multipart/form-data with a valid boundary.</translation>
+    </message>
+</context>
+<context>
     <name>ComposeController</name>
     <message>
         <location filename="../../apps/compose/controllers.py" line="62"/>
@@ -1451,131 +1642,128 @@
 <context>
     <name>ComposeInterface</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="229"/>
+        <location filename="../../apps/compose/views.py" line="206"/>
         <source>进入流量列表；关闭时请求仍会经过代理内核发出（重写/网关/断点规则照常生效），但不会出现在流量列表中</source>
         <translation>Record to flow list; when off, the request is still sent through the proxy core (rewrite/gateway/intercept rules apply) but does not appear in the flow list</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="237"/>
-        <location filename="../../apps/compose/views.py" line="585"/>
+        <location filename="../../apps/compose/views.py" line="214"/>
+        <location filename="../../apps/compose/views.py" line="536"/>
         <source>发送</source>
         <translation>Send</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="241"/>
+        <location filename="../../apps/compose/views.py" line="218"/>
         <source>发送这条请求</source>
         <translation>Send this request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="247"/>
+        <location filename="../../apps/compose/views.py" line="224"/>
         <source>从剪贴板导入 cURL 命令</source>
         <translation>Import a curl command from the clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="248"/>
+        <location filename="../../apps/compose/views.py" line="225"/>
         <source>导入 cURL</source>
         <translation>Import cURL</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="267"/>
-        <source>数据类型</source>
-        <translation>Content type</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/views.py" line="270"/>
+        <location filename="../../apps/compose/views.py" line="237"/>
         <source>参数</source>
         <translation>Params</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="271"/>
+        <location filename="../../apps/compose/views.py" line="238"/>
         <source>请求头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="284"/>
+        <location filename="../../apps/compose/views.py" line="239"/>
         <source>请求体</source>
         <translation>Body</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="307"/>
+        <location filename="../../apps/compose/views.py" line="261"/>
         <source>性能</source>
         <translation>Performance</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="404"/>
+        <location filename="../../apps/compose/views.py" line="349"/>
         <source>请求头 ({count})</source>
         <translation>Request headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="535"/>
-        <location filename="../../apps/compose/views.py" line="539"/>
-        <location filename="../../apps/compose/views.py" line="547"/>
+        <location filename="../../apps/compose/views.py" line="456"/>
+        <location filename="../../apps/compose/views.py" line="460"/>
+        <location filename="../../apps/compose/views.py" line="468"/>
         <source>导入失败</source>
         <translation>Import failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="535"/>
+        <location filename="../../apps/compose/views.py" line="456"/>
         <source>剪贴板是空的</source>
         <translation>The clipboard is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="540"/>
+        <location filename="../../apps/compose/views.py" line="461"/>
         <source>剪贴板里没有 cURL 命令</source>
         <translation>The clipboard does not contain a curl command</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="550"/>
+        <location filename="../../apps/compose/views.py" line="471"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="550"/>
+        <location filename="../../apps/compose/views.py" line="471"/>
         <source>已从 cURL 导入请求</source>
         <translation>Request imported from curl</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="559"/>
+        <location filename="../../apps/compose/views.py" line="480"/>
+        <location filename="../../apps/compose/views.py" line="488"/>
+        <location filename="../../apps/compose/views.py" line="516"/>
         <source>发送失败</source>
         <translation>Send failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="559"/>
+        <location filename="../../apps/compose/views.py" line="480"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="235"/>
-        <location filename="../../apps/compose/views.py" line="585"/>
+        <location filename="../../apps/compose/views.py" line="212"/>
+        <location filename="../../apps/compose/views.py" line="536"/>
         <source>发送中…</source>
         <translation>Sending…</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="225"/>
+        <location filename="../../apps/compose/views.py" line="202"/>
         <source>记录流量</source>
         <translation>Record traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="595"/>
+        <location filename="../../apps/compose/views.py" line="546"/>
         <source>正在等待响应</source>
         <translation>Waiting for response</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="596"/>
+        <location filename="../../apps/compose/views.py" line="547"/>
         <source>收到响应后会显示在这里</source>
         <translation>The response will appear here when it arrives</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="600"/>
+        <location filename="../../apps/compose/views.py" line="551"/>
         <source>暂无响应</source>
         <translation>No response yet</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="601"/>
+        <location filename="../../apps/compose/views.py" line="552"/>
         <source>编辑请求，然后点击「发送」</source>
         <translation>Edit the request, then click Send</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="608"/>
+        <location filename="../../apps/compose/views.py" line="559"/>
         <source>请求失败</source>
         <translation>Request failed</translation>
     </message>
@@ -1583,137 +1771,114 @@
 <context>
     <name>ComposePerf</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="90"/>
+        <location filename="../../apps/compose/views.py" line="68"/>
         <source>时间</source>
         <translation>Time</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="94"/>
+        <location filename="../../apps/compose/views.py" line="72"/>
         <source>流量创建</source>
         <translation>Flow created</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="99"/>
+        <location filename="../../apps/compose/views.py" line="77"/>
         <source>客户端 TLS 握手</source>
         <translation>Client TLS handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="104"/>
+        <location filename="../../apps/compose/views.py" line="82"/>
         <source>请求开始</source>
         <translation>Request start</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="109"/>
+        <location filename="../../apps/compose/views.py" line="87"/>
         <source>请求结束</source>
         <translation>Request end</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="114"/>
+        <location filename="../../apps/compose/views.py" line="92"/>
         <source>请求时长</source>
         <translation>Request duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="119"/>
+        <location filename="../../apps/compose/views.py" line="97"/>
         <source>TCP 握手</source>
         <translation>TCP handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="124"/>
+        <location filename="../../apps/compose/views.py" line="102"/>
         <source>服务端 TLS 握手</source>
         <translation>Server TLS handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="129"/>
+        <location filename="../../apps/compose/views.py" line="107"/>
         <source>响应开始</source>
         <translation>Response start</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="134"/>
+        <location filename="../../apps/compose/views.py" line="112"/>
         <source>响应结束</source>
         <translation>Response end</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="139"/>
+        <location filename="../../apps/compose/views.py" line="117"/>
         <source>响应时长</source>
         <translation>Response duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="144"/>
+        <location filename="../../apps/compose/views.py" line="122"/>
         <source>总耗时</source>
         <translation>Total duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="151"/>
+        <location filename="../../apps/compose/views.py" line="129"/>
         <source>流量</source>
         <translation>Traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="153"/>
+        <location filename="../../apps/compose/views.py" line="131"/>
         <source>请求</source>
         <translation>Request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="155"/>
+        <location filename="../../apps/compose/views.py" line="133"/>
         <source>- 请求头</source>
         <translation>- Request headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="159"/>
+        <location filename="../../apps/compose/views.py" line="137"/>
         <source>- 请求体（线上）</source>
         <translation>- Request body on the wire</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="163"/>
+        <location filename="../../apps/compose/views.py" line="141"/>
         <source>- 请求体（解压）</source>
         <translation>- Request body decoded</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="166"/>
+        <location filename="../../apps/compose/views.py" line="144"/>
         <source>响应</source>
         <translation>Response</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="168"/>
+        <location filename="../../apps/compose/views.py" line="146"/>
         <source>- 响应头</source>
         <translation>- Response headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="172"/>
+        <location filename="../../apps/compose/views.py" line="150"/>
         <source>- 响应体（线上）</source>
         <translation>- Response body on the wire</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="176"/>
+        <location filename="../../apps/compose/views.py" line="154"/>
         <source>- 响应体（解压）</source>
         <translation>- Response body decoded</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="179"/>
+        <location filename="../../apps/compose/views.py" line="157"/>
         <source>总计</source>
         <translation>Total</translation>
-    </message>
-</context>
-<context>
-    <name>ComposeView</name>
-    <message>
-        <location filename="../../apps/compose/views.py" line="66"/>
-        <source>JSON</source>
-        <translation>JSON</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/views.py" line="67"/>
-        <source>XML</source>
-        <translation>XML</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/views.py" line="68"/>
-        <source>Text</source>
-        <translation>Text</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/views.py" line="73"/>
-        <source>这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；发送时按原样发出。</source>
-        <translation>This content is not valid UTF-8 (an archive, an image, or a non-UTF-8 charset), so it is locked read-only; it goes out unchanged when sent.</translation>
     </message>
 </context>
 <context>
@@ -2231,23 +2396,23 @@
         <translation>Only some events are shown. Export the complete saved body to view all saved content.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/body.py" line="67"/>
+        <location filename="../../core/mitm/body.py" line="386"/>
         <source>原始报文仅显示前 {} 字节；完整内容可通过导出查看。</source>
         <translation>Only the first {} bytes of the raw message are shown. Export it to view the complete content.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/body.py" line="129"/>
-        <location filename="../../core/mitm/body.py" line="142"/>
+        <location filename="../../core/mitm/body.py" line="448"/>
+        <location filename="../../core/mitm/body.py" line="461"/>
         <source>此正文编码暂不支持有界预览，请导出完整正文查看。</source>
         <translation>Preview is unavailable for this body encoding. Export the complete body to view it.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/body.py" line="167"/>
+        <location filename="../../core/mitm/body.py" line="486"/>
         <source>仅显示正文预览（文本最多 {size}），完整正文可通过导出查看。</source>
         <translation>Only a body preview is shown (up to {size} of text). Export the body to view the complete content.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/body.py" line="187"/>
+        <location filename="../../core/mitm/body.py" line="506"/>
         <source>美化结果超过预览限制，已显示原文。</source>
         <translation>The formatted result exceeds the preview limit. The original text is shown.</translation>
     </message>
@@ -3202,6 +3367,72 @@ Device ID: {id}</translation>
     </message>
 </context>
 <context>
+    <name>FormDataTable</name>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="296"/>
+        <source>新增字段</source>
+        <translation>Add field</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="302"/>
+        <location filename="../../apps/compose/forms.py" line="313"/>
+        <source>启用</source>
+        <translation>Enabled</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="302"/>
+        <source>名称</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="302"/>
+        <source>值</source>
+        <translation>Value</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="302"/>
+        <source>类型</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="385"/>
+        <location filename="../../apps/compose/forms.py" line="484"/>
+        <source>文件</source>
+        <translation>File</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="385"/>
+        <location filename="../../apps/compose/forms.py" line="481"/>
+        <source>文本</source>
+        <translation>Text</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="390"/>
+        <source>字段操作</source>
+        <translation>Field actions</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="487"/>
+        <source>编辑字段内容</source>
+        <translation>Edit field content</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="492"/>
+        <source>上移</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="496"/>
+        <source>下移</source>
+        <translation>Move down</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="500"/>
+        <source>删除</source>
+        <translation>Delete</translation>
+    </message>
+</context>
+<context>
     <name>GatewayController</name>
     <message>
         <location filename="../../apps/gateway/controllers.py" line="81"/>
@@ -3769,27 +4000,27 @@ Device ID: {id}</translation>
         <translation>Invalid HTTP status code: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="540"/>
+        <location filename="../../core/mitm/intercept.py" line="542"/>
         <source>这条流量没有请求可改</source>
         <translation>This flow has no request to edit</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="550"/>
+        <location filename="../../core/mitm/intercept.py" line="552"/>
         <source>请求方法不能为空</source>
         <translation>The request method cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="555"/>
+        <location filename="../../core/mitm/intercept.py" line="557"/>
         <source>请求 URL 不能为空</source>
         <translation>The request URL cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="580"/>
+        <location filename="../../core/mitm/intercept.py" line="582"/>
         <source>这条流量还没有响应可改</source>
         <translation>This flow has no response to edit yet</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="607"/>
+        <location filename="../../core/mitm/intercept.py" line="609"/>
         <source>这条流量已经有响应，请直接编辑响应</source>
         <translation>This flow already has a response; edit the response instead</translation>
     </message>
@@ -7241,6 +7472,14 @@ Device ID: {id}</translation>
     </message>
 </context>
 <context>
+    <name>UrlencodedTable</name>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="81"/>
+        <source>编辑字段内容</source>
+        <translation>Edit field content</translation>
+    </message>
+</context>
+<context>
     <name>WireGuard</name>
     <message>
         <location filename="../../core/mitm/modes.py" line="257"/>
@@ -7532,6 +7771,24 @@ Device ID: {id}</translation>
     <name>_DeviceConfirmationDialog</name>
     <message>
         <location filename="../../apps/capture/wireguard.py" line="110"/>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>_FieldTextDialog</name>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="55"/>
+        <source>编辑字段内容</source>
+        <translation>Edit field content</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="58"/>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/forms.py" line="59"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QApplication
 from qfluentwidgets import CheckBox, ComboBox, PrimaryPushButton
 
 from ferret.apps.common.splitter import OrientationSplitter
+from ferret.apps.compose.body_editor import BodyKind
 from ferret.apps.compose.views import ComposeInterface
 from ferret.core.mitm import ComposeResult, RequestEdit, build_request_edit
 
@@ -180,9 +181,8 @@ class UrlMergeTests(ComposeInterfaceTestCase):
         self.page.url_edit.setText("https://api.example.com/v1?keep=1")
         self.page.params_card.set_items([("page", "2")])
         self.page.headers_card.set_items([("token", "t"), ("", "x")])
-        self.page.body_panel.set_text('{"a": 1}')
-        # set_text 是程序化装载，不算用户编辑；体内容走用户编辑路径（changed 信号）。
-        self.page.body_panel.changed.emit()
+        self.page.body_editor.set_kind(BodyKind.RAW)
+        self.page.body_editor.text.code_widget.setPlainText('{"a": 1}')
         self.page._on_send()
 
         call = self.controller.calls[0]
@@ -332,17 +332,17 @@ class PrefillTests(ComposeInterfaceTestCase):
             self.page.headers_card.items(),
             [("accept", "application/json"), ("cookie", "a=1"), ("cookie", "b=2")],
         )
-        self.assertEqual(self.page.body_panel.plain_text(), '{"a": 1}')
-        self.assertFalse(self.page._binary)
+        self.assertEqual(self.page.body_editor.text.text(), '{"a": 1}')
+        self.assertFalse(self.page.body_editor.binary)
 
     def test_a_binary_body_locks_the_editor_and_goes_out_as_bytes(self) -> None:
         """非 UTF-8 体：锁只读 + 提示条，发送时原始字节直通。"""
         payload = b"\x89PNG\r\n\x1a\n\xff"
         self.page.prefill(self.edit(content=payload))
-        self.assertTrue(self.page._binary)
-        self.assertTrue(self.page.body_panel.text.is_read_only())
-        self.assertFalse(self.page.body_hint.isHidden())
-        self.assertEqual(self.page.body_panel.plain_text(), "")
+        self.assertTrue(self.page.body_editor.binary)
+        self.assertTrue(self.page.body_editor.text.is_read_only())
+        self.assertFalse(self.page.body_editor.hint.isHidden())
+        self.assertEqual(self.page.body_editor.text.text(), "")
 
         self.page._on_send()
         self.assertEqual(self.controller.calls[0][4], payload)
@@ -351,10 +351,10 @@ class PrefillTests(ComposeInterfaceTestCase):
         """上次灌了二进制、这次灌文本：锁必须解开，不然表单永远卡在只读。"""
         self.page.prefill(self.edit(content=b"\xff\xfe"))
         self.page.prefill(self.edit(content=b"hello"))
-        self.assertFalse(self.page._binary)
-        self.assertFalse(self.page.body_panel.text.is_read_only())
-        self.assertTrue(self.page.body_hint.isHidden())
-        self.assertEqual(self.page.body_panel.plain_text(), "hello")
+        self.assertFalse(self.page.body_editor.binary)
+        self.assertFalse(self.page.body_editor.text.is_read_only())
+        self.assertTrue(self.page.body_editor.hint.isHidden())
+        self.assertEqual(self.page.body_editor.text.text(), "hello")
 
     def test_the_response_area_is_reset(self) -> None:
         """旧结果不属于新表单：prefill 后回到空态。"""

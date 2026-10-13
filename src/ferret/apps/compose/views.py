@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from PySide6.QtCore import QCoreApplication, Qt, QTimer, Slot
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -34,8 +34,6 @@ from qfluentwidgets import (
 
 from ferret.apps.common.edit import (
     ItemDualPanel,
-    JsonDualPanel,
-    Language,
 )
 from ferret.apps.common.edit.headers import HeaderDualPanel
 from ferret.apps.common.flow.detail import ResponsePane
@@ -54,32 +52,12 @@ from ferret.apps.common.http_methods import METHODS
 from ferret.apps.common.info_bar import show_error, show_success
 from ferret.apps.common.panel import TabPanel
 from ferret.apps.common.splitter import OrientationSplitter
+from ferret.apps.common.tasks import FunctionTask
+from ferret.apps.compose.body_editor import ComposeBodyEditor
 from ferret.apps.compose.controllers import ComposeController
 from ferret.apps.compose.curl_import import parse_curl
 from ferret.core.mitm import ComposeResult, RequestEdit
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
-
-# 请求体「数据类型」下拉：(显示名, 高亮语言, 默认 Content-Type)。
-# 显示名只存 QT_TRANSLATE_NOOP 标记（模块级求值翻译会冻结在源语言，见
-# utils/i18n.py），填充下拉时才用 translate 求值；语言/类型是常量。
-BODY_KINDS: tuple[tuple[str, Language, str], ...] = (
-    (QT_TRANSLATE_NOOP("ComposeView", "JSON"), Language.JSON, "application/json"),
-    (QT_TRANSLATE_NOOP("ComposeView", "XML"), Language.XML, "application/xml"),
-    (QT_TRANSLATE_NOOP("ComposeView", "Text"), Language.HTTP, "text/plain"),
-)
-
-# 只存标记：模块级求值赶在翻译器安装之前。与断点面板同一个锁模式，
-# 文案各自一份（发送语义不同：那边是「放行」，这边是「发送」）。
-_BINARY_HINT = QT_TRANSLATE_NOOP(
-    "ComposeView",
-    "这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；发送时按原样发出。",
-)
-
-
-def _body_lang(text: str) -> Language:
-    """prefill 时按内容推断高亮语言：只在 JSON 与通用 HTTP 词法器之间二选一。"""
-    return Language.JSON if text.lstrip()[:1] in ("{", "[") else Language.HTTP
-
 
 # 「性能」页的两组卡片：键全部来自 `build_flow_detail` 的既有字段，渲染直接复用
 # 概览页的声明式规格 + FieldCard（时间/流量两组与概览的 Timing/Size 同源，只是
@@ -190,6 +168,11 @@ class ComposeInterface(QWidget):
         self.setObjectName("ComposeInterface")
         self.controller = controller
         self._sending = False
+        self._prepare_task: FunctionTask | None = None
+        self._prepare_tasks: set[FunctionTask] = set()
+        self._pending_request: tuple[str, str, list[tuple[str, str]], bool] | None = (
+            None
+        )
 
         self.__init_widget()
         self.__init_layout()
@@ -205,14 +188,8 @@ class ComposeInterface(QWidget):
         self.method_combo.setCurrentText("GET")
         self.method_combo.setFixedWidth(110)
 
-        # 二进制体直通：prefill 进非 UTF-8 内容时锁只读，原始字节存这里原样发出。
-        self._raw_body: bytes = b""
-        self._binary = False
-        # 「没动过就原样发」的三处脏标记（断点面板 `_body_dirty` 同一思路）：
-        # QTextDocument 会把 \r\n 归一成 \n、合并参数会重编码 query —— 未编辑的
-        # 内容必须绕开这两条有损路径原样送达。_loading_form 挡住 prefill 的
-        # setText 自己触发的 textChanged（程序化装载不是用户编辑）。
-        self._body_dirty = False
+        # 合并参数会重编码 query；程序化装载不是用户编辑。正文自己的保真状态
+        # 由 ComposeBodyEditor 管理，文件读取不在 Qt 主线程执行。
         self._url_dirty = False
         self._params_dirty = False
         self._loading_form = False
@@ -255,34 +232,11 @@ class ComposeInterface(QWidget):
 
         self.params_card = ItemDualPanel(True, self)
         self.headers_card = HeaderDualPanel(True, self)
-        self.body_panel = JsonDualPanel(self)
-        self.body_kind_combo = ComboBox(self)
-        self.body_kind_combo.addItems(
-            [
-                QCoreApplication.translate("ComposeView", kind)
-                for kind, _, _ in BODY_KINDS
-            ]
-        )
-        self.body_kind_combo.setFixedWidth(96)
-        self.body_panel.text.tool_layout.addWidget(BodyLabel(self.tr("数据类型"), self))
-        self.body_panel.text.tool_layout.addWidget(self.body_kind_combo)
+        self.body_editor = ComposeBodyEditor(self.headers_card, self)
 
         self.request_panel.addTab("Params", self.params_card, self.tr("参数"))
         self.request_panel.addTab("Headers", self.headers_card, self.tr("请求头"))
-        # 二进制锁的提示条压在体编辑器下方（与断点面板的 body_box 同一个模式）。
-        self.body_hint = CaptionLabel(
-            QCoreApplication.translate("ComposeView", _BINARY_HINT), self
-        )
-        self.body_hint.setWordWrap(True)
-        self.body_hint.hide()
-        self.body_box = QWidget(self)
-        body_layout = QVBoxLayout(self.body_box)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(4)
-        body_layout.addWidget(self.body_panel, 1)
-        body_layout.addWidget(self.body_hint)
-        self.request_panel.addTab("Body", self.body_box, self.tr("请求体"))
-        self._sync_body_kind(0)
+        self.request_panel.addTab("Body", self.body_editor, self.tr("请求体"))
         # 请求头(N)：条数挂标签，随编辑实时变（参数变化实时写回 URL，见下）。
         self.headers_card.changed.connect(self._update_header_count)
         self.params_card.changed.connect(self._sync_params_to_url)
@@ -372,9 +326,7 @@ class ComposeInterface(QWidget):
         self.send_btn.clicked.connect(self._on_send)
         self.paste_curl_btn.clicked.connect(self._on_paste_curl)
         self.url_edit.returnPressed.connect(self._on_send)
-        self.body_kind_combo.currentIndexChanged.connect(self._sync_body_kind)
         self.url_edit.textChanged.connect(self._on_url_edited)
-        self.body_panel.changed.connect(self._on_body_edited)
         self.controller.sending_changed.connect(self._on_sending_changed)
         self.controller.result_ready.connect(self._on_result)
         self.controller.send_failed.connect(self._on_send_failed)
@@ -388,13 +340,6 @@ class ComposeInterface(QWidget):
         if not self._splitter_normalized:
             self._splitter_normalized = True
             QTimer.singleShot(0, self.splitter.set_equal_sizes)
-
-    @Slot(int)
-    def _sync_body_kind(self, index: int) -> None:
-        """「数据类型」下拉 → 编辑器高亮语言。Content-Type 不代写：用户可能在
-        请求头里已经给了自己的值，静默覆盖比不写更糟（与 curl 一致）。"""
-        _, lang, _ = BODY_KINDS[index]
-        self.body_panel.text.code_widget.set_language(lang)
 
     @Slot()
     def _update_header_count(self) -> None:
@@ -413,10 +358,6 @@ class ComposeInterface(QWidget):
     def _on_params_edited(self) -> None:
         if not self._loading_form:
             self._params_dirty = True
-
-    @Slot()
-    def _on_body_edited(self) -> None:
-        self._body_dirty = True
 
     @Slot()
     def _sync_params_to_url(self) -> None:
@@ -497,8 +438,8 @@ class ComposeInterface(QWidget):
             parts = urlsplit(edit.url)
             self.params_card.set_items(parse_qsl(parts.query, keep_blank_values=True))
             self.headers_card.set_items(list(edit.headers))
-            self._load_body(edit.content)
-            self._body_dirty = False
+            self._update_header_count()
+            self.body_editor.load(edit.content, list(edit.headers))
             self._url_dirty = False
             self._params_dirty = False
         finally:
@@ -506,26 +447,6 @@ class ComposeInterface(QWidget):
         self.response_stack.setCurrentWidget(self.empty_hint)
         if not self._sending:
             self._set_waiting(False)
-
-    def _load_body(self, content: bytes | None) -> None:
-        """UTF-8 可解码 → 进编辑器；不可解码 → 二进制锁，原样直通发送。"""
-        # None 只在类型上可能（`RequestEdit.content` 的「未编辑」值），等价空体。
-        content = content or b""
-        self._raw_body = content
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError:
-            # 严格解码故意不加兜底：能显示的一定能一字节不差地发出去。
-            self._binary = True
-            text = ""
-        else:
-            self._binary = False
-        lang = _body_lang(text)
-        self.body_panel.set_text(text, lang)
-        # 同步「数据类型」下拉：它驱动高亮语言，不能让它和实际高亮打架。
-        self.body_kind_combo.setCurrentIndex(0 if lang is Language.JSON else 2)
-        self.body_hint.setVisible(self._binary)
-        self.body_panel.set_read_only(self._binary)
 
     @Slot()
     def _on_paste_curl(self) -> None:
@@ -559,24 +480,54 @@ class ComposeInterface(QWidget):
             self._on_send_failed(self.tr("发送失败"), self.tr("URL 为空"))
             return
 
-        self.controller.send(
-            method,
-            url,
-            self._collect_headers(),
-            self._body_content(),
-            record=self.record_btn.isChecked(),
-        )
+        try:
+            # Multipart can update a managed boundary: collect headers afterwards.
+            draft = self.body_editor.draft()
+            headers = self._collect_headers()
+        except ValueError as exc:
+            self._on_send_failed(self.tr("发送失败"), str(exc))
+            return
+        record = self.record_btn.isChecked()
+        if not draft.needs_worker:
+            self.controller.send(method, url, headers, draft.content, record=record)
+            return
+        self._pending_request = (method, url, headers, record)
+        task = FunctionTask(draft.build)
+        self._prepare_task = task
+        self._prepare_tasks.add(task)
+        task.signals.succeeded.connect(self._on_body_prepared)
+        task.signals.failed.connect(self._on_body_prepare_failed)
+        task.signals.finished.connect(self._on_body_prepare_finished)
+        self._on_sending_changed(True)
+        QThreadPool.globalInstance().start(task)
 
-    def _body_content(self) -> bytes:
-        """发送的体字节。未编辑（或改回了原文）一律走 `_raw_body`：QTextDocument
-        把 \\r\\n 归一成 \\n，multipart 边界、签名正文里的 CRLF 经不得这条有损路径
-        （issues #77）。只有真编辑过的文本体才按 UTF-8 编码发出。"""
-        if self._binary or not self._body_dirty:
-            return self._raw_body
-        text = self.body_panel.plain_text()
-        if text.encode("utf-8") == self._raw_body:
-            return self._raw_body
-        return text.encode("utf-8")
+    @Slot(object)
+    def _on_body_prepared(self, content: bytes) -> None:
+        request = self._pending_request
+        self._pending_request = None
+        if request is None:
+            return
+        method, url, headers, record = request
+        self.controller.send(method, url, headers, content, record=record)
+
+    @Slot(str)
+    def _on_body_prepare_failed(self, message: str) -> None:
+        self._pending_request = None
+        self._on_send_failed(self.tr("发送失败"), message)
+
+    @Slot()
+    def _on_body_prepare_finished(self) -> None:
+        # A synchronous send failure can enable a new prepare before the old
+        # worker's queued finished arrives. Release only that worker's owner.
+        sender = self.sender()
+        task = next(
+            (task for task in self._prepare_tasks if task.signals is sender), None
+        )
+        if task is not None:
+            self._prepare_tasks.discard(task)
+            task.signals.finished.disconnect(self._on_body_prepare_finished)
+            if self._prepare_task is task:
+                self._prepare_task = None
 
     @Slot(bool)
     def _on_sending_changed(self, sending: bool):
