@@ -13,12 +13,8 @@ from PySide6.QtCore import QTranslator
 from PySide6.QtWidgets import QApplication, QLineEdit
 from qfluentwidgets import CheckBox
 
-from ferret.apps.compose.forms import (
-    BodyFilePicker,
-    FormDataTable,
-    UrlencodedTable,
-    _FieldTextDialog,
-)
+from ferret.apps.common.edit.forms import _FieldTextDialog
+from ferret.apps.compose.forms import BodyFilePicker, FormDataTable, UrlencodedTable
 from ferret.core import resources_rc  # noqa: F401
 from ferret.core.mitm import FormField
 
@@ -198,7 +194,7 @@ class FormDataTableTests(FormWidgetTests):
         table.set_fields([field])
         picker = table.table.cellWidget(0, 2)
         with patch(
-            "ferret.apps.compose.forms.QFileDialog.getOpenFileName",
+            "ferret.apps.common.edit.forms.QFileDialog.getOpenFileName",
             return_value=("C:/not-read/new.bin", ""),
         ):
             picker.choose_button.click()
@@ -248,7 +244,7 @@ class BodyFilePickerTests(FormWidgetTests):
         changes = []
         picker.changed.connect(lambda: changes.append(picker.file()))
         with patch(
-            "ferret.apps.compose.forms.QFileDialog.getOpenFileName",
+            "ferret.apps.common.edit.forms.QFileDialog.getOpenFileName",
             return_value=("", ""),
         ):
             picker.choose_button.click()

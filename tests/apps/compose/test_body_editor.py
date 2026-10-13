@@ -93,7 +93,7 @@ class BodyTypeTests(ComposeBodyTestCase):
     def test_all_eight_choices_keep_the_selector_visible_and_none_sends_no_body(self):
         self.assertEqual(self.editor.kind_combo.count(), 8)
         self.assertEqual(self.editor.kind, BodyKind.NONE)
-        for kind in BodyKind:
+        for kind in self.editor.kinds:
             self.editor.set_kind(kind)
             self.assertEqual(self.editor.kind, kind)
             self.assertTrue(self.editor.kind_combo.isVisibleTo(self.editor))
@@ -413,7 +413,7 @@ class FilePreparationTests(ComposeBodyTestCase):
             selected = Path(directory) / "selected.bin"
             selected.write_bytes(b"selected by the user")
             with patch(
-                "ferret.apps.compose.forms.QFileDialog.getOpenFileName",
+                "ferret.apps.common.edit.forms.QFileDialog.getOpenFileName",
                 return_value=(str(selected), ""),
             ):
                 self.editor.file_picker.choose_button.click()
@@ -436,7 +436,7 @@ class FilePreparationTests(ComposeBodyTestCase):
             second.write_bytes(b"second")
             self.editor.set_kind(BodyKind.FILE)
             with patch(
-                "ferret.apps.compose.forms.QFileDialog.getOpenFileName",
+                "ferret.apps.common.edit.forms.QFileDialog.getOpenFileName",
                 return_value=(str(first), ""),
             ):
                 self.editor.file_picker.choose_button.click()
@@ -455,7 +455,7 @@ class FilePreparationTests(ComposeBodyTestCase):
                 return read_body_file(path)
 
             with patch(
-                "ferret.apps.compose.body_editor.read_body_file", side_effect=read
+                "ferret.apps.common.edit.body.read_body_file", side_effect=read
             ):
                 self.page.send_btn.click()
                 self.assertTrue(wait_until(entered.is_set, timeout_ms=5000))

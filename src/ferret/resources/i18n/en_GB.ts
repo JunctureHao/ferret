@@ -33,31 +33,169 @@
     </message>
 </context>
 <context>
+    <name>BodyEditor</name>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="54"/>
+        <source>无请求体</source>
+        <translation>No body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="55"/>
+        <location filename="../../apps/common/edit/body.py" line="65"/>
+        <source>JSON</source>
+        <translation>JSON</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="56"/>
+        <location filename="../../apps/common/edit/body.py" line="66"/>
+        <source>Text</source>
+        <translation>Text</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="57"/>
+        <location filename="../../apps/common/edit/body.py" line="68"/>
+        <source>XML</source>
+        <translation>XML</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="58"/>
+        <location filename="../../apps/common/edit/body.py" line="69"/>
+        <source>Raw</source>
+        <translation>Raw</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="59"/>
+        <source>Urlencoded</source>
+        <translation>Urlencoded</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="60"/>
+        <source>Form-data</source>
+        <translation>Form-data</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="61"/>
+        <location filename="../../apps/common/edit/body.py" line="70"/>
+        <source>文件</source>
+        <translation>File</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="64"/>
+        <source>无响应体</source>
+        <translation>No body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="67"/>
+        <source>HTML</source>
+        <translation>HTML</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="112"/>
+        <source>请先选择正文文件</source>
+        <translation>Select a body file first</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="184"/>
+        <source>数据类型</source>
+        <translation>Body type</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="313"/>
+        <source>请先将 Content-Type 的 charset 改为 UTF-8，再选择文本类型。</source>
+        <translation>Change the Content-Type charset to UTF-8 before choosing a text type.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="367"/>
+        <source>该请求不带请求体</source>
+        <translation>This request has no body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="369"/>
+        <source>该响应不带响应体</source>
+        <translation>This response has no body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="423"/>
+        <source>请先将 Content-Type 的 charset 改为 UTF-8，再替换文本正文。</source>
+        <translation>Change the Content-Type charset to UTF-8 before replacing the text body.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="446"/>
+        <source>原正文尚未取得，不能将缺失内容当作空正文；可明确选择替换内容。</source>
+        <translation>The original body has not been retrieved, and a missing body must not be treated as empty. Choose the replacement content explicitly.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="451"/>
+        <source>原正文解码失败，已锁定为只读；未修改时保留原始报文。</source>
+        <translation>The original body could not be decoded and is locked read-only; the original message is kept unless you edit it.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="456"/>
+        <source>正文声明的 charset 不是 UTF-8，已锁定为只读；修改声明后可选择文本替换。</source>
+        <translation>The body declares a charset other than UTF-8 and is locked read-only; change the declared charset to enable text replacement.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="462"/>
+        <source>这段内容不是合法的 UTF-8，已锁定为只读；未修改时保留原始字节。</source>
+        <translation>This content is not valid UTF-8. It is read-only and the original bytes are kept unless you edit it.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="479"/>
+        <source>请求头中的 Content-Type 与所选类型不同，将保留你填写的请求头。</source>
+        <translation>The Content-Type header differs from the selected body type. Your header will be kept.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="483"/>
+        <source>响应头中的 Content-Type 与所选类型不同，将保留你填写的响应头。</source>
+        <translation>The Content-Type header differs from the selected body type. Your header will be kept.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="545"/>
+        <source>此 multipart 正文无法完整转换为字段表，已保留原始正文。</source>
+        <translation>This multipart body cannot be fully converted to form fields. The original body has been kept.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="567"/>
+        <source>此表单包含非 UTF-8 字段，已保留原始正文。</source>
+        <translation>This form contains fields that are not UTF-8. The original body has been kept.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="668"/>
+        <source>Form-data 需要唯一的 Content-Type 请求头，请重新选择类型或修正请求头。</source>
+        <translation>Form-data requires exactly one Content-Type header. Select the body type again or correct the headers.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/body.py" line="689"/>
+        <source>Form-data 的 Content-Type 必须是 multipart/form-data 并包含有效的 boundary。</source>
+        <translation>Form-data requires a Content-Type of multipart/form-data with a valid boundary.</translation>
+    </message>
+</context>
+<context>
     <name>BodyFilePicker</name>
     <message>
-        <location filename="../../apps/compose/forms.py" line="151"/>
-        <location filename="../../apps/compose/forms.py" line="154"/>
-        <location filename="../../apps/compose/forms.py" line="200"/>
+        <location filename="../../apps/common/edit/forms.py" line="151"/>
+        <location filename="../../apps/common/edit/forms.py" line="154"/>
+        <location filename="../../apps/common/edit/forms.py" line="200"/>
         <source>选择文件</source>
         <translation>Pick a file</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="157"/>
+        <location filename="../../apps/common/edit/forms.py" line="157"/>
         <source>清除文件</source>
         <translation>Clear file selection</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="188"/>
+        <location filename="../../apps/common/edit/forms.py" line="188"/>
         <source>内存文件</source>
         <translation>File in memory</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="190"/>
+        <location filename="../../apps/common/edit/forms.py" line="190"/>
         <source>{}（{} 字节）</source>
         <translation>{} ({} bytes)</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="194"/>
+        <location filename="../../apps/common/edit/forms.py" line="194"/>
         <source>未选择文件</source>
         <translation>No file selected</translation>
     </message>
@@ -1444,18 +1582,18 @@
 <context>
     <name>Compose</name>
     <message>
-        <location filename="../../core/mitm/compose.py" line="174"/>
+        <location filename="../../core/mitm/compose.py" line="175"/>
         <source>请求超时，已取消发送</source>
         <translation>The request timed out and has been cancelled</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/compose.py" line="179"/>
-        <location filename="../../core/mitm/compose.py" line="213"/>
+        <location filename="../../core/mitm/compose.py" line="180"/>
+        <location filename="../../core/mitm/compose.py" line="215"/>
         <source>请求已取消</source>
         <translation>The request has been cancelled</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/compose.py" line="221"/>
+        <location filename="../../core/mitm/compose.py" line="223"/>
         <source>内核已停止，请求已取消</source>
         <translation>The core has stopped and the request has been cancelled</translation>
     </message>
@@ -1531,94 +1669,6 @@
         <location filename="../../core/mitm/body.py" line="246"/>
         <source>无法生成与表单内容兼容的 boundary。</source>
         <translation>Unable to generate a boundary that is compatible with the form content.</translation>
-    </message>
-</context>
-<context>
-    <name>ComposeBodyEditor</name>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="39"/>
-        <source>无请求体</source>
-        <translation>No body</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="40"/>
-        <source>JSON</source>
-        <translation>JSON</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="41"/>
-        <source>Text</source>
-        <translation>Text</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="42"/>
-        <source>XML</source>
-        <translation>XML</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="43"/>
-        <source>Raw</source>
-        <translation>Raw</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="44"/>
-        <source>Urlencoded</source>
-        <translation>Urlencoded</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="45"/>
-        <source>Form-data</source>
-        <translation>Form-data</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="46"/>
-        <source>文件</source>
-        <translation>File</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="87"/>
-        <source>请先选择请求体文件</source>
-        <translation>Select a request body file first</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="125"/>
-        <source>数据类型</source>
-        <translation>Body type</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="136"/>
-        <source>该请求不带请求体</source>
-        <translation>This request has no body</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="302"/>
-        <source>这段内容不是合法的 UTF-8，已锁定为只读；发送时按原样发出。</source>
-        <translation>This content is not valid UTF-8. It is read-only and will be sent unchanged.</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="318"/>
-        <source>请求头中的 Content-Type 与所选类型不同，将保留你填写的请求头。</source>
-        <translation>The Content-Type header differs from the selected body type. Your header will be kept.</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="354"/>
-        <source>此 multipart 正文无法完整转换为字段表，已保留原始正文。</source>
-        <translation>This multipart body cannot be fully converted to form fields. The original body has been kept.</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="371"/>
-        <source>此表单包含非 UTF-8 字段，已保留原始正文。</source>
-        <translation>This form contains fields that are not UTF-8. The original body has been kept.</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="407"/>
-        <source>Form-data 需要唯一的 Content-Type 请求头，请重新选择类型或修正请求头。</source>
-        <translation>Form-data requires exactly one Content-Type header. Select the body type again or correct the headers.</translation>
-    </message>
-    <message>
-        <location filename="../../apps/compose/body_editor.py" line="428"/>
-        <source>Form-data 的 Content-Type 必须是 multipart/form-data 并包含有效的 boundary。</source>
-        <translation>Form-data requires a Content-Type of multipart/form-data with a valid boundary.</translation>
     </message>
 </context>
 <context>
@@ -3369,65 +3419,65 @@ Device ID: {id}</translation>
 <context>
     <name>FormDataTable</name>
     <message>
-        <location filename="../../apps/compose/forms.py" line="296"/>
+        <location filename="../../apps/common/edit/forms.py" line="296"/>
         <source>新增字段</source>
         <translation>Add field</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="302"/>
-        <location filename="../../apps/compose/forms.py" line="313"/>
+        <location filename="../../apps/common/edit/forms.py" line="302"/>
+        <location filename="../../apps/common/edit/forms.py" line="313"/>
         <source>启用</source>
         <translation>Enabled</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="302"/>
+        <location filename="../../apps/common/edit/forms.py" line="302"/>
         <source>名称</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="302"/>
+        <location filename="../../apps/common/edit/forms.py" line="302"/>
         <source>值</source>
         <translation>Value</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="302"/>
+        <location filename="../../apps/common/edit/forms.py" line="302"/>
         <source>类型</source>
         <translation>Type</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="385"/>
-        <location filename="../../apps/compose/forms.py" line="484"/>
+        <location filename="../../apps/common/edit/forms.py" line="385"/>
+        <location filename="../../apps/common/edit/forms.py" line="484"/>
         <source>文件</source>
         <translation>File</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="385"/>
-        <location filename="../../apps/compose/forms.py" line="481"/>
+        <location filename="../../apps/common/edit/forms.py" line="385"/>
+        <location filename="../../apps/common/edit/forms.py" line="481"/>
         <source>文本</source>
         <translation>Text</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="390"/>
+        <location filename="../../apps/common/edit/forms.py" line="390"/>
         <source>字段操作</source>
         <translation>Field actions</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="487"/>
+        <location filename="../../apps/common/edit/forms.py" line="487"/>
         <source>编辑字段内容</source>
         <translation>Edit field content</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="492"/>
+        <location filename="../../apps/common/edit/forms.py" line="492"/>
         <source>上移</source>
         <translation>Move up</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="496"/>
+        <location filename="../../apps/common/edit/forms.py" line="496"/>
         <source>下移</source>
         <translation>Move down</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="500"/>
+        <location filename="../../apps/common/edit/forms.py" line="500"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
@@ -3914,80 +3964,80 @@ Device ID: {id}</translation>
 <context>
     <name>InterceptController</name>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="93"/>
+        <location filename="../../apps/intercept/controllers.py" line="96"/>
         <source>已添加断点规则</source>
         <translation>Breakpoint rule added</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="100"/>
+        <location filename="../../apps/intercept/controllers.py" line="103"/>
         <source>已更新断点规则</source>
         <translation>Breakpoint rule updated</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="107"/>
+        <location filename="../../apps/intercept/controllers.py" line="110"/>
         <source>已删除 {} 条断点规则</source>
         <translation>{} breakpoint rule(s) deleted</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="125"/>
+        <location filename="../../apps/intercept/controllers.py" line="128"/>
         <source>总开关未生效</source>
         <translation>Master switch not applied</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="131"/>
+        <location filename="../../apps/intercept/controllers.py" line="134"/>
         <source>断点已开启</source>
         <translation>Breakpoints on</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="131"/>
+        <location filename="../../apps/intercept/controllers.py" line="134"/>
         <source>断点已关闭</source>
         <translation>Breakpoints off</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="142"/>
+        <location filename="../../apps/intercept/controllers.py" line="145"/>
         <source>规则未生效</source>
         <translation>Rules not applied</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="195"/>
-        <location filename="../../apps/intercept/controllers.py" line="213"/>
+        <location filename="../../apps/intercept/controllers.py" line="198"/>
+        <location filename="../../apps/intercept/controllers.py" line="216"/>
         <source>放行失败</source>
         <translation>Release failed</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="199"/>
-        <location filename="../../apps/intercept/controllers.py" line="218"/>
+        <location filename="../../apps/intercept/controllers.py" line="202"/>
+        <location filename="../../apps/intercept/controllers.py" line="221"/>
         <source>已放行 {} 条</source>
         <translation>Released {} flow(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="213"/>
+        <location filename="../../apps/intercept/controllers.py" line="216"/>
         <source>丢弃失败</source>
         <translation>Drop failed</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="218"/>
+        <location filename="../../apps/intercept/controllers.py" line="221"/>
         <source>已丢弃 {} 条</source>
         <translation>Dropped {} flow(s)</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="227"/>
-        <location filename="../../apps/intercept/controllers.py" line="235"/>
+        <location filename="../../apps/intercept/controllers.py" line="237"/>
+        <location filename="../../apps/intercept/controllers.py" line="252"/>
         <source>已放行</source>
         <translation>Released</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="227"/>
+        <location filename="../../apps/intercept/controllers.py" line="237"/>
         <source>已应用请求改动</source>
         <translation>Request edits applied</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="235"/>
+        <location filename="../../apps/intercept/controllers.py" line="252"/>
         <source>已应用响应改动</source>
         <translation>Response edits applied</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/controllers.py" line="243"/>
+        <location filename="../../apps/intercept/controllers.py" line="260"/>
         <source>操作失败</source>
         <translation>Operation failed</translation>
     </message>
@@ -3995,32 +4045,32 @@ Device ID: {id}</translation>
 <context>
     <name>InterceptEdit</name>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="503"/>
+        <location filename="../../core/mitm/intercept.py" line="517"/>
         <source>无效的 HTTP 状态码：{}</source>
         <translation>Invalid HTTP status code: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="542"/>
+        <location filename="../../core/mitm/intercept.py" line="718"/>
         <source>这条流量没有请求可改</source>
         <translation>This flow has no request to edit</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="552"/>
+        <location filename="../../core/mitm/intercept.py" line="725"/>
         <source>请求方法不能为空</source>
         <translation>The request method cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="557"/>
+        <location filename="../../core/mitm/intercept.py" line="730"/>
         <source>请求 URL 不能为空</source>
         <translation>The request URL cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="582"/>
+        <location filename="../../core/mitm/intercept.py" line="760"/>
         <source>这条流量还没有响应可改</source>
         <translation>This flow has no response to edit yet</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="609"/>
+        <location filename="../../core/mitm/intercept.py" line="813"/>
         <source>这条流量已经有响应，请直接编辑响应</source>
         <translation>This flow already has a response; edit the response instead</translation>
     </message>
@@ -4203,17 +4253,17 @@ Device ID: {id}</translation>
         <translation>Match expression: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="145"/>
+        <location filename="../../core/mitm/intercept.py" line="148"/>
         <source>匹配值不能为空</source>
         <translation>Match value cannot be empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="192"/>
+        <location filename="../../core/mitm/intercept.py" line="195"/>
         <source>无效的匹配值：{}</source>
         <translation>Invalid match value: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/intercept.py" line="276"/>
+        <location filename="../../core/mitm/intercept.py" line="279"/>
         <source>断点规则无法合并：{}</source>
         <translation>These breakpoint rules cannot be combined: {}</translation>
     </message>
@@ -4287,62 +4337,62 @@ Device ID: {id}</translation>
 <context>
     <name>InterceptWindow</name>
     <message>
-        <location filename="../../apps/intercept/window.py" line="66"/>
+        <location filename="../../apps/intercept/window.py" line="70"/>
         <source>断点</source>
         <translation>Breakpoints</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="163"/>
+        <location filename="../../apps/intercept/window.py" line="171"/>
         <source>放行全部</source>
         <translation>Release all</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="165"/>
+        <location filename="../../apps/intercept/window.py" line="173"/>
         <source>放行全部挂起的流量，不套用任何编辑</source>
         <translation>Release every held flow without applying any edits</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="196"/>
+        <location filename="../../apps/intercept/window.py" line="204"/>
         <source>选择一条挂起的流量进行编辑</source>
         <translation>Select a held flow to edit it</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="406"/>
+        <location filename="../../apps/intercept/window.py" line="501"/>
         <source>放行</source>
         <translation>Release</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="411"/>
+        <location filename="../../apps/intercept/window.py" line="506"/>
         <source>丢弃</source>
         <translation>Drop</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="180"/>
+        <location filename="../../apps/intercept/window.py" line="188"/>
         <source>当前没有被拦下的流量</source>
         <translation>Nothing is held right now</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="182"/>
+        <location filename="../../apps/intercept/window.py" line="190"/>
         <source>命中断点规则的流量会停在这里，等你改完再放行</source>
         <translation>Traffic that matches a breakpoint rule stops here and waits until you release it</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="247"/>
+        <location filename="../../apps/intercept/window.py" line="255"/>
         <source>断点 · {} 条待处理</source>
         <translation>Breakpoints · {} pending</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="424"/>
+        <location filename="../../apps/intercept/window.py" line="524"/>
         <source>{} 条待处理 · 正在编辑 {}</source>
         <translation>{} pending · editing {}</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="428"/>
+        <location filename="../../apps/intercept/window.py" line="528"/>
         <source>{} 条待处理</source>
         <translation>{} pending</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="474"/>
+        <location filename="../../apps/intercept/window.py" line="578"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
@@ -4611,27 +4661,22 @@ Device ID: {id}</translation>
 <context>
     <name>MessageEditor</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="37"/>
-        <source>这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；放行时按原样发出。</source>
-        <translation>This content is not valid UTF-8 (an archive, an image, or a non-UTF-8 charset), so it is locked read-only; it goes out unchanged when released.</translation>
-    </message>
-    <message>
-        <location filename="../../apps/intercept/editors.py" line="100"/>
+        <location filename="../../apps/intercept/editors.py" line="102"/>
         <source>写回改动并放行这条流量</source>
         <translation>Write the edits back and release this flow</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="103"/>
+        <location filename="../../apps/intercept/editors.py" line="105"/>
         <source>放行</source>
         <translation>Release</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="108"/>
+        <location filename="../../apps/intercept/editors.py" line="110"/>
         <source>断开这条流量，客户端什么都收不到</source>
         <translation>Kill this flow; the client receives nothing at all</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="113"/>
+        <location filename="../../apps/intercept/editors.py" line="115"/>
         <source>丢弃</source>
         <translation>Drop</translation>
     </message>
@@ -4783,90 +4828,91 @@ Device ID: {id}</translation>
 <context>
     <name>MitmFacade</name>
     <message>
-        <location filename="../../core/mitm/facade.py" line="86"/>
+        <location filename="../../core/mitm/facade.py" line="93"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="411"/>
+        <location filename="../../core/mitm/facade.py" line="418"/>
         <source>无法写入 WireGuard 密钥文件：{}</source>
         <translation>Cannot write the WireGuard key file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="836"/>
+        <location filename="../../core/mitm/facade.py" line="849"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="802"/>
-        <location filename="../../core/mitm/facade.py" line="887"/>
+        <location filename="../../core/mitm/facade.py" line="815"/>
+        <location filename="../../core/mitm/facade.py" line="935"/>
+        <location filename="../../core/mitm/held_edit.py" line="181"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="348"/>
+        <location filename="../../core/mitm/facade.py" line="355"/>
         <source>没有可分配的 WireGuard 设备端口。</source>
         <translation>No ports are available for a WireGuard device.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="388"/>
+        <location filename="../../core/mitm/facade.py" line="395"/>
         <source>WireGuard 设备不存在，请重新选择。</source>
         <translation>This WireGuard device no longer exists. Select another device.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="417"/>
-        <location filename="../../core/mitm/facade.py" line="431"/>
+        <location filename="../../core/mitm/facade.py" line="424"/>
+        <location filename="../../core/mitm/facade.py" line="438"/>
         <source>WireGuard 设备密钥文件无效，请更换此设备密钥后重新扫码：{}</source>
         <translation>The WireGuard device key file is invalid. Replace this device&apos;s keys, then scan the new QR code: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1051"/>
+        <location filename="../../core/mitm/facade.py" line="1099"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1349"/>
+        <location filename="../../core/mitm/facade.py" line="1397"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1354"/>
-        <location filename="../../core/mitm/facade.py" line="1436"/>
+        <location filename="../../core/mitm/facade.py" line="1402"/>
+        <location filename="../../core/mitm/facade.py" line="1484"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1378"/>
+        <location filename="../../core/mitm/facade.py" line="1426"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1403"/>
+        <location filename="../../core/mitm/facade.py" line="1451"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1405"/>
+        <location filename="../../core/mitm/facade.py" line="1453"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1409"/>
+        <location filename="../../core/mitm/facade.py" line="1457"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1452"/>
+        <location filename="../../core/mitm/facade.py" line="1500"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1552"/>
+        <location filename="../../core/mitm/facade.py" line="1600"/>
         <source>无法读取 Flow 文件：{}</source>
         <translation>Cannot read flow file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1610"/>
+        <location filename="../../core/mitm/facade.py" line="1658"/>
         <source>无法写入文件：{}</source>
         <translation>Cannot write file: {}</translation>
     </message>
@@ -5656,22 +5702,22 @@ Device ID: {id}</translation>
 <context>
     <name>RequestPanel</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="234"/>
+        <location filename="../../apps/intercept/editors.py" line="204"/>
         <source>请求头 ({count})</source>
         <translation>Request headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="260"/>
+        <location filename="../../apps/intercept/editors.py" line="231"/>
         <source>参数</source>
         <translation>Params</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="261"/>
+        <location filename="../../apps/intercept/editors.py" line="232"/>
         <source>请求头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="262"/>
+        <location filename="../../apps/intercept/editors.py" line="233"/>
         <source>请求体</source>
         <translation>Body</translation>
     </message>
@@ -5702,17 +5748,17 @@ Device ID: {id}</translation>
 <context>
     <name>ResponsePanel</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="330"/>
+        <location filename="../../apps/intercept/editors.py" line="310"/>
         <source>响应头 ({count})</source>
         <translation>Response headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="343"/>
+        <location filename="../../apps/intercept/editors.py" line="327"/>
         <source>响应头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="344"/>
+        <location filename="../../apps/intercept/editors.py" line="328"/>
         <source>响应体</source>
         <translation>Body</translation>
     </message>
@@ -7474,7 +7520,7 @@ Device ID: {id}</translation>
 <context>
     <name>UrlencodedTable</name>
     <message>
-        <location filename="../../apps/compose/forms.py" line="81"/>
+        <location filename="../../apps/common/edit/forms.py" line="81"/>
         <source>编辑字段内容</source>
         <translation>Edit field content</translation>
     </message>
@@ -7778,17 +7824,17 @@ Device ID: {id}</translation>
 <context>
     <name>_FieldTextDialog</name>
     <message>
-        <location filename="../../apps/compose/forms.py" line="55"/>
+        <location filename="../../apps/common/edit/forms.py" line="55"/>
         <source>编辑字段内容</source>
         <translation>Edit field content</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="58"/>
+        <location filename="../../apps/common/edit/forms.py" line="58"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/forms.py" line="59"/>
+        <location filename="../../apps/common/edit/forms.py" line="59"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
