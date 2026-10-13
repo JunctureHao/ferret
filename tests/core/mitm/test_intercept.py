@@ -568,6 +568,17 @@ class BuildRequestEditTests(unittest.TestCase):
         self.assertEqual(flow.request.data.content, before_content)
         self.assertEqual(flow.request.headers["content-encoding"], "gzip")
 
+    def test_url_prefers_pretty_host_over_ip_connect_target(self) -> None:
+        """客户端自解析 DNS 时 CONNECT 目标是 IP：草稿 URL 要拿 SNI/Host 里的域名。"""
+        flow = tflow.tflow()
+        flow.request.scheme = "https"
+        flow.request.host = "47.85.36.205"
+        flow.request.port = 443
+        flow.request.headers["Host"] = "test.calendar.fiteye.com"
+        edit = build_request_edit(flow)
+        self.assertIn("test.calendar.fiteye.com", edit.url)
+        self.assertNotIn("47.85.36.205", edit.url)
+
 
 class ApplyRequestEditTests(unittest.TestCase):
     def setUp(self) -> None:

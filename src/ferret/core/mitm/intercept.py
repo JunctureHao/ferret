@@ -521,7 +521,9 @@ def build_request_edit(flow: HTTPFlow) -> RequestEdit:
     request.headers.pop("content-length", None)
     return RequestEdit(
         method=request.method,
-        url=request.url,
+        # pretty_url 与列表/导出同口径：客户端自解析 DNS 时 CONNECT 目标是 IP，
+        # request.url 会拿到裸 IP，而 SNI 里的真实域名只在 pretty_host 上。
+        url=request.pretty_url,
         # 保重复头（Cookie 等）：字典会吃掉同名头，见 `_load_message`。
         headers=list(request.headers.items(multi=True)),
         content=request.get_content(strict=False) or b"",
