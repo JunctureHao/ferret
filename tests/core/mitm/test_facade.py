@@ -162,6 +162,7 @@ class _InlineRuntime:
         self.view = View()
         self.master = _FakeMaster()
         self.is_running = True
+        self._generation = 1
 
     def call(self, callback, *, timeout: float = 5.0):
         return callback()

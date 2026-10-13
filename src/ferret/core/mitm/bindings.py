@@ -195,6 +195,11 @@ from wsproto.frame_protocol import Opcode
 
 tlsconfig_module: Any = _tlsconfig_module
 
+# 公共导出：core/mitm 下的模块要用编码能力时从这里引（`from mitmproxy.net import
+# encoding` 才是对的，`from mitmproxy.net.http import encoding` 是 ImportError）。
+# 注意下面两个装饰器已经把 decode/encode 换成带预算/缓存上限的版本。
+encoding = _net_encoding
+
 # Upstream's one-entry encoding cache has no byte ceiling. Keep native codecs
 # and their full-body behaviour, but do not let an export/rewrite pin its last
 # huge encoded/decoded pair after the caller releases the result. This runs at
@@ -391,6 +396,7 @@ __all__ = [
     "connection",
     "contentviews",
     "emoji",
+    "encoding",
     "export_module",
     "hooks",
     "http_url",

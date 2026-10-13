@@ -37,6 +37,7 @@ from ferret.core.mitm.gateway import (
     GatewayPolicy,
     GatewayRuleSet,
 )
+from ferret.core.mitm.held_edit import advance_edit_epoch
 from ferret.core.mitm.rewrite import (
     REPLACE_RESPONSE_DEFAULT_STATUS,
     REWRITE_ANSWERED_KEY,
@@ -317,6 +318,7 @@ class GatewayState:
         # `handle_lifecycle(hook)` 之后本来就会 `await wait_for_resume()`，addon
         # 自己 await 只会饿死链上后面的 addon。同步标记完钩子链照常跑完，
         # `View` 能正常更新行，真正的挂起发生在 addon 链之外。
+        advance_edit_epoch(flow)
         flow.intercept()
         self._suspended[flow.id] = flow
         flow.metadata[GATEWAY_METADATA_KEY] = str(policy)
@@ -348,6 +350,7 @@ class GatewayState:
         # `if not self.intercepted: return`（`flow.py:226-273`）—— 先 kill 再 resume
         # 会让这条 flow 永久挂死在 `wait_for_resume()` 上。`kill()` 还要先看
         # `killable`，否则抛 `ControlException`。
+        advance_edit_epoch(flow)
         flow.resume()
         if kill and flow.killable:
             flow.kill()

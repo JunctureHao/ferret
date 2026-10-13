@@ -58,6 +58,11 @@ from ferret.core.mitm.detail import (
     infer_state,
     wire_size,
 )
+from ferret.core.mitm.edit_body import (
+    BodySource,
+    inspect_edit_body,
+    response_body_allowed,
+)
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.facade import MARKER_DEFAULT, MitmFacade
 from ferret.core.mitm.filters import escape_literal, quote_value
@@ -76,6 +81,12 @@ from ferret.core.mitm.gateway import (
     gateway_rules_from_block_config,
     gateway_rules_from_config,
     gateway_rules_to_config,
+)
+from ferret.core.mitm.held_edit import (
+    HeldEditGuard,
+    held_edit_body,
+    held_edit_guard,
+    validate_held_edit,
 )
 from ferret.core.mitm.intercept import (
     INTERCEPT_LIMIT,
@@ -211,6 +222,7 @@ __all__ = [
     "WIREGUARD_HOST",
     "WIREGUARD_PORT",
     "WS_FRAME_LIMIT",
+    "BodySource",
     "CaInfo",
     "CaptureMaster",
     "CertExportFormat",
@@ -235,6 +247,7 @@ __all__ = [
     "GatewayPolicy",
     "GatewayRule",
     "HTTPFlow",
+    "HeldEditGuard",
     "InterceptField",
     "InterceptLogic",
     "InterceptPhase",
@@ -291,9 +304,12 @@ __all__ = [
     "gateway_rules_from_config",
     "gateway_rules_to_config",
     "head_size",
+    "held_edit_body",
+    "held_edit_guard",
     "human",
     "infer_state",
     "inspect_client_certs",
+    "inspect_edit_body",
     "inspect_trusted_ca_files",
     "intercept_expression",
     "intercept_option_updates",
@@ -313,12 +329,14 @@ __all__ = [
     "quote_value",
     "read_body_file",
     "read_replacement",
+    "response_body_allowed",
     "rewrite_rules_from_config",
     "rewrite_rules_to_config",
     "scripts_from_config",
     "scripts_to_config",
     "split_spec",
     "sticky_session_option_updates",
+    "validate_held_edit",
     "validate_local_spec",
     "validate_mode_specs",
     "validate_wireguard_devices",

@@ -36,6 +36,13 @@ from ferret.core.mitm.detail import (
 )
 from ferret.core.mitm.export import FlowExporter
 from ferret.core.mitm.gateway import GatewayRule
+from ferret.core.mitm.held_edit import (
+    HeldEditGuard,
+    HeldEditPhase,
+    advance_edit_epoch,
+    attach_held_edit_snapshot,
+    validate_held_edit,
+)
 from ferret.core.mitm.intercept import (
     InterceptRule,
     RequestEdit,
@@ -705,11 +712,16 @@ class MitmFacade:
         返回的是保留了原 id 的副本 —— Qt 线程只许读快照（AGENTS.md §3），但放行和
         写回都要靠这个 id 找回真流量，见 `_snapshot`。
         """
-        snapshot = lambda: [
-            _snapshot(flow)
-            for flow in self.view._store.values()
-            if isinstance(flow, HTTPFlow) and flow.intercepted
-        ]
+        def snapshot() -> list[HTTPFlow]:
+            result = []
+            generation = self.runtime._generation
+            for flow in self.view._store.values():
+                if isinstance(flow, HTTPFlow) and flow.intercepted:
+                    clone = _snapshot(flow)
+                    attach_held_edit_snapshot(flow, clone, generation)
+                    result.append(clone)
+            return result
+
         return self.runtime.call(snapshot) if self.runtime.is_running else snapshot()
 
     def release_flows(self, flow_ids: list[str]) -> int:
@@ -769,6 +781,7 @@ class MitmFacade:
                 continue
             # 顺序不能反：`kill()` 会把 intercepted 清成 False，而 `resume()` 开头就是
             # `if not self.intercepted: return`（与 `InterceptState._release` 同一个坑）。
+            advance_edit_epoch(flow)
             flow.resume()
             if kill and flow.killable:
                 flow.kill()
@@ -843,19 +856,37 @@ class MitmFacade:
         self._mutate(flow_id, assign, release=False)
 
     def apply_request_edits(
-        self, flow_id: str, edit: RequestEdit, *, release: bool = False
+        self,
+        flow_id: str,
+        edit: RequestEdit,
+        *,
+        release: bool = False,
+        guard: HeldEditGuard | None = None,
     ) -> None:
         """Write an edited request back onto a held flow."""
         self._mutate(
-            flow_id, lambda flow: apply_request_edit(flow, edit), release=release
+            flow_id,
+            lambda flow: apply_request_edit(flow, edit),
+            release=release,
+            guard=guard,
+            phase="request",
         )
 
     def apply_response_edits(
-        self, flow_id: str, edit: ResponseEdit, *, release: bool = False
+        self,
+        flow_id: str,
+        edit: ResponseEdit,
+        *,
+        release: bool = False,
+        guard: HeldEditGuard | None = None,
     ) -> None:
         """Write an edited response back onto a held flow."""
         self._mutate(
-            flow_id, lambda flow: apply_response_edit(flow, edit), release=release
+            flow_id,
+            lambda flow: apply_response_edit(flow, edit),
+            release=release,
+            guard=guard,
+            phase="response",
         )
 
     def fake_response(
@@ -868,7 +899,15 @@ class MitmFacade:
         """
         self._mutate(flow_id, lambda flow: fake_response(flow, edit), release=release)
 
-    def _mutate(self, flow_id: str, mutate, *, release: bool) -> None:
+    def _mutate(
+        self,
+        flow_id: str,
+        mutate,
+        *,
+        release: bool,
+        guard: HeldEditGuard | None = None,
+        phase: HeldEditPhase | None = None,
+    ) -> None:
         """改一条 flow 并让流量表重绘；改失败绝不放行。
 
         Raises:
@@ -880,6 +919,15 @@ class MitmFacade:
 
         def run() -> None:
             flow = self.view.get_by_id(flow_id)
+            if guard is not None:
+                assert phase is not None
+                validate_held_edit(
+                    flow,
+                    guard,
+                    generation=self.runtime._generation,
+                    flow_id=flow_id,
+                    phase=phase,
+                )
             if not isinstance(flow, HTTPFlow):
                 # 找不到（None）和不是 HTTP 流量，对界面是同一件事：那行已经没了。
                 # 所以是 ValueError 而不是 TypeError —— 这是运行期状态，不是调用错误。

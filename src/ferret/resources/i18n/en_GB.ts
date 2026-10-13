@@ -4043,6 +4043,39 @@ Device ID: {id}</translation>
     </message>
 </context>
 <context>
+    <name>HeldEdit</name>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="171"/>
+        <source>内核已重新启动，编辑内容已过期，请重新选择这条流量。</source>
+        <translation>The capture kernel has restarted and this edit has gone stale; select this flow again.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="177"/>
+        <source>编辑目标已变化，请重新选择这条流量。</source>
+        <translation>The edit target has changed; select this flow again.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="185"/>
+        <source>这条流量已不再挂起，无法应用编辑。</source>
+        <translation>This flow is no longer held, so the edits cannot be applied.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="189"/>
+        <source>流量的拦截阶段已变化，请重新选择这条流量。</source>
+        <translation>The interception phase of this flow has changed; select it again.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="195"/>
+        <source>这条流量已重新挂起，编辑内容已过期。</source>
+        <translation>This flow has been held again, so this edit has gone stale.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="199"/>
+        <source>这条流量的报文已变化，请重新载入后编辑。</source>
+        <translation>The message of this flow has changed; reload it before editing.</translation>
+    </message>
+</context>
+<context>
     <name>InterceptEdit</name>
     <message>
         <location filename="../../core/mitm/intercept.py" line="517"/>

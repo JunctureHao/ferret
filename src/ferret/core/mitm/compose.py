@@ -31,6 +31,7 @@ from ferret.core.mitm.bindings import (
     http_url,
 )
 from ferret.core.mitm.detail import build_flow_detail
+from ferret.core.mitm.held_edit import advance_edit_epoch
 
 # 来源标记用于元数据展示，是否入表由独立的布尔标记决定。
 COMPOSE_METADATA_KEY = "ferret.compose"
@@ -197,6 +198,7 @@ class ComposeAddon:
             self._tasks.pop(flow.id, None)
 
     def _cancel_flow(self, flow: HTTPFlow) -> None:
+        advance_edit_epoch(flow)
         flow.resume()
         if flow.killable:
             flow.kill()
