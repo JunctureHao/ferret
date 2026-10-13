@@ -12,6 +12,7 @@
 """
 
 import os
+import threading
 import typing
 import unittest
 import unittest.mock
@@ -30,8 +31,11 @@ from PySide6.QtCore import (
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
 
+from ferret.apps.common.edit.body import BodyKind
 from ferret.apps.intercept.dialogs import HeldFlowsChoice
 from ferret.apps.intercept.window import InterceptWindow
+from ferret.core.mitm.held_edit import attach_held_edit_snapshot
+from tests.core.mitm._qt import wait_until
 
 app = QApplication.instance() or QApplication([])
 
@@ -39,6 +43,16 @@ app = QApplication.instance() or QApplication([])
 def flow_to(url: str = "http://api.example.com/v1", *, resp: bool = False):
     flow = tflow.tflow(resp=resp)
     flow.request.url = url
+    return guarded(flow)
+
+
+def guarded(flow):
+    """按 facade.intercepted_flows() 的做法给快照挂上编辑 guard。
+
+    写回走 guard 校验后，没有这份元数据的队列快照在窗口里就是「失效目标」。
+    就地挂：attach 只读活状态、往快照 metadata 写，传同一个对象即可。
+    """
+    attach_held_edit_snapshot(flow, flow, 1)
     return flow
 
 
@@ -46,11 +60,11 @@ def snapshot(flow):
     """照 `facade._snapshot` 的做法：`copy()` 完把 id 补回去。
 
     队列每次刷新拿到的都是这种副本 —— 新对象、老 id。光 `copy()` 会换一个新 uuid，
-    那样界面就再也认不出「这还是我正在改的那条」了。
+    那样界面就再也认不出「这还是我正在改的那条」了。guard 按副本**当前**阶段重挂。
     """
     clone = flow.copy()
     clone.id = flow.id
-    return clone
+    return guarded(clone)
 
 
 class FakeController(QObject):
@@ -85,11 +99,15 @@ class FakeController(QObject):
         self.calls.append(("release_all",))
         return 0
 
-    def apply_request(self, flow_id: str, edit, *, release: bool = False) -> bool:
+    def apply_request(
+        self, flow_id: str, edit, *, release: bool = False, guard=None
+    ) -> bool:
         self.calls.append(("apply_request", flow_id, release))
         return True
 
-    def apply_response(self, flow_id: str, edit, *, release: bool = False) -> bool:
+    def apply_response(
+        self, flow_id: str, edit, *, release: bool = False, guard=None
+    ) -> bool:
         self.calls.append(("apply_response", flow_id, release))
         return True
 
@@ -369,7 +387,8 @@ class ActionTests(InterceptWindowTestCase):
             app.processEvents()
         self.assertEqual(len(edits), 1)
         self.assertEqual(edits[0][0].url, "https://api.test/?a=new")
-        self.assertEqual(edits[0][1], {"release": True})
+        self.assertEqual(edits[0][1]["release"], True)
+        self.assertIsNotNone(edits[0][1]["guard"])
 
     def test_the_panel_release_button_writes_back_the_current_flow(self) -> None:
         """页头「放行」发的是信号，干活的是窗口：写回 + 放行一步到位。"""
@@ -479,6 +498,99 @@ class ContextMenuSelectionTests(InterceptWindowTestCase):
         win.flow_table.selectRow(0)
         win._on_flow_context_menu(QPoint(5, win.flow_table.viewport().height() + 50))
         self.assertEqual(_MenuStub.created, [])
+
+
+class PreparationTests(InterceptWindowTestCase):
+    """后台准备期间目标失效：迟到结果不改新界面、不偷偷放行（设计 §8）。
+
+    逻辑取消不终止线程里的文件读取 —— 用事件把 worker 挡在半路，先取消资格，
+    再放行，验证迟到的成功结果被整体丢弃。
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.addCleanup(self.release.set)
+        patcher = unittest.mock.patch(
+            "ferret.apps.common.edit.body.read_body_file",
+            side_effect=self._blocked_read,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _blocked_read(self, path: str) -> bytes:
+        self.entered.set()
+        if not self.release.wait(5):
+            raise AssertionError("test did not release body preparation")
+        return b"file body"
+
+    def _start_preparation(self, win: InterceptWindow) -> None:
+        win.show()
+        app.processEvents()
+        panel = win.request_panel
+        panel.body_panel.set_kind(BodyKind.FILE)
+        panel.body_panel.file_picker.set_file("C:/prep/body.bin")
+        self.assertTrue(win._write_back())
+        self.assertTrue(wait_until(self.entered.is_set, timeout_ms=5000))
+        self.assertIsNotNone(win._prepare_task)
+
+    def _finish_and_assert_no_release(self, win: InterceptWindow) -> None:
+        self.release.set()
+        self.assertTrue(wait_until(lambda: not win._prepare_tasks, timeout_ms=5000))
+        app.processEvents()
+
+    # 每个用例自己声明「这次操作本来就该发生什么」；迟到结果一律不新增 apply。
+
+    def test_switching_selection_invalidates_the_preparation(self) -> None:
+        win = self.window()
+        self.controller.emit_flows([flow_to(), flow_to("http://cdn.example.com/a.js")])
+        self._start_preparation(win)
+        win.flow_table.selectRow(1)
+        self.assertIsNone(win._prepare_task)
+        self.assertIsNone(win._prepare_guard)
+        self.release.set()
+        self.assertTrue(wait_until(lambda: not win._prepare_tasks, timeout_ms=5000))
+        app.processEvents()
+        self.assertEqual(
+            [call[0] for call in self.controller.calls],
+            [],
+        )
+
+    def test_dropping_the_current_flow_invalidates_the_preparation(self) -> None:
+        win = self.window()
+        flow = flow_to()
+        self.controller.emit_flows([flow])
+        self._start_preparation(win)
+        win._on_drop_current()
+        self.assertEqual([call[0] for call in self.controller.calls], ["drop_flows"])
+        self.release.set()
+        self.assertTrue(wait_until(lambda: not win._prepare_tasks, timeout_ms=5000))
+        app.processEvents()
+        self.assertEqual([call[0] for call in self.controller.calls], ["drop_flows"])
+
+    def test_release_all_invalidates_the_preparation(self) -> None:
+        win = self.window()
+        self.controller.emit_flows([flow_to()])
+        self._start_preparation(win)
+        win.release_all_button.click()
+        self.assertEqual([call[0] for call in self.controller.calls], ["release_all"])
+        self.release.set()
+        self.assertTrue(wait_until(lambda: not win._prepare_tasks, timeout_ms=5000))
+        app.processEvents()
+        self.assertEqual([call[0] for call in self.controller.calls], ["release_all"])
+
+    def test_closing_the_window_invalidates_the_preparation(self) -> None:
+        """确认框打开前就解除资格：模态框期间到达的结果不许在背后放行。"""
+        win = self.window(HeldFlowsChoice.CANCEL)
+        self.controller.emit_flows([flow_to()])
+        self._start_preparation(win)
+        self.assertFalse(win.close())
+        self.assertIsNone(win._prepare_task)
+        self.release.set()
+        self.assertTrue(wait_until(lambda: not win._prepare_tasks, timeout_ms=5000))
+        app.processEvents()
+        self.assertEqual([call[0] for call in self.controller.calls], [])
 
 
 if __name__ == "__main__":

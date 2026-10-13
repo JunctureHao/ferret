@@ -3886,6 +3886,39 @@ Device ID: {id}</translation>
     </message>
 </context>
 <context>
+    <name>HeldEdit</name>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="171"/>
+        <source>内核已重新启动，编辑内容已过期，请重新选择这条流量。</source>
+        <translation>The capture kernel has restarted and this edit has gone stale; select this flow again.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="177"/>
+        <source>编辑目标已变化，请重新选择这条流量。</source>
+        <translation>The edit target has changed; select this flow again.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="185"/>
+        <source>这条流量已不再挂起，无法应用编辑。</source>
+        <translation>This flow is no longer held, so the edits cannot be applied.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="189"/>
+        <source>流量的拦截阶段已变化，请重新选择这条流量。</source>
+        <translation>The interception phase of this flow has changed; select it again.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="195"/>
+        <source>这条流量已重新挂起，编辑内容已过期。</source>
+        <translation>This flow has been held again, so this edit has gone stale.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/held_edit.py" line="199"/>
+        <source>这条流量的报文已变化，请重新载入后编辑。</source>
+        <translation>The message of this flow has changed; reload it before editing.</translation>
+    </message>
+</context>
+<context>
     <name>HeldFlowTableModel</name>
     <message>
         <location filename="../../apps/intercept/models.py" line="294"/>
@@ -4043,44 +4076,37 @@ Device ID: {id}</translation>
     </message>
 </context>
 <context>
-    <name>HeldEdit</name>
-    <message>
-        <location filename="../../core/mitm/held_edit.py" line="171"/>
-        <source>内核已重新启动，编辑内容已过期，请重新选择这条流量。</source>
-        <translation>The capture kernel has restarted and this edit has gone stale; select this flow again.</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/held_edit.py" line="177"/>
-        <source>编辑目标已变化，请重新选择这条流量。</source>
-        <translation>The edit target has changed; select this flow again.</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/held_edit.py" line="185"/>
-        <source>这条流量已不再挂起，无法应用编辑。</source>
-        <translation>This flow is no longer held, so the edits cannot be applied.</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/held_edit.py" line="189"/>
-        <source>流量的拦截阶段已变化，请重新选择这条流量。</source>
-        <translation>The interception phase of this flow has changed; select it again.</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/held_edit.py" line="195"/>
-        <source>这条流量已重新挂起，编辑内容已过期。</source>
-        <translation>This flow has been held again, so this edit has gone stale.</translation>
-    </message>
-    <message>
-        <location filename="../../core/mitm/held_edit.py" line="199"/>
-        <source>这条流量的报文已变化，请重新载入后编辑。</source>
-        <translation>The message of this flow has changed; reload it before editing.</translation>
-    </message>
-</context>
-<context>
     <name>InterceptEdit</name>
     <message>
         <location filename="../../core/mitm/intercept.py" line="517"/>
         <source>无效的 HTTP 状态码：{}</source>
         <translation>Invalid HTTP status code: {}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/intercept.py" line="563"/>
+        <source>正文无法按新的 Content-Encoding（{}）编码，请改用受支持的编码或删除该头。</source>
+        <translation>The body cannot be encoded with the new Content-Encoding ({}); use a supported encoding or remove the header.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/intercept.py" line="591"/>
+        <source>正文缺失，无法只改 Content-Encoding；请明确替换正文，或还原编码头。</source>
+        <translation>The body is missing, so the Content-Encoding cannot be changed on its own; replace the body explicitly or restore the encoding header.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/intercept.py" line="600"/>
+        <location filename="../../core/mitm/intercept.py" line="694"/>
+        <source>原正文为空，不能生成压缩后的空正文；请替换正文，或删除新的 Content-Encoding。</source>
+        <translation>The original body is empty, and an empty compressed body cannot be produced; replace the body or remove the new Content-Encoding.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/intercept.py" line="611"/>
+        <source>原正文无法按当前 Content-Encoding 解码，不能只改编码头；请明确替换正文，或还原编码头。</source>
+        <translation>The original body cannot be decoded with the current Content-Encoding, so the header cannot be changed on its own; replace the body explicitly or restore the encoding header.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/intercept.py" line="685"/>
+        <source>原响应正文缺失，切换到允许正文的状态后需要明确替换正文。</source>
+        <translation>The original response body is missing; after switching to a status that allows a body you must replace it explicitly.</translation>
     </message>
     <message>
         <location filename="../../core/mitm/intercept.py" line="718"/>
@@ -4101,6 +4127,11 @@ Device ID: {id}</translation>
         <location filename="../../core/mitm/intercept.py" line="760"/>
         <source>这条流量还没有响应可改</source>
         <translation>This flow has no response to edit yet</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/intercept.py" line="779"/>
+        <source>该响应受请求方法或状态码限制不能携带正文，请清空正文后再放行。</source>
+        <translation>This response cannot carry a body because of the request method or status code; clear the body before releasing.</translation>
     </message>
     <message>
         <location filename="../../core/mitm/intercept.py" line="813"/>
@@ -4390,6 +4421,18 @@ Device ID: {id}</translation>
         <translation>Select a held flow to edit it</translation>
     </message>
     <message>
+        <location filename="../../apps/intercept/window.py" line="322"/>
+        <location filename="../../apps/intercept/window.py" line="330"/>
+        <location filename="../../apps/intercept/window.py" line="380"/>
+        <source>放行失败</source>
+        <translation>Release failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/window.py" line="322"/>
+        <source>断点快照已失效，请重新选择这条流量。</source>
+        <translation>The breakpoint snapshot has gone stale; select this flow again.</translation>
+    </message>
+    <message>
         <location filename="../../apps/intercept/window.py" line="501"/>
         <source>放行</source>
         <translation>Release</translation>
@@ -4413,6 +4456,11 @@ Device ID: {id}</translation>
         <location filename="../../apps/intercept/window.py" line="255"/>
         <source>断点 · {} 条待处理</source>
         <translation>Breakpoints · {} pending</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/window.py" line="520"/>
+        <source>{} 条待处理 · 正在准备正文 {}</source>
+        <translation>{} pending · preparing body {}</translation>
     </message>
     <message>
         <location filename="../../apps/intercept/window.py" line="524"/>
@@ -5794,6 +5842,11 @@ Device ID: {id}</translation>
         <location filename="../../apps/intercept/editors.py" line="328"/>
         <source>响应体</source>
         <translation>Body</translation>
+    </message>
+    <message>
+        <location filename="../../apps/intercept/editors.py" line="359"/>
+        <source>此请求方法或响应状态不允许响应体；放行时不发送正文。</source>
+        <translation>This request method or response status does not allow a body; nothing is sent when released.</translation>
     </message>
 </context>
 <context>

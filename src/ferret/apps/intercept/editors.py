@@ -1,24 +1,17 @@
-"""断点面板：请求 / 响应两个阶段面板，复用详情面板的可编辑组件。
+"""Typed editors for held requests/responses; unchanged bodies are patches of None.
 
-编辑器只展示**真实报文**，不做美化：`contentviews.prettify_message` 的产出是给人看
-的排版，写回去就把 body 改坏了。所以这里只走 `Message.get_content(strict=False)`
-（去掉 Content-Encoding 后的原始字节），拿到什么显示什么、显示什么写回什么。
-
-组件与流量详情面板是同一批类：标签容器 `TabPanel`、键值 `ItemDualPanel`（editable
-档）、体 `JsonDualPanel` —— 断点这边只是 tab 更少（请求：参数/请求头/请求体；响应：
-响应头/响应体）加一条页头行（方法/URL 或状态码 + 放行/丢弃）。参数页是断点新增的
-结构化 query 编辑：编辑过才由参数页合并进 URL，没动过则 URL 整串原样写回（与
-compose 页 `_collect_url` 同一条保真规则，端口规范也是同一套）。
+Panels only read snapshots. Preparing an edit freezes every field before a worker
+reads files; the window owns the target guard and the eventual atomic release.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from PySide6.QtCore import QCoreApplication, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
-    CaptionLabel,
     EditableComboBox,
     FluentIcon,
     LineEdit,
@@ -26,27 +19,41 @@ from qfluentwidgets import (
     ToolButton,
 )
 
-from ferret.apps.common.edit import ItemDualPanel, JsonDualPanel, Language
+from ferret.apps.common.edit import ItemDualPanel
+from ferret.apps.common.edit.body import (
+    BodyDraft,
+    BodyEditor,
+    BodyMode,
+    BodyProfile,
+)
 from ferret.apps.common.edit.headers import HeaderDualPanel
 from ferret.apps.common.http_methods import METHODS
 from ferret.apps.common.panel import TabPanel
-from ferret.core.mitm import HTTPFlow, RequestEdit, ResponseEdit
-from ferret.utils.i18n import QT_TRANSLATE_NOOP
-
-# 只存标记：模块级求值赶在翻译器安装之前，`self.tr(变量)` 也提取不到。
-_BINARY_HINT = QT_TRANSLATE_NOOP(
-    "MessageEditor",
-    "这段内容不是合法的 UTF-8（压缩包、图片，或非 UTF-8 字符集），已锁定为只读；放行时按原样发出。",
+from ferret.core.mitm import (
+    HeldEditGuard,
+    HTTPFlow,
+    RequestEdit,
+    ResponseEdit,
+    held_edit_body,
+    held_edit_guard,
+    inspect_edit_body,
+    response_body_allowed,
 )
 
 
-def _body_lang(text: str) -> Language:
-    """只在 JSON 与通用 HTTP 词法器之间二选一。
+@dataclass(frozen=True)
+class EditDraft:
+    """Immutable input for FunctionTask; contains neither widgets nor live flows."""
 
-    编辑器里的 body 是原始文本，没有 contentview 报的 syntax 可用；HTTP 词法器对
-    ``Key: Value`` 和散文都不会整片标红，当默认档最稳。
-    """
-    return Language.JSON if text.lstrip()[:1] in ("{", "[") else Language.HTTP
+    edit: RequestEdit | ResponseEdit
+    body: BodyDraft | None
+
+    @property
+    def needs_worker(self) -> bool:
+        return self.body is not None and self.body.needs_worker
+
+    def build(self) -> RequestEdit | ResponseEdit:
+        return replace(self.edit, content=self.body.build() if self.body else None)
 
 
 def _merge_query(url: str, pairs: list[tuple[str, str]]) -> str:
@@ -84,16 +91,18 @@ class PhasePanel(QWidget):
     releaseRequested = Signal()
     dropRequested = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    # 子类各自装配：详情标签与准备期间要禁用的标量控件。
+    detail: TabPanel
+    _scalar_widgets: tuple[QWidget, ...]
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        profile: BodyProfile = BodyProfile.REQUEST,
+    ) -> None:
         super().__init__(parent)
-        # 原始体字节。UTF-8 解不开时不让改，放行时原样送回，别把 gzip / 图片改烂。
-        self._raw_body: bytes = b""
-        self._binary = False
-        # 「没动过就原样放行」短路：QTextDocument 把 \r\n 归一成段落边界，
-        # toPlainText() 回来只剩 \n —— 未编辑也无条件写回会把 multipart 边界、
-        # 签名正文里的 CRLF 改坏。changed 只在用户编辑时发（程序化装载被
-        # _loading 闸挡住），用它做脏标记最稳。
-        self._body_dirty = False
+        self.guard: HeldEditGuard | None = None
 
         self.release_button = PrimaryToolButton(FluentIcon.SEND, self)
         self.release_button.setToolTip(
@@ -115,22 +124,19 @@ class PhasePanel(QWidget):
         self.drop_button.clicked.connect(self.dropRequested)
 
         self.headers_panel = HeaderDualPanel(True, self)
-        self.body_panel = JsonDualPanel(self)
-        self.body_hint = CaptionLabel(self)
-        self.body_hint.setWordWrap(True)
-        self.body_hint.hide()
+        self.body_panel = BodyEditor(self.headers_panel, profile=profile, parent=self)
+        self.body_box = self.body_panel
+        self.headers_panel.changed.connect(self._on_headers_edited)
 
-        self.body_box = QWidget(self)
-        body_layout = QVBoxLayout(self.body_box)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(4)
-        body_layout.addWidget(self.body_panel, 1)
-        body_layout.addWidget(self.body_hint)
+    def _on_headers_edited(self) -> None:
+        self._update_header_count(len(self.headers_panel.items()))
 
-        self.body_panel.changed.connect(self._on_body_edited)
-
-    def _on_body_edited(self) -> None:
-        self._body_dirty = True
+    def set_preparing(self, preparing: bool) -> None:
+        """Keep drop available while the captured edit is being prepared."""
+        self.detail.setEnabled(not preparing)
+        self.release_button.setEnabled(not preparing)
+        for widget in self._scalar_widgets:
+            widget.setEnabled(not preparing)
 
     # —— 骨架 ——
 
@@ -161,7 +167,7 @@ class PhasePanel(QWidget):
 
     # —— 报文装载（详情侧：头 + 体，请求/响应通用） ——
 
-    def _load_message(self, message) -> None:
+    def _load_message(self, message, flow: HTTPFlow) -> None:
         """把一条 mitmproxy 报文灌进头面板与体面板。
 
         头用 `items(multi=True)` 读：同名头（Cookie / Set-Cookie）在字典里会被吃掉
@@ -171,43 +177,16 @@ class PhasePanel(QWidget):
         self.headers_panel.set_items(headers)
         self._update_header_count(len(headers))
 
-        self._raw_body = message.get_content(strict=False) or b""
-        self._body_dirty = False
-        try:
-            text = self._raw_body.decode("utf-8")
-        except UnicodeDecodeError:
-            # 严格解码故意不加兜底：能显示的一定能一字节不差地写回去（CRLF 归一
-            # 由「未编辑不覆盖」兜住，见 _body_bytes）。
-            self._binary = True
-            text = ""
-        else:
-            self._binary = False
-        self.body_panel.set_text(text, _body_lang(text))
-        self.body_hint.setText(
-            QCoreApplication.translate("MessageEditor", _BINARY_HINT)
+        # Facade prepares this on the mitm thread. The fallback serves callers
+        # loading detached snapshots directly (including editor tests).
+        source = held_edit_body(flow) or inspect_edit_body(message)
+        self.body_panel.load(
+            source.content,
+            headers,
+            available=source.available,
+            decode_ok=source.decode_ok,
+            strict_charset=True,
         )
-        self.body_hint.setVisible(self._binary)
-        self.body_panel.set_read_only(self._binary)
-
-    def _body_bytes(self) -> bytes | None:
-        """写回用的体字节；``None`` 表示体没动过、写回时整段跳过。
-
-        未编辑跳过而不回写「原值」有两个实测过的理由：QTextDocument 把 ``\\r\\n``
-        归一成 ``\\n``，回写就改坏了 multipart 边界 / 签名正文（#3）；而 HEAD/304
-        这类无正文响应的 Content-Length 说的是「对应表示」的长度而非当前体长，
-        `response.content = b""` 会被通用 setter 清成 0（#89）—— 跳过让长度语义
-        原样保留。二进制体被只读锁锁着本来就不该碰，跳过还省掉一次解压→回压。
-        改回原文与没改等价，一并跳过。
-        """
-        if self._binary or not self._body_dirty:
-            return None
-        text = self.body_panel.plain_text()
-        if text.encode("utf-8") == self._raw_body:
-            return None
-        return text.encode("utf-8")
-
-    def _headers(self) -> list[tuple[str, str]]:
-        return self.headers_panel.items()
 
     def _update_header_count(self, count: int) -> None:
         """`请求头(N)` / `响应头(N)`：条数直接挂在标签上，与流量详情页同一语言。
@@ -218,12 +197,10 @@ class PhasePanel(QWidget):
         raise NotImplementedError
 
     def _clear_message(self) -> None:
-        self._raw_body = b""
-        self._binary = False
-        self._body_dirty = False
+        self.guard = None
         self.headers_panel.set_items([])
-        self.body_panel.set_text("")
-        self.body_hint.hide()
+        self.body_panel.load(b"", [], strict_charset=True)
+        self.body_panel.set_body_allowed(True)
 
 
 class RequestPanel(PhasePanel):
@@ -243,6 +220,7 @@ class RequestPanel(PhasePanel):
         self.url_edit = LineEdit(self)
         self.url_edit.setPlaceholderText("https://api.example.com/v1/user")
         self.url_edit.setClearButtonEnabled(True)
+        self._scalar_widgets = (self.method_combo, self.url_edit)
 
         self.params_panel = ItemDualPanel(True, self)
 
@@ -279,25 +257,34 @@ class RequestPanel(PhasePanel):
     def load(self, flow: HTTPFlow) -> None:
         """URL 整串进地址栏，query 同时解析进参数页 —— 编辑过才由参数页说了算。"""
         request = flow.request
+        self.guard = held_edit_guard(flow)
         # setText 而不是 setCurrentText：后者只认词表内项（findText 落空就静默
         # 不动），词表外方法（PROPFIND 等）会显示成上一条的旧值并照样写回。
         self.method_combo.setText(request.method)
         self.url_edit.setText(request.url)
         parts = urlsplit(request.url)
         self.params_panel.set_items(parse_qsl(parts.query, keep_blank_values=True))
-        self._load_message(request)
+        self._load_message(request, flow)
         # 程序化装载不是用户编辑：setText 的 textChanged 同步发完了，这里归零。
         self._url_dirty = False
         self._params_dirty = False
 
-    def edit(self) -> RequestEdit:
-        """`apply_request_edit` 那边会校验方法非空、URL 可解析，这里不抢着判。"""
-        return RequestEdit(
-            method=self.method_combo.currentText().strip(),
-            url=self._merge_url(),
-            headers=self._headers(),
-            content=self._body_bytes(),
+    def prepare(self) -> EditDraft:
+        body = self.body_panel.snapshot(mode=BodyMode.PATCH)
+        return EditDraft(
+            RequestEdit(
+                method=self.method_combo.currentText().strip(),
+                url=self._merge_url(),
+                headers=body.headers,
+                content=None,
+            ),
+            body.body,
         )
+
+    def edit(self) -> RequestEdit:
+        edit = self.prepare().build()
+        assert isinstance(edit, RequestEdit)
+        return edit
 
     def _merge_url(self) -> str:
         """参数页为 query 权威源；URL 与参数都没动过时整串原样返回（issues #78）：
@@ -331,11 +318,15 @@ class ResponsePanel(PhasePanel):
         )
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+        super().__init__(parent, profile=BodyProfile.RESPONSE)
+        self._request_method = "GET"
+        self._loading = False
         self.code_edit = LineEdit(self)
         self.code_edit.setPlaceholderText("200")
         self.code_edit.setFixedWidth(110)
         self.code_edit.setClearButtonEnabled(True)
+        self._scalar_widgets = (self.code_edit,)
+        self.code_edit.textChanged.connect(self._sync_body_permission)
 
         header = self._build_header(self.code_edit)
 
@@ -355,10 +346,27 @@ class ResponsePanel(PhasePanel):
         if response is None:  # 窗口保证只在响应期装载；防御一下罢了。
             self.clear()
             return
+        self.guard = held_edit_guard(flow)
+        self._request_method = flow.request.method
+        self._loading = True
         self.code_edit.setText(str(response.status_code))
-        self._load_message(response)
+        self._load_message(response, flow)
+        self._loading = False
+        self._sync_body_permission()
 
-    def edit(self) -> ResponseEdit:
+    def _sync_body_permission(self) -> None:
+        if self._loading:
+            return
+        status = self._status_code()
+        if not 100 <= status <= 599:
+            return
+        allowed = response_body_allowed(self._request_method, status)
+        self.body_panel.set_body_allowed(
+            allowed,
+            self.tr("此请求方法或响应状态不允许响应体；放行时不发送正文。"),
+        )
+
+    def _status_code(self) -> int:
         """状态码交给 `apply_response_edit` 校验（须在 100-599）。
 
         这里只把「不是数字」折成 0：让内核那边统一报「状态码必须是……」，
@@ -367,12 +375,25 @@ class ResponsePanel(PhasePanel):
         异常会从放行槽逃逸，流量停在断点上界面毫无反应。
         """
         text = self.code_edit.text().strip()
-        return ResponseEdit(
-            status_code=int(text) if text.isdecimal() else 0,
-            headers=self._headers(),
-            content=self._body_bytes(),
+        return int(text) if text.isdecimal() else 0
+
+    def prepare(self) -> EditDraft:
+        body = self.body_panel.snapshot(mode=BodyMode.PATCH)
+        return EditDraft(
+            ResponseEdit(
+                status_code=self._status_code(),
+                headers=body.headers,
+                content=None,
+            ),
+            body.body,
         )
 
+    def edit(self) -> ResponseEdit:
+        edit = self.prepare().build()
+        assert isinstance(edit, ResponseEdit)
+        return edit
+
     def clear(self) -> None:
+        self._request_method = "GET"
         self.code_edit.clear()
         self._clear_message()

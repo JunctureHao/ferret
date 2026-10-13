@@ -3,9 +3,8 @@
 钉住两条保真契约：
 
 - QTextDocument 会把 ``\\r\\n`` 归一成段落边界（``toPlainText`` 回来只剩 ``\\n``），
-  所以**没编辑过的体必须原样放行**，无条件 ``encode`` 写回会把 multipart 边界 /
-  正文签名改坏。`_body_bytes` 的「未编辑不覆盖」短路守的就是这里 —— 未编辑时
-  ``content`` 是 ``None``，内核侧整段跳过、原字节与 Content-Length 原样保留
+  所以**没编辑过的体必须原样放行**：PATCH 快照对「没改过」一律返回 ``None``，
+  ``content`` 保持 ``None``，内核侧整段跳过、原字节与 Content-Length 原样保留
   （HEAD/304 的长度语义不被清零，issues #89）。
 - URL 与参数页都没动过时整串原样返回，不走 parse_qsl/urlencode 的重编码路径
   （issues #78）。
@@ -20,6 +19,7 @@ from mitmproxy.test import tflow
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication, QLineEdit
 
+from ferret.apps.common.edit.body import BodyKind
 from ferret.apps.intercept.editors import RequestPanel, ResponsePanel
 from ferret.core.mitm.intercept import apply_request_edit, apply_response_edit
 
@@ -52,7 +52,7 @@ class BodyWritebackTests(unittest.TestCase):
         # 模拟用户键入：程序化 set_text 被 _loading 闸挡着不算编辑，插入才算。
         panel.body_panel.text.code_widget.insertPlainText("x")
         edit = panel.edit()
-        self.assertEqual(edit.content, panel.body_panel.plain_text().encode("utf-8"))
+        self.assertEqual(edit.content, panel.body_panel.text.text().encode("utf-8"))
 
     def test_edited_back_to_original_is_also_left_unwritten(self):
         """改回原文与没改等价：跳过写回。（含 CRLF 的原文在编辑器里改不回来 ——
@@ -215,6 +215,54 @@ class HeaderFidelityTests(unittest.TestCase):
             flow.request.headers.fields,
             ((b"X-Bytes", b"new"), (b"X-Bytes", b"caf\xff")),
         )
+
+
+class PatchSemanticsTests(unittest.TestCase):
+    """PATCH 语义：显式清空、预填不算改、协议禁止正文（设计 intercept-body-kinds.md §5/§7）。"""
+
+    def test_switching_to_none_after_editing_clears_explicitly(self):
+        panel = RequestPanel()
+        self.addCleanup(panel.deleteLater)
+        panel.load(_flow_with_body(b"payload"))
+        panel.body_panel.text.code_widget.insertPlainText("x")
+        panel.body_panel.set_kind(BodyKind.NONE)
+        # 「无请求体」是有意的清空：b"" 而不是 None。
+        self.assertEqual(panel.edit().content, b"")
+
+    def test_prefilled_memory_file_does_not_count_as_an_edit(self):
+        original = b"\x89PNG\r\n\x1a\n" + bytes(range(256))
+        panel = RequestPanel()
+        self.addCleanup(panel.deleteLater)
+        panel.load(_flow_with_body(original))
+        panel.body_panel.set_kind(BodyKind.FILE)
+        # 二进制源切到文件类型会预填内存文件 —— 没动就是没动。
+        self.assertIsNone(panel.edit().content)
+
+    def test_protocol_forbidden_response_discards_the_pending_draft(self):
+        panel = ResponsePanel()
+        self.addCleanup(panel.deleteLater)
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.content = b"payload"
+        panel.load(flow)
+        panel.body_panel.text.code_widget.insertPlainText("x")
+        panel.code_edit.setText("204")
+        # 状态码切到禁止正文：草稿被抑制，放行时明确丢弃待发正文。
+        self.assertEqual(panel.edit().content, b"")
+
+    def test_forbidden_to_allowed_rebuilds_an_empty_body(self):
+        panel = ResponsePanel()
+        self.addCleanup(panel.deleteLater)
+        flow = tflow.tflow(resp=True)
+        assert flow.response is not None
+        flow.response.status_code = 304
+        flow.response.raw_content = b""
+        flow.response.headers["Content-Length"] = "123"
+        panel.load(flow)
+        panel.code_edit.setText("200")
+        apply_response_edit(flow, panel.edit())
+        assert flow.response is not None
+        self.assertEqual(flow.response.headers["Content-Length"], "0")
 
 
 class StatusCodeParsingTests(unittest.TestCase):

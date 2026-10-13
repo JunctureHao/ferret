@@ -1,10 +1,13 @@
 """Breakpoint state owner: rule persistence, push-down, and the held-flow queue."""
 
+from __future__ import annotations
+
 from dataclasses import replace
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from ferret.core.mitm import (
+    HeldEditGuard,
     HTTPFlow,
     InterceptRule,
     MitmFacade,
@@ -220,27 +223,42 @@ class InterceptController(QObject):
         return bool(count)
 
     def apply_request(
-        self, flow_id: str, edit: RequestEdit, *, release: bool = False
+        self,
+        flow_id: str,
+        edit: RequestEdit,
+        *,
+        release: bool = False,
+        guard: HeldEditGuard | None = None,
     ) -> bool:
         return self._mutate(
-            lambda: self._mitm.apply_request_edits(flow_id, edit, release=release),
+            lambda: self._mitm.apply_request_edits(
+                flow_id, edit, guard=guard, release=release
+            ),
             self.tr("已放行") if release else self.tr("已应用请求改动"),
         )
 
     def apply_response(
-        self, flow_id: str, edit: ResponseEdit, *, release: bool = False
+        self,
+        flow_id: str,
+        edit: ResponseEdit,
+        *,
+        release: bool = False,
+        guard: HeldEditGuard | None = None,
     ) -> bool:
         return self._mutate(
-            lambda: self._mitm.apply_response_edits(flow_id, edit, release=release),
+            lambda: self._mitm.apply_response_edits(
+                flow_id, edit, guard=guard, release=release
+            ),
             self.tr("已放行") if release else self.tr("已应用响应改动"),
         )
 
     def _mutate(self, action, message: str) -> bool:
-        """写回类操作的唯一出口：失败只报错不刷队列（内核那边什么都没改）。"""
+        """Writeback failures retain the draft; refresh guards after a stale target."""
         try:
             action()
         except (ValueError, RuntimeError, TimeoutError) as exc:
             self.operation_failed.emit(self.tr("操作失败"), str(exc))
+            self.refresh_flows()
             return False
         self.refresh_flows()
         self.operation_succeeded.emit(message)

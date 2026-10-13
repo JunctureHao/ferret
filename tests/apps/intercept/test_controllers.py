@@ -57,6 +57,8 @@ class FakeFacade:
         self.calls: list[str] = []
         self.snapshot_calls = 0
         self.fail_with: Exception | None = None
+        # 刷新队列（intercepted_flows）与写回是两件事：写回失败后的刷新仍应成功。
+        self.fail_snapshot = False
 
     def _maybe_fail(self) -> None:
         if self.fail_with is not None:
@@ -76,7 +78,8 @@ class FakeFacade:
 
     def intercepted_flows(self) -> list:
         self.snapshot_calls += 1
-        self._maybe_fail()
+        if self.fail_snapshot:
+            self._maybe_fail()
         return list(self.flows)
 
     def release_flows(self, flow_ids: list[str]) -> int:
@@ -95,13 +98,23 @@ class FakeFacade:
         return len(self.flows)
 
     def apply_request_edits(
-        self, flow_id: str, edit: RequestEdit, *, release: bool = False
+        self,
+        flow_id: str,
+        edit: RequestEdit,
+        *,
+        release: bool = False,
+        guard=None,
     ) -> None:
         self.calls.append(f"request:{flow_id}:{release}:{edit.method}")
         self._maybe_fail()
 
     def apply_response_edits(
-        self, flow_id: str, edit: ResponseEdit, *, release: bool = False
+        self,
+        flow_id: str,
+        edit: ResponseEdit,
+        *,
+        release: bool = False,
+        guard=None,
     ) -> None:
         self.calls.append(f"response:{flow_id}:{release}:{edit.status_code}")
         self._maybe_fail()
@@ -281,6 +294,7 @@ class InterceptQueueTests(ConfigSandbox):
         self.controller.refresh_flows()
         self.assertEqual(len(self.controller.flows), 1)
         self.facade.fail_with = TimeoutError("kernel busy")
+        self.facade.fail_snapshot = True
         self.controller.refresh_flows()
         self.assertEqual(len(self.controller.flows), 1)
         self.assertEqual(len(self.seen), 1)
@@ -395,13 +409,14 @@ class InterceptWriteBackTests(ConfigSandbox):
             self.facade.calls, ["response:f1:False:201", "response:f1:True:201"]
         )
 
-    def test_a_rejected_edit_reports_without_refreshing(self) -> None:
-        """内核那边什么都没改（校验全在 `backup()` 之前），队列不必重新要。"""
+    def test_a_rejected_edit_reports_and_refreshes(self) -> None:
+        """写回失败也要重新要队列：guard 过期等失败意味着目标可能已不在原状态，
+        面板/队列得按内核现状刷新（草稿保留在界面上，等待用户修正或放弃）。"""
         self.facade.fail_with = ValueError("Invalid HTTP status code: 0")
         before = self.facade.snapshot_calls
         edit = ResponseEdit(status_code=0, headers=[], content=b"")
         self.assertFalse(self.controller.apply_response("f1", edit))
-        self.assertEqual(self.facade.snapshot_calls, before)
+        self.assertEqual(self.facade.snapshot_calls, before + 1)
         self.assertEqual(self.failures[-1][1], "Invalid HTTP status code: 0")
 
 

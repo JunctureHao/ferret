@@ -22,11 +22,14 @@ Win11 上开 mica，主题跟着主窗口走，不用另外接线。
 由 `MainWindow` 持一个 Python 引用来管（见 `apps/window.py`）。
 """
 
+from __future__ import annotations
+
 from PySide6.QtCore import (
     QCoreApplication,
     QItemSelection,
     QPoint,
     Qt,
+    QThreadPool,
     Signal,
     Slot,
 )
@@ -52,12 +55,19 @@ from qfluentwidgets import (
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success
 from ferret.apps.common.splitter import BaseSplitter
+from ferret.apps.common.tasks import FunctionTask
 from ferret.apps.common.window import center_window
 from ferret.apps.intercept.controllers import InterceptController
 from ferret.apps.intercept.dialogs import HeldFlowsChoice, HeldFlowsCloseDialog
 from ferret.apps.intercept.editors import RequestPanel, ResponsePanel
 from ferret.apps.intercept.models import HeldFlowTableModel
-from ferret.core.mitm import HTTPFlow
+from ferret.core.mitm import (
+    HeldEditGuard,
+    HTTPFlow,
+    RequestEdit,
+    ResponseEdit,
+    held_edit_guard,
+)
 
 
 # 写成函数：模块级求值赶在翻译器安装之前（`core/application.py` 顶层就 import 了
@@ -72,7 +82,7 @@ class InterceptWindow(FluentWidget):
     左列是断点列表（「请求方式 + URL + 阶段」，只读，选择驱动右侧），右侧是
     **当前那条流量所处阶段的面板**：请求期的流给请求面板（方法 + URL + 参数/
     请求头/请求体），响应期的流给响应面板（状态码 + 响应头/响应体）—— 来的是什么
-    阶段就给什么面板，没有阶段切换标签、没有占位页、没有只读锁。放行/丢弃图标
+    阶段就给什么面板，没有阶段切换标签。正文按类型和协议约束编辑。放行/丢弃图标
     按钮长在面板页头行上，作用于当前选中的那条。
 
     停在哪个阶段判的是 `flow.response is None`，与规则选了什么阶段无关；写回来源
@@ -95,6 +105,10 @@ class InterceptWindow(FluentWidget):
         self._current_id: str = ""
         # 刷新队列时置位：换表会先清掉选中项，那一轮选中变化不该当成用户换了流量。
         self._restoring = False
+        self._prepare_task: FunctionTask | None = None
+        self._prepare_tasks: set[FunctionTask] = set()
+        self._prepare_guard: HeldEditGuard | None = None
+        self._prepare_target = ""
 
         self.__init_widget()
         self.__init_layout()
@@ -220,7 +234,7 @@ class InterceptWindow(FluentWidget):
         self.response_panel.releaseRequested.connect(self._on_release)
         self.response_panel.dropRequested.connect(self._on_drop_current)
 
-        self.release_all_button.clicked.connect(self.controller.release_all)
+        self.release_all_button.clicked.connect(self._on_release_all)
 
         self.controller.flows_changed.connect(self._on_flows_changed)
         self.controller.operation_failed.connect(self._on_operation_failed)
@@ -270,10 +284,21 @@ class InterceptWindow(FluentWidget):
         expected = (
             self.response_panel if flow.response is not None else self.request_panel
         )
-        return current is expected
+        if current is not expected:
+            return False
+        guard = held_edit_guard(flow)
+        loaded = expected.guard
+        # Message revisions may change within a hold: preserve the user's draft,
+        # then let the atomic commit reject it. A new hold must get a fresh panel.
+        return guard is None and loaded is None or (
+            guard is not None
+            and loaded is not None
+            and guard.identity == loaded.identity
+        )
 
     def _load_panel(self, flow: HTTPFlow | None) -> None:
         """按当前流量的阶段摆面板：来的是什么阶段就给什么面板。"""
+        self._cancel_preparation()
         if flow is None:
             self.request_panel.clear()
             self.response_panel.clear()
@@ -291,23 +316,97 @@ class InterceptWindow(FluentWidget):
     # —— 写回 / 丢弃 ——
 
     def _write_back(self) -> bool:
-        """把当前面板的内容写回选中的那条流量并放行。"""
+        """Freeze the target and edit before any asynchronous file preparation."""
+        if self._prepare_task is not None:
+            return False
         flow = self._current_flow()
         if flow is None:
             return False
-        if flow.response is None:
-            return self.controller.apply_request(
-                flow.id, self.request_panel.edit(), release=True
+        panel = self.request_panel if flow.response is None else self.response_panel
+        if panel.guard is None:
+            self._on_operation_failed(
+                self.tr("放行失败"), self.tr("断点快照已失效，请重新选择这条流量。")
             )
-        return self.controller.apply_response(
-            flow.id, self.response_panel.edit(), release=True
+            return False
+        try:
+            draft = panel.prepare()
+            if not draft.needs_worker:
+                return self._apply_edit(flow.id, panel.guard, draft.build())
+        except (ValueError, OSError) as exc:
+            self._on_operation_failed(self.tr("放行失败"), str(exc))
+            return False
+        task = FunctionTask(draft.build)
+        self._prepare_task = task
+        self._prepare_tasks.add(task)
+        self._prepare_guard = panel.guard
+        self._prepare_target = flow.id
+        task.signals.succeeded.connect(self._on_body_prepared)
+        task.signals.failed.connect(self._on_body_prepare_failed)
+        task.signals.finished.connect(self._on_body_prepare_finished)
+        panel.set_preparing(True)
+        self._sync_status()
+        QThreadPool.globalInstance().start(task)
+        return True
+
+    def _apply_edit(
+        self, flow_id: str, guard: HeldEditGuard | None, edit: RequestEdit | ResponseEdit
+    ) -> bool:
+        if isinstance(edit, RequestEdit):
+            return self.controller.apply_request(flow_id, edit, guard=guard, release=True)
+        return self.controller.apply_response(flow_id, edit, guard=guard, release=True)
+
+    def _cancel_preparation(self) -> None:
+        self._prepare_task = None
+        self._prepare_guard = None
+        self._prepare_target = ""
+        self.request_panel.set_preparing(False)
+        self.response_panel.set_preparing(False)
+
+    def _is_preparation_sender(self) -> bool:
+        return (
+            self._prepare_task is not None
+            and self.sender() is self._prepare_task.signals
         )
+
+    @Slot(object)
+    def _on_body_prepared(self, edit: RequestEdit | ResponseEdit) -> None:
+        if not self._is_preparation_sender():
+            return
+        flow_id, guard = self._prepare_target, self._prepare_guard
+        self._cancel_preparation()
+        self._sync_status()
+        self._apply_edit(flow_id, guard, edit)
+
+    @Slot(str)
+    def _on_body_prepare_failed(self, message: str) -> None:
+        if not self._is_preparation_sender():
+            return
+        self._cancel_preparation()
+        self._sync_status()
+        self._on_operation_failed(self.tr("放行失败"), message)
+
+    @Slot()
+    def _on_body_prepare_finished(self) -> None:
+        sender = self.sender()
+        task = next(
+            (task for task in self._prepare_tasks if task.signals is sender), None
+        )
+        if task is not None:
+            self._prepare_tasks.discard(task)
+            task.signals.finished.disconnect(self._on_body_prepare_finished)
+
+    @Slot()
+    def _on_release_all(self) -> None:
+        self._cancel_preparation()
+        self._sync_status()
+        self.controller.release_all()
 
     @Slot()
     def _on_drop_current(self):
         """面板页头的「丢弃」：只丢当前选中的那一条。"""
         flow = self._current_flow()
         if flow is not None:
+            self._cancel_preparation()
             self.controller.drop_flows([flow.id])
 
     # —— 队列槽 ——
@@ -380,12 +479,14 @@ class InterceptWindow(FluentWidget):
         if len(flows) == 1:
             self._write_back()
             return
+        self._cancel_preparation()
         self.controller.release_flows([flow.id for flow in flows])
 
     @Slot()
     def _on_drop(self):
         flows = self._selected_flows()
         if flows:
+            self._cancel_preparation()
             self.controller.drop_flows([flow.id for flow in flows])
 
     @Slot(QPoint)
@@ -421,9 +522,14 @@ class InterceptWindow(FluentWidget):
         count = self.flow_model.rowCount()
         flow = self._current_flow()
         if flow is not None:
-            summary = self.tr("{} 条待处理 · 正在编辑 {}").format(
-                count, flow.request.pretty_url
-            )
+            if self._prepare_task is not None:
+                summary = self.tr("{} 条待处理 · 正在准备正文 {}").format(
+                    count, flow.request.pretty_url
+                )
+            else:
+                summary = self.tr("{} 条待处理 · 正在编辑 {}").format(
+                    count, flow.request.pretty_url
+                )
         elif count:
             summary = self.tr("{} 条待处理").format(count)
         else:
@@ -450,6 +556,10 @@ class InterceptWindow(FluentWidget):
         再也看不到它们（`handle_hook` 在等待期间 `disarm()` 了看门狗，`tcp_timeout`
         不兜底，本轮也刻意没做超时自动放行）。所以「保持挂起」得是个明示的选择。
         """
+        # A close dialog runs a nested Qt loop. Invalidate before opening it so
+        # an arriving worker result cannot release a flow behind the dialog.
+        self._cancel_preparation()
+        self._sync_status()
         if self.flow_model.rowCount() == 0:
             super().closeEvent(event)
             return

@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import Any
 
 from mitmproxy.flowfilter import parse as parse_filter
-from mitmproxy.http import HTTPFlow, Response
+from mitmproxy.http import Headers, HTTPFlow, Response
 from mitmproxy.test import tflow
 
 from ferret.core.mitm import (
@@ -734,6 +734,227 @@ class ApplyResponseEditTests(unittest.TestCase):
         apply_response_edit(self.flow, self.edit())
         self.flow.revert()
         self.assertEqual(response_of(self.flow).status_code, original)
+
+
+class ApplyEditEncodingTests(unittest.TestCase):
+    """编码头转换与候选副本原子性（设计 intercept-body-kinds.md §6）。"""
+
+    def setUp(self) -> None:
+        self.flow = tflow.tflow(resp=False)
+
+    def request_edit(self, **kwargs: Any) -> RequestEdit:
+        fields: dict[str, Any] = {
+            "method": "POST",
+            "url": "http://a.com/x",
+            "headers": [],
+            "content": None,
+            **kwargs,
+        }
+        return RequestEdit(**fields)
+
+    def test_unchanged_encoding_and_body_keeps_wire_bytes(self) -> None:
+        """未编辑保真：线上原字节（含压缩）与长度语义原样保留。"""
+        raw = gzip.compress(b"hello")
+        self.flow.request.headers["Content-Encoding"] = "gzip"
+        self.flow.request.raw_content = raw
+        apply_request_edit(
+            self.flow,
+            self.request_edit(
+                headers=[
+                    ("Content-Encoding", "gzip"),
+                    ("Content-Length", str(len(raw))),
+                ],
+            ),
+        )
+        self.assertEqual(self.flow.request.raw_content, raw)
+        self.assertEqual(self.flow.request.headers["Content-Length"], str(len(raw)))
+
+    def test_header_only_encoding_change_reencodes_the_old_body(self) -> None:
+        raw = gzip.compress(b"hello")
+        self.flow.request.headers["Content-Encoding"] = "gzip"
+        self.flow.request.raw_content = raw
+        apply_request_edit(self.flow, self.request_edit())
+        request = self.flow.request
+        self.assertNotIn("Content-Encoding", request.headers)
+        self.assertEqual(request.get_content(strict=False), b"hello")
+        self.assertEqual(request.headers["Content-Length"], "5")
+
+    def test_header_only_encoding_change_to_gzip(self) -> None:
+        self.flow.request.raw_content = b"hello"
+        self.flow.request.headers["Content-Length"] = "5"
+        apply_request_edit(
+            self.flow, self.request_edit(headers=[("Content-Encoding", "gzip")])
+        )
+        request = self.flow.request
+        self.assertEqual(request.headers["Content-Encoding"], "gzip")
+        self.assertNotEqual(request.raw_content, b"hello")
+        self.assertEqual(request.get_content(strict=True), b"hello")
+
+    def test_undecodable_old_body_rejects_a_header_only_change(self) -> None:
+        self.flow.request.headers["Content-Encoding"] = "gzip"
+        self.flow.request.raw_content = b"not gzip"
+        with self.assertRaises(ValueError):
+            apply_request_edit(self.flow, self.request_edit())
+        self.assertFalse(self.flow.modified())
+        self.assertEqual(self.flow.request.raw_content, b"not gzip")
+
+    def test_missing_old_body_rejects_a_header_only_change(self) -> None:
+        """缺失不是空：没有字节可供转换，必须明确替换。"""
+        self.flow.request.raw_content = None
+        with self.assertRaises(ValueError):
+            apply_request_edit(
+                self.flow, self.request_edit(headers=[("Content-Encoding", "gzip")])
+            )
+        self.assertFalse(self.flow.modified())
+
+    def test_empty_old_body_rejects_a_new_compression_header(self) -> None:
+        """空体换不出压缩空正文（原生 decode 对空体是 no-op）。"""
+        self.flow.request.raw_content = b""
+        with self.assertRaises(ValueError):
+            apply_request_edit(
+                self.flow, self.request_edit(headers=[("Content-Encoding", "gzip")])
+            )
+        self.assertFalse(self.flow.modified())
+
+    def test_replacement_with_an_unsupported_encoding_is_rejected(self) -> None:
+        """原生 setter 对不支持的编码会静默删头 —— 必须显式失败且不留痕迹。"""
+        with self.assertRaises(ValueError):
+            apply_request_edit(
+                self.flow,
+                self.request_edit(
+                    headers=[("Content-Encoding", "nope")], content=b"hello"
+                ),
+            )
+        self.assertFalse(self.flow.modified())
+        self.assertNotIn("Content-Encoding", self.flow.request.headers)
+
+
+class ApplyResponseProtocolTests(unittest.TestCase):
+    """无正文响应的专用规则（设计 intercept-body-kinds.md §7）。"""
+
+    def setUp(self) -> None:
+        self.flow = tflow.tflow(resp=True)
+
+    def response_edit(self, **kwargs: Any) -> ResponseEdit:
+        fields: dict[str, Any] = {
+            "status_code": 200,
+            "headers": [],
+            "content": None,
+            **kwargs,
+        }
+        return ResponseEdit(**fields)
+
+    def test_transition_to_204_clears_the_body_and_framing(self) -> None:
+        response = response_of(self.flow)
+        response.content = b"payload"
+        response.trailers = Headers(((b"X-Trailer", b"v"),))
+        apply_response_edit(self.flow, self.response_edit(status_code=204))
+        response = response_of(self.flow)
+        self.assertEqual(response.raw_content, b"")
+        self.assertNotIn("Content-Length", response.headers)
+        self.assertNotIn("Transfer-Encoding", response.headers)
+        self.assertIsNone(response.trailers)
+
+    def test_transition_to_304_keeps_the_representation_length(self) -> None:
+        response = response_of(self.flow)
+        response.content = b"payload"
+        apply_response_edit(
+            self.flow,
+            self.response_edit(status_code=304, headers=[("Content-Length", "7")]),
+        )
+        response = response_of(self.flow)
+        self.assertEqual(response.raw_content, b"")
+        self.assertEqual(response.headers["Content-Length"], "7")
+
+    def test_transition_from_304_to_200_rebuilds_an_empty_body(self) -> None:
+        """不能带着原表示长度发空体：原生 setter 重算长度。"""
+        response = response_of(self.flow)
+        response.status_code = 304
+        response.raw_content = b""
+        response.headers["Content-Length"] = "123"
+        apply_response_edit(self.flow, self.response_edit(status_code=200))
+        response = response_of(self.flow)
+        self.assertEqual(response.raw_content, b"")
+        self.assertEqual(response.headers["Content-Length"], "0")
+
+    def test_transition_from_304_with_a_missing_body_requires_replacement(self) -> None:
+        response = response_of(self.flow)
+        response.status_code = 304
+        response.raw_content = None
+        with self.assertRaises(ValueError):
+            apply_response_edit(self.flow, self.response_edit(status_code=200))
+        self.assertFalse(self.flow.modified())
+
+    def test_a_non_empty_replacement_is_rejected_for_a_head_response(self) -> None:
+        self.flow.request.method = "HEAD"
+        with self.assertRaises(ValueError):
+            apply_response_edit(self.flow, self.response_edit(content=b"x"))
+        self.assertFalse(self.flow.modified())
+
+    def test_205_gets_zero_length_framing_without_a_gzip_member(self) -> None:
+        response = response_of(self.flow)
+        response.headers["Content-Encoding"] = "gzip"
+        response.content = b"payload"
+        apply_response_edit(
+            self.flow,
+            self.response_edit(status_code=205, headers=[("Content-Encoding", "gzip")]),
+        )
+        response = response_of(self.flow)
+        self.assertEqual(response.raw_content, b"")
+        self.assertNotIn("Content-Encoding", response.headers)
+        self.assertEqual(response.headers["Content-Length"], "0")
+
+    def test_a_connect_success_response_forbids_a_body(self) -> None:
+        self.flow.request.method = "CONNECT"
+        response_of(self.flow).content = b"tunnel"
+        apply_response_edit(self.flow, self.response_edit(content=b""))
+        response = response_of(self.flow)
+        self.assertEqual(response.raw_content, b"")
+        self.assertNotIn("Content-Length", response.headers)
+
+    def test_an_explicit_head_clear_keeps_the_metadata_length(self) -> None:
+        self.flow.request.method = "HEAD"
+        response = response_of(self.flow)
+        response.content = b"abc"
+        apply_response_edit(
+            self.flow,
+            self.response_edit(content=b"", headers=[("Content-Length", "3")]),
+        )
+        response = response_of(self.flow)
+        self.assertEqual(response.raw_content, b"")
+        self.assertEqual(response.headers["Content-Length"], "3")
+
+    def test_an_unchanged_forbidden_response_keeps_its_malformed_body(self) -> None:
+        """原报文畸形但什么都没改 → 原样放行，不静默修复。"""
+        self.flow.request.method = "HEAD"
+        response = response_of(self.flow)
+        response.raw_content = b"stale"
+        response.headers["Content-Length"] = "5"
+        response.trailers = Headers(((b"X-Trailer", b"v"),))
+        apply_response_edit(
+            self.flow,
+            self.response_edit(
+                headers=[("Content-Length", "5")],
+            ),
+        )
+        response = response_of(self.flow)
+        self.assertEqual(response.raw_content, b"stale")
+        self.assertEqual(response.headers["Content-Length"], "5")
+        self.assertIsNotNone(response.trailers)
+
+    def test_trailers_survive_a_header_only_edit(self) -> None:
+        response = response_of(self.flow)
+        response.headers["Transfer-Encoding"] = "chunked"
+        response.trailers = Headers(((b"X-Trailer", b"v"),))
+        apply_response_edit(self.flow, self.response_edit())
+        self.assertIsNotNone(response_of(self.flow).trailers)
+
+    def test_trailers_are_removed_on_an_explicit_replacement(self) -> None:
+        response = response_of(self.flow)
+        response.headers["Transfer-Encoding"] = "chunked"
+        response.trailers = Headers(((b"X-Trailer", b"v"),))
+        apply_response_edit(self.flow, self.response_edit(content=b"body"))
+        self.assertIsNone(response_of(self.flow).trailers)
 
 
 class FakeResponseTests(unittest.TestCase):

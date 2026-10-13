@@ -38,11 +38,14 @@ from ferret.core.mitm.bindings import (
     HTTPFlow,
     Intercept,
     Response,
+    encoding,
     http_url,
     parse_filter,
     status_codes,
 )
+from ferret.core.mitm.edit_body import response_body_allowed
 from ferret.core.mitm.filters import quote_regex
+from ferret.core.mitm.held_edit import advance_edit_epoch
 
 # 下发时恒写全量：规则删光也要把 ``intercept`` 写回 None，否则内核继续用上一条表达式。
 # ``intercept_active`` **不在**这里 —— 原生 `Intercept.configure` 处理 "intercept"
@@ -353,6 +356,7 @@ class InterceptState:
         # 只能同步 intercept()，绝不能在钩子里 await：`handle_hook` 在
         # `handle_lifecycle(hook)` 之后本来就会 `await wait_for_resume()`，addon
         # 自己 await 只会饿死链上后面的 addon（和 `GatewayState.suspend` 同理）。
+        advance_edit_epoch(flow)
         flow.intercept()
         self._held[flow.id] = flow
         self._notify(flow)
@@ -385,7 +389,9 @@ class InterceptState:
         """
         removed = 0
         for flow_id in flow_ids:
-            if self._held.pop(flow_id, None) is not None:
+            flow = self._held.pop(flow_id, None)
+            if flow is not None:
+                advance_edit_epoch(flow)
                 removed += 1
         return removed
 
@@ -394,6 +400,7 @@ class InterceptState:
         # `if not self.intercepted: return` —— 先 kill 再 resume 会让这条 flow 永久
         # 挂死在 `wait_for_resume()` 上。`kill()` 还要先看 `killable`，否则抛
         # `ControlException`。（与 `GatewayState._release` 完全同一个坑。）
+        advance_edit_epoch(flow)
         flow.resume()
         if kill and flow.killable:
             flow.kill()
@@ -449,9 +456,11 @@ class RequestEdit:
     那条红线。头用**有序键值对序列**而不是 dict：重复的 ``Cookie`` / ``Set-Cookie``
     完全合法，dict 会把重名的挤掉。
 
-    ``content`` 为 ``None`` 表示「体没动过」：写回时整段跳过，不重设 —— 通用
+    ``content`` 为 ``None`` 表示「没有替换正文」：写回时线上原字节整段保留，通用
     setter 会按体长重算 Content-Length，对 HEAD 这类请求是不存在的语义（#89），
-    对二进制体还省一次解压→回压的往返。
+    对二进制体还省一次解压→回压的往返。**例外**：编码头（Content-Encoding）被改过
+    时，核内会把旧正文严格解码后按新声明重编码 —— 转换失败整次拒绝，见
+    :func:`apply_request_edit`。
     """
 
     method: str
@@ -466,7 +475,12 @@ class ResponseEdit:
 
     ``content=None`` 对无正文响应（HEAD/204/304）尤其要紧：这些响应的
     ``Content-Length`` 由源站赋予长度语义，`response.content = b""` 会把它清成
-    0，原样跳过才是「未编辑保真」（#89）。
+    0，原样跳过才是「未编辑保真」（#89）。例外与 :class:`RequestEdit` 相同：
+    只改 Content-Encoding 时核内按新声明转换旧正文。
+
+    此外协议规则会覆盖正文意图：最终状态码/请求方法禁止正文时（HEAD 响应、1xx、
+    204、205、304、成功 CONNECT），非空替换被拒绝、既有正文被清空、framing 与
+    trailers 按 :func:`apply_response_edit` 的规则重整 —— 无正文响应的专用分支。
     """
 
     status_code: int
@@ -530,22 +544,181 @@ def build_request_edit(flow: HTTPFlow) -> RequestEdit:
     )
 
 
+def _normalized_ce(value: str | None) -> str:
+    """编码头比较口径：大小写不敏感，缺省与显式 ``identity`` 等价。"""
+    return (value or "").strip().lower() or "identity"
+
+
+def _require_encodable(content: bytes, ce: str | None) -> None:
+    """Pre-check the native content setter's encoding step.
+
+    原生 ``set_content`` 对不支持的 Content-Encoding 会**静默删头**并把原字节
+    存回去 —— 那是数据错乱不是成功，所以任何需要编码的路径都先在这里显式
+    抛翻译后的错误，绝不静默回退。
+    """
+    try:
+        encoding.encode(content, ce or "identity")
+    except ValueError as exc:
+        raise ValueError(
+            QCoreApplication.translate(
+                "InterceptEdit",
+                "正文无法按新的 Content-Encoding（{}）编码，请改用受支持的编码或删除该头。",
+            ).format(ce)
+        ) from exc
+
+
+def _apply_candidate_body(
+    message: Any, headers: Headers, content: bytes | None
+) -> None:
+    """正文与编码头的全部校验/构建，跑在候选副本上（不 backup、不上 flow）。
+
+    ``content=None`` 是「未替换正文」而非「跳过一切」：只改编码头时旧正文必须
+    严格解码并按新声明重编码（设计 `.plans/intercept-body-kinds.md` §6）。任何
+    失败都在这里抛翻译后的 ``ValueError``，调用方保证此时还没有 ``backup()``。
+    """
+    old_ce = message.headers.get("content-encoding")
+    new_ce = headers.get("content-encoding")
+    ce_changed = _normalized_ce(old_ce) != _normalized_ce(new_ce)
+    if content is None and not ce_changed:
+        # 未编辑保真（#89）：线上原字节与长度语义原样保留，只落头部编辑。
+        message.headers = headers
+        return
+    if content is None:
+        raw = message.raw_content
+        if raw is None:
+            # 缺失不是空：没有字节可供转换，拒绝把缺失当 b""。
+            raise ValueError(
+                QCoreApplication.translate(
+                    "InterceptEdit",
+                    "正文缺失，无法只改 Content-Encoding；请明确替换正文，或还原编码头。",
+                )
+            )
+        if not raw:
+            # 原生 decode() 对空体是 no-op；凭空造一个压缩空正文没有意义。
+            if _normalized_ce(new_ce) != "identity":
+                raise ValueError(
+                    QCoreApplication.translate(
+                        "InterceptEdit",
+                        "原正文为空，不能生成压缩后的空正文；请替换正文，或删除新的 Content-Encoding。",
+                    )
+                )
+            message.headers = headers
+            return
+        try:
+            decoded = message.get_content(strict=True)
+        except ValueError as exc:
+            raise ValueError(
+                QCoreApplication.translate(
+                    "InterceptEdit",
+                    "原正文无法按当前 Content-Encoding 解码，不能只改编码头；"
+                    "请明确替换正文，或还原编码头。",
+                )
+            ) from exc
+        _require_encodable(decoded, new_ce)
+        message.headers = headers
+        message.set_content(decoded)
+        return
+    # 显式替换：草稿字节视为**已解码正文**，先按新声明预检再交原生 setter
+    # 重算 Content-Length（手写长度是明令禁止的）。
+    _require_encodable(content, new_ce)
+    message.headers = headers
+    message.set_content(content)
+
+
+def _apply_forbidden_response_body(
+    candidate: Any,
+    headers: Headers,
+    content: bytes | None,
+    method: str,
+    status_code: int,
+    *,
+    normalize: bool,
+) -> None:
+    """最终状态禁止正文的专用分支（设计 §7）。
+
+    清空走 ``raw_content`` 直写而不是 content setter —— 带 gzip 头的
+    ``content=b""`` 会生成非空 gzip member。HEAD/304 保留表示元数据
+    （原 Content-Length 不动），1xx/204/成功 CONNECT 删除 framing 头而不生成
+    长度值，205 由原生空体构建保证零长 framing。状态未动且未替换正文时原样
+    放行，不借类型化面板静默修复畸形报文。
+    """
+    candidate.headers = headers
+    if not normalize:
+        return
+    method = method.strip().upper()
+    if status_code == 205:
+        # 先摘编码头再走原生空体构建：无 TE 时原生落 content-length: 0，
+        # 有 TE 时保持 chunked —— 两条路都不会出现 gzip member。
+        candidate.headers.pop("content-encoding", None)
+        candidate.set_content(b"")
+    elif (
+        100 <= status_code < 200
+        or status_code == 204
+        or (method == "CONNECT" and 200 <= status_code < 300)
+    ):
+        # 协议禁止 framing：删掉既有值，不生成长度值；缺失（None）保持缺失。
+        candidate.headers.pop("content-length", None)
+        candidate.headers.pop("transfer-encoding", None)
+        if candidate.raw_content is not None:
+            candidate.raw_content = b""
+    else:
+        # HEAD/304：Content-Length 描述的是「对应表示」，清字节不动元数据。
+        if candidate.raw_content is not None:
+            candidate.raw_content = b""
+    candidate.trailers = None
+
+
+def _rebuild_response_after_forbidden(
+    candidate: Any, headers: Headers, content: bytes | None
+) -> None:
+    """禁止→允许（如 304→200）的正文重建。
+
+    不能带着原表示长度发空体：原体为空时按空正文走原生 setter 重算长度；
+    原体缺失（None）不是空，必须由用户明确替换。
+    """
+    if content is not None:
+        _apply_candidate_body(candidate, headers, content)
+        return
+    raw = candidate.raw_content
+    if raw is None:
+        raise ValueError(
+            QCoreApplication.translate(
+                "InterceptEdit",
+                "原响应正文缺失，切换到允许正文的状态后需要明确替换正文。",
+            )
+        )
+    if not raw:
+        new_ce = headers.get("content-encoding")
+        if _normalized_ce(new_ce) != "identity":
+            raise ValueError(
+                QCoreApplication.translate(
+                    "InterceptEdit",
+                    "原正文为空，不能生成压缩后的空正文；请替换正文，或删除新的 Content-Encoding。",
+                )
+            )
+        candidate.headers = headers
+        candidate.set_content(b"")
+        return
+    _apply_candidate_body(candidate, headers, None)
+
+
 def apply_request_edit(flow: HTTPFlow, edit: RequestEdit) -> None:
     """Write an edited request back onto a held flow. **Runs on the mitm thread.**
 
+    全部校验与正文构建先在 ``flow.request`` 的**副本**上完成，成功后才
+    ``backup()`` 并逐字段提交 —— 一次失败的保存既不留「已编辑」痕迹，也不留
+    半套改动。正文/编码头语义见 :func:`_apply_candidate_body`。
+
     Raises:
-        ValueError: 方法或 URL 为空，或 URL 不合法。
+        ValueError: 方法或 URL 为空、URL 不合法，或正文/编码头转换失败。
     """
     request = flow.request
     if request is None:
         raise ValueError(
             QCoreApplication.translate("InterceptEdit", "这条流量没有请求可改")
         )
-    # 所有校验都跑在 `backup()` 之前，中途一个字段都不写。原生 `Flow.modified()` 的
-    # 真实语义是「有备份可撤销」（它拿 ``_backup`` 和 ``get_state()`` 比，而后者必然多
-    # 带一个内容不同的 ``backup`` 键，一备份就恒为真），所以先备份再校验的话，一次
-    # **失败**的保存也会让这条流量永久显示成「已编辑」；先写方法再校验 URL 更会留下
-    # 半套改动。
+    # `request.url` 的 setter 就是 `url.parse` 加四个字段赋值，先解一次等价于预检，
+    # 把「URL 不合法」挡在动手之前。
     method = edit.method.strip().upper()
     if not method:
         raise ValueError(
@@ -556,42 +729,73 @@ def apply_request_edit(flow: HTTPFlow, edit: RequestEdit) -> None:
         raise ValueError(
             QCoreApplication.translate("InterceptEdit", "请求 URL 不能为空")
         )
-    # `request.url` 的 setter 就是 `url.parse` 加四个字段赋值，先解一次等价于预检，
-    # 把「URL 不合法」挡在动手之前。
     http_url.parse(url)
     headers = _build_headers(edit.headers)
+    candidate = request.copy()
+    _apply_candidate_body(candidate, headers, edit.content)
     # 备份放在校验之后，原生 `Flow.revert()` 才有东西可回滚（`backup()` 已有备份时是
     # 空操作，所以反复编辑只会记下**最初**那份 —— 撤销就该撤到没动过的样子）。
     flow.backup()
     request.method = method
     request.url = url
-    # 头必须先写：`set_content` 会照 ``content-encoding`` 重新压一遍，还顺手改
-    # ``content-length``。反过来先写体，改过的 content-encoding 就作用不到了，
-    # 而 Content-Length 手写更是明令禁止的（原生自己算）。
-    request.headers = headers
-    if edit.content is not None:
-        # None = 体没动过：整段跳过，线上原字节与 Content-Length 原样保留（#89）。
-        request.content = edit.content
+    # 头与体都取自候选：content-length 已由原生 setter 在副本上算好；
+    # raw_content 直写避免把候选字节再解压→回压一遍。
+    request.headers = candidate.headers
+    request.raw_content = candidate.raw_content
 
 
 def apply_response_edit(flow: HTTPFlow, edit: ResponseEdit) -> None:
-    """Write an edited response back onto a held flow. **Runs on the mitm thread.**"""
+    """Write an edited response back onto a held flow. **Runs on the mitm thread.**
+
+    原子性与 :func:`apply_request_edit` 相同；响应额外受协议约束 —— 以**最终**
+    状态码和源请求方法判 :func:`response_body_allowed`，任何绕过 UI 的非空替换
+    都在这里被拒绝。
+
+    Raises:
+        ValueError: 状态码不合法、正文替换与协议规则冲突，或编码头转换失败。
+    """
     response = flow.response
     if response is None:
         raise ValueError(
             QCoreApplication.translate("InterceptEdit", "这条流量还没有响应可改")
         )
-    # 同 `apply_request_edit`：校验全部先于 `backup()`，失败的保存不留「已编辑」痕迹。
     status_code = _checked_status(edit.status_code)
     headers = _build_headers(edit.headers)
+    candidate = response.copy()
+    method = flow.request.method
+    status_changed = status_code != candidate.status_code
+    if response_body_allowed(method, status_code):
+        if not response_body_allowed(method, candidate.status_code):
+            _rebuild_response_after_forbidden(candidate, headers, edit.content)
+        else:
+            _apply_candidate_body(candidate, headers, edit.content)
+        # 状态转换或明确替换后，原 chunked trailers 不再可发送；未动正文与
+        # 状态时原样保留（畸形的原报文不静默修复）。
+        if status_changed or edit.content is not None:
+            candidate.trailers = None
+    else:
+        if edit.content is not None and edit.content:
+            raise ValueError(
+                QCoreApplication.translate(
+                    "InterceptEdit",
+                    "该响应受请求方法或状态码限制不能携带正文，请清空正文后再放行。",
+                )
+            )
+        _apply_forbidden_response_body(
+            candidate,
+            headers,
+            edit.content,
+            method,
+            status_code,
+            normalize=status_changed or edit.content is not None,
+        )
+    # 同 `apply_request_edit`：校验全部先于 `backup()`，失败的保存不留「已编辑」痕迹。
     flow.backup()
     response.status_code = status_code
     response.reason = edit.reason or status_codes.RESPONSES.get(status_code, "")
-    response.headers = headers  # 同上，头先于体
-    if edit.content is not None:
-        # None = 体没动过。HEAD/304 的 Content-Length 描述的是「对应表示」的长度，
-        # `response.content = b""` 会被通用 setter 清成 0 —— 未编辑绝不重写（#89）。
-        response.content = edit.content
+    response.headers = candidate.headers
+    response.raw_content = candidate.raw_content
+    response.trailers = candidate.trailers
 
 
 def fake_response(flow: HTTPFlow, edit: ResponseEdit) -> None:
