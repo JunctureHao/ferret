@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from html import escape
 
-from PySide6.QtCore import QSize, Qt, Slot
+from PySide6.QtCore import QSize, Qt, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
@@ -117,6 +117,8 @@ def hex_dump(content: bytes, limit: int = HEX_DUMP_LIMIT) -> str:
 
 class MessagesPane(SimpleCardWidget):
     """消息列表与详情；内核总数独立于过滤、清空和显示上限。"""
+
+    clearRequested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -447,6 +449,7 @@ class MessagesPane(SimpleCardWidget):
         self.__update_empty()
 
     def __clear_display(self) -> None:
+        self.clearRequested.emit()
         self.message_list.clear()
         self.__update_empty()
 

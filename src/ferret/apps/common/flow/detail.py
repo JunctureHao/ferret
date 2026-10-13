@@ -665,6 +665,9 @@ class FlowDataPanel(QWidget):
         self._rendered_message_kind = ""
         self._rendered_message_index = -1
         self._rendered_close = WsClose()
+        # 清空是每条流量的显示状态；释放页面载荷不能让重载快照恢复旧消息。
+        # 只存 ID、协议和截止序号，不保留消息正文；更换控制器时一并撤下。
+        self._cleared_message_indices: dict[tuple[str, str], int] = {}
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -806,6 +809,7 @@ class FlowDataPanel(QWidget):
 
     def __create_messages(self) -> MessagesPane:
         self.messages = MessagesPane()
+        self.messages.clearRequested.connect(self.__remember_message_clear)
         return self.messages
 
     def __init_layout(self):
@@ -986,6 +990,16 @@ class FlowDataPanel(QWidget):
 
     # —— WebSocket / SSE 实时 ——
 
+    @Slot()
+    def __remember_message_clear(self) -> None:
+        flow_id = self._messages_flow_id
+        if not flow_id or self._rendered_message_index < 0:
+            return
+        key = (flow_id, self._rendered_message_kind)
+        self._cleared_message_indices[key] = max(
+            self._cleared_message_indices.get(key, -1), self._rendered_message_index
+        )
+
     def __is_current(self, flow_id: str) -> bool:
         """这条信号说的是不是面板上正显示的那一条。
 
@@ -1079,7 +1093,10 @@ class FlowDataPanel(QWidget):
 
     def __receive_message(self, kind: str, item: WsFrame | SseEvent) -> None:
         # 快照可能已经含有尚在 Qt 队列中的信号，序号水位防止重复追加/计数。
-        if item.index <= self._message_last_index:
+        cleared_index = self._cleared_message_indices.get(
+            (str(self.datas.get("id") or ""), kind), -1
+        )
+        if item.index <= max(self._message_last_index, cleared_index):
             return
         self._message_last_index = item.index
         self._message_kind = kind
@@ -1188,6 +1205,10 @@ class FlowDataPanel(QWidget):
         self._message_kind = snapshot.get("kind") or self._message_kind
         websocket = self._message_kind == "websocket"
         items = snapshot.get("frames" if websocket else "events", [])
+        cleared_index = self._cleared_message_indices.get(
+            (flow_id, self._message_kind), -1
+        )
+        display_items = [item for item in items if item.index > cleared_index]
         close = snapshot.get("close", WsClose())
         same_flow = (
             self._messages_flow_id == flow_id
@@ -1198,7 +1219,7 @@ class FlowDataPanel(QWidget):
                 self.messages.discard_before(items[0].index)
             # 隐藏期间只更新了收件水位；补齐尚未渲染的条目，保留过滤、清空和滚动。
             # 已清空的旧条目仍在快照里，但不能重新加入显示。
-            for item in items:
+            for item in display_items:
                 if item.index > self._rendered_message_index:
                     if websocket:
                         self.messages.append_frame(item)
@@ -1208,15 +1229,16 @@ class FlowDataPanel(QWidget):
                 self.messages.set_close(close)
         else:
             if websocket:
-                self.messages.show_websocket(items, close)
+                self.messages.show_websocket(display_items, close)
             else:
-                self.messages.show_sse_events(items)
+                self.messages.show_sse_events(display_items)
             self._messages_flow_id = flow_id
             self._rendered_message_kind = self._message_kind
             self._rendered_message_index = -1
         self._rendered_close = close
         self._rendered_message_index = max(
             self._rendered_message_index,
+            cleared_index,
             max((item.index for item in items), default=-1),
         )
         self._message_count = snapshot.get("count", len(items))
@@ -1253,6 +1275,7 @@ class FlowDataPanel(QWidget):
         if controller is self.controller:
             return
         self.__connect_controller(self.controller, connect=False)
+        self._cleared_message_indices.clear()
         self.controller = controller
         self.res_pane.controller = controller
         self.__connect_controller(controller)

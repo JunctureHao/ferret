@@ -684,6 +684,130 @@ class LazyDetailTests(unittest.TestCase):
         self.panel.set_data({})
         self.assertEqual(messages.message_list.message_count(), 0)
 
+    def test_cleared_websocket_history_stays_hidden_after_leaving_and_returning(
+        self,
+    ) -> None:
+        for destination in ("empty", "connection", "other_flow"):
+            with self.subTest(destination=destination):
+                flow = tflow.twebsocketflow()
+                assert flow.websocket is not None
+                flow.websocket.messages = [
+                    WebSocketMessage(Opcode.TEXT, True, b"old-0"),
+                    WebSocketMessage(Opcode.TEXT, False, b"old-1"),
+                ]
+                original = list(flow.websocket.messages)
+                other = tflow.twebsocketflow()
+                self.controller.flows[other.id] = other
+                away = {
+                    "empty": {},
+                    "connection": {"kind": "connection", "flow_count": 2},
+                    "other_flow": build_flow_summary(other),
+                }[destination]
+                with patch.object(
+                    self.controller,
+                    "flow_messages",
+                    side_effect=lambda flow_id: build_flow_messages(
+                        self.controller.flows[flow_id]
+                    ),
+                ):
+                    self.select(flow)
+                    self.panel.res_pane.setCurrentTab("Messages")
+                    messages = self.panel.messages
+                    assert messages is not None
+                    messages.clear_btn.click()
+                    self.assertEqual(messages.message_list.rows(), [])
+                    self.assertEqual(messages.count, 2)
+                    self.assertEqual(flow.websocket.messages, original)
+
+                    self.panel.set_data(away)
+                    self.select(flow)
+                    self.panel.res_pane.setCurrentTab("Messages")
+                    self.assertEqual(messages.message_list.rows(), [])
+
+                    self.panel.set_data(away)
+                    flow.websocket.messages.append(
+                        WebSocketMessage(Opcode.TEXT, False, b"new-2")
+                    )
+                    flow.websocket.closed_by_client = False
+                    flow.websocket.close_code = 1000
+                    flow.websocket.close_reason = "finished"
+                    flow.websocket.timestamp_end = 1700000001.0
+                    self.controller.messages_changed.emit(flow.id, "websocket", 3)
+                    self.select(flow)
+                    self.panel.res_pane.setCurrentTab("Messages")
+                    self.assertEqual(
+                        [row.key for row in messages.message_list.rows()], [2]
+                    )
+                    self.assertEqual(messages.count, 3)
+                    self.assertEqual(self.panel.message_badge.text(), "3")
+                    self.assertFalse(messages.close_label.isHidden())
+                    self.assertIn("finished", messages.close_label.text())
+                    self.assertEqual(flow.websocket.messages[:2], original)
+                    self.assertEqual(len(build_flow_messages(flow)["frames"]), 3)
+
+    def test_cleared_websocket_history_is_tracked_separately_for_each_flow(
+        self,
+    ) -> None:
+        flows = [tflow.twebsocketflow(), tflow.twebsocketflow()]
+        with patch.object(
+            self.controller,
+            "flow_messages",
+            side_effect=lambda flow_id: build_flow_messages(
+                self.controller.flows[flow_id]
+            ),
+        ):
+            for flow, count in zip(flows, (2, 3)):
+                assert flow.websocket is not None
+                flow.websocket.messages = [
+                    WebSocketMessage(Opcode.TEXT, True, b"old") for _ in range(count)
+                ]
+                self.select(flow)
+                self.panel.res_pane.setCurrentTab("Messages")
+                messages = self.panel.messages
+                assert messages is not None
+                self.assertEqual(
+                    [row.key for row in messages.message_list.rows()],
+                    list(range(count)),
+                )
+                messages.clear_btn.click()
+                flow.websocket.messages.append(
+                    WebSocketMessage(Opcode.TEXT, True, b"new")
+                )
+
+            for flow, new_index in zip(flows, (2, 3)):
+                self.select(flow)
+                self.panel.res_pane.setCurrentTab("Messages")
+                assert self.panel.messages is not None
+                self.assertEqual(
+                    [row.key for row in self.panel.messages.message_list.rows()],
+                    [new_index],
+                )
+                self.assertEqual(self.panel.messages.count, new_index + 1)
+
+    def test_changing_controllers_does_not_inherit_cleared_history_for_the_same_id(
+        self,
+    ) -> None:
+        flow = tflow.twebsocketflow()
+        self.controller.frames = [
+            WsFrame(index, True, 1, b"old", 1700000000.0, False, False)
+            for index in range(2)
+        ]
+        self.select(flow)
+        self.panel.res_pane.setCurrentTab("Messages")
+        messages = self.panel.messages
+        assert messages is not None
+        messages.clear_btn.click()
+
+        other = _LazyController()
+        other.frames = [replace(self.controller.frames[0], content=b"other session")]
+        self.panel.set_controller(other)
+        self.assertEqual(other.message_calls, [])
+        self.panel.set_data(build_flow_summary(flow))
+        self.panel.res_pane.setCurrentTab("Messages")
+        self.assertEqual([row.key for row in messages.message_list.rows()], [0])
+        self.assertEqual(messages.message_list.rows()[0].payload, other.frames[0])
+        self.assertEqual(messages.count, 1)
+
     def test_clearing_details_releases_both_hidden_body_documents_without_fetching(
         self,
     ) -> None:
@@ -940,6 +1064,26 @@ class SseRealtimeTests(unittest.TestCase):
         self.assertEqual(messages.count, 2)
         self.controller.sse_event.emit(flow_id, event)
         self.assertEqual([bubble.key for bubble in messages.message_list.rows()], [1])
+
+    def test_cleared_sse_history_stays_hidden_after_reloading_the_flow(self) -> None:
+        self.controller.archived = parse_sse("data: old-0\n\ndata: old-1\n\n")
+        data = self.__sse_detail()
+        flow_id = self.__select(data)
+        self.panel.res_pane.setCurrentTab("Messages")
+        messages = self.panel.messages
+        assert messages is not None
+        messages.clear_btn.click()
+        self.panel.set_data({})
+        event = replace(self.controller.archived[-1], index=2, data="new")
+        self.controller.archived.append(event)
+        self.controller.sse_event.emit(flow_id, event)
+
+        self.__select(data)
+        self.panel.res_pane.setCurrentTab("Messages")
+        self.assertEqual([row.key for row in messages.message_list.rows()], [2])
+        self.assertEqual(messages.count, 3)
+        self.assertEqual(self.panel.message_badge.text(), "3")
+        self.assertEqual(len(self.controller.archived), 3)
 
     def test_a_foreign_flow_id_leaves_the_panel_alone(self) -> None:
         self.__select(self.__pending_detail())
