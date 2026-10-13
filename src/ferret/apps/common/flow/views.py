@@ -1071,7 +1071,6 @@ class FlowViewerPane(OrientationSplitter):
 
     # 当前模式视图的统计转发（平铺/连接树两路都汇到这里再冒泡给消费方）。
     stats_updated = Signal(int, int, int)
-    replay_file_requested = Signal()
     block_host_requested = Signal(str)
     edit_in_compose_requested = Signal(str)
     add_to_mock_requested = Signal(list)
@@ -1167,7 +1166,6 @@ class FlowViewerPane(OrientationSplitter):
         view.stats_updated.connect(self._on_stats_updated)
         view.column_layout_changed.connect(self._on_column_layout_changed)
         menu = view.context_menu
-        menu.replay_file_requested.connect(self.replay_file_requested)
         menu.block_host_requested.connect(self.block_host_requested)
         menu.edit_in_compose_requested.connect(self.edit_in_compose_requested)
         menu.add_to_mock_requested.connect(self.add_to_mock_requested)

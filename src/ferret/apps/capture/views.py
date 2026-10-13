@@ -175,6 +175,9 @@ class CapturesInterface(QWidget):
         """协调层：连接组件业务信号到 Controller"""
         self.command_bar.captureToggled.connect(self.__on_capture_toggled)
         self.command_bar.openRequested.connect(self.__on_open_flow_file_requested)
+        self.command_bar.replayFileRequested.connect(
+            self.__on_replay_from_file_requested
+        )
         self.command_bar.portRequested.connect(self.__show_proxy_port_dialog)
         self.command_bar.locateRequested.connect(self.content.on_locate_selection)
         self.command_bar.clearRequested.connect(self.__confirm_clear_flows)
@@ -184,7 +187,6 @@ class CapturesInterface(QWidget):
         self.command_bar.clearMarkedRequested.connect(self.__on_clear_marked_requested)
 
         # 由共享查看器汇总菜单信号，连接树首次创建后自动接入同一路径。
-        self.content.replay_file_requested.connect(self.__on_replay_from_file_requested)
         self.content.block_host_requested.connect(self.block_host_requested)
         self.content.edit_in_compose_requested.connect(self.edit_in_compose_requested)
         self.content.add_to_mock_requested.connect(self.add_to_mock_requested)
@@ -566,10 +568,10 @@ class CapturesInterface(QWidget):
 
     @Slot()
     def __on_replay_from_file_requested(self) -> None:
-        """用户点击"从文件回放…"：弹文件选择器并调用 controller。"""
+        """从命令栏选择文件并重发其中的请求。"""
         path, _ = QFileDialog.getOpenFileName(
             self.window(),
-            self.tr("选择 .flow 文件回放"),
+            self.tr("选择 .flow 文件重发请求"),
             "",
             self.tr("Flow 文件 (*.flow)"),
         )
@@ -578,7 +580,7 @@ class CapturesInterface(QWidget):
         try:
             self.controller.load_replay_file(Path(path))
         except Exception as exc:  # noqa: BLE001
-            show_warning(self.tr("回放失败"), str(exc), parent=self)
+            show_warning(self.tr("重发失败"), str(exc), parent=self)
 
     @Slot()
     def __on_open_flow_file_requested(self) -> None:
@@ -836,6 +838,7 @@ class CaptureCommandBar(QWidget):
 
     captureToggled = Signal(bool)
     openRequested = Signal()
+    replayFileRequested = Signal()
     clearRequested = Signal()
     deleteUnmarkedRequested = Signal()
     clearMarkedRequested = Signal()
@@ -1021,6 +1024,10 @@ class CaptureCommandBar(QWidget):
         )
         open_action.triggered.connect(self.openRequested.emit)
         menu.addAction(open_action)
+        replay_action = Action(FluentIcon.SYNC, self.tr("从文件重发请求…"), menu)
+        replay_action.triggered.connect(self.replayFileRequested.emit)
+        menu.addAction(replay_action)
+        menu.addSeparator()
         locate_action = Action(BaseIcon.LOCATION_TARGET, self.tr("定位选中"), menu)
         locate_action.setEnabled(bool(self._state and self._state.selected_count))
         locate_action.triggered.connect(self.locateRequested.emit)

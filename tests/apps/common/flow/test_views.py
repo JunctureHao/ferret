@@ -721,19 +721,17 @@ class FlowViewerPaneTests(unittest.TestCase):
 
     def test_menus_from_late_tree_use_pane_signals(self) -> None:
         received = []
-        self.viewer.replay_file_requested.connect(lambda: received.append("replay"))
         self.viewer.block_host_requested.connect(received.append)
         self.viewer.edit_in_compose_requested.connect(received.append)
         self.viewer.add_to_mock_requested.connect(received.append)
-        self.viewer.table.context_menu.replay_file_requested.emit()
+        self.viewer.table.context_menu.block_host_requested.emit("table-host")
         self.viewer.set_grouping_mode("conn")
         tree = self.viewer.tree
         assert tree is not None
-        tree.context_menu.replay_file_requested.emit()
         tree.context_menu.block_host_requested.emit("host")
         tree.context_menu.edit_in_compose_requested.emit("flow-id")
         tree.context_menu.add_to_mock_requested.emit(["flow-id"])
-        self.assertEqual(received, ["replay", "replay", "host", "flow-id", ["flow-id"]])
+        self.assertEqual(received, ["table-host", "host", "flow-id", ["flow-id"]])
 
     def test_late_panel_recovers_sse_archive_and_receives_new_events(self) -> None:
         flow = tflow.tflow(resp=True)
@@ -975,18 +973,16 @@ class FlowContextMenuTests(unittest.TestCase):
         # 菜单选区收行快照（#90）：在内核侧同位置折叠。
         return flow_row(tflow.tflow(resp=True))
 
-    def test_capture_capabilities_show_replay_actions(self) -> None:
+    def test_capture_capabilities_show_replay_action(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
-        # Both replay actions should be present in the action list.
         actions_text = [a.text() for a in menu.actions() if a.text()]
         self.assertIn("重发", actions_text)
-        self.assertIn("从文件回放…", actions_text)
+        self.assertNotIn("从文件重发请求…", actions_text)
 
-    def test_readonly_capabilities_hide_replay_actions(self) -> None:
+    def test_readonly_capabilities_hide_replay_action(self) -> None:
         menu = self._make_menu(self.READONLY_CAPABILITIES)
         actions_text = [a.text() for a in menu.actions() if a.text()]
         self.assertNotIn("重发", actions_text)
-        self.assertNotIn("从文件回放…", actions_text)
 
     def test_single_selection_calls_replay_flow(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)
@@ -1009,13 +1005,6 @@ class FlowContextMenuTests(unittest.TestCase):
         kind, payload = menu.controller.replay_calls[0]
         self.assertEqual(kind, "multi")
         self.assertEqual(len(payload), 3)
-
-    def test_replay_file_requested_signal_emits(self) -> None:
-        menu = self._make_menu(self.CAPTURE_CAPABILITIES)
-        signals: list = []
-        menu.replay_file_requested.connect(lambda: signals.append(1))
-        menu.replay_from_file_action.trigger()
-        self.assertEqual(signals, [1])
 
     def test_capture_capabilities_show_block_host_action(self) -> None:
         menu = self._make_menu(self.CAPTURE_CAPABILITIES)

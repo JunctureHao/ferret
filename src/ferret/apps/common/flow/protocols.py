@@ -10,7 +10,7 @@ class FlowViewController(Protocol):
     """Read-only Flow view controller protocol.
 
     Replay-capable controllers (CaptureController) additionally implement
-    ``replay_flow``/``replay_flows``/``load_replay_file`` and
+    ``replay_flow``/``replay_flows`` and
     ``set_flow_comment``/``set_flow_marked``, but those are NOT
     part of this protocol — they are
     gated at the UI layer by ``FlowViewCapabilities.can_replay`` /

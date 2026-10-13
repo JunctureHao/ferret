@@ -258,7 +258,9 @@ class CaptureCommandBarTests(unittest.TestCase):
 
         menu = self.bar._build_delete_menu()
         actions = [a for a in menu.actions() if a.text()]
-        self.assertEqual([a.text() for a in actions], ["删除未标记流量", "清空已标记流量"])
+        self.assertEqual(
+            [a.text() for a in actions], ["删除未标记流量", "清空已标记流量"]
+        )
 
         actions[0].trigger()
         self.assertEqual(unmarked, [True])
@@ -273,19 +275,26 @@ class CaptureCommandBarTests(unittest.TestCase):
             self.assertFalse(action.isEnabled(), action.text())
         menu.deleteLater()
 
-    def test_more_menu_loads_flows_and_locates_the_selection(self) -> None:
+    def test_more_menu_loads_replays_files_and_locates_the_selection(self) -> None:
         self.bar.set_state(self.state(total_count=5, selected_count=1))
         opened = []
+        replayed = []
         located = []
         self.bar.openRequested.connect(lambda: opened.append(True))
+        self.bar.replayFileRequested.connect(lambda: replayed.append(True))
         self.bar.locateRequested.connect(lambda: located.append(True))
 
         menu = self.bar._build_more_menu()
         actions = {action.text(): action for action in menu.actions()}
+        self.assertEqual(
+            list(actions)[:2], ["加载 Flow / HAR 到当前列表", "从文件重发请求…"]
+        )
         actions["加载 Flow / HAR 到当前列表"].trigger()
+        actions["从文件重发请求…"].trigger()
         self.assertTrue(actions["定位选中"].isEnabled())
         actions["定位选中"].trigger()
         self.assertEqual(opened, [True])
+        self.assertEqual(replayed, [True])
         self.assertEqual(located, [True])
         menu.deleteLater()
 

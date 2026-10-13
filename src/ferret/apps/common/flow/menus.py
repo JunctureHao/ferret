@@ -43,7 +43,6 @@ class FlowContextMenu(RoundMenu):
     # 删除请求信号：载荷是选区而非行号 —— 行删除由表格侧按选区批量走，
     # 菜单只负责报「用户点了删除」（多选时右键行号只是选区之一，发它会漏删）。
     delete_requested = Signal()
-    replay_file_requested = Signal()  # 从文件回放请求信号
     block_host_requested = Signal(str)  # 屏蔽此主机请求信号（携带 host）
     # 「在 Compose 中编辑」请求信号（携带 flow id）。载荷是 id 不是 flow：
     # handler 只拿 id 去 facade 提取，活 flow 引用不进 Qt 槽。
@@ -123,13 +122,12 @@ class FlowContextMenu(RoundMenu):
     def _apply_connection_gating(self, is_connection: bool) -> None:
         """连接节点选中时禁用单流动作；子流 / 平铺行恢复默认可用。
 
-        无独立启用条件的动作（重发 / 从文件回放 / 屏蔽 / 备注）直接按
+        无独立启用条件的动作（重发 / 屏蔽 / 备注）直接按
         `not is_connection` 切换；`edit_in_compose` / `kill` 另有基于选区数/方法的
         判据（见 update_context），这里只在连接节点时强制置灰，非连接时不覆盖。
         """
         for action in (
             self.client_replay_action,
-            self.replay_from_file_action,
             self.block_host_action,
             self.comment_action,
         ):
@@ -150,9 +148,6 @@ class FlowContextMenu(RoundMenu):
         )
         self.edit_in_compose_action = BaseAction(
             parent=self, icon=FluentIcon.EDIT, text=self.tr("在 Compose 中编辑")
-        )
-        self.replay_from_file_action = BaseAction(
-            parent=self, icon=FluentIcon.FOLDER, text=self.tr("从文件回放…")
         )
         self.add_to_mock_action = BaseAction(
             parent=self, icon=FluentIcon.ROBOT, text=self.tr("加入 Mock 响应")
@@ -187,7 +182,6 @@ class FlowContextMenu(RoundMenu):
         self.addMenu(self.view_menu)
         if self.capabilities.can_replay:
             self.addAction(self.client_replay_action)
-            self.addAction(self.replay_from_file_action)
         if self.capabilities.can_mock:
             self.addAction(self.add_to_mock_action)
         if self.capabilities.can_edit_compose:
@@ -213,7 +207,6 @@ class FlowContextMenu(RoundMenu):
         self.edit_in_compose_action.triggered.connect(
             self.__on_edit_in_compose_triggered
         )
-        self.replay_from_file_action.triggered.connect(self.replay_file_requested.emit)
         self.add_to_mock_action.triggered.connect(self.__on_add_to_mock_triggered)
         self.delete_action.triggered.connect(self.__on_delete_triggered)
         self.kill_action.triggered.connect(self.__on_kill_triggered)
