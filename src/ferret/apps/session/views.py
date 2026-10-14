@@ -10,6 +10,7 @@ from PySide6.QtCore import (
     QPoint,
     QSize,
     Qt,
+    QTimer,
     Slot,
 )
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -36,6 +37,7 @@ from ferret.apps.common.flow.protocols import READONLY_CAPABILITIES
 from ferret.apps.common.flow.views import FlowViewerPane
 from ferret.apps.common.icon import BaseAction
 from ferret.apps.common.info_bar import show_error, show_success
+from ferret.apps.common.search import merge_history
 from ferret.apps.session.controllers import SessionController, SessionViewController
 from ferret.apps.session.dialogs import SessionDeleteDialog, SessionNameDialog
 from ferret.apps.session.models import (
@@ -44,6 +46,7 @@ from ferret.apps.session.models import (
     SessionTableModel,
 )
 from ferret.core.mitm import FlowRow, flow_row
+from ferret.core.settings import CONFIG
 
 
 class SessionsInterface(QWidget):
@@ -96,6 +99,10 @@ class SessionsInterface(QWidget):
     def search_focus_target(self) -> QWidget:
         return self.list_page.search_focus_target()
 
+    def search_history_items(self) -> list[str]:
+        """会话页历史桶（名称子串，§4.2 可选钩子）。"""
+        return list(CONFIG.get(CONFIG.search_history_session))
+
 
 class SessionListPage(QWidget):
     """会话列表页：工具栏 + 表格/空状态"""
@@ -104,6 +111,13 @@ class SessionListPage(QWidget):
         super().__init__(parent)
         self.controller = controller
         self._search_text = ""  # titlebar 框回填源（协议 current_search_text，§4.2）
+        # 历史记录防抖：apply_search 随键入实时过滤，而历史只记「停下来输入过」的
+        # 文本——不防抖的话每个中间前缀都会占历史位。与捕获页「debounce 后成功应用
+        # 才记」同一体感。
+        self._history_timer = QTimer(self)
+        self._history_timer.setSingleShot(True)
+        self._history_timer.setInterval(500)
+        self._history_timer.timeout.connect(self._remember_search)
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
@@ -262,6 +276,17 @@ class SessionListPage(QWidget):
     def apply_search(self, text: str) -> None:
         self._search_text = text
         self.proxy_model.set_filter_text(text)
+        if text.strip():
+            self._history_timer.start()
+        else:
+            self._history_timer.stop()
+
+    def _remember_search(self) -> None:
+        """防抖到点：把当前非空搜索文本并进会话桶（MRU 去重，上限见 merge_history）。"""
+        updated = merge_history(
+            list(CONFIG.get(CONFIG.search_history_session)), self._search_text
+        )
+        CONFIG.set(CONFIG.search_history_session, updated)
 
     def current_search_text(self) -> str:
         return self._search_text

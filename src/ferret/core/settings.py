@@ -748,6 +748,24 @@ class Config(QConfig):
         default=[],
     )
 
+    # titlebar 全局搜索框的输入历史（docs/design.md#ui）。按页分桶：捕获页记
+    # flowfilter 表达式、会话页记名称子串，两桶不混。只在表达式成功应用 / 过滤
+    # 实际下发后记录（非法 flowfilter 不进历史），MRU 去重、上限 20 条。写回必须
+    # 传新 list（QConfig.set 同值短路，见 block_list 注释）。
+    search_history_capture = ConfigItem(
+        group="Search",
+        name="CaptureHistory",
+        default=[],
+        serializer=_StringListSerializer(),
+    )
+
+    search_history_session = ConfigItem(
+        group="Search",
+        name="SessionHistory",
+        default=[],
+        serializer=_StringListSerializer(),
+    )
+
     # 流列表列布局（存 {version, order, visible, widths} dict，稳定 key 跨语言不变；
     # 见 apps/common/flow/columns.py）。默认 {} 触发消费侧回落到出厂布局（默认布局
     # 只在 columns.py 收敛，不在两处各写一份）。和 block_list 同一个坑：QConfig.set

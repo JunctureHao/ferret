@@ -11,10 +11,28 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QStringListModel, Qt, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QWidget
+from PySide6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QWidget
 from qfluentwidgets import FluentIcon, LineEdit, qconfig
+
+SEARCH_HISTORY_LIMIT = 20
+"""搜索历史上限（每页一桶，MRU 去重后截断）。"""
+
+
+def merge_history(
+    items: list[str], text: str, *, limit: int = SEARCH_HISTORY_LIMIT
+) -> list[str]:
+    """把一条已成功应用的搜索文本并入历史：strip、去空、MRU 去重、截断。
+
+    恒返回新 list —— ``QConfig.set`` 开头 ``if item.value == value: return`` 会短路，
+    原地 mutate 再 set 静默不落盘（core/settings.py 的 block_list 注释）。
+    """
+    text = text.strip()
+    if not text:
+        return list(items)
+    merged = [text] + [item for item in items if item != text]
+    return merged[:limit]
 
 
 class SearchablePage(Protocol):
@@ -25,6 +43,8 @@ class SearchablePage(Protocol):
       帮助 / 高亮）；切页时由宿主换入换出。
     - ``search_focus_target()``：Esc 后焦点归还目标（通常是页面表格）；缺省回落
       当前页容器。
+    - ``search_history_items()``：返回该页的搜索历史桶（list[str]）；切页时由宿主
+      灌入 completer，缺省空桶。
     """
 
     def search_placeholder(self) -> str: ...
@@ -57,6 +77,17 @@ class SearchHost(QWidget):
         self.edit.setClearButtonEnabled(True)
         self.edit.setFixedHeight(32)
         self.edit.setFixedWidth(400)
+        # 输入历史下拉：QCompleter 弹自有 popup，不占框内按钮位、与 set_actions 的
+        # trailing 动作管理互不干扰；选中会触发 textChanged → search_requested，
+        # 正好走现有路由管线，不另设应用路径。桶内容按页切换（set_history）。
+        self._history_model = QStringListModel(self)
+        self._history_completer = QCompleter(self._history_model, self)
+        self._history_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._history_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self._history_completer.setCompletionMode(
+            QCompleter.CompletionMode.PopupCompletion
+        )
+        self.edit.setCompleter(self._history_completer)
         # 左侧搜索图标（leading 装饰性 action；过滤随键入 live 生效，点击无动作）。
         self._search_icon = QAction(FluentIcon.SEARCH.icon(), self.tr("搜索"), self)
         # 主题切换后重上色：FluentIconEngine 在 icon() 时烘焙颜色，不重设就停留旧色。
@@ -74,6 +105,10 @@ class SearchHost(QWidget):
     def _refresh_theme_icon(self) -> None:
         """主题切换完成后重上色（qconfig.themeChangedFinished，规格 §4.1）。"""
         self._search_icon.setIcon(FluentIcon.SEARCH.icon())
+
+    def set_history(self, items: list[str]) -> None:
+        """替换历史下拉的内容（切页时换桶；只展示，写入由页面自己做）。"""
+        self._history_model.setStringList(items)
 
     def set_actions(self, actions: list[QAction]) -> None:
         """换入当前页的独特动作（捕获页：帮助 / 高亮）；先拆旧动作。

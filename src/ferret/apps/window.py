@@ -281,6 +281,10 @@ class MainWindow(FluentWindow):
             self.search_host.set_actions(
                 actions_hook() if callable(actions_hook) else []
             )
+            history_hook = getattr(page, "search_history_items", None)
+            self.search_host.set_history(
+                history_hook() if callable(history_hook) else []
+            )
             self.search_host.show_box(
                 searchable.search_placeholder(), searchable.current_search_text()
             )

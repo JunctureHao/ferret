@@ -21,6 +21,7 @@ from sysproxy import (
 )
 
 from ferret.apps.capture.services import compile_filter
+from ferret.apps.common.search import merge_history
 from ferret.apps.common.tasks import FunctionTask
 from ferret.core.log import get_logger
 from ferret.core.mitm import (
@@ -627,7 +628,16 @@ class CaptureController(QObject):
             compiled = compile_filter()
         self._last_valid_raw_filter = raw
         self._mitm.set_filter(compiled)
+        self._remember_search(raw)
         self.filterExpressionRejected.emit("")
+
+    def _remember_search(self, raw: str) -> None:
+        """把成功应用的表达式并进捕获桶（MRU 去重、上限见 merge_history）。
+
+        只在编译/应用成功后调用：debounce 中间态与非法表达式不该进历史。
+        """
+        updated = merge_history(list(CONFIG.get(CONFIG.search_history_capture)), raw)
+        CONFIG.set(CONFIG.search_history_capture, updated)
 
     def apply_highlight(self, raw: str = "") -> set[str]:
         """算出命中该表达式的 flow.id 集（搜索高亮用），不改 View 过滤。
@@ -643,6 +653,7 @@ class CaptureController(QObject):
         except ValueError as exc:
             self.filterExpressionRejected.emit(str(exc))
             return set()
+        self._remember_search(raw)
         return self._mitm.match_ids(matcher) & self._admitted_ids
 
     def save_flows(self, flow_ids: list[str], path: str) -> int:

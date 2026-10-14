@@ -79,6 +79,7 @@ from ferret.core.mitm.modes import (
     split_spec,
 )
 from ferret.core.network import ANY_HOST, LOOPBACK_HOST, PORT_MAX, PORT_MIN
+from ferret.core.settings import CONFIG
 
 if TYPE_CHECKING:
     from ferret.apps.window import MainWindow
@@ -700,6 +701,10 @@ class CapturesInterface(QWidget):
 
     def search_focus_target(self) -> QWidget:
         return self.content.table
+
+    def search_history_items(self) -> list[str]:
+        """捕获页历史桶（flowfilter 表达式，§4.2 可选钩子）。"""
+        return list(CONFIG.get(CONFIG.search_history_capture))
 
     def search_actions(self) -> list[QAction]:
         """注入全局框 trailing 位的捕获页独特动作（帮助 / 高亮，§5.1 v3）。"""

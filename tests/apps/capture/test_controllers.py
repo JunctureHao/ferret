@@ -1448,5 +1448,73 @@ class ApplyHighlightTests(unittest.TestCase):
         self.assertEqual(getattr(facade, "match_calls", 0), 0)  # 坏表达式不下发
 
 
+class SearchHistoryTests(unittest.TestCase):
+    """搜索历史（capture 桶）：合法表达式成功应用后进历史；非法/空串不进。
+    CONFIG.set 的写回恒为新 list（merge_history 契约），不与旧值共享引用。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self._saved = list(CONFIG.get(CONFIG.search_history_capture))
+        CONFIG.set(CONFIG.search_history_capture, [], save=False)
+
+    def tearDown(self) -> None:
+        CONFIG.set(CONFIG.search_history_capture, self._saved, save=False)
+
+    def make_controller(self):
+        runtime = FakeRuntime()
+        facade = FakeFacade(runtime)
+        proxy = FakeSystemProxy()
+        return CaptureController(mitm=facade, system_proxy=proxy), facade  # type: ignore
+
+    def test_valid_filter_is_recorded_mru(self) -> None:
+        controller, _facade = self.make_controller()
+
+        controller.apply_filter("~m GET")
+        controller.apply_filter("~d example.com")
+
+        self.assertEqual(
+            CONFIG.get(CONFIG.search_history_capture),
+            ["~d example.com", "~m GET"],
+        )
+
+    def test_repeat_moves_to_front_without_duplicating(self) -> None:
+        controller, _facade = self.make_controller()
+
+        controller.apply_filter("~m GET")
+        controller.apply_filter("~d example.com")
+        controller.apply_filter("~m GET")
+
+        self.assertEqual(
+            CONFIG.get(CONFIG.search_history_capture),
+            ["~m GET", "~d example.com"],
+        )
+
+    def test_invalid_filter_is_not_recorded(self) -> None:
+        controller, _facade = self.make_controller()
+
+        controller.apply_filter("~~~ not a filter")
+
+        self.assertEqual(CONFIG.get(CONFIG.search_history_capture), [])
+
+    def test_empty_filter_is_not_recorded(self) -> None:
+        controller, _facade = self.make_controller()
+
+        controller.apply_filter("")
+
+        self.assertEqual(CONFIG.get(CONFIG.search_history_capture), [])
+
+    def test_valid_highlight_is_recorded_and_invalid_is_not(self) -> None:
+        controller, facade = self.make_controller()
+        facade.match_result = set()
+
+        controller.apply_highlight("~m POST")
+        controller.apply_highlight("~~~ not a filter")
+
+        self.assertEqual(CONFIG.get(CONFIG.search_history_capture), ["~m POST"])
+
+
 if __name__ == "__main__":
     unittest.main()
