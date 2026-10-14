@@ -59,6 +59,19 @@ class UpdateDialogTests(unittest.TestCase):
             ready=ready,
         )
 
+    def test_compact_layout_hides_empty_metadata_and_keeps_help_accessible(
+        self,
+    ) -> None:
+        self.assertTrue(self.dialog.status_card.isVisible())
+        self.assertTrue(self.dialog.last_checked_label.isHidden())
+        self.assertTrue(self.dialog.auto_update_card.toolTip())
+        self.assertEqual(
+            self.dialog.version_label.accessibleDescription(), self.dialog.tr("安装版")
+        )
+
+        self.render(status="latest")
+        self.assertTrue(self.dialog.last_checked_label.isVisible())
+
     def test_manual_actions_keep_the_dialog_open(self) -> None:
         checked: list[bool] = []
         downloaded: list[bool] = []

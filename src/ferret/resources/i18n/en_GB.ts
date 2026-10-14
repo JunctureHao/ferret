@@ -173,29 +173,29 @@
 <context>
     <name>BodyFilePicker</name>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="151"/>
-        <location filename="../../apps/common/edit/forms.py" line="154"/>
-        <location filename="../../apps/common/edit/forms.py" line="200"/>
+        <location filename="../../apps/common/edit/forms.py" line="152"/>
+        <location filename="../../apps/common/edit/forms.py" line="155"/>
+        <location filename="../../apps/common/edit/forms.py" line="201"/>
         <source>选择文件</source>
         <translation>Pick a file</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="157"/>
+        <location filename="../../apps/common/edit/forms.py" line="158"/>
         <source>清除文件</source>
         <translation>Clear file selection</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="188"/>
+        <location filename="../../apps/common/edit/forms.py" line="189"/>
         <source>内存文件</source>
         <translation>File in memory</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="190"/>
+        <location filename="../../apps/common/edit/forms.py" line="191"/>
         <source>{}（{} 字节）</source>
         <translation>{} ({} bytes)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="194"/>
+        <location filename="../../apps/common/edit/forms.py" line="195"/>
         <source>未选择文件</source>
         <translation>No file selected</translation>
     </message>
@@ -3419,65 +3419,65 @@ Device ID: {id}</translation>
 <context>
     <name>FormDataTable</name>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="296"/>
+        <location filename="../../apps/common/edit/forms.py" line="297"/>
         <source>新增字段</source>
         <translation>Add field</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="302"/>
-        <location filename="../../apps/common/edit/forms.py" line="313"/>
+        <location filename="../../apps/common/edit/forms.py" line="303"/>
+        <location filename="../../apps/common/edit/forms.py" line="314"/>
         <source>启用</source>
         <translation>Enabled</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="302"/>
+        <location filename="../../apps/common/edit/forms.py" line="303"/>
         <source>名称</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="302"/>
+        <location filename="../../apps/common/edit/forms.py" line="303"/>
         <source>值</source>
         <translation>Value</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="302"/>
+        <location filename="../../apps/common/edit/forms.py" line="303"/>
         <source>类型</source>
         <translation>Type</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="385"/>
-        <location filename="../../apps/common/edit/forms.py" line="484"/>
+        <location filename="../../apps/common/edit/forms.py" line="386"/>
+        <location filename="../../apps/common/edit/forms.py" line="485"/>
         <source>文件</source>
         <translation>File</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="385"/>
-        <location filename="../../apps/common/edit/forms.py" line="481"/>
+        <location filename="../../apps/common/edit/forms.py" line="386"/>
+        <location filename="../../apps/common/edit/forms.py" line="482"/>
         <source>文本</source>
         <translation>Text</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="390"/>
+        <location filename="../../apps/common/edit/forms.py" line="391"/>
         <source>字段操作</source>
         <translation>Field actions</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="487"/>
+        <location filename="../../apps/common/edit/forms.py" line="488"/>
         <source>编辑字段内容</source>
         <translation>Edit field content</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="492"/>
+        <location filename="../../apps/common/edit/forms.py" line="493"/>
         <source>上移</source>
         <translation>Move up</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="496"/>
+        <location filename="../../apps/common/edit/forms.py" line="497"/>
         <source>下移</source>
         <translation>Move down</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="500"/>
+        <location filename="../../apps/common/edit/forms.py" line="501"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
@@ -3898,22 +3898,22 @@ Device ID: {id}</translation>
         <translation>The edit target has changed; select this flow again.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/held_edit.py" line="185"/>
+        <location filename="../../core/mitm/held_edit.py" line="188"/>
         <source>这条流量已不再挂起，无法应用编辑。</source>
         <translation>This flow is no longer held, so the edits cannot be applied.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/held_edit.py" line="189"/>
+        <location filename="../../core/mitm/held_edit.py" line="192"/>
         <source>流量的拦截阶段已变化，请重新选择这条流量。</source>
         <translation>The interception phase of this flow has changed; select it again.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/held_edit.py" line="195"/>
+        <location filename="../../core/mitm/held_edit.py" line="198"/>
         <source>这条流量已重新挂起，编辑内容已过期。</source>
         <translation>This flow has been held again, so this edit has gone stale.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/held_edit.py" line="199"/>
+        <location filename="../../core/mitm/held_edit.py" line="204"/>
         <source>这条流量的报文已变化，请重新载入后编辑。</source>
         <translation>The message of this flow has changed; reload it before editing.</translation>
     </message>
@@ -4401,79 +4401,79 @@ Device ID: {id}</translation>
 <context>
     <name>InterceptWindow</name>
     <message>
-        <location filename="../../apps/intercept/window.py" line="70"/>
+        <location filename="../../apps/intercept/window.py" line="76"/>
         <source>断点</source>
         <translation>Breakpoints</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="171"/>
+        <location filename="../../apps/intercept/window.py" line="177"/>
         <source>放行全部</source>
         <translation>Release all</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="173"/>
+        <location filename="../../apps/intercept/window.py" line="179"/>
         <source>放行全部挂起的流量，不套用任何编辑</source>
         <translation>Release every held flow without applying any edits</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="204"/>
+        <location filename="../../apps/intercept/window.py" line="210"/>
         <source>选择一条挂起的流量进行编辑</source>
         <translation>Select a held flow to edit it</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="322"/>
-        <location filename="../../apps/intercept/window.py" line="330"/>
-        <location filename="../../apps/intercept/window.py" line="380"/>
+        <location filename="../../apps/intercept/window.py" line="328"/>
+        <location filename="../../apps/intercept/window.py" line="336"/>
+        <location filename="../../apps/intercept/window.py" line="386"/>
         <source>放行失败</source>
         <translation>Release failed</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="322"/>
+        <location filename="../../apps/intercept/window.py" line="328"/>
         <source>断点快照已失效，请重新选择这条流量。</source>
         <translation>The breakpoint snapshot has gone stale; select this flow again.</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="501"/>
+        <location filename="../../apps/intercept/window.py" line="507"/>
         <source>放行</source>
         <translation>Release</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="506"/>
+        <location filename="../../apps/intercept/window.py" line="512"/>
         <source>丢弃</source>
         <translation>Drop</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="188"/>
+        <location filename="../../apps/intercept/window.py" line="194"/>
         <source>当前没有被拦下的流量</source>
         <translation>Nothing is held right now</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="190"/>
+        <location filename="../../apps/intercept/window.py" line="196"/>
         <source>命中断点规则的流量会停在这里，等你改完再放行</source>
         <translation>Traffic that matches a breakpoint rule stops here and waits until you release it</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="255"/>
+        <location filename="../../apps/intercept/window.py" line="261"/>
         <source>断点 · {} 条待处理</source>
         <translation>Breakpoints · {} pending</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="520"/>
+        <location filename="../../apps/intercept/window.py" line="526"/>
         <source>{} 条待处理 · 正在准备正文 {}</source>
         <translation>{} pending · preparing body {}</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="524"/>
+        <location filename="../../apps/intercept/window.py" line="530"/>
         <source>{} 条待处理 · 正在编辑 {}</source>
         <translation>{} pending · editing {}</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="528"/>
+        <location filename="../../apps/intercept/window.py" line="534"/>
         <source>{} 条待处理</source>
         <translation>{} pending</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/window.py" line="578"/>
+        <location filename="../../apps/intercept/window.py" line="584"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
@@ -4742,22 +4742,22 @@ Device ID: {id}</translation>
 <context>
     <name>MessageEditor</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="102"/>
+        <location filename="../../apps/intercept/editors.py" line="109"/>
         <source>写回改动并放行这条流量</source>
         <translation>Write the edits back and release this flow</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="105"/>
+        <location filename="../../apps/intercept/editors.py" line="112"/>
         <source>放行</source>
         <translation>Release</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="110"/>
+        <location filename="../../apps/intercept/editors.py" line="117"/>
         <source>断开这条流量，客户端什么都收不到</source>
         <translation>Kill this flow; the client receives nothing at all</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="115"/>
+        <location filename="../../apps/intercept/editors.py" line="122"/>
         <source>丢弃</source>
         <translation>Drop</translation>
     </message>
@@ -4926,7 +4926,7 @@ Device ID: {id}</translation>
     <message>
         <location filename="../../core/mitm/facade.py" line="815"/>
         <location filename="../../core/mitm/facade.py" line="935"/>
-        <location filename="../../core/mitm/held_edit.py" line="181"/>
+        <location filename="../../core/mitm/held_edit.py" line="184"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
@@ -5783,22 +5783,22 @@ Device ID: {id}</translation>
 <context>
     <name>RequestPanel</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="204"/>
+        <location filename="../../apps/intercept/editors.py" line="211"/>
         <source>请求头 ({count})</source>
         <translation>Request headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="231"/>
+        <location filename="../../apps/intercept/editors.py" line="238"/>
         <source>参数</source>
         <translation>Params</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="232"/>
+        <location filename="../../apps/intercept/editors.py" line="239"/>
         <source>请求头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="233"/>
+        <location filename="../../apps/intercept/editors.py" line="240"/>
         <source>请求体</source>
         <translation>Body</translation>
     </message>
@@ -5829,22 +5829,22 @@ Device ID: {id}</translation>
 <context>
     <name>ResponsePanel</name>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="310"/>
+        <location filename="../../apps/intercept/editors.py" line="317"/>
         <source>响应头 ({count})</source>
         <translation>Response headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="327"/>
+        <location filename="../../apps/intercept/editors.py" line="334"/>
         <source>响应头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="328"/>
+        <location filename="../../apps/intercept/editors.py" line="335"/>
         <source>响应体</source>
         <translation>Body</translation>
     </message>
     <message>
-        <location filename="../../apps/intercept/editors.py" line="359"/>
+        <location filename="../../apps/intercept/editors.py" line="366"/>
         <source>此请求方法或响应状态不允许响应体；放行时不发送正文。</source>
         <translation>This request method or response status does not allow a body; nothing is sent when released.</translation>
     </message>
@@ -7472,133 +7472,128 @@ Device ID: {id}</translation>
 <context>
     <name>UpdateDialog</name>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="60"/>
+        <location filename="../../apps/update/dialogs.py" line="62"/>
         <source>版本与更新</source>
         <translation>Version and Updates</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="63"/>
+        <location filename="../../apps/update/dialogs.py" line="65"/>
         <source>{} · 当前版本 v{}</source>
         <translation>{} · Current version v{}</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="67"/>
+        <location filename="../../apps/update/dialogs.py" line="68"/>
         <source>安装版</source>
         <translation>Installed version</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="67"/>
+        <location filename="../../apps/update/dialogs.py" line="68"/>
         <source>便携版 / 开发环境</source>
         <translation>Portable / Development version</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="81"/>
+        <location filename="../../apps/update/dialogs.py" line="86"/>
         <source>查看完整发布说明</source>
         <translation>View full release notes</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="82"/>
-        <location filename="../../apps/update/dialogs.py" line="208"/>
+        <location filename="../../apps/update/dialogs.py" line="87"/>
+        <location filename="../../apps/update/dialogs.py" line="219"/>
         <source>检查更新</source>
         <translation>Check for Updates</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="94"/>
+        <location filename="../../apps/update/dialogs.py" line="100"/>
         <source>自动检查更新</source>
         <translation>Automatically Check for Updates</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="100"/>
+        <location filename="../../apps/update/dialogs.py" line="97"/>
         <source>启动后及每小时检测，发现新版时在菜单上提示</source>
         <translation>Check on startup and every hour; show a menu badge when an update is available</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="103"/>
+        <location filename="../../apps/update/dialogs.py" line="107"/>
         <source>关闭</source>
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="158"/>
-        <source>最近检查：尚未检查</source>
-        <translation>Last checked: Never</translation>
-    </message>
-    <message>
-        <location filename="../../apps/update/dialogs.py" line="161"/>
+        <location filename="../../apps/update/dialogs.py" line="171"/>
         <source>最近检查：{}</source>
         <translation>Last checked: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="169"/>
+        <location filename="../../apps/update/dialogs.py" line="180"/>
         <source>新版本 v{}，预计下载 {}。</source>
         <translation>New version v{}, estimated download size {}.</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="197"/>
+        <location filename="../../apps/update/dialogs.py" line="208"/>
         <source>重启更新</source>
         <translation>Restart to Update</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="201"/>
+        <location filename="../../apps/update/dialogs.py" line="212"/>
         <source>重试下载</source>
         <translation>Retry Download</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="203"/>
+        <location filename="../../apps/update/dialogs.py" line="214"/>
         <source>下载更新</source>
         <translation>Download Update</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="208"/>
+        <location filename="../../apps/update/dialogs.py" line="219"/>
         <source>打开发布页</source>
         <translation>Open Releases Page</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="213"/>
+        <location filename="../../apps/update/dialogs.py" line="224"/>
         <source>当前运行方式不支持应用内更新，请前往发布页下载。</source>
         <translation>In-app updates are unavailable for this installation. Download updates from the releases page.</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="215"/>
+        <location filename="../../apps/update/dialogs.py" line="226"/>
         <source>正在检查更新…</source>
         <translation>Checking for updates…</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="217"/>
+        <location filename="../../apps/update/dialogs.py" line="228"/>
         <source>当前已是最新版本</source>
         <translation>You are on the latest version</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="219"/>
+        <location filename="../../apps/update/dialogs.py" line="230"/>
         <source>发现新版本</source>
         <translation>An update is available</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="221"/>
+        <location filename="../../apps/update/dialogs.py" line="232"/>
         <source>正在下载更新，关闭此窗口后仍会继续。</source>
         <translation>Downloading the update. The download will continue if you close this window.</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="223"/>
+        <location filename="../../apps/update/dialogs.py" line="234"/>
         <source>下载完成，重启后生效。</source>
         <translation>Download complete. A restart is required to apply it.</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="225"/>
+        <location filename="../../apps/update/dialogs.py" line="236"/>
         <source>检查更新失败</source>
         <translation>Failed to check for updates</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="227"/>
+        <location filename="../../apps/update/dialogs.py" line="238"/>
         <source>下载更新失败，可以重试。</source>
         <translation>The download failed. You can try again.</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="229"/>
+        <location filename="../../apps/update/dialogs.py" line="240"/>
         <source>应用更新失败，可以重试。</source>
         <translation>The update could not be applied. You can try again.</translation>
     </message>
     <message>
-        <location filename="../../apps/update/dialogs.py" line="230"/>
+        <location filename="../../apps/update/dialogs.py" line="241"/>
         <source>尚未检查更新</source>
         <translation>Updates have not been checked yet</translation>
     </message>
@@ -7606,7 +7601,7 @@ Device ID: {id}</translation>
 <context>
     <name>UrlencodedTable</name>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="81"/>
+        <location filename="../../apps/common/edit/forms.py" line="82"/>
         <source>编辑字段内容</source>
         <translation>Edit field content</translation>
     </message>
@@ -7910,17 +7905,17 @@ Device ID: {id}</translation>
 <context>
     <name>_FieldTextDialog</name>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="55"/>
+        <location filename="../../apps/common/edit/forms.py" line="56"/>
         <source>编辑字段内容</source>
         <translation>Edit field content</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="58"/>
+        <location filename="../../apps/common/edit/forms.py" line="59"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/forms.py" line="59"/>
+        <location filename="../../apps/common/edit/forms.py" line="60"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>

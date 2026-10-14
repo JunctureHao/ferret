@@ -18,6 +18,8 @@ from qfluentwidgets import (
     MessageBoxBase,
     ProgressBar,
     PushButton,
+    SimpleCardWidget,
+    StrongBodyLabel,
     SubtitleLabel,
     SwitchSettingCard,
 )
@@ -58,22 +60,25 @@ class UpdateDialog(MessageBoxBase):
 
     def __init_widget(self, current_version: str) -> None:
         self.title_label = SubtitleLabel(self.tr("版本与更新"), self)
-        self.version_label = BodyLabel(self)
+        self.version_label = StrongBodyLabel(self)
         self.version_label.setText(
             self.tr("{} · 当前版本 v{}").format(APP_NAME, current_version)
         )
-        self.installation_label = CaptionLabel(self)
-        self.installation_label.setText(
+        installation = (
             self.tr("安装版") if self._supported else self.tr("便携版 / 开发环境")
         )
+        self.version_label.setToolTip(installation)
+        self.version_label.setAccessibleDescription(installation)
 
-        self.status_label = BodyLabel(self)
+        self.status_card = SimpleCardWidget(self)
+        self.status_card.setBorderRadius(8)
+        self.status_label = StrongBodyLabel(self)
         self.status_label.setWordWrap(True)
         self.last_checked_label = CaptionLabel(self)
         self.desc_label = BodyLabel(self)
         self.desc_label.setWordWrap(True)
         self.desc_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.notes_label = CaptionLabel(self)
+        self.notes_label = BodyLabel(self)
         self.notes_label.setWordWrap(True)
         self.notes_label.setTextFormat(Qt.TextFormat.PlainText)
 
@@ -84,11 +89,12 @@ class UpdateDialog(MessageBoxBase):
 
         self.progress_bar = ProgressBar(self)
         self.progress_bar.setRange(0, 100)
-        self.error_label = CaptionLabel(self)
+        self.error_label = BodyLabel(self)
         self.error_label.setWordWrap(True)
         self.error_label.setTextFormat(Qt.TextFormat.PlainText)
         self.error_label.setStyleSheet("color: #c07000;")
 
+        auto_update_hint = self.tr("启动后及每小时检测，发现新版时在菜单上提示")
         self.auto_update_card = SwitchSettingCard(
             FluentIcon.SYNC,
             self.tr("自动检查更新"),
@@ -96,35 +102,38 @@ class UpdateDialog(MessageBoxBase):
             parent=self,
         )
         self.auto_update_card.setEnabled(self._supported)
-        self.auto_update_hint = CaptionLabel(
-            self.tr("启动后及每小时检测，发现新版时在菜单上提示"), self
-        )
-        self.auto_update_hint.setWordWrap(True)
+        self.auto_update_card.setToolTip(auto_update_hint)
+        self.auto_update_card.setAccessibleDescription(auto_update_hint)
         self.cancelButton.setText(self.tr("关闭"))
 
     def __init_layout(self) -> None:
         layout = QVBoxLayout()
-        layout.setSpacing(10)
+        layout.setSpacing(14)
         layout.addWidget(self.title_label)
         layout.addWidget(self.version_label)
-        layout.addWidget(self.installation_label)
-        layout.addSpacing(6)
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.last_checked_label)
-        layout.addWidget(self.desc_label)
-        layout.addWidget(self.notes_label)
+
+        card_layout = QVBoxLayout(self.status_card)
+        card_layout.setContentsMargins(20, 18, 20, 18)
+        card_layout.setSpacing(10)
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.addWidget(self.status_label, 1)
+        status_row.addWidget(self.last_checked_label, 0, Qt.AlignmentFlag.AlignRight)
+        card_layout.addLayout(status_row)
+        card_layout.addWidget(self.desc_label)
+        card_layout.addWidget(self.notes_label)
         links = QHBoxLayout()
         links.setContentsMargins(0, 0, 0, 0)
         links.addWidget(self.release_link)
         links.addStretch(1)
         links.addWidget(self.check_button)
-        layout.addLayout(links)
-        layout.addWidget(self.progress_bar)
-        layout.addWidget(self.error_label)
+        card_layout.addLayout(links)
+        card_layout.addWidget(self.progress_bar)
+        card_layout.addWidget(self.error_label)
+        layout.addWidget(self.status_card)
         layout.addWidget(self.auto_update_card)
-        layout.addWidget(self.auto_update_hint)
         self.viewLayout.addLayout(layout)
-        self.widget.setFixedWidth(540)
+        self.widget.setMinimumWidth(520)
 
     @property
     def ready(self) -> bool:
@@ -155,13 +164,15 @@ class UpdateDialog(MessageBoxBase):
         self._ready = ready
         self.status_label.setText(self._status_text(status))
         if last_checked is None:
-            self.last_checked_label.setText(self.tr("最近检查：尚未检查"))
+            self.last_checked_label.clear()
+            self.last_checked_label.hide()
         else:
             self.last_checked_label.setText(
                 self.tr("最近检查：{}").format(
                     last_checked.astimezone().strftime("%Y-%m-%d %H:%M:%S")
                 )
             )
+            self.last_checked_label.show()
 
         self.desc_label.setVisible(brief is not None)
         if brief is not None:
