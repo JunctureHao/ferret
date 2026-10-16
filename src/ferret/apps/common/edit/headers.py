@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from PySide6.QtCore import QSignalBlocker, Slot
@@ -176,6 +177,23 @@ class HeaderDualPanel(ItemDualPanel):
         if self._loading_headers:
             return super().items()
         return [row.pair for row in self._rows()]
+
+    def saved_managed_rows(self) -> tuple[int, ...]:
+        """Snapshot ownership as positions in items(), not ephemeral Qt row IDs."""
+        return tuple(
+            index
+            for index, row in enumerate(self._rows())
+            if row.identity in self._managed_headers
+        )
+
+    def restore_managed_rows(self, indices: Sequence[int]) -> None:
+        """Reattach ownership after set_items has assigned fresh row identities."""
+        rows = self._rows()
+        self._managed_headers = {
+            identity
+            for index in indices
+            if 0 <= index < len(rows) and (identity := rows[index].identity) is not None
+        }
 
     @Slot()
     def _on_headers_edited(self) -> None:

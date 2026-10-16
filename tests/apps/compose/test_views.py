@@ -17,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from mitmproxy.test import tflow
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
-from qfluentwidgets import CheckBox, ComboBox, PrimaryPushButton
+from qfluentwidgets import ComboBox, PrimaryPushButton, ToggleToolButton
 
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.compose.body_editor import BodyKind
@@ -194,8 +194,8 @@ class UrlMergeTests(ComposeInterfaceTestCase):
         self.assertTrue(call[5])  # 默认记录流量
 
     def test_disabling_recording_is_passed_to_the_controller(self) -> None:
-        self.assertIsInstance(self.page.record_btn, CheckBox)
-        self.assertEqual(self.page.record_btn.text(), "记录流量")
+        self.assertIsInstance(self.page.record_btn, ToggleToolButton)
+        self.assertEqual(self.page.record_btn.accessibleName(), "记录流量")
         self.page.url_edit.setText("https://api.example.com/v1")
         self.page.record_btn.setChecked(False)
         self.page._on_send()

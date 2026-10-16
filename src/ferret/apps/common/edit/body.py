@@ -121,6 +121,25 @@ class BodySnapshot:
     body: BodyDraft | None
 
 
+@dataclass(frozen=True)
+class BodyEditorState:
+    """Value documents for restoring a create editor, independent of Qt state.
+
+    Original form bytes accompany their unchanged fields; once edited, only
+    the fields are retained. No transport data is built and no files are read.
+    """
+
+    kind: BodyKind = BodyKind.NONE
+    suspended_kind: BodyKind = BodyKind.NONE
+    content: bytes = b""
+    form: tuple[tuple[str, str], ...] = ()
+    form_raw: bytes | None = None
+    fields: tuple[FormField, ...] = ()
+    multipart_raw: bytes | None = None
+    multipart_content_type: str = ""
+    file: FormField | None = None
+
+
 class BodyEditor(QWidget):
     """The active kind alone determines what is sent; hidden drafts never leak."""
 
@@ -583,6 +602,74 @@ class BodyEditor(QWidget):
             if kind not in self.kinds:
                 kind = BodyKind.RAW
             self._kind = self._suspended_kind = kind
+            self.set_kind(kind)
+        finally:
+            self._loading = False
+        self._render()
+
+    def editor_state(self) -> BodyEditorState:
+        """Commit open cells, then capture values without draft() side effects."""
+        form = tuple(self.form.items())
+        fields = tuple(self.multipart.fields())
+        form_unchanged = (
+            form == self._form_initial
+            if self._form_initial is not None
+            else not self._form_dirty
+        )
+        multipart_unchanged = (
+            not self._multipart_dirty and fields == self._multipart_initial
+        )
+        return BodyEditorState(
+            kind=self._kind,
+            suspended_kind=self._suspended_kind,
+            content=self._text_content(),
+            form=form,
+            form_raw=self._form_raw if form_unchanged else None,
+            fields=fields,
+            multipart_raw=self._multipart_raw if multipart_unchanged else None,
+            multipart_content_type=self._multipart_type if multipart_unchanged else "",
+            file=self.file_picker.file() if self._file_initialized else None,
+        )
+
+    def load_editor_state(self, state: BodyEditorState) -> None:
+        """Restore create documents; headers and their ownership belong to caller.
+
+        Loading never invokes set_kind's user action or synthesizes headers:
+        missing/deleted Content-Type and manual boundary values must survive.
+        """
+        kind = state.kind if state.kind in self.kinds else BodyKind.RAW
+        self._loading = True
+        try:
+            self._source_content = b""
+            self._available = True
+            self._decode_ok = True
+            self._strict_charset = False
+            self._body_allowed = True
+            self._protocol_hint = ""
+            self._notice = ""
+            self._form_raw = state.form_raw
+            self._multipart_raw = state.multipart_raw
+            self._form_dirty = self._multipart_dirty = False
+            self._form_initial = state.form
+            self._multipart_initial = state.fields
+            self._multipart_type = state.multipart_content_type
+            self._file_initialized = state.file is not None
+            self._set_text(state.content)
+            self.form.set_items(state.form)
+            self.multipart.set_fields(state.fields)
+            self.file_picker.set_file()
+            if state.file is not None:
+                self.file_picker.set_file(
+                    state.file.file_path,
+                    filename=state.file.filename,
+                    payload=state.file.payload,
+                )
+            self._kind = kind
+            self._suspended_kind = (
+                state.suspended_kind
+                if state.suspended_kind in self.kinds
+                else BodyKind.RAW
+            )
             self.set_kind(kind)
         finally:
             self._loading = False

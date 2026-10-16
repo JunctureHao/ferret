@@ -33,6 +33,11 @@ from tests.core.mitm._qt import wait_until
 class ComposeBodyTestCase(ComposeInterfaceTestCase):
     def setUp(self) -> None:
         super().setUp()
+        # These codec tests intentionally replace each prior draft. The actual
+        # save/discard/cancel interaction is exercised in test_saved_views.
+        discard = patch("ferret.apps.compose.views._UnsavedDialog")
+        discard.start().return_value.choice = "discard"
+        self.addCleanup(discard.stop)
         self.editor = self.page.body_editor
         self.page.url_edit.setText("https://example.test/upload")
         self.errors: list[str] = []
@@ -454,9 +459,7 @@ class FilePreparationTests(ComposeBodyTestCase):
                     raise AssertionError("Test did not release body preparation")
                 return read_body_file(path)
 
-            with patch(
-                "ferret.apps.common.edit.body.read_body_file", side_effect=read
-            ):
+            with patch("ferret.apps.common.edit.body.read_body_file", side_effect=read):
                 self.page.send_btn.click()
                 self.assertTrue(wait_until(entered.is_set, timeout_ms=5000))
                 self.assertFalse(self.page.send_btn.isEnabled())

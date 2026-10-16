@@ -776,6 +776,19 @@ class Config(QConfig):
         default={},
     )
 
+    # Compose 页左侧请求库面板的显隐（开关按钮在 Compose 顶栏最左，
+    # 面板本体与草稿文件见 apps/compose/library.py / store.py）。
+    compose_library_visible = BoolConfigItem(
+        group="Compose",
+        name="LibraryVisible",
+        default=False,
+    )
+    compose_library_width = ConfigItem(
+        group="Compose",
+        name="LibraryWidth",
+        default=240,
+    )
+
     # 自动检查更新（docs/design.md#update）：控制启动、每小时检查与失败重试，
     # 版本窗口的手动入口恒可用，不受此开关影响。BoolConfigItem 而非裸
     # validator=BoolValidator()：坏值回落本项默认（#88 的收口语义）。
@@ -900,6 +913,11 @@ def get_scripts_dir() -> Path:
     directory = get_config_dir() / "scripts"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def get_compose_requests_file() -> Path:
+    """Compose 请求库的托管 JSON（结构化草稿；原子写见 apps/compose/store.py）。"""
+    return get_config_dir() / "compose_requests.json"
 
 
 def get_mock_pool_file() -> Path:
