@@ -9,9 +9,15 @@ from email.message import Message
 from enum import StrEnum
 from urllib.parse import parse_qsl, urlencode
 
-from PySide6.QtCore import QCoreApplication, QSignalBlocker, Slot
+from PySide6.QtCore import QCoreApplication, QSignalBlocker, Qt, Slot
 from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox
+from qfluentwidgets import (
+    CaptionLabel,
+    ComboBox,
+    SimpleCardWidget,
+    setCustomStyleSheet,
+    setFont,
+)
 
 from ferret.core.mitm import (
     FormField,
@@ -25,7 +31,7 @@ from ferret.utils.i18n import QT_TRANSLATE_NOOP, resolve_marker
 from .forms import BodyFilePicker, FormDataTable, UrlencodedTable
 from .headers import HeaderDualPanel
 from .syntax import Language
-from .widgets import ToolPlainTextEdit
+from .widgets import ToolPlainTextEdit, ToolWidget
 
 
 class BodyProfile(StrEnum):
@@ -140,6 +146,20 @@ class BodyEditorState:
     file: FormField | None = None
 
 
+class _BodyPage(SimpleCardWidget):
+    """给文件与空状态补齐和正文编辑器相同的工具栏。"""
+
+    def __init__(self, content: QWidget, parent: QWidget):
+        super().__init__(parent)
+        tools = ToolWidget(self)
+        self.tool_layout = tools.left_layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(tools)
+        layout.addWidget(content, 1)
+
+
 class BodyEditor(QWidget):
     """The active kind alone determines what is sent; hidden drafts never leak."""
 
@@ -198,30 +218,42 @@ class BodyEditor(QWidget):
                 for kind, _ in self._choices
             ]
         )
-        self.kind_combo.setMinimumWidth(150)
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(BodyLabel(self.tr("数据类型"), self))
-        toolbar.addWidget(self.kind_combo)
-        toolbar.addStretch(1)
+        self.kind_combo.setMinimumWidth(80)
+        self.kind_combo.setFixedHeight(24)
+        setFont(self.kind_combo, 12)
+        combo_qss = "ComboBox { padding: 2px 24px 3px 8px; }"
+        setCustomStyleSheet(self.kind_combo, combo_qss, combo_qss)
+        self._kind_selector = QWidget(self)
+        self._kind_selector.setFixedHeight(30)
+        kind_layout = QHBoxLayout(self._kind_selector)
+        kind_layout.setContentsMargins(8, 3, 0, 3)
+        kind_layout.setSpacing(6)
+        kind_label = CaptionLabel(self.tr("数据类型"), self._kind_selector)
+        kind_label.setTextColor("#606060", "#c5c5c5")
+        kind_layout.addWidget(kind_label)
+        kind_layout.addWidget(self.kind_combo)
 
         self.text = ToolPlainTextEdit(self)
         self.form = UrlencodedTable(self)
         self.multipart = FormDataTable(self)
         self.file_picker = BodyFilePicker(self)
-        self.empty = QWidget(self)
-        empty_layout = QVBoxLayout(self.empty)
+        self._file_page = _BodyPage(self.file_picker, self)
+        empty_content = QWidget(self)
+        empty_layout = QVBoxLayout(empty_content)
         empty_layout.addStretch(1)
-        self.empty_label = CaptionLabel(self.empty)
+        self.empty_label = CaptionLabel(empty_content)
         empty_layout.addWidget(self.empty_label)
         empty_layout.addStretch(1)
+        self.empty = _BodyPage(empty_content, self)
+        self._tool_layouts = {
+            self.empty: self.empty.tool_layout,
+            self.text: self.text.tool_layout,
+            self.form: self.form.tool_layout,
+            self.multipart: self.multipart.tools.left_layout,
+            self._file_page: self._file_page.tool_layout,
+        }
         self.stack = QStackedWidget(self)
-        for page in (
-            self.empty,
-            self.text,
-            self.form,
-            self.multipart,
-            self.file_picker,
-        ):
+        for page in self._tool_layouts:
             self.stack.addWidget(page)
         self.hint = CaptionLabel(self)
         self.hint.setWordWrap(True)
@@ -229,7 +261,6 @@ class BodyEditor(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addLayout(toolbar)
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.hint)
 
@@ -379,6 +410,7 @@ class BodyEditor(QWidget):
 
     def _render(self) -> None:
         kind = self._kind
+        selector_focused = self.kind_combo.hasFocus()
         self.kind_combo.setEnabled(self._body_allowed)
         self.empty_label.setText(
             self._protocol_hint
@@ -397,7 +429,7 @@ class BodyEditor(QWidget):
             }.get(kind, Language.TEXT)
             # Rehighlighting emits textChanged even though the body did not change.
             with QSignalBlocker(self.text):
-                self.text.code_widget.set_language(language)
+                self.text.set_language(language)
             self.text.set_read_only(
                 self._binary or self._text_guarded or self._charset_blocked()
             )
@@ -407,9 +439,16 @@ class BodyEditor(QWidget):
                 BodyKind.NONE: self.empty,
                 BodyKind.URLENCODED: self.form,
                 BodyKind.MULTIPART: self.multipart,
-                BodyKind.FILE: self.file_picker,
+                BodyKind.FILE: self._file_page,
             }[kind]
+        tool_layout = self._tool_layouts[page]
+        if tool_layout.indexOf(self._kind_selector) < 0:
+            # 复用同一个选择器；切页后显式显示，抵消 Qt reparent 的隐藏行为。
+            tool_layout.insertWidget(0, self._kind_selector)
         self.stack.setCurrentWidget(page)
+        self._kind_selector.show()
+        if selector_focused:
+            self.kind_combo.setFocus(Qt.FocusReason.OtherFocusReason)
         self._update_hint()
 
     def _content_types(self) -> list[str]:

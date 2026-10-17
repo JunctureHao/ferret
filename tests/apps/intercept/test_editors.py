@@ -10,6 +10,8 @@
   （issues #78）。
 """
 
+from __future__ import annotations
+
 import os
 import unittest
 
@@ -39,6 +41,36 @@ def _flow_with_query(url: str):
 
 
 class BodyWritebackTests(unittest.TestCase):
+    def test_format_json_writes_request_and_response_but_undo_leaves_body_unwritten(
+        self,
+    ):
+        original = b'{\r\n"ok":true\r\n}\r\n'
+        formatted = b'{\n  "ok": true\n}\n'
+        for panel_type, attr in (
+            (RequestPanel, "request"),
+            (ResponsePanel, "response"),
+        ):
+            with self.subTest(phase=attr):
+                flow = tflow.tflow(resp=True)
+                message = getattr(flow, attr)
+                message.content = original
+                message.headers["Content-Type"] = "application/json"
+                panel = panel_type()
+                self.addCleanup(panel.deleteLater)
+                panel.load(flow)
+                self.assertIsNone(panel.edit().content)
+
+                panel.body_panel.text._btn_format.click()
+
+                self.assertEqual(panel.edit().content, formatted)
+                if isinstance(panel, RequestPanel):
+                    apply_request_edit(flow, panel.edit())
+                else:
+                    apply_response_edit(flow, panel.edit())
+                self.assertEqual(message.get_content(strict=False), formatted)
+                panel.body_panel.text.code_widget.undo()
+                self.assertIsNone(panel.edit().content)
+
     def test_unedited_body_is_left_unwritten(self):
         original = b"--boundary\r\nContent-Disposition: form-data\r\n\r\nvalue\r\n--boundary--\r\n"
         panel = RequestPanel()

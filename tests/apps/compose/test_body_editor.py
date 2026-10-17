@@ -95,6 +95,20 @@ class ComposeBodyTestCase(ComposeInterfaceTestCase):
 
 
 class BodyTypeTests(ComposeBodyTestCase):
+    def test_format_json_sends_the_edit_and_undo_restores_original_crlf_bytes(self):
+        payload = b'{\r\n"value":1e+02,"value":-0.00\r\n}\r\n'
+        formatted = b'{\n  "value": 1e+02,\n  "value": -0.00\n}\n'
+        self.load(payload, [("Content-Type", "application/json")])
+        self.assertFalse(self.page._form_dirty)
+        self.assertFalse(self.editor.text._btn_format.isHidden())
+
+        self.editor.text._btn_format.click()
+
+        self.assertTrue(self.page._form_dirty)
+        self.assertEqual(self.send()[4], formatted)
+        self.editor.text.code_widget.undo()
+        self.assertEqual(self.send()[4], payload)
+
     def test_all_eight_choices_keep_the_selector_visible_and_none_sends_no_body(self):
         self.assertEqual(self.editor.kind_combo.count(), 8)
         self.assertEqual(self.editor.kind, BodyKind.NONE)

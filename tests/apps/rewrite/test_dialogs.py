@@ -18,6 +18,8 @@
 `MessageBoxBase` 会读 `parent.width()`，所以每个用例都得有一个真的宿主窗口。
 """
 
+from __future__ import annotations
+
 import os
 import tempfile
 import unittest
@@ -27,6 +29,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
+from ferret.apps.common.edit import Language
 from ferret.apps.rewrite.dialogs import (
     _BODY_ROW,
     _HEADERS_ROW,
@@ -131,7 +134,10 @@ class LayoutPerKindTests(DialogHost):
     def test_the_status_combo_offers_common_codes_and_takes_free_input(self) -> None:
         dlg = self.dialog()
         self.pick(dlg, RewriteKind.REPLACE_RESPONSE)
-        self.assertIn("200", [dlg.status_combo.itemText(i) for i in range(dlg.status_combo.count())])
+        self.assertIn(
+            "200",
+            [dlg.status_combo.itemText(i) for i in range(dlg.status_combo.count())],
+        )
         dlg.status_combo.setText("599")
         self.assertEqual(dlg.get_rule().status_code, 599)
 
@@ -200,6 +206,28 @@ class LayoutPerKindTests(DialogHost):
 
 class KindSwitchTests(DialogHost):
     """单行 ↔ 多行换栏时内容必须跟着走：改错类型不该让人重打一遍。"""
+
+    def test_formatted_body_updates_preview_and_survives_message_kind_switches(self):
+        dlg = self.dialog(
+            RewriteRule(
+                kind=RewriteKind.MODIFY_RESPONSE_BODY,
+                value="api.example.com",
+                replacement='{"a":1}',
+            )
+        )
+        expected = '{\n  "a": 1\n}'
+        before = dlg.preview_label.text()
+
+        dlg.replacement_text._btn_format.click()
+
+        self.assertEqual(dlg.get_rule().replacement, expected)
+        self.assertTrue(dlg.yesButton.isEnabled())
+        self.assertNotEqual(dlg.preview_label.text(), before)
+        self.assertIn(expected, dlg.preview_label.text())
+        for kind in (RewriteKind.REPLACE_REQUEST, RewriteKind.MODIFY_REQUEST_BODY):
+            self.pick(dlg, kind)
+            self.assertEqual(dlg.get_rule().replacement, expected)
+            self.assertTrue(dlg.yesButton.isEnabled())
 
     def test_single_line_content_survives_a_switch_to_a_body_kind(self) -> None:
         dlg = self.dialog()
@@ -390,6 +418,38 @@ class ValidationGateTests(DialogHost):
 
 class MessageFormTests(DialogHost):
     """消息型两类型（替换请求/替换响应）的取值与闸门。"""
+
+    def test_message_json_format_refreshes_preview_and_tracks_content_language(self):
+        dlg = self.dialog(
+            RewriteRule(
+                kind=RewriteKind.REPLACE_RESPONSE,
+                value="api.example.com",
+                replacement="<root />",
+            )
+        )
+        editor = dlg.message_body
+        self.assertTrue(editor._btn_format.isHidden())
+        editor.code_widget.selectAll()
+        editor.code_widget.insertPlainText('{"a":1}')
+        self.assertEqual(editor.code_widget.language, Language.JSON)
+        self.assertFalse(editor._btn_format.isHidden())
+        before = dlg.preview_label.text()
+
+        editor._btn_format.click()
+
+        self.assertEqual(dlg.get_rule().replacement, '{\n  "a": 1\n}')
+        self.assertNotEqual(dlg.preview_label.text(), before)
+        self.assertTrue(dlg.yesButton.isEnabled())
+        for text, language in (
+            ("plain text", Language.TEXT),
+            ("<root />", Language.XML),
+        ):
+            editor.code_widget.selectAll()
+            editor.code_widget.insertPlainText(text)
+            self.assertEqual(editor.code_widget.language, language)
+            self.assertTrue(editor._btn_format.isHidden())
+            self.assertEqual(dlg.get_rule().replacement, text)
+            self.assertTrue(dlg.yesButton.isEnabled())
 
     def test_a_replace_response_round_trips(self) -> None:
         rule = RewriteRule(

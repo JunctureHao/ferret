@@ -46,6 +46,7 @@ from ferret.apps.common.info_bar import show_success, show_warning
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
 from .editor import CodeEditor
+from .formatting import JsonFormatLimitError, format_json
 from .syntax import Language
 from .theme import EditorPalette
 
@@ -535,7 +536,7 @@ class ItemTableToolWidget(SimpleCardWidget):
 
 
 class ToolPlainTextEdit(SimpleCardWidget):
-    """带工具栏（复制 / 换行 / 查找）的代码编辑器面板。"""
+    """带工具栏（JSON 格式化 / 复制 / 换行 / 查找）的代码编辑器面板。"""
 
     changed = Signal()
 
@@ -558,6 +559,7 @@ class ToolPlainTextEdit(SimpleCardWidget):
         self.__init_layout()
         self.__connect_signal_to_slot()
         self.code_widget.textChanged.connect(self._on_text_changed)
+        self._update_format_button()
 
     def __init_widget(self):
         self.tool_widget = ToolWidget(self)
@@ -566,6 +568,9 @@ class ToolPlainTextEdit(SimpleCardWidget):
         self.notice.setWordWrap(True)
         self.notice.hide()
 
+        self._btn_format = TransparentTooltipButton(FluentIcon.ALIGNMENT, self)
+        self._btn_format.setToolTip(self.tr("格式化 JSON"))
+        self._btn_format.setAccessibleName(self.tr("格式化 JSON"))
         self._btn_copy = TransparentTooltipButton(FluentIcon.COPY, self)
         self._btn_copy.setToolTip(self.tr("复制"))
         self._btn_wrap = TransparentTooltipButton(BaseIcon.LINE_BREAK, self)
@@ -625,11 +630,13 @@ class ToolPlainTextEdit(SimpleCardWidget):
         main_layout.addWidget(self.code_widget, stretch=1)
 
         tool_right_layout = self.tool_widget.right_layout
+        tool_right_layout.addWidget(self._btn_format)
         tool_right_layout.addWidget(self._btn_copy)
         tool_right_layout.addWidget(self._btn_wrap)
         tool_right_layout.addWidget(self._btn_search)
 
     def __connect_signal_to_slot(self):
+        self._btn_format.clicked.connect(self.handle_btn_format_clicked)
         self._btn_copy.clicked.connect(self.handle_btn_copy_clicked)
         self._btn_wrap.clicked.connect(self.handle_btn_wrap_clicked)
         self._btn_search.clicked.connect(self.handle_btn_search_clicked)
@@ -644,6 +651,58 @@ class ToolPlainTextEdit(SimpleCardWidget):
             self._apply_search_highlight
         )
         self.code_widget.viewportChanged.connect(self._apply_search_highlight)
+
+    def _can_format_json(self) -> bool:
+        return self.code_widget.language is Language.JSON and not self.is_read_only()
+
+    def _update_format_button(self) -> None:
+        available = self._can_format_json()
+        self._btn_format.setVisible(available)
+        self._btn_format.setEnabled(
+            available and not self.code_widget.document().isEmpty()
+        )
+
+    @Slot()
+    def handle_btn_format_clicked(self) -> None:
+        if not self._can_format_json() or self.code_widget.document().isEmpty():
+            return
+        original = self.text()
+        try:
+            formatted = format_json(original)
+        except json.JSONDecodeError as exc:
+            show_warning(
+                self.tr("无法格式化 JSON"),
+                self.tr(
+                    "JSON 格式错误（第 {line} 行，第 {column} 列），原文未修改。"
+                ).format(line=exc.lineno, column=exc.colno),
+                self.window(),
+            )
+            return
+        except JsonFormatLimitError:
+            show_warning(
+                self.tr("无法格式化 JSON"),
+                self.tr("JSON 过大或嵌套过深，无法格式化；原文未修改。"),
+                self.window(),
+            )
+            return
+        if formatted == original:
+            return
+
+        # 用一个原生编辑操作保留撤销栈，并让 changed 驱动正文写回和搜索刷新。
+        # set_text() 属于程序化装载，会清空撤销栈并抑制这些修改通知。
+        cursor = self.code_widget.textCursor()
+        position = cursor.position()
+        scroll = self.code_widget.verticalScrollBar().value()
+        cursor.beginEditBlock()
+        cursor.select(QTextCursor.SelectionType.Document)
+        cursor.insertText(formatted)
+        cursor.endEditBlock()
+        cursor.setPosition(
+            min(position, self.code_widget.document().characterCount() - 1)
+        )
+        self.code_widget.setTextCursor(cursor)
+        self.code_widget.verticalScrollBar().setValue(scroll)
+        self.code_widget.setFocus()
 
     @Slot()
     def handle_btn_copy_clicked(self):
@@ -812,7 +871,7 @@ class ToolPlainTextEdit(SimpleCardWidget):
         self.notice.setVisible(bool(notice))
         self._loading = True
         try:
-            self.code_widget.set_language(lang)
+            self.set_language(lang)
             self.code_widget.setPlainText(text)
             # 整体换文本是程序化路径，绕过 highlighter 的输入防抖：否则新报文会先
             # 以无色状态闪一帧（点一条 flow 就闪一次）。这一句必须留在 _loading 里：
@@ -821,6 +880,17 @@ class ToolPlainTextEdit(SimpleCardWidget):
             self.code_widget.highlighter.relex_now()
         finally:
             self._loading = False
+        self._update_format_button()
+
+    def set_language(self, lang: Language | str) -> None:
+        # 切换高亮可能触发 textChanged，但不会修改正文；不要通知调用方保存。
+        loading = self._loading
+        self._loading = True
+        try:
+            self.code_widget.set_language(lang)
+        finally:
+            self._loading = loading
+        self._update_format_button()
 
     def text(self) -> str:
         """当前文本（含用户编辑）。"""
@@ -828,6 +898,7 @@ class ToolPlainTextEdit(SimpleCardWidget):
 
     def set_read_only(self, read_only: bool):
         self.code_widget.setReadOnly(read_only)
+        self._update_format_button()
 
     def is_read_only(self) -> bool:
         return self.code_widget.isReadOnly()
@@ -836,6 +907,7 @@ class ToolPlainTextEdit(SimpleCardWidget):
     def _on_text_changed(self):
         if self._loading:
             return
+        self._update_format_button()
         self.__on_search_text_changed(self._search_bar.text())
         self.changed.emit()
 

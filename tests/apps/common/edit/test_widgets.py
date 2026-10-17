@@ -22,8 +22,10 @@ from array import array
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QObject, QPoint, Signal
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication, QLineEdit, QTableWidget
 
+from ferret.apps.common.edit.formatting import JsonFormatLimitError
 from ferret.apps.common.edit.syntax import Language
 from ferret.apps.common.edit.widgets import (
     JSON_TREE_BATCH_SIZE,
@@ -269,6 +271,99 @@ class ToolPlainTextEditTests(unittest.TestCase):
         self.assertTrue(self.edit.is_read_only())
         self.edit.set_read_only(False)
         self.assertFalse(self.edit.is_read_only())
+
+    def test_json_format_is_only_available_for_editable_json(self) -> None:
+        original = '{"a":1}'
+        self.edit.set_text(original, Language.TEXT)
+        self.assertTrue(self.edit._btn_format.isHidden())
+        self.edit.handle_btn_format_clicked()
+        self.assertEqual(self.edit.text(), original)
+        self.edit.set_language(Language.JSON)
+        self.assertFalse(self.edit._btn_format.isHidden())
+        self.assertTrue(self.edit._btn_format.isEnabled())
+        self.assertEqual(self.seen, [])
+        self.edit.set_read_only(True)
+        self.assertTrue(self.edit._btn_format.isHidden())
+        self.edit.handle_btn_format_clicked()
+        self.assertEqual(self.edit.text(), original)
+        self.edit.set_read_only(False)
+        self.assertFalse(self.edit._btn_format.isHidden())
+        self.edit.set_language(Language.XML)
+        self.assertTrue(self.edit._btn_format.isHidden())
+        self.edit.set_text("", Language.JSON)
+        self.assertFalse(self.edit._btn_format.isHidden())
+        self.assertFalse(self.edit._btn_format.isEnabled())
+
+    def test_json_format_preserves_previous_edits_and_is_one_undo_step(self) -> None:
+        original = '{"a":1,"b":[true,null]}'
+        formatted = '{\n  "a": 1,\n  "b": [\n    true,\n    null\n  ]\n}'
+        self.edit.set_text(original, Language.JSON)
+        code = self.edit.code_widget
+        code.moveCursor(QTextCursor.MoveOperation.End)
+        code.insertPlainText(" ")
+        self.seen.clear()
+        self.edit._btn_format.click()
+        self.assertEqual(self.edit.text(), formatted)
+        self.assertTrue(self.seen)
+        code.undo()
+        self.assertEqual(self.edit.text(), original + " ")
+        code.undo()
+        self.assertEqual(self.edit.text(), original)
+        code.redo()
+        code.redo()
+        self.assertEqual(self.edit.text(), formatted)
+
+    def test_already_formatted_json_creates_no_edit_or_undo_step(self) -> None:
+        original = '{\n  "a": 1\n}\n'
+        self.edit.set_text(original, Language.JSON)
+        self.edit._btn_format.click()
+        self.assertEqual(self.edit.text(), original)
+        self.assertEqual(self.seen, [])
+        self.assertFalse(self.edit.code_widget.document().isUndoAvailable())
+
+    def test_invalid_json_keeps_text_and_reports_error_location(self) -> None:
+        original = '{\n  "a":\n}'
+        self.edit.set_text(original, Language.JSON)
+        with unittest.mock.patch(
+            "ferret.apps.common.edit.widgets.show_warning"
+        ) as warning:
+            self.edit._btn_format.click()
+        warning.assert_called_once()
+        self.assertIn("第 3 行，第 1 列", warning.call_args.args[1])
+        self.assertEqual(self.edit.text(), original)
+        self.assertEqual(self.seen, [])
+        self.assertFalse(self.edit.code_widget.document().isUndoAvailable())
+
+    def test_json_format_limit_keeps_the_editable_document(self) -> None:
+        original = '{"a":1}'
+        self.edit.set_text(original, Language.JSON)
+        with (
+            unittest.mock.patch(
+                "ferret.apps.common.edit.widgets.format_json",
+                side_effect=JsonFormatLimitError("format limit"),
+            ),
+            unittest.mock.patch(
+                "ferret.apps.common.edit.widgets.show_warning"
+            ) as warning,
+        ):
+            self.edit._btn_format.click()
+        warning.assert_called_once()
+        self.assertEqual(self.edit.text(), original)
+        self.assertEqual(self.seen, [])
+        self.assertFalse(self.edit.code_widget.document().isUndoAvailable())
+
+    def test_json_format_refreshes_search_positions(self) -> None:
+        self.edit.set_text('{"a":"😀match","b":"match"}', Language.JSON)
+        self.edit.open_search()
+        self.edit._search_bar.setText("match")
+        self.assertTrue(wait_until(lambda: len(self.edit._search_results) == 2))
+        original_positions = list(self.edit._search_results)
+        self.edit._btn_format.click()
+        self.assertTrue(wait_until(lambda: len(self.edit._search_results) == 2))
+        self.assertNotEqual(list(self.edit._search_results), original_positions)
+        for _ in range(2):
+            self.edit.search_next()
+            self.assertEqual(self.edit.code_widget.textCursor().selectedText(), "match")
 
     def test_set_text_clears_stale_search_hits(self) -> None:
         """查找结果记的是上一份文本里的游标，换文本后必须清掉。"""

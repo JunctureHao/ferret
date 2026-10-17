@@ -337,7 +337,7 @@ class RewriteRuleDialog(MessageBoxBase):
         self.path_edit.textChanged.connect(self._validate)
         self.status_combo.currentTextChanged.connect(self._validate)
         self.headers_panel.changed.connect(self._validate)
-        self.message_body.changed.connect(self._validate)
+        self.message_body.changed.connect(self._on_message_body_changed)
 
     @staticmethod
     def _index_of(items: list, value) -> int:
@@ -383,6 +383,10 @@ class RewriteRuleDialog(MessageBoxBase):
 
     def _set_message_body(self, text: str) -> None:
         self.message_body.set_text(text, _sniff_language(text))
+
+    def _on_message_body_changed(self) -> None:
+        self.message_body.set_language(_sniff_language(self.message_body.text()))
+        self._validate()
 
     def _sync_kind_texts(self) -> None:
         kind = self._current_kind()

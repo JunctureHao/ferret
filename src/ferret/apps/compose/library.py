@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QModelIndex, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
+    QHeaderView,
     QStackedWidget,
+    QTreeView,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -30,6 +32,7 @@ from qfluentwidgets import (
     ToolButton,
     ToolTipFilter,
     TreeWidget,
+    setCustomStyleSheet,
 )
 
 from ferret.apps.common.icon import BaseAction
@@ -38,6 +41,29 @@ from ferret.apps.compose.store import ComposeRequestStore
 
 # UserRole 存 ("request", id) / ("folder", 名称)。
 _ROLE = Qt.ItemDataRole.UserRole
+
+
+class _RequestTree(TreeWidget):
+    """紧凑的单列请求树，分支绘制与点击区域使用同一套缩进。"""
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setIndentation(16)
+        self.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.setWordWrap(False)
+        self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        # 默认样式另加 20px 行内留白，会和两级树缩进叠加挤占请求名称。
+        qss = "QTreeView::item { padding-left: 4px; }"
+        setCustomStyleSheet(self, qss, qss)
+
+    def drawBranches(self, painter, rect, index) -> None:
+        # 与 FlowConnTree 一样，绕过 QFW 固定的分支偏移，保留 Fluent 样式。
+        QTreeView.drawBranches(self, painter, rect, index)
+
+    def viewportEvent(self, event: QEvent) -> bool:
+        return QTreeView.viewportEvent(self, event)
 
 
 class _NameDialog(MessageBoxBase):
@@ -82,9 +108,7 @@ class ComposeLibraryPanel(QWidget):
         self.search_edit = SearchLineEdit(self)
         self.search_edit.setPlaceholderText(self.tr("搜索请求"))
 
-        self.tree = TreeWidget(self)
-        self.tree.setHeaderHidden(True)
-        self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tree = _RequestTree(self)
 
         # 与 FlowEmptyState 同一层级的空态：小图标 + 标题 + 说明。
         self.empty_hint = QWidget(self)
@@ -183,6 +207,7 @@ class ComposeLibraryPanel(QWidget):
                 continue
             item = QTreeWidgetItem()
             item.setText(0, folder)
+            item.setToolTip(0, folder)
             item.setIcon(0, FluentIcon.FOLDER.icon())
             item.setData(0, _ROLE, ("folder", folder))
             self.tree.addTopLevelItem(item)
@@ -209,7 +234,7 @@ class ComposeLibraryPanel(QWidget):
         item = QTreeWidgetItem()
         item.setText(0, f"{request.method}  {request.name}")
         item.setData(0, _ROLE, ("request", request.id))
-        item.setToolTip(0, request.url)
+        item.setToolTip(0, f"{request.method}  {request.name}\n{request.url}")
         self._request_items[request.id] = item
         return item
 

@@ -1,4 +1,4 @@
-# AGENTS.md — Ferret 开发约定
+  # AGENTS.md — Ferret 开发约定
 
 基于 **PySide6 + QFluentWidgets + mitmproxy** 的桌面 HTTP/HTTPS 流量抓包工具。
 改动代码前必须先遵守本文件；与代码冲突时以代码为准，并回改本文件里失真的那条规则。

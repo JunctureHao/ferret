@@ -35,137 +35,137 @@
 <context>
     <name>BodyEditor</name>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="54"/>
+        <location filename="../../apps/common/edit/body.py" line="60"/>
         <source>无请求体</source>
         <translation>No body</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="55"/>
-        <location filename="../../apps/common/edit/body.py" line="65"/>
+        <location filename="../../apps/common/edit/body.py" line="61"/>
+        <location filename="../../apps/common/edit/body.py" line="71"/>
         <source>JSON</source>
         <translation>JSON</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="56"/>
-        <location filename="../../apps/common/edit/body.py" line="66"/>
+        <location filename="../../apps/common/edit/body.py" line="62"/>
+        <location filename="../../apps/common/edit/body.py" line="72"/>
         <source>Text</source>
         <translation>Text</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="57"/>
-        <location filename="../../apps/common/edit/body.py" line="68"/>
+        <location filename="../../apps/common/edit/body.py" line="63"/>
+        <location filename="../../apps/common/edit/body.py" line="74"/>
         <source>XML</source>
         <translation>XML</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="58"/>
-        <location filename="../../apps/common/edit/body.py" line="69"/>
+        <location filename="../../apps/common/edit/body.py" line="64"/>
+        <location filename="../../apps/common/edit/body.py" line="75"/>
         <source>Raw</source>
         <translation>Raw</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="59"/>
+        <location filename="../../apps/common/edit/body.py" line="65"/>
         <source>Urlencoded</source>
         <translation>Urlencoded</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="60"/>
+        <location filename="../../apps/common/edit/body.py" line="66"/>
         <source>Form-data</source>
         <translation>Form-data</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="61"/>
-        <location filename="../../apps/common/edit/body.py" line="70"/>
+        <location filename="../../apps/common/edit/body.py" line="67"/>
+        <location filename="../../apps/common/edit/body.py" line="76"/>
         <source>文件</source>
         <translation>File</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="64"/>
+        <location filename="../../apps/common/edit/body.py" line="70"/>
         <source>无响应体</source>
         <translation>No body</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="67"/>
+        <location filename="../../apps/common/edit/body.py" line="73"/>
         <source>HTML</source>
         <translation>HTML</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="112"/>
+        <location filename="../../apps/common/edit/body.py" line="118"/>
         <source>请先选择正文文件</source>
         <translation>Select a body file first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="203"/>
+        <location filename="../../apps/common/edit/body.py" line="231"/>
         <source>数据类型</source>
         <translation>Body type</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="332"/>
+        <location filename="../../apps/common/edit/body.py" line="363"/>
         <source>请先将 Content-Type 的 charset 改为 UTF-8，再选择文本类型。</source>
         <translation>Change the Content-Type charset to UTF-8 before choosing a text type.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="386"/>
+        <location filename="../../apps/common/edit/body.py" line="418"/>
         <source>该请求不带请求体</source>
         <translation>This request has no body</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="388"/>
+        <location filename="../../apps/common/edit/body.py" line="420"/>
         <source>该响应不带响应体</source>
         <translation>This response has no body</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="442"/>
+        <location filename="../../apps/common/edit/body.py" line="481"/>
         <source>请先将 Content-Type 的 charset 改为 UTF-8，再替换文本正文。</source>
         <translation>Change the Content-Type charset to UTF-8 before replacing the text body.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="465"/>
+        <location filename="../../apps/common/edit/body.py" line="504"/>
         <source>原正文尚未取得，不能将缺失内容当作空正文；可明确选择替换内容。</source>
         <translation>The original body has not been retrieved, and a missing body must not be treated as empty. Choose the replacement content explicitly.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="470"/>
+        <location filename="../../apps/common/edit/body.py" line="509"/>
         <source>原正文解码失败，已锁定为只读；未修改时保留原始报文。</source>
         <translation>The original body could not be decoded and is locked read-only; the original message is kept unless you edit it.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="475"/>
+        <location filename="../../apps/common/edit/body.py" line="514"/>
         <source>正文声明的 charset 不是 UTF-8，已锁定为只读；修改声明后可选择文本替换。</source>
         <translation>The body declares a charset other than UTF-8 and is locked read-only; change the declared charset to enable text replacement.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="481"/>
+        <location filename="../../apps/common/edit/body.py" line="520"/>
         <source>这段内容不是合法的 UTF-8，已锁定为只读；未修改时保留原始字节。</source>
         <translation>This content is not valid UTF-8. It is read-only and the original bytes are kept unless you edit it.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="498"/>
+        <location filename="../../apps/common/edit/body.py" line="537"/>
         <source>请求头中的 Content-Type 与所选类型不同，将保留你填写的请求头。</source>
         <translation>The Content-Type header differs from the selected body type. Your header will be kept.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="502"/>
+        <location filename="../../apps/common/edit/body.py" line="541"/>
         <source>响应头中的 Content-Type 与所选类型不同，将保留你填写的响应头。</source>
         <translation>The Content-Type header differs from the selected body type. Your header will be kept.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="564"/>
+        <location filename="../../apps/common/edit/body.py" line="603"/>
         <source>此 multipart 正文无法完整转换为字段表，已保留原始正文。</source>
         <translation>This multipart body cannot be fully converted to form fields. The original body has been kept.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="586"/>
+        <location filename="../../apps/common/edit/body.py" line="625"/>
         <source>此表单包含非 UTF-8 字段，已保留原始正文。</source>
         <translation>This form contains fields that are not UTF-8. The original body has been kept.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="755"/>
+        <location filename="../../apps/common/edit/body.py" line="794"/>
         <source>Form-data 需要唯一的 Content-Type 请求头，请重新选择类型或修正请求头。</source>
         <translation>Form-data requires exactly one Content-Type header. Select the body type again or correct the headers.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/body.py" line="776"/>
+        <location filename="../../apps/common/edit/body.py" line="815"/>
         <source>Form-data 的 Content-Type 必须是 multipart/form-data 并包含有效的 boundary。</source>
         <translation>Form-data requires a Content-Type of multipart/form-data with a valid boundary.</translation>
     </message>
@@ -1898,100 +1898,100 @@
 <context>
     <name>ComposeLibraryPanel</name>
     <message>
-        <location filename="../../apps/compose/library.py" line="83"/>
+        <location filename="../../apps/compose/library.py" line="109"/>
         <source>搜索请求</source>
         <translation>Search requests</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="93"/>
-        <location filename="../../apps/compose/library.py" line="197"/>
+        <location filename="../../apps/compose/library.py" line="117"/>
+        <location filename="../../apps/compose/library.py" line="222"/>
         <source>暂无已保存请求</source>
         <translation>No saved requests</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="95"/>
-        <location filename="../../apps/compose/library.py" line="202"/>
+        <location filename="../../apps/compose/library.py" line="119"/>
+        <location filename="../../apps/compose/library.py" line="227"/>
         <source>编辑请求后点击顶栏「保存」</source>
         <translation>Edit a request, then click Save in the toolbar</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="114"/>
-        <location filename="../../apps/compose/library.py" line="273"/>
-        <location filename="../../apps/compose/library.py" line="296"/>
+        <location filename="../../apps/compose/library.py" line="138"/>
+        <location filename="../../apps/compose/library.py" line="298"/>
+        <location filename="../../apps/compose/library.py" line="321"/>
         <source>新建文件夹</source>
         <translation>New folder</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="117"/>
-        <location filename="../../apps/compose/library.py" line="300"/>
+        <location filename="../../apps/compose/library.py" line="141"/>
+        <location filename="../../apps/compose/library.py" line="325"/>
         <source>新建请求</source>
         <translation>New request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="197"/>
+        <location filename="../../apps/compose/library.py" line="222"/>
         <source>没有匹配的请求</source>
         <translation>No matching requests</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="200"/>
+        <location filename="../../apps/compose/library.py" line="225"/>
         <source>试试其他名称、方法或 URL</source>
         <translation>Try a different name, method or URL</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="256"/>
-        <location filename="../../apps/compose/library.py" line="336"/>
-        <location filename="../../apps/compose/library.py" line="367"/>
+        <location filename="../../apps/compose/library.py" line="281"/>
+        <location filename="../../apps/compose/library.py" line="361"/>
+        <location filename="../../apps/compose/library.py" line="392"/>
         <source>重命名</source>
         <translation>Rename</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="329"/>
+        <location filename="../../apps/compose/library.py" line="354"/>
         <source>打开</source>
         <translation>Open</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="340"/>
+        <location filename="../../apps/compose/library.py" line="365"/>
         <source>移动到…</source>
         <translation>Move to…</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="344"/>
+        <location filename="../../apps/compose/library.py" line="369"/>
         <source>未分组</source>
         <translation>Ungrouped</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="356"/>
+        <location filename="../../apps/compose/library.py" line="381"/>
         <source>复制副本</source>
         <translation>Duplicate</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="360"/>
+        <location filename="../../apps/compose/library.py" line="385"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="370"/>
-        <location filename="../../apps/compose/library.py" line="402"/>
+        <location filename="../../apps/compose/library.py" line="395"/>
+        <location filename="../../apps/compose/library.py" line="427"/>
         <source>删除文件夹</source>
         <translation>Delete folder</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="385"/>
+        <location filename="../../apps/compose/library.py" line="410"/>
         <source>{}（副本）</source>
         <translation>{} (copy)</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="393"/>
+        <location filename="../../apps/compose/library.py" line="418"/>
         <source>删除请求</source>
         <translation>Delete request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="394"/>
+        <location filename="../../apps/compose/library.py" line="419"/>
         <source>确定删除「{}」？此操作不可撤销。</source>
         <translation>Delete “{}”? This cannot be undone.</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="403"/>
+        <location filename="../../apps/compose/library.py" line="428"/>
         <source>删除文件夹「{}」？其中的请求会移到未分组。</source>
         <translation>Delete folder “{}”? Its requests will be moved to Ungrouped.</translation>
     </message>
@@ -4659,12 +4659,12 @@ Device ID: {id}</translation>
 <context>
     <name>ItemDualPanel</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="877"/>
+        <location filename="../../apps/common/edit/widgets.py" line="949"/>
         <source>文本模式</source>
         <translation>Text view</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="879"/>
+        <location filename="../../apps/common/edit/widgets.py" line="951"/>
         <source>表格模式</source>
         <translation>Table view</translation>
     </message>
@@ -4672,76 +4672,76 @@ Device ID: {id}</translation>
 <context>
     <name>ItemTableToolWidget</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="317"/>
+        <location filename="../../apps/common/edit/widgets.py" line="318"/>
         <source>升序</source>
         <translation>Ascending</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="322"/>
+        <location filename="../../apps/common/edit/widgets.py" line="323"/>
         <source>降序</source>
         <translation>Descending</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="327"/>
+        <location filename="../../apps/common/edit/widgets.py" line="328"/>
         <source>原始顺序</source>
         <translation>Original order</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="360"/>
-        <location filename="../../apps/common/edit/widgets.py" line="460"/>
+        <location filename="../../apps/common/edit/widgets.py" line="361"/>
+        <location filename="../../apps/common/edit/widgets.py" line="461"/>
         <source>新增行</source>
         <translation>Add row</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="364"/>
-        <location filename="../../apps/common/edit/widgets.py" line="465"/>
+        <location filename="../../apps/common/edit/widgets.py" line="365"/>
+        <location filename="../../apps/common/edit/widgets.py" line="466"/>
         <source>删除选中行</source>
         <translation>Delete selected rows</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="368"/>
+        <location filename="../../apps/common/edit/widgets.py" line="369"/>
         <source>复制</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="372"/>
-        <location filename="../../apps/common/edit/widgets.py" line="426"/>
+        <location filename="../../apps/common/edit/widgets.py" line="373"/>
+        <location filename="../../apps/common/edit/widgets.py" line="427"/>
         <source>排序</source>
         <translation>Sort</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="376"/>
+        <location filename="../../apps/common/edit/widgets.py" line="377"/>
         <source>复制JSON</source>
         <translation>Copy as JSON</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="447"/>
-        <location filename="../../apps/common/edit/widgets.py" line="482"/>
+        <location filename="../../apps/common/edit/widgets.py" line="448"/>
+        <location filename="../../apps/common/edit/widgets.py" line="483"/>
         <source>提示</source>
         <translation>Notice</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="448"/>
+        <location filename="../../apps/common/edit/widgets.py" line="449"/>
         <source>请先选中要删除的行</source>
         <translation>Select the rows you want to delete first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="482"/>
+        <location filename="../../apps/common/edit/widgets.py" line="483"/>
         <source>没有可复制的内容</source>
         <translation>Nothing to copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="485"/>
+        <location filename="../../apps/common/edit/widgets.py" line="486"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="490"/>
+        <location filename="../../apps/common/edit/widgets.py" line="491"/>
         <source>已复制到剪贴板</source>
         <translation>Copied to clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="509"/>
+        <location filename="../../apps/common/edit/widgets.py" line="510"/>
         <source>JSON 已复制到剪贴板</source>
         <translation>JSON copied to clipboard</translation>
     </message>
@@ -4749,12 +4749,12 @@ Device ID: {id}</translation>
 <context>
     <name>ItemTableWidget</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="168"/>
+        <location filename="../../apps/common/edit/widgets.py" line="169"/>
         <source>键</source>
         <translation>Key</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="168"/>
+        <location filename="../../apps/common/edit/widgets.py" line="169"/>
         <source>值</source>
         <translation>Value</translation>
     </message>
@@ -4762,17 +4762,17 @@ Device ID: {id}</translation>
 <context>
     <name>JsonDualPanel</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1174"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1246"/>
         <source>文本模式</source>
         <translation>Text view</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1233"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1305"/>
         <source>嵌套层级过深，请使用文本视图查看内容</source>
         <translation>The nesting is too deep. Use the text view to see the content.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1154"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1226"/>
         <source>树形模式</source>
         <translation>Tree view</translation>
     </message>
@@ -4780,27 +4780,27 @@ Device ID: {id}</translation>
 <context>
     <name>JsonTreeWidget</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="962"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1034"/>
         <source>键</source>
         <translation>Key</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="962"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1034"/>
         <source>值</source>
         <translation>Value</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1020"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1092"/>
         <source>嵌套层级过深，请使用文本视图查看其余内容</source>
         <translation>The nesting is too deep. Use the text view to see the remaining content.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1032"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1104"/>
         <source>已达到树节点上限，请使用文本视图查看其余内容</source>
         <translation>The tree node limit has been reached. Use the text view to see the remaining content.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="1039"/>
+        <location filename="../../apps/common/edit/widgets.py" line="1111"/>
         <source>加载更多（剩余 {} 项）</source>
         <translation>Load more ({} items remaining)</translation>
     </message>
@@ -6359,7 +6359,7 @@ Device ID: {id}</translation>
         <translation>The header name cannot contain line breaks</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="532"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="536"/>
         <source>状态码必须是整数：{}</source>
         <translation>Status code must be an integer: {}</translation>
     </message>
@@ -6487,43 +6487,43 @@ Device ID: {id}</translation>
         <translation>Match URL</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="454"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="458"/>
         <source>选择文件</source>
         <translation>Pick a file</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="459"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="463"/>
         <source>选择目录</source>
         <translation>Pick a folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="466"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="470"/>
         <source>选择本地文件</source>
         <translation>Pick a local file</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="471"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="475"/>
         <source>选择本地目录</source>
         <translation>Pick a local folder</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="550"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="554"/>
         <source>匹配正则：{}</source>
         <translation>Match pattern: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="552"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="556"/>
         <source>替换为：{}</source>
         <translation>Rewrite to: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="554"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="558"/>
         <source>本地路径：{}</source>
         <translation>Local path: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/rewrite/dialogs.py" line="560"/>
-        <location filename="../../apps/rewrite/dialogs.py" line="563"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="564"/>
+        <location filename="../../apps/rewrite/dialogs.py" line="567"/>
         <source>{}：{}</source>
         <translation>{}: {}</translation>
     </message>
@@ -7554,62 +7554,84 @@ Device ID: {id}</translation>
 <context>
     <name>ToolPlainTextEdit</name>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="570"/>
+        <location filename="../../apps/common/edit/widgets.py" line="572"/>
+        <location filename="../../apps/common/edit/widgets.py" line="573"/>
+        <source>格式化 JSON</source>
+        <translation>Format JSON</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/widgets.py" line="575"/>
         <source>复制</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="572"/>
+        <location filename="../../apps/common/edit/widgets.py" line="577"/>
         <source>换行</source>
         <translation>Word wrap</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="574"/>
+        <location filename="../../apps/common/edit/widgets.py" line="579"/>
         <source>查找</source>
         <translation>Find</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="578"/>
+        <location filename="../../apps/common/edit/widgets.py" line="583"/>
         <source>查找...</source>
         <translation>Find...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="582"/>
+        <location filename="../../apps/common/edit/widgets.py" line="587"/>
         <source>上一个</source>
         <translation>Previous</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="587"/>
+        <location filename="../../apps/common/edit/widgets.py" line="592"/>
         <source>下一个</source>
         <translation>Next</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="592"/>
+        <location filename="../../apps/common/edit/widgets.py" line="597"/>
         <source>关闭</source>
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="653"/>
+        <location filename="../../apps/common/edit/widgets.py" line="674"/>
+        <location filename="../../apps/common/edit/widgets.py" line="683"/>
+        <source>无法格式化 JSON</source>
+        <translation>Unable to format JSON</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/widgets.py" line="676"/>
+        <source>JSON 格式错误（第 {line} 行，第 {column} 列），原文未修改。</source>
+        <translation>Invalid JSON at line {line}, column {column}. The original text has not been changed.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/widgets.py" line="684"/>
+        <source>JSON 过大或嵌套过深，无法格式化；原文未修改。</source>
+        <translation>The JSON is too large or too deeply nested to format. The original text has not been changed.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/edit/widgets.py" line="712"/>
         <source>提示</source>
         <translation>Notice</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="653"/>
+        <location filename="../../apps/common/edit/widgets.py" line="712"/>
         <source>没有可复制的内容</source>
         <translation>Nothing to copy</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="656"/>
+        <location filename="../../apps/common/edit/widgets.py" line="715"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="656"/>
+        <location filename="../../apps/common/edit/widgets.py" line="715"/>
         <source>已复制到剪贴板</source>
         <translation>Copied to clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/common/edit/widgets.py" line="738"/>
+        <location filename="../../apps/common/edit/widgets.py" line="797"/>
         <source>无匹配</source>
         <translation>No matches</translation>
     </message>
@@ -8134,12 +8156,12 @@ Device ID: {id}</translation>
 <context>
     <name>_NameDialog</name>
     <message>
-        <location filename="../../apps/compose/library.py" line="53"/>
+        <location filename="../../apps/compose/library.py" line="79"/>
         <source>确定</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="54"/>
+        <location filename="../../apps/compose/library.py" line="80"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
