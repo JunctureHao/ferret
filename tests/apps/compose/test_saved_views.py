@@ -195,6 +195,35 @@ class SavedComposeTests(unittest.TestCase):
         finally:
             fresh_page.deleteLater()
 
+    def test_page_search_opens_the_library_and_returns_focus_to_usable_controls(self):
+        saved = self._other_request()
+        self.page.resize(1400, 800)
+        self.page.show()
+        app.processEvents()
+        self.assertEqual(self.page.search_placeholder(), "搜索请求")
+        self.assertIs(self.page.search_focus_target(), self.page.library_btn)
+        self.page.apply_search("  ")
+        self.assertTrue(self.page.library_panel.isHidden())
+
+        self.page.apply_search("  OTHER.test  ")
+        self.assertEqual(self.page.current_search_text(), "  OTHER.test  ")
+        self.assertFalse(self.page.library_panel.isHidden())
+        self.assertIn(saved.id, self.page.library_panel._request_items)
+        self.assertIs(self.page.search_focus_target(), self.page.library_panel.tree)
+
+        self.page.apply_search("missing")
+        self.assertIs(self.page.search_focus_target(), self.page.library_btn)
+        self.page.apply_search("")
+        self.assertFalse(self.page.library_panel.isHidden())
+        self.assertIs(self.page.search_focus_target(), self.page.library_panel.tree)
+        self.page.library_panel.setEnabled(False)
+        self.assertIs(self.page.search_focus_target(), self.page.library_btn)
+        self.page.library_panel.setEnabled(True)
+        self.page.library_btn.setChecked(False)
+        self.page.apply_search("")
+        self.assertTrue(self.page.library_panel.isHidden())
+        self.assertIs(self.page.search_focus_target(), self.page.library_btn)
+
     def test_save_reload_send_preserves_signed_url_duplicate_headers_and_body(self):
         url = "https://example.test:443/api?q=a%20b&flag&k=1&k=2&x=%2f#tail"
         headers = [("X-Repeat", " one "), ("X-Repeat", "two"), ("X-Bytes", "\udcff")]

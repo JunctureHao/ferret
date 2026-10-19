@@ -79,16 +79,17 @@ class LibraryTests(unittest.TestCase):
         folder = self.panel.tree.topLevelItem(0)
         assert folder is not None
         folder.setExpanded(False)
-        for query in ("orders", "POST", "example.test"):
-            self.panel.search_edit.setText(query)
+        for query in ("  Orders  ", "POST", "example.test"):
+            self.panel.apply_search(query)
+            self.assertEqual(self.panel.current_search_text(), query)
             self.assertIn(request.id, self.panel._request_items)
             folder = self.panel.tree.topLevelItem(0)
             assert folder is not None
             self.assertTrue(folder.isExpanded())
-        self.panel.search_edit.setText("missing")
+        self.panel.apply_search("missing")
         self.assertIs(self.panel.stack.currentWidget(), self.panel.empty_hint)
         self.assertEqual(self.panel.empty_title.text(), "没有匹配的请求")
-        self.panel.search_edit.clear()
+        self.panel.apply_search("")
         folder = self.panel.tree.topLevelItem(0)
         assert folder is not None
         self.assertFalse(folder.isExpanded())

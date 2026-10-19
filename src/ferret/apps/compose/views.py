@@ -508,6 +508,23 @@ class ComposeInterface(QWidget):
         self.body_editor.file_picker.changed.connect(self._mark_dirty)
         self.body_editor.kind_combo.currentIndexChanged.connect(self._mark_dirty)
 
+    # ── 标题栏搜索 ────────────────────────────
+
+    def search_placeholder(self) -> str:
+        return self.library_panel.search_placeholder()
+
+    def apply_search(self, text: str) -> None:
+        self.library_panel.apply_search(text)
+        if text.strip():
+            self.library_btn.setChecked(True)
+
+    def current_search_text(self) -> str:
+        return self.library_panel.current_search_text()
+
+    def search_focus_target(self) -> QWidget:
+        tree = self.library_panel.tree
+        return tree if tree.isVisible() and tree.isEnabled() else self.library_btn
+
     # ── 行为 ──────────────────────────────────
 
     def showEvent(self, event) -> None:

@@ -6,7 +6,7 @@ FluentWindow 的每个子页都是一整套 qfw 控件树（几十 MB 量级）�
 并嵌进布局——`stackedWidget.widget()` 恒返回占位容器，窗口级路由只见到它。
 
 属性访问整体委托真实页、缺失照常 AttributeError：`is_searchable` 的鸭子判定依赖
-这一点，不实现搜索协议的页（证书 / Compose）不会被误判成可搜索。ensure 前委托
+这一点，不实现搜索协议的页（如证书页）不会被误判成可搜索。ensure 前委托
 属性同样 AttributeError——彼时页必然不可见，调用方都先经 ensure（切页钩子）。
 """
 

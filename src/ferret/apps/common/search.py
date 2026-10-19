@@ -1,6 +1,6 @@
 """Titlebar 全局搜索：唯一搜索框 + 页面协议（docs/design.md#ui v3）。
 
-全局只有一个搜索框（`SearchHost.edit`，所有页面共用，固定宽 400）：六个纯文本页
+全局只有一个搜索框（`SearchHost.edit`，所有页面共用，固定宽 400）：纯文本搜索页
 实现 `SearchablePage` 三方法，键入经 MainWindow 路由转发给当前页。捕获页**不换
 控件**——通过可选的 `search_actions()` 钩子把自己的独特动作（帮助 / 高亮）注入框内
 trailing 位，文本仍由它自己的 flowfilter 引擎解释（"用自己的搜索引擎"，

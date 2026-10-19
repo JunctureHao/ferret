@@ -1,4 +1,4 @@
-"""Compose 已保存请求库面板：搜索 + 单层文件夹树 + 底部新建工具行。
+"""Compose 已保存请求库面板：顶部新建工具行 + 单层文件夹树。
 
 面板只发意图信号（``open_requested`` 带 request id、``create_requested``），
 表单装载与脏检查由 ComposeInterface 负责；store 的 ``changed`` 驱动刷新，
@@ -27,7 +27,6 @@ from qfluentwidgets import (
     MessageBox,
     MessageBoxBase,
     RoundMenu,
-    SearchLineEdit,
     SubtitleLabel,
     ToolButton,
     ToolTipFilter,
@@ -101,12 +100,10 @@ class ComposeLibraryPanel(QWidget):
         self._dirty = False
         self._request_items: dict[str, QTreeWidgetItem] = {}
         self._expanded_folders: set[str] | None = None
+        self._search_text = ""
         self._last_query = ""
         self._context_menu: RoundMenu | None = None
         self._move_menu: RoundMenu | None = None
-
-        self.search_edit = SearchLineEdit(self)
-        self.search_edit.setPlaceholderText(self.tr("搜索请求"))
 
         self.tree = _RequestTree(self)
 
@@ -152,11 +149,9 @@ class ComposeLibraryPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
-        layout.addWidget(self.search_edit)
-        layout.addWidget(self.stack, 1)
         layout.addLayout(tool_row)
+        layout.addWidget(self.stack, 1)
 
-        self.search_edit.textChanged.connect(self.refresh)
         self.tree.itemClicked.connect(self._on_item_clicked)
         self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -166,6 +161,16 @@ class ComposeLibraryPanel(QWidget):
         self._store.changed.connect(self.refresh)
 
         self.refresh()
+
+    def search_placeholder(self) -> str:
+        return self.tr("搜索请求")
+
+    def apply_search(self, text: str) -> None:
+        self._search_text = text
+        self.refresh()
+
+    def current_search_text(self) -> str:
+        return self._search_text
 
     # ── 树构建 ────────────────────────────────
 
@@ -187,7 +192,7 @@ class ComposeLibraryPanel(QWidget):
                         expanded.discard(data[1])
         else:
             expanded = set(self._expanded_folders)
-        query = self.search_edit.text().strip().lower()
+        query = self._search_text.strip().lower()
         self._last_query = query
         requests = [
             request
