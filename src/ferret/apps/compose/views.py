@@ -324,7 +324,7 @@ class ComposeInterface(QWidget):
         self.paste_curl_btn.setAccessibleName(self.tr("导入 cURL"))
         self.paste_curl_btn.installEventFilter(ToolTipFilter(self.paste_curl_btn, 700))
 
-        # 顶栏最左：请求库显隐开关（持久化到 CONFIG.compose_library_visible）。
+        # 顶栏最左：请求库显隐开关，每次启动默认收起。
         self.library_btn = ToolButton(FluentIcon.LIBRARY, self)
         self.library_btn.setCheckable(True)
         self.library_btn.setToolTip(self.tr("请求库"))
@@ -349,7 +349,7 @@ class ComposeInterface(QWidget):
         self.save_menu.addAction(save_as)
         self.save_btn.setFlyout(self.save_menu)
 
-        # 左侧请求库面板；默认隐藏，状态由 CONFIG 恢复。
+        # 左侧请求库面板；默认隐藏，按需展开。
         self.library_panel = ComposeLibraryPanel(self.store, self)
 
         # 左侧：请求详情（参数/请求头/请求体，复用详情面板的可编辑组件）。
@@ -473,10 +473,7 @@ class ComposeInterface(QWidget):
         main.setSpacing(0)
         main.addWidget(self.library_splitter)
 
-        library_visible = bool(CONFIG.get(CONFIG.compose_library_visible))
-        self.library_btn.setChecked(library_visible)
-        self.library_panel.setVisible(library_visible)
-        self._restore_library_width()
+        self.library_panel.hide()
 
     def __connect_signal_to_slot(self):
         self.send_btn.clicked.connect(self._on_send)
@@ -532,8 +529,6 @@ class ComposeInterface(QWidget):
     def _on_library_toggled(self, visible: bool) -> None:
         self.library_panel.setVisible(visible)
         self._restore_library_width()
-        CONFIG.set(CONFIG.compose_library_visible, visible, save=False)
-        CONFIG.defer_save()
 
     @Slot(int, int)
     def _on_library_resized(self, position: int, index: int) -> None:

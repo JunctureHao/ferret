@@ -40,10 +40,8 @@ class _Controller(QObject):
 class SavedComposeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
-        self.old_visible = CONFIG.compose_library_visible.value
         self.old_width = CONFIG.compose_library_width.value
         self.old_layout = CONFIG.layout.value
-        CONFIG.compose_library_visible.value = False
         CONFIG.compose_library_width.value = 240
         self.config_save = patch.object(CONFIG, "defer_save")
         self.config_save.start()
@@ -60,7 +58,6 @@ class SavedComposeTests(unittest.TestCase):
         app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         app.processEvents()
         self.config_save.stop()
-        CONFIG.compose_library_visible.value = self.old_visible
         CONFIG.compose_library_width.value = self.old_width
         CONFIG.layout.value = self.old_layout
         self.directory.cleanup()
@@ -191,7 +188,12 @@ class SavedComposeTests(unittest.TestCase):
         self.page.library_btn.setChecked(False)
         self.page.library_btn.setChecked(True)
         self.assertEqual(outer.sizes()[0], CONFIG.compose_library_width.value)
-        self.assertTrue(CONFIG.compose_library_visible.value)
+        fresh_page = ComposeInterface(self.controller, store=self.store)  # ty: ignore[invalid-argument-type]
+        try:
+            self.assertFalse(fresh_page.library_btn.isChecked())
+            self.assertTrue(fresh_page.library_panel.isHidden())
+        finally:
+            fresh_page.deleteLater()
 
     def test_save_reload_send_preserves_signed_url_duplicate_headers_and_body(self):
         url = "https://example.test:443/api?q=a%20b&flag&k=1&k=2&x=%2f#tail"

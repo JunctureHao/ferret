@@ -776,13 +776,7 @@ class Config(QConfig):
         default={},
     )
 
-    # Compose 页左侧请求库面板的显隐（开关按钮在 Compose 顶栏最左，
-    # 面板本体与草稿文件见 apps/compose/library.py / store.py）。
-    compose_library_visible = BoolConfigItem(
-        group="Compose",
-        name="LibraryVisible",
-        default=False,
-    )
+    # Compose 请求库每次启动默认收起，只记住用户调整的宽度。
     compose_library_width = ConfigItem(
         group="Compose",
         name="LibraryWidth",
