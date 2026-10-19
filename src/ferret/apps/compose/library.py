@@ -208,7 +208,8 @@ class ComposeLibraryPanel(QWidget):
             item = QTreeWidgetItem()
             item.setText(0, folder)
             item.setToolTip(0, folder)
-            item.setIcon(0, FluentIcon.FOLDER.icon())
+            # icon() 固定创建时的颜色；qicon() 随主题绘制，避免切换后白图标融入浅色背景。
+            item.setIcon(0, FluentIcon.FOLDER.qicon())
             item.setData(0, _ROLE, ("folder", folder))
             self.tree.addTopLevelItem(item)
             for request in children:
