@@ -249,7 +249,7 @@ wheels = [
 
 [[package]]
 name = "ferret"
-version = "0.1.20"
+version = "0.1.21"
 source = { editable = "." }
 dependencies = [
     { name = "mitmproxy" },

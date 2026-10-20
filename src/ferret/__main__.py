@@ -61,7 +61,9 @@
 # PDF 后端已裁掉，对应图片插件也不打包。
 # nuitka-project: --include-qt-plugins=imageformats
 # nuitka-project: --noinclude-dlls=*qpdf*
-# nuitka-project: --noinclude-qt-plugins=styles
+# QFluentWidgets 在 Windows 上使用 windowsvista；裁掉 styles 会回退经典样式，
+# 导致打包版树控件出现连接虚线，与源码运行时不一致。
+# nuitka-project: --include-qt-plugins=styles
 # nuitka-project: --noinclude-qt-plugins=tls
 # nuitka-project: --include-qt-plugins=platforms
 # nuitka-project: --noinclude-qt-translations
