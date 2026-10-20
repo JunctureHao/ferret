@@ -125,7 +125,9 @@ class ColumnDialogLifetimeTests(unittest.TestCase):
                         ],
                         capture_output=True,
                         text=True,
-                        timeout=30,
+                        # 子进程几乎零 CPU、纯 IO（导入 PySide6/qfluentwidgets/mitmproxy），
+                        # 全量套件满载时页缓存紧张可拉长一个数量级；30s 会误杀，90s 兜底防挂死。
+                        timeout=90,
                         check=False,
                     )
                     self.assertEqual(
