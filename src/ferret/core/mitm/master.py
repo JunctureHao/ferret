@@ -48,6 +48,7 @@ from ferret.core.mitm.io import (
 )
 from ferret.core.mitm.sse import FerretSseAddon
 from ferret.core.mitm.view import FerretView
+from ferret.core.mitm.websocket_client import WebSocketClientAddon
 from ferret.core.mitm.wireguard_source import WireGuardSourceAddon
 
 
@@ -94,6 +95,9 @@ class FerretMaster(Master):
         self.intercept_state = InterceptState()
         self.intercept = FerretIntercept(self.intercept_state)
         self.compose = ComposeAddon(self.view)
+        self.websocket_client = WebSocketClientAddon(self.view)
+        self.websocket_client.on_cancel = self._cancel_compose
+        self.view.sig_store_remove.connect(self.websocket_client.flow_removed)
         # SSE tee：挂在 View 之后、与 Compose 同区。检测点是 responseheaders
         # （源码注释明确 stream 必须在 response 钩子之前换），链上这里照常能收到。
         # bridge 由 runtime 在挂 UiBridgeAddon 时注入（master 装配时还不认识它）。
@@ -130,6 +134,9 @@ class FerretMaster(Master):
             AntiComp(),
             self.client_playback,
             DisableH2C(),
+            # Identify the trusted loopback Compose handshake before ProxyAuth.
+            # Native is_replay exemption applies without sending local credentials.
+            self.websocket_client,
             # 代理认证（docs/design.md#auth）：位置对齐原生 default_addons() —— 紧挨
             # proxyserver 之前。挂三个钩子（requestheaders / http_connect /
             # socks5_auth），`proxyauth` 选项为 None 时全部空转，故常驻无开关，

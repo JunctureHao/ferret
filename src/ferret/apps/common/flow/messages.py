@@ -120,8 +120,11 @@ class MessagesPane(SimpleCardWidget):
 
     clearRequested = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, export_available: bool = True
+    ) -> None:
         super().__init__(parent)
+        self._export_available = export_available
         self._total = 0
         self._applicable = False
         self._mode = ""
@@ -251,6 +254,13 @@ class MessagesPane(SimpleCardWidget):
     def set_notice(self, text: str) -> None:
         self.notice_label.setText(text)
         self.notice_label.setVisible(bool(text))
+
+    def set_export_available(self, available: bool) -> None:
+        if available == self._export_available:
+            return
+        self._export_available = available
+        if self.content_pages.currentWidget() is self.detail_page:
+            self.__show_content()
 
     def discard_before(self, index: int) -> None:
         """同步内核的保留窗口，不重置过滤、清空显示水位或仍有效的选择。"""
@@ -425,8 +435,10 @@ class MessagesPane(SimpleCardWidget):
                 else min(len(payload.content), HEX_DUMP_LIMIT)
             )
             if shown < payload.size:
-                notice = self.tr(
-                    "仅显示前 {} 字节，共 {} 字节；可导出流量查看完整消息。"
+                notice = (
+                    self.tr("仅显示前 {} 字节，共 {} 字节；可导出流量查看完整消息。")
+                    if self._export_available
+                    else self.tr("仅显示前 {} 字节，共 {} 字节。")
                 ).format(shown, payload.size)
             if payload.is_text and looks_like_json(content):
                 lang = Language.JSON

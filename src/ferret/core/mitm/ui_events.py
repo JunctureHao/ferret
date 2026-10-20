@@ -54,7 +54,7 @@ class UiEventQueue(QObject):
         identity = getattr(args[0], "id", args[0]) if args else ""
         key = (
             f"{name}:{identity}"
-            if name in {"flow_updated", "messages_changed"}
+            if name in {"flow_updated", "messages_changed", "compose_websocket_changed"}
             else f"#{next(self._sequence)}"
         )
         with self._lock:

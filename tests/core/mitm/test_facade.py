@@ -38,6 +38,7 @@ from ferret.core.mitm import (
 from ferret.core.mitm.addons import GatewayPolicy, GatewayState
 from ferret.core.mitm.intercept import InterceptState
 from ferret.core.mitm.sse import SSE_EVENT_COUNT_KEY
+from ferret.core.mitm.websocket_client import WebSocketClientAddon
 
 
 class SnapshotIdentityTests(unittest.TestCase):
@@ -143,12 +144,13 @@ class MatchIdsTests(unittest.TestCase):
 
 
 class _FakeMaster:
-    """只有三本账的 master：`_resume` / `sse_events` 用得到就这三个属性。"""
+    """Facade lifecycle tests share the runtime's View with the real state addons."""
 
-    def __init__(self) -> None:
+    def __init__(self, view: View) -> None:
         self.gateway = GatewayState()
         self.intercept_state = InterceptState()
         self.sse = FerretSseAddon()
+        self.websocket_client = WebSocketClientAddon(view)
 
 
 class _InlineRuntime:
@@ -160,7 +162,7 @@ class _InlineRuntime:
 
     def __init__(self) -> None:
         self.view = View()
-        self.master = _FakeMaster()
+        self.master = _FakeMaster(self.view)
         self.is_running = True
         self._generation = 1
 

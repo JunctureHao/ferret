@@ -26,6 +26,7 @@ from ferret.core.mitm.gateway import (
     GatewayRuleSet,
 )
 from ferret.core.mitm.intercept import InterceptState
+from ferret.core.mitm.websocket_client import WebSocketClientAddon
 
 from ._qt import start_runtime
 
@@ -51,12 +52,13 @@ def broken() -> GatewayRule:
 
 
 class FakeMaster:
-    def __init__(self) -> None:
+    def __init__(self, view: View) -> None:
         self.gateway = GatewayState()
         self.intercept_state = InterceptState()
         # 真 addon：`clear_flows` / `remove_flows` 会连带清它的事件存档，用替身就
         # 测不到「存档跟着 flow 一起走」这条路径（bridge 缺省 = 只存不发信号）。
         self.sse = FerretSseAddon()
+        self.websocket_client = WebSocketClientAddon(view)
         self.options = MagicMock()
 
 
@@ -74,7 +76,7 @@ class FakeRuntime(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.view = View()
-        self.master = FakeMaster()
+        self.master = FakeMaster(self.view)
         self.state = MitmRuntimeState.RUNNING
         self.is_running = True
         self.listen_host = "127.0.0.1"

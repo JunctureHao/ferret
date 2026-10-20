@@ -172,6 +172,11 @@ from ferret.core.mitm.sse import (
     is_event_stream,
     parse_sse,
 )
+from ferret.core.mitm.websocket_client import (
+    WebSocketSnapshot,
+    WebSocketSpec,
+    WebSocketState,
+)
 from ferret.core.mitm.wireguard import (
     WireGuardDevice,
     validate_wireguard_devices,
@@ -278,6 +283,9 @@ __all__ = [
     "View",
     "WebSocketData",
     "WebSocketMessage",
+    "WebSocketSnapshot",
+    "WebSocketSpec",
+    "WebSocketState",
     "WireGuardDevice",
     "WsClose",
     "WsFrame",

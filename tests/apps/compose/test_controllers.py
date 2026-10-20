@@ -24,6 +24,7 @@ class FakeRuntime(QObject):
     """只暴露控制器订阅的两条信号。"""
 
     compose_result = Signal(object)
+    compose_websocket_changed = Signal(str)
     state_changed = Signal(object)
 
 

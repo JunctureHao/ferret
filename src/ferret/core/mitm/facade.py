@@ -69,6 +69,12 @@ from ferret.core.mitm.rows import FlowRow, flow_row
 from ferret.core.mitm.runtime import MitmRuntime
 from ferret.core.mitm.scripts import ScriptEntry, ScriptStatus
 from ferret.core.mitm.sse import SseEvent
+from ferret.core.mitm.websocket_client import (
+    WebSocketSnapshot,
+    WebSocketSpec,
+    build_websocket_spec,
+    validate_websocket_spec,
+)
 from ferret.core.mitm.wireguard import WireGuardDevice, validate_wireguard_devices
 from ferret.core.mitm.wireguard_source import clear_wireguard_source
 from ferret.core.mitm.wsframe import (
@@ -712,6 +718,7 @@ class MitmFacade:
         返回的是保留了原 id 的副本 —— Qt 线程只许读快照（AGENTS.md §3），但放行和
         写回都要靠这个 id 找回真流量，见 `_snapshot`。
         """
+
         def snapshot() -> list[HTTPFlow]:
             result = []
             generation = self.runtime._generation
@@ -816,6 +823,7 @@ class MitmFacade:
                 )
             master = self.runtime.master
             if master is not None:
+                master.websocket_client.abort_flow(flow_id)
                 master.gateway.release([flow_id], kill=True)
                 master.intercept_state.release([flow_id], kill=True)
             self._sweep([flow_id], kill=True)
@@ -1103,6 +1111,73 @@ class MitmFacade:
         return self.runtime.call(build) if self.runtime.is_running else build()
 
     # —— WebSocket ——
+
+    def compose_draft(self, flow_id: str) -> RequestEdit | WebSocketSpec:
+        """Choose HTTP or WebSocket from the native flow, entirely on its thread."""
+
+        def build() -> RequestEdit | WebSocketSpec:
+            flow = self.view.get_by_id(flow_id)
+            if not isinstance(flow, HTTPFlow):
+                raise ValueError(  # noqa: TRY004
+                    QCoreApplication.translate("MitmFacade", "找不到指定的 Flow")
+                )
+            return (
+                build_websocket_spec(flow)
+                if flow.websocket is not None
+                else build_request_edit(flow)
+            )
+
+        if self.runtime.is_running:
+            return self.runtime.call(build)
+        thread = self.runtime._thread
+        if thread is not None and thread.isRunning():
+            raise RuntimeError(_not_running())
+        return build()
+
+    def connect_websocket(self, spec: WebSocketSpec) -> str:
+        spec = validate_websocket_spec(spec)
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
+            raise RuntimeError(_not_running())
+
+        def connect() -> str:
+            session_id = master.websocket_client.connect(
+                spec, self.local_client_host, self.runtime.listen_port
+            )
+            self.runtime._websocket_client = master.websocket_client
+            return session_id
+
+        return self.runtime.call(connect)
+
+    def send_websocket(
+        self, session_id: str, content: bytes, *, is_text: bool = True
+    ) -> None:
+        master = self.runtime.master
+        if not self.runtime.is_running or master is None:
+            raise RuntimeError(_not_running())
+        self.runtime.call(
+            lambda: master.websocket_client.send(session_id, content, is_text=is_text)
+        )
+
+    def close_websocket(self, session_id: str) -> None:
+        master = self.runtime.master
+        if self.runtime.is_running and master is not None:
+            self.runtime.call(lambda: master.websocket_client.close(session_id))
+
+    def websocket_snapshot(self, session_id: str) -> WebSocketSnapshot | None:
+        client = self.runtime._websocket_client
+        if client is None:
+            return None
+        build = lambda: client.snapshot(session_id)
+        if self.runtime.is_running:
+            return self.runtime.call(build)
+        thread = self.runtime._thread
+        if thread is not None and thread.isRunning():
+            # STOPPING is not yet ownership transfer: native socket teardown can
+            # still update the last flow. The editor keeps its previous snapshot
+            # until the worker has finished and publishes the final notification.
+            return None
+        return build()
 
     def websocket_frames(self, flow_id: str) -> list[WsFrame]:
         """Every frame captured on that flow so far; 不是 WS 流量就是空表。
@@ -1716,6 +1791,8 @@ class MitmFacade:
                 master.gateway.release_all()
                 master.intercept_state.release_all()
                 self._sweep(list(self.view._store))
+                for flow_id in list(self.view._store):
+                    master.websocket_client.abort_flow(flow_id)
                 master.sse.clear()
             self.view.clear()
 
@@ -1813,6 +1890,7 @@ class MitmFacade:
             master.intercept_state.release(flow_ids)
             self._sweep(flow_ids)
             for flow_id in flow_ids:
+                master.websocket_client.abort_flow(flow_id)
                 master.sse.forget(flow_id)
         current = [self.view.get_by_id(flow_id) for flow_id in flow_ids]
         self.view.remove([flow for flow in current if flow is not None])

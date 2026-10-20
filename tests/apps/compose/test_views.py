@@ -22,7 +22,9 @@ from qfluentwidgets import ComboBox, PrimaryPushButton, ToggleToolButton
 from ferret.apps.common.splitter import OrientationSplitter
 from ferret.apps.compose.body_editor import BodyKind
 from ferret.apps.compose.views import ComposeInterface
+from ferret.apps.compose.websocket_controller import ComposeWebSocketController
 from ferret.core.mitm import ComposeResult, RequestEdit, build_request_edit
+from tests.apps.compose._websocket import WebSocketFacade
 
 app = QApplication.instance() or QApplication([])
 
@@ -36,6 +38,8 @@ class FakeController(QObject):
 
     def __init__(self) -> None:
         super().__init__()
+        self.websocket_facade = WebSocketFacade()
+        self.websocket = ComposeWebSocketController(self, mitm=self.websocket_facade)  # ty: ignore[invalid-argument-type]
         self.calls: list[tuple] = []
 
     def send(self, method: str, url: str, headers, body: bytes | str, *, record: bool):
@@ -91,7 +95,11 @@ class ConstructionTests(ComposeInterfaceTestCase):
 
     def test_the_request_side_has_three_tabs(self) -> None:
         self.assertEqual(
-            list(self.page.request_panel.pivot.items),
+            [
+                key
+                for key in self.page.request_panel.pivot.items
+                if self.page.request_panel.isTabVisible(key)
+            ],
             ["Params", "Headers", "Body"],
         )
 

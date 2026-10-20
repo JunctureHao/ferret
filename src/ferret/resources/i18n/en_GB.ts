@@ -1674,17 +1674,17 @@
 <context>
     <name>ComposeController</name>
     <message>
-        <location filename="../../apps/compose/controllers.py" line="62"/>
+        <location filename="../../apps/compose/controllers.py" line="66"/>
         <source>发送失败</source>
         <translation>Send failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/controllers.py" line="88"/>
+        <location filename="../../apps/compose/controllers.py" line="92"/>
         <source>发送已取消</source>
         <translation>Send cancelled</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/controllers.py" line="88"/>
+        <location filename="../../apps/compose/controllers.py" line="92"/>
         <source>内核已停止，本次发送已取消</source>
         <translation>The core has stopped and this send has been cancelled</translation>
     </message>
@@ -1692,177 +1692,233 @@
 <context>
     <name>ComposeInterface</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="312"/>
-        <location filename="../../apps/compose/views.py" line="975"/>
+        <location filename="../../apps/compose/views.py" line="331"/>
+        <location filename="../../apps/compose/views.py" line="959"/>
+        <location filename="../../apps/compose/views.py" line="1207"/>
         <source>发送</source>
         <translation>Send</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="316"/>
+        <location filename="../../apps/compose/views.py" line="336"/>
+        <location filename="../../apps/compose/views.py" line="961"/>
         <source>发送这条请求</source>
         <translation>Send this request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="323"/>
+        <location filename="../../apps/compose/views.py" line="343"/>
         <source>从剪贴板导入 cURL 命令</source>
         <translation>Import a curl command from the clipboard</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="324"/>
+        <location filename="../../apps/compose/views.py" line="344"/>
         <source>导入 cURL</source>
         <translation>Import cURL</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="596"/>
+        <location filename="../../apps/compose/views.py" line="651"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="337"/>
-        <location filename="../../apps/compose/views.py" line="338"/>
-        <location filename="../../apps/compose/views.py" line="347"/>
+        <location filename="../../apps/compose/views.py" line="357"/>
+        <location filename="../../apps/compose/views.py" line="358"/>
+        <location filename="../../apps/compose/views.py" line="367"/>
         <source>另存为…</source>
         <translation>Save as…</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="364"/>
+        <location filename="../../apps/compose/views.py" line="296"/>
+        <source>请求协议</source>
+        <translation>Request protocol</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="385"/>
         <source>参数</source>
         <translation>Params</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="365"/>
+        <location filename="../../apps/compose/views.py" line="386"/>
         <source>请求头</source>
         <translation>Headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="366"/>
+        <location filename="../../apps/compose/views.py" line="387"/>
         <source>请求体</source>
         <translation>Body</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="390"/>
+        <location filename="../../apps/compose/views.py" line="388"/>
+        <location filename="../../apps/compose/views.py" line="453"/>
+        <source>消息</source>
+        <translation>Messages</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="412"/>
         <source>性能</source>
         <translation>Performance</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="589"/>
+        <location filename="../../apps/compose/views.py" line="456"/>
+        <source>握手响应</source>
+        <translation>Handshake response</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="644"/>
         <source>保存「{}」 (Ctrl+S)</source>
         <translation>Save “{}” (Ctrl+S)</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="591"/>
+        <location filename="../../apps/compose/views.py" line="646"/>
         <source>保存到请求库 (Ctrl+S)</source>
         <translation>Save to request library (Ctrl+S)</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="596"/>
+        <location filename="../../apps/compose/views.py" line="651"/>
         <source>保存（有未保存的修改）</source>
         <translation>Save (unsaved changes)</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="610"/>
+        <location filename="../../apps/compose/views.py" line="665"/>
         <source>保存失败</source>
         <translation>Save failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="648"/>
+        <location filename="../../apps/compose/views.py" line="705"/>
         <source>新请求</source>
         <translation>New request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="757"/>
+        <location filename="../../apps/compose/views.py" line="825"/>
         <source>请求头 ({count})</source>
         <translation>Request headers ({count})</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="880"/>
-        <location filename="../../apps/compose/views.py" line="884"/>
-        <location filename="../../apps/compose/views.py" line="892"/>
+        <location filename="../../apps/compose/views.py" line="973"/>
+        <source>连接仍在使用</source>
+        <translation>Connection still active</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="974"/>
+        <source>请先断开 WebSocket 连接，再切换请求或协议。</source>
+        <translation>Disconnect the WebSocket connection before switching requests or protocols.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="991"/>
+        <source>连接失败</source>
+        <translation>Connection failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="1003"/>
+        <source>消息发送失败</source>
+        <translation>Message send failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="328"/>
+        <location filename="../../apps/compose/views.py" line="1025"/>
+        <source>取消连接</source>
+        <translation>Cancel connection</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="329"/>
+        <location filename="../../apps/compose/views.py" line="1028"/>
+        <source>断开连接</source>
+        <translation>Disconnect</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="330"/>
+        <location filename="../../apps/compose/views.py" line="1031"/>
+        <source>连接</source>
+        <translation>Connect</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/views.py" line="1108"/>
+        <location filename="../../apps/compose/views.py" line="1112"/>
+        <location filename="../../apps/compose/views.py" line="1120"/>
         <source>导入失败</source>
         <translation>Import failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="880"/>
+        <location filename="../../apps/compose/views.py" line="1108"/>
         <source>剪贴板是空的</source>
         <translation>The clipboard is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="885"/>
+        <location filename="../../apps/compose/views.py" line="1113"/>
         <source>剪贴板里没有 cURL 命令</source>
         <translation>The clipboard does not contain a curl command</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="895"/>
+        <location filename="../../apps/compose/views.py" line="1123"/>
         <source>成功</source>
         <translation>Success</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="895"/>
+        <location filename="../../apps/compose/views.py" line="1123"/>
         <source>已从 cURL 导入请求</source>
         <translation>Request imported from curl</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="905"/>
-        <location filename="../../apps/compose/views.py" line="908"/>
-        <location filename="../../apps/compose/views.py" line="916"/>
-        <location filename="../../apps/compose/views.py" line="944"/>
+        <location filename="../../apps/compose/views.py" line="1136"/>
+        <location filename="../../apps/compose/views.py" line="1139"/>
+        <location filename="../../apps/compose/views.py" line="1147"/>
+        <location filename="../../apps/compose/views.py" line="1175"/>
         <source>发送失败</source>
         <translation>Send failed</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="908"/>
+        <location filename="../../apps/compose/views.py" line="1139"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="310"/>
-        <location filename="../../apps/compose/views.py" line="975"/>
+        <location filename="../../apps/compose/views.py" line="327"/>
+        <location filename="../../apps/compose/views.py" line="1207"/>
         <source>发送中…</source>
         <translation>Sending…</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="278"/>
-        <location filename="../../apps/compose/views.py" line="330"/>
+        <location filename="../../apps/compose/views.py" line="289"/>
+        <location filename="../../apps/compose/views.py" line="350"/>
         <source>请求库</source>
         <translation>Request library</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="303"/>
+        <location filename="../../apps/compose/views.py" line="317"/>
         <source>记录流量</source>
         <translation>Record traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="580"/>
+        <location filename="../../apps/compose/views.py" line="635"/>
         <source>记录流量：已开启，点击关闭</source>
         <translation>Traffic recording is on; click to turn it off</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="582"/>
+        <location filename="../../apps/compose/views.py" line="637"/>
         <source>记录流量：已关闭，点击开启</source>
         <translation>Traffic recording is off; click to turn it on</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="985"/>
+        <location filename="../../apps/compose/views.py" line="1217"/>
         <source>正在等待响应</source>
         <translation>Waiting for response</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="986"/>
+        <location filename="../../apps/compose/views.py" line="1218"/>
         <source>收到响应后会显示在这里</source>
         <translation>The response will appear here when it arrives</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="990"/>
+        <location filename="../../apps/compose/views.py" line="1222"/>
         <source>暂无响应</source>
         <translation>No response yet</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="991"/>
+        <location filename="../../apps/compose/views.py" line="1223"/>
         <source>编辑请求，然后点击「发送」</source>
         <translation>Edit the request, then click Send</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="998"/>
+        <location filename="../../apps/compose/views.py" line="1230"/>
         <source>请求失败</source>
         <translation>Request failed</translation>
     </message>
@@ -1880,17 +1936,17 @@
         <translation>Unsupported request library version. The original file is preserved and saving is disabled: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/store.py" line="123"/>
+        <location filename="../../apps/compose/store.py" line="130"/>
         <source>无法备份损坏的请求库，已暂停保存以保留原文件：{}</source>
         <translation>Could not back up the damaged request library. Saving is disabled to preserve the original file: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/store.py" line="128"/>
+        <location filename="../../apps/compose/store.py" line="135"/>
         <source>请求库包含损坏的数据，已加载可恢复的请求；原文件已备份：{}</source>
         <translation>The request library contains damaged data. Recoverable requests have been loaded and the original file has been backed up: {}</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/store.py" line="226"/>
+        <location filename="../../apps/compose/store.py" line="233"/>
         <source>请求库保存失败：{}</source>
         <translation>Could not save the request library: {}</translation>
     </message>
@@ -1898,100 +1954,100 @@
 <context>
     <name>ComposeLibraryPanel</name>
     <message>
-        <location filename="../../apps/compose/library.py" line="109"/>
+        <location filename="../../apps/compose/library.py" line="166"/>
         <source>搜索请求</source>
         <translation>Search requests</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="117"/>
-        <location filename="../../apps/compose/library.py" line="222"/>
+        <location filename="../../apps/compose/library.py" line="114"/>
+        <location filename="../../apps/compose/library.py" line="229"/>
         <source>暂无已保存请求</source>
         <translation>No saved requests</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="119"/>
-        <location filename="../../apps/compose/library.py" line="227"/>
+        <location filename="../../apps/compose/library.py" line="116"/>
+        <location filename="../../apps/compose/library.py" line="234"/>
         <source>编辑请求后点击顶栏「保存」</source>
         <translation>Edit a request, then click Save in the toolbar</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="138"/>
-        <location filename="../../apps/compose/library.py" line="298"/>
-        <location filename="../../apps/compose/library.py" line="321"/>
+        <location filename="../../apps/compose/library.py" line="135"/>
+        <location filename="../../apps/compose/library.py" line="305"/>
+        <location filename="../../apps/compose/library.py" line="328"/>
         <source>新建文件夹</source>
         <translation>New folder</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="141"/>
-        <location filename="../../apps/compose/library.py" line="325"/>
+        <location filename="../../apps/compose/library.py" line="138"/>
+        <location filename="../../apps/compose/library.py" line="332"/>
         <source>新建请求</source>
         <translation>New request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="222"/>
+        <location filename="../../apps/compose/library.py" line="229"/>
         <source>没有匹配的请求</source>
         <translation>No matching requests</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="225"/>
+        <location filename="../../apps/compose/library.py" line="232"/>
         <source>试试其他名称、方法或 URL</source>
         <translation>Try a different name, method or URL</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="281"/>
-        <location filename="../../apps/compose/library.py" line="361"/>
-        <location filename="../../apps/compose/library.py" line="392"/>
+        <location filename="../../apps/compose/library.py" line="288"/>
+        <location filename="../../apps/compose/library.py" line="368"/>
+        <location filename="../../apps/compose/library.py" line="399"/>
         <source>重命名</source>
         <translation>Rename</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="354"/>
+        <location filename="../../apps/compose/library.py" line="361"/>
         <source>打开</source>
         <translation>Open</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="365"/>
+        <location filename="../../apps/compose/library.py" line="372"/>
         <source>移动到…</source>
         <translation>Move to…</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="369"/>
+        <location filename="../../apps/compose/library.py" line="376"/>
         <source>未分组</source>
         <translation>Ungrouped</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="381"/>
+        <location filename="../../apps/compose/library.py" line="388"/>
         <source>复制副本</source>
         <translation>Duplicate</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="385"/>
+        <location filename="../../apps/compose/library.py" line="392"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="395"/>
-        <location filename="../../apps/compose/library.py" line="427"/>
+        <location filename="../../apps/compose/library.py" line="402"/>
+        <location filename="../../apps/compose/library.py" line="434"/>
         <source>删除文件夹</source>
         <translation>Delete folder</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="410"/>
+        <location filename="../../apps/compose/library.py" line="417"/>
         <source>{}（副本）</source>
         <translation>{} (copy)</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="418"/>
+        <location filename="../../apps/compose/library.py" line="425"/>
         <source>删除请求</source>
         <translation>Delete request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="419"/>
+        <location filename="../../apps/compose/library.py" line="426"/>
         <source>确定删除「{}」？此操作不可撤销。</source>
         <translation>Delete “{}”? This cannot be undone.</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="428"/>
+        <location filename="../../apps/compose/library.py" line="435"/>
         <source>删除文件夹「{}」？其中的请求会移到未分组。</source>
         <translation>Delete folder “{}”? Its requests will be moved to Ungrouped.</translation>
     </message>
@@ -1999,114 +2055,137 @@
 <context>
     <name>ComposePerf</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="81"/>
+        <location filename="../../apps/compose/views.py" line="88"/>
         <source>时间</source>
         <translation>Time</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="85"/>
+        <location filename="../../apps/compose/views.py" line="92"/>
         <source>流量创建</source>
         <translation>Flow created</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="90"/>
+        <location filename="../../apps/compose/views.py" line="97"/>
         <source>客户端 TLS 握手</source>
         <translation>Client TLS handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="95"/>
+        <location filename="../../apps/compose/views.py" line="102"/>
         <source>请求开始</source>
         <translation>Request start</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="100"/>
+        <location filename="../../apps/compose/views.py" line="107"/>
         <source>请求结束</source>
         <translation>Request end</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="105"/>
+        <location filename="../../apps/compose/views.py" line="112"/>
         <source>请求时长</source>
         <translation>Request duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="110"/>
+        <location filename="../../apps/compose/views.py" line="117"/>
         <source>TCP 握手</source>
         <translation>TCP handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="115"/>
+        <location filename="../../apps/compose/views.py" line="122"/>
         <source>服务端 TLS 握手</source>
         <translation>Server TLS handshake</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="120"/>
+        <location filename="../../apps/compose/views.py" line="127"/>
         <source>响应开始</source>
         <translation>Response start</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="125"/>
+        <location filename="../../apps/compose/views.py" line="132"/>
         <source>响应结束</source>
         <translation>Response end</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="130"/>
+        <location filename="../../apps/compose/views.py" line="137"/>
         <source>响应时长</source>
         <translation>Response duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="135"/>
+        <location filename="../../apps/compose/views.py" line="142"/>
         <source>总耗时</source>
         <translation>Total duration</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="142"/>
+        <location filename="../../apps/compose/views.py" line="149"/>
         <source>流量</source>
         <translation>Traffic</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="144"/>
+        <location filename="../../apps/compose/views.py" line="151"/>
         <source>请求</source>
         <translation>Request</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="146"/>
+        <location filename="../../apps/compose/views.py" line="153"/>
         <source>- 请求头</source>
         <translation>- Request headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="150"/>
+        <location filename="../../apps/compose/views.py" line="157"/>
         <source>- 请求体（线上）</source>
         <translation>- Request body on the wire</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="154"/>
+        <location filename="../../apps/compose/views.py" line="161"/>
         <source>- 请求体（解压）</source>
         <translation>- Request body decoded</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="157"/>
+        <location filename="../../apps/compose/views.py" line="164"/>
         <source>响应</source>
         <translation>Response</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="159"/>
+        <location filename="../../apps/compose/views.py" line="166"/>
         <source>- 响应头</source>
         <translation>- Response headers</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="163"/>
+        <location filename="../../apps/compose/views.py" line="170"/>
         <source>- 响应体（线上）</source>
         <translation>- Response body on the wire</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="167"/>
+        <location filename="../../apps/compose/views.py" line="174"/>
         <source>- 响应体（解压）</source>
         <translation>- Response body decoded</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="170"/>
+        <location filename="../../apps/compose/views.py" line="177"/>
         <source>总计</source>
         <translation>Total</translation>
+    </message>
+</context>
+<context>
+    <name>ComposeWebSocketController</name>
+    <message>
+        <location filename="../../apps/compose/websocket_controller.py" line="60"/>
+        <source>连接失败</source>
+        <translation>Connection failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket_controller.py" line="97"/>
+        <source>消息发送失败</source>
+        <translation>Message send failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket_controller.py" line="107"/>
+        <source>断开失败</source>
+        <translation>Disconnect failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket_controller.py" line="129"/>
+        <source>内核已停止，连接已关闭</source>
+        <translation>The proxy has stopped and the connection is closed</translation>
     </message>
 </context>
 <context>
@@ -4943,143 +5022,148 @@ Device ID: {id}</translation>
 <context>
     <name>MessagesPane</name>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="154"/>
+        <location filename="../../apps/common/flow/messages.py" line="157"/>
         <source>过滤消息…</source>
         <translation>Filter messages...</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="155"/>
+        <location filename="../../apps/common/flow/messages.py" line="158"/>
         <source>按内容、发送、接收或事件信息过滤</source>
         <translation>Filter by content, sent or received messages, or event details</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="159"/>
-        <location filename="../../apps/common/flow/messages.py" line="492"/>
+        <location filename="../../apps/common/flow/messages.py" line="162"/>
+        <location filename="../../apps/common/flow/messages.py" line="504"/>
         <source>最新在上</source>
         <translation>Newest first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="160"/>
+        <location filename="../../apps/common/flow/messages.py" line="163"/>
         <source>切换消息顺序</source>
         <translation>Toggle message order</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="162"/>
-        <location filename="../../apps/common/flow/messages.py" line="163"/>
+        <location filename="../../apps/common/flow/messages.py" line="165"/>
+        <location filename="../../apps/common/flow/messages.py" line="166"/>
         <source>清空显示的消息</source>
         <translation>Clear the displayed messages</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="169"/>
+        <location filename="../../apps/common/flow/messages.py" line="172"/>
         <source>消息列表</source>
         <translation>Message list</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="188"/>
-        <location filename="../../apps/common/flow/messages.py" line="189"/>
+        <location filename="../../apps/common/flow/messages.py" line="191"/>
+        <location filename="../../apps/common/flow/messages.py" line="192"/>
         <source>换行</source>
         <translation>Word wrap</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="196"/>
+        <location filename="../../apps/common/flow/messages.py" line="199"/>
         <source>消息内容</source>
         <translation>Message content</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="281"/>
+        <location filename="../../apps/common/flow/messages.py" line="291"/>
         <source>这条流量没有消息</source>
         <translation>This flow carries no messages</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="338"/>
+        <location filename="../../apps/common/flow/messages.py" line="348"/>
         <source>发送</source>
         <translation>Sent</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="338"/>
-        <location filename="../../apps/common/flow/messages.py" line="378"/>
+        <location filename="../../apps/common/flow/messages.py" line="348"/>
+        <location filename="../../apps/common/flow/messages.py" line="388"/>
         <source>接收</source>
         <translation>Received</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="340"/>
+        <location filename="../../apps/common/flow/messages.py" line="350"/>
         <source>客户端 → 服务端</source>
         <translation>Client → Server</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="342"/>
+        <location filename="../../apps/common/flow/messages.py" line="352"/>
         <source>服务端 → 客户端</source>
         <translation>Server → Client</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="492"/>
+        <location filename="../../apps/common/flow/messages.py" line="441"/>
+        <source>仅显示前 {} 字节，共 {} 字节。</source>
+        <translation>Showing the first {} bytes of {} bytes.</translation>
+    </message>
+    <message>
+        <location filename="../../apps/common/flow/messages.py" line="504"/>
         <source>最早在上</source>
         <translation>Oldest first</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="469"/>
+        <location filename="../../apps/common/flow/messages.py" line="481"/>
         <source>已关闭</source>
         <translation>Closed</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="185"/>
-        <location filename="../../apps/common/flow/messages.py" line="186"/>
+        <location filename="../../apps/common/flow/messages.py" line="188"/>
+        <location filename="../../apps/common/flow/messages.py" line="189"/>
         <source>返回</source>
         <translation>Back</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="352"/>
+        <location filename="../../apps/common/flow/messages.py" line="362"/>
         <source>已丢弃</source>
         <translation>Dropped</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="354"/>
+        <location filename="../../apps/common/flow/messages.py" line="364"/>
         <source>已注入</source>
         <translation>Injected</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="356"/>
+        <location filename="../../apps/common/flow/messages.py" line="366"/>
         <source>内容已截断</source>
         <translation>Content truncated</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="363"/>
-        <location filename="../../apps/common/flow/messages.py" line="389"/>
+        <location filename="../../apps/common/flow/messages.py" line="373"/>
+        <location filename="../../apps/common/flow/messages.py" line="399"/>
         <source>（空消息）</source>
         <translation>(Empty message)</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="372"/>
+        <location filename="../../apps/common/flow/messages.py" line="382"/>
         <source>心跳</source>
         <translation>Heartbeat</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="374"/>
+        <location filename="../../apps/common/flow/messages.py" line="384"/>
         <source>事件信息</source>
         <translation>Event details</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="429"/>
+        <location filename="../../apps/common/flow/messages.py" line="439"/>
         <source>仅显示前 {} 字节，共 {} 字节；可导出流量查看完整消息。</source>
         <translation>Showing the first {} of {} bytes. Export the flow to view the complete message.</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="459"/>
+        <location filename="../../apps/common/flow/messages.py" line="471"/>
         <source>没有匹配的消息</source>
         <translation>No matching messages</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="461"/>
+        <location filename="../../apps/common/flow/messages.py" line="473"/>
         <source>暂无消息</source>
         <translation>No messages yet</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="471"/>
+        <location filename="../../apps/common/flow/messages.py" line="483"/>
         <source>客户端关闭</source>
         <translation>Closed by client</translation>
     </message>
     <message>
-        <location filename="../../apps/common/flow/messages.py" line="473"/>
+        <location filename="../../apps/common/flow/messages.py" line="485"/>
         <source>服务端关闭</source>
         <translation>Closed by server</translation>
     </message>
@@ -5087,91 +5171,92 @@ Device ID: {id}</translation>
 <context>
     <name>MitmFacade</name>
     <message>
-        <location filename="../../core/mitm/facade.py" line="93"/>
+        <location filename="../../core/mitm/facade.py" line="99"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="418"/>
+        <location filename="../../core/mitm/facade.py" line="424"/>
         <source>无法写入 WireGuard 密钥文件：{}</source>
         <translation>Cannot write the WireGuard key file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="849"/>
+        <location filename="../../core/mitm/facade.py" line="857"/>
         <source>无法识别的标记值：%s</source>
         <translation>Unknown marker value: %s</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="815"/>
-        <location filename="../../core/mitm/facade.py" line="935"/>
+        <location filename="../../core/mitm/facade.py" line="822"/>
+        <location filename="../../core/mitm/facade.py" line="943"/>
         <location filename="../../core/mitm/held_edit.py" line="184"/>
         <source>这条流量已不在列表中</source>
         <translation>That flow is no longer in the list</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="355"/>
+        <location filename="../../core/mitm/facade.py" line="361"/>
         <source>没有可分配的 WireGuard 设备端口。</source>
         <translation>No ports are available for a WireGuard device.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="395"/>
+        <location filename="../../core/mitm/facade.py" line="401"/>
         <source>WireGuard 设备不存在，请重新选择。</source>
         <translation>This WireGuard device no longer exists. Select another device.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="424"/>
-        <location filename="../../core/mitm/facade.py" line="438"/>
+        <location filename="../../core/mitm/facade.py" line="430"/>
+        <location filename="../../core/mitm/facade.py" line="444"/>
         <source>WireGuard 设备密钥文件无效，请更换此设备密钥后重新扫码：{}</source>
         <translation>The WireGuard device key file is invalid. Replace this device&apos;s keys, then scan the new QR code: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1099"/>
+        <location filename="../../core/mitm/facade.py" line="1107"/>
+        <location filename="../../core/mitm/facade.py" line="1122"/>
         <source>找不到指定的 Flow</source>
         <translation>That flow could not be found</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1397"/>
+        <location filename="../../core/mitm/facade.py" line="1472"/>
         <source>没有可重发的 Flow</source>
         <translation>There is no flow to resend</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1402"/>
-        <location filename="../../core/mitm/facade.py" line="1484"/>
+        <location filename="../../core/mitm/facade.py" line="1477"/>
+        <location filename="../../core/mitm/facade.py" line="1559"/>
         <source>mitmproxy 内核未运行，无法回放</source>
         <translation>The mitmproxy core is not running, so nothing can be replayed</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1426"/>
+        <location filename="../../core/mitm/facade.py" line="1501"/>
         <source>无可回放的 Flow</source>
         <translation>There is nothing left to replay</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1451"/>
+        <location filename="../../core/mitm/facade.py" line="1526"/>
         <source>HTTP 方法为空</source>
         <translation>The HTTP method is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1453"/>
+        <location filename="../../core/mitm/facade.py" line="1528"/>
         <source>URL 为空</source>
         <translation>The URL is empty</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1457"/>
+        <location filename="../../core/mitm/facade.py" line="1532"/>
         <source>mitmproxy 内核未运行，无法发送</source>
         <translation>The mitmproxy core is not running, so nothing can be sent</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1500"/>
+        <location filename="../../core/mitm/facade.py" line="1575"/>
         <source>mitmproxy 内核未运行，无法读取文件</source>
         <translation>The mitmproxy core is not running, so the file cannot be read</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1600"/>
+        <location filename="../../core/mitm/facade.py" line="1675"/>
         <source>无法读取 Flow 文件：{}</source>
         <translation>Cannot read flow file: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/facade.py" line="1658"/>
+        <location filename="../../core/mitm/facade.py" line="1733"/>
         <source>无法写入文件：{}</source>
         <translation>Cannot write file: {}</translation>
     </message>
@@ -5179,60 +5264,60 @@ Device ID: {id}</translation>
 <context>
     <name>MitmRuntime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="314"/>
+        <location filename="../../core/mitm/runtime.py" line="315"/>
         <source>代理端口监听失败</source>
         <translation>The proxy could not start listening on its port</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="739"/>
+        <location filename="../../core/mitm/runtime.py" line="750"/>
         <source>端口 {} 已被占用</source>
         <translation>Port {} is already in use</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1046"/>
-        <location filename="../../core/mitm/runtime.py" line="1149"/>
+        <location filename="../../core/mitm/runtime.py" line="1061"/>
+        <location filename="../../core/mitm/runtime.py" line="1164"/>
         <source>正在更新 WireGuard 设备，请稍后重试。</source>
         <translation>WireGuard devices are being updated. Try again shortly.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1059"/>
+        <location filename="../../core/mitm/runtime.py" line="1074"/>
         <source>多台 WireGuard 设备不能同时使用全局固定会话，请先关闭固定会话，避免共享登录状态。</source>
         <translation>Multiple WireGuard devices cannot use the global sticky session at the same time. Turn off Sticky session first to prevent sharing sign-in state.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1164"/>
+        <location filename="../../core/mitm/runtime.py" line="1179"/>
         <source>抓包内核正在启停，请稍后修改 WireGuard 设备。</source>
         <translation>The capture engine is starting or stopping. Wait before changing WireGuard devices.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1188"/>
+        <location filename="../../core/mitm/runtime.py" line="1203"/>
         <source>WireGuard 设备端口与其他 UDP 通道冲突。</source>
         <translation>A WireGuard device port conflicts with another UDP channel.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1131"/>
-        <location filename="../../core/mitm/runtime.py" line="1227"/>
+        <location filename="../../core/mitm/runtime.py" line="1146"/>
+        <location filename="../../core/mitm/runtime.py" line="1242"/>
         <source>WireGuard 设备启动失败：{}</source>
         <translation>WireGuard device failed to start: {}</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="1588"/>
+        <location filename="../../core/mitm/runtime.py" line="1603"/>
         <source>mitmproxy 内核尚未完全停止，无法重启</source>
         <translation>The mitmproxy engine has not fully stopped and cannot be restarted</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="2097"/>
+        <location filename="../../core/mitm/runtime.py" line="2112"/>
         <source>WireGuard 监听实例缺失。</source>
         <translation>The WireGuard listener is missing.</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="2275"/>
+        <location filename="../../core/mitm/runtime.py" line="2290"/>
         <source>mitmproxy 内核未运行</source>
         <translation>The mitmproxy core is not running</translation>
     </message>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="2297"/>
-        <location filename="../../core/mitm/runtime.py" line="2326"/>
+        <location filename="../../core/mitm/runtime.py" line="2312"/>
+        <location filename="../../core/mitm/runtime.py" line="2341"/>
         <source>mitmproxy 任务执行超时</source>
         <translation>The mitmproxy task timed out</translation>
     </message>
@@ -6572,32 +6657,32 @@ Device ID: {id}</translation>
 <context>
     <name>SaveRequestDialog</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="189"/>
+        <location filename="../../apps/compose/views.py" line="196"/>
         <source>保存到请求库</source>
         <translation>Save to request library</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="193"/>
+        <location filename="../../apps/compose/views.py" line="200"/>
         <source>未分组</source>
         <translation>Ungrouped</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="201"/>
+        <location filename="../../apps/compose/views.py" line="208"/>
         <source>名称</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="203"/>
+        <location filename="../../apps/compose/views.py" line="210"/>
         <source>文件夹</source>
         <translation>Folder</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="209"/>
+        <location filename="../../apps/compose/views.py" line="216"/>
         <source>保存</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="210"/>
+        <location filename="../../apps/compose/views.py" line="217"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
@@ -7840,6 +7925,156 @@ Device ID: {id}</translation>
     </message>
 </context>
 <context>
+    <name>WebSocketClient</name>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="127"/>
+        <source>请输入有效的 ws:// 或 wss:// 地址</source>
+        <translation>Enter a valid ws:// or wss:// URL</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="135"/>
+        <source>WebSocket 请求头无效</source>
+        <translation>Invalid WebSocket request headers</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="143"/>
+        <source>WebSocket 子协议必须是不重复的协议名称</source>
+        <translation>WebSocket subprotocols must be unique protocol names</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="231"/>
+        <source>请先断开当前 WebSocket 连接</source>
+        <translation>Disconnect the current WebSocket connection first</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="287"/>
+        <source>WebSocket 连接尚未打开</source>
+        <translation>The WebSocket connection is not open</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="291"/>
+        <source>WebSocket 消息不能超过 {limit} 字节</source>
+        <translation>WebSocket messages must not exceed {limit} bytes</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="300"/>
+        <source>文本消息必须是有效的 UTF-8</source>
+        <translation>Text messages must contain valid UTF-8</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="309"/>
+        <source>WebSocket 发送队列已满，请稍后重试</source>
+        <translation>The WebSocket send queue is full. Try again later.</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="493"/>
+        <source>WebSocket 握手失败：HTTP {status}</source>
+        <translation>WebSocket handshake failed: HTTP {status}</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="512"/>
+        <source>WebSocket 连接异常关闭</source>
+        <translation>The WebSocket connection closed unexpectedly</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="520"/>
+        <source>WebSocket 连接已断开</source>
+        <translation>The WebSocket connection has closed</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="592"/>
+        <source>WebSocket 握手超时</source>
+        <translation>WebSocket handshake timed out</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="594"/>
+        <source>WebSocket 写入超时</source>
+        <translation>WebSocket write timed out</translation>
+    </message>
+    <message>
+        <location filename="../../core/mitm/websocket_client.py" line="336"/>
+        <location filename="../../core/mitm/websocket_client.py" line="598"/>
+        <source>WebSocket 连接失败：{error}</source>
+        <translation>WebSocket connection failed: {error}</translation>
+    </message>
+</context>
+<context>
+    <name>WebSocketEditor</name>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="32"/>
+        <source>子协议，以逗号分隔（可选）</source>
+        <translation>Subprotocols, separated by commas (optional)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="33"/>
+        <source>WebSocket 子协议</source>
+        <translation>WebSocket subprotocols</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="36"/>
+        <source>文本</source>
+        <translation>Text</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="36"/>
+        <source>二进制（十六进制）</source>
+        <translation>Binary (hex)</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="38"/>
+        <source>发送消息</source>
+        <translation>Send message</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="43"/>
+        <source>待发送的 WebSocket 消息</source>
+        <translation>WebSocket message to send</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="140"/>
+        <source>十六进制消息必须由完整的字节对组成，可用空格或换行分隔。</source>
+        <translation>Hex messages must contain complete byte pairs, optionally separated by spaces or line breaks.</translation>
+    </message>
+</context>
+<context>
+    <name>WebSocketHistory</name>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="183"/>
+        <source>尚未连接</source>
+        <translation>Not connected</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="207"/>
+        <source>正在连接…</source>
+        <translation>Connecting…</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="210"/>
+        <source>已连接 · 子协议：{}</source>
+        <translation>Connected · Subprotocol: {}</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="212"/>
+        <source>已连接</source>
+        <translation>Connected</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="215"/>
+        <source>正在断开…</source>
+        <translation>Disconnecting…</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="217"/>
+        <source>连接失败</source>
+        <translation>Connection failed</translation>
+    </message>
+    <message>
+        <location filename="../../apps/compose/websocket.py" line="219"/>
+        <source>连接已关闭</source>
+        <translation>Connection closed</translation>
+    </message>
+</context>
+<context>
     <name>WireGuard</name>
     <message>
         <location filename="../../core/mitm/modes.py" line="257"/>
@@ -8156,12 +8391,12 @@ Device ID: {id}</translation>
 <context>
     <name>_NameDialog</name>
     <message>
-        <location filename="../../apps/compose/library.py" line="79"/>
+        <location filename="../../apps/compose/library.py" line="78"/>
         <source>确定</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/library.py" line="80"/>
+        <location filename="../../apps/compose/library.py" line="79"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
@@ -8169,27 +8404,27 @@ Device ID: {id}</translation>
 <context>
     <name>_UnsavedDialog</name>
     <message>
-        <location filename="../../apps/compose/views.py" line="231"/>
+        <location filename="../../apps/compose/views.py" line="238"/>
         <source>未保存的修改</source>
         <translation>Unsaved changes</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="232"/>
+        <location filename="../../apps/compose/views.py" line="239"/>
         <source>当前请求有未保存的修改。</source>
         <translation>The current request has unsaved changes.</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="233"/>
+        <location filename="../../apps/compose/views.py" line="240"/>
         <source>保存并继续</source>
         <translation>Save and continue</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="234"/>
+        <location filename="../../apps/compose/views.py" line="241"/>
         <source>取消</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../../apps/compose/views.py" line="235"/>
+        <location filename="../../apps/compose/views.py" line="242"/>
         <source>放弃修改</source>
         <translation>Discard changes</translation>
     </message>
@@ -8197,7 +8432,7 @@ Device ID: {id}</translation>
 <context>
     <name>runtime</name>
     <message>
-        <location filename="../../core/mitm/runtime.py" line="147"/>
+        <location filename="../../core/mitm/runtime.py" line="148"/>
         <source>“{}”不是合法的 IP 地址</source>
         <translation>&quot;{}&quot; is not a valid IP address</translation>
     </message>

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from PySide6.QtCore import Qt, QThreadPool, QTimer, Slot
+from PySide6.QtCore import QSignalBlocker, Qt, QThreadPool, QTimer, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -66,9 +66,16 @@ from ferret.apps.compose.body_editor import ComposeBodyEditor
 from ferret.apps.compose.controllers import ComposeController
 from ferret.apps.compose.curl_import import parse_curl
 from ferret.apps.compose.library import ComposeLibraryPanel
-from ferret.apps.compose.models import SavedBody, SavedRequest
+from ferret.apps.compose.models import SavedBody, SavedRequest, SavedWebSocket
 from ferret.apps.compose.store import ComposeRequestStore
-from ferret.core.mitm import ComposeResult, RequestEdit
+from ferret.apps.compose.websocket import WebSocketEditor, WebSocketHistory
+from ferret.core.mitm import (
+    ComposeResult,
+    RequestEdit,
+    WebSocketSnapshot,
+    WebSocketSpec,
+    WebSocketState,
+)
 from ferret.core.settings import CONFIG
 from ferret.utils.i18n import QT_TRANSLATE_NOOP
 
@@ -259,6 +266,9 @@ class ComposeInterface(QWidget):
         super().__init__(parent)
         self.setObjectName("ComposeInterface")
         self.controller = controller
+        self.websocket = controller.websocket
+        self._protocol = "http"
+        self._ws_detail: dict = {}
         self.store = store if store is not None else ComposeRequestStore(self)
         self._saved_id: str | None = None
         self._form_dirty = False
@@ -272,6 +282,7 @@ class ComposeInterface(QWidget):
         self.__init_widget()
         self.__init_layout()
         self.__connect_signal_to_slot()
+        self._apply_protocol()
         self._update_save_state()
 
         if self.store.warning:
@@ -280,6 +291,9 @@ class ComposeInterface(QWidget):
     # ── 组件 ──────────────────────────────────
 
     def __init_widget(self):
+        self.protocol_combo = ComboBox(self)
+        self.protocol_combo.addItems(["HTTP", "WebSocket"])
+        self.protocol_combo.setAccessibleName(self.tr("请求协议"))
         # 顶栏。方法下拉不可编辑：prefill 可能带来词表外的方法（PROPFIND 等），
         # 写入统一走 _set_method（缺项动态补条目）。
         self.method_combo = ComboBox(self)
@@ -307,12 +321,18 @@ class ComposeInterface(QWidget):
         self.record_btn.installEventFilter(ToolTipFilter(self.record_btn, 700))
 
         # 按当前语言的最长状态文案预留宽度，发送中不挤动 URL，也不截断英文。
-        self.send_btn = PrimaryPushButton(FluentIcon.SEND, self.tr("发送中…"), self)
-        sending_width = self.send_btn.sizeHint().width()
-        self.send_btn.setText(self.tr("发送"))
-        self.send_btn.setFixedWidth(
-            max(96, sending_width, self.send_btn.sizeHint().width())
-        )
+        self.send_btn = PrimaryPushButton(FluentIcon.SEND, "", self)
+        button_width = 96
+        for label in (
+            self.tr("发送中…"),
+            self.tr("取消连接"),
+            self.tr("断开连接"),
+            self.tr("连接"),
+            self.tr("发送"),
+        ):
+            self.send_btn.setText(label)
+            button_width = max(button_width, self.send_btn.sizeHint().width())
+        self.send_btn.setFixedWidth(button_width)
         self.send_btn.setToolTip(self.tr("发送这条请求"))
         self.send_btn.installEventFilter(ToolTipFilter(self.send_btn, 700))
 
@@ -360,10 +380,12 @@ class ComposeInterface(QWidget):
         self.params_card = ItemDualPanel(True, self)
         self.headers_card = HeaderDualPanel(True, self)
         self.body_editor = ComposeBodyEditor(self.headers_card, self)
+        self.websocket_editor = WebSocketEditor(self)
 
         self.request_panel.addTab("Params", self.params_card, self.tr("参数"))
         self.request_panel.addTab("Headers", self.headers_card, self.tr("请求头"))
         self.request_panel.addTab("Body", self.body_editor, self.tr("请求体"))
+        self.request_panel.addTab("WebSocket", self.websocket_editor, self.tr("消息"))
         for button in (self.record_btn, self.paste_curl_btn, self.save_btn):
             self.request_panel.tab_layout.addWidget(button)
         # 请求头(N)：条数挂标签，随编辑实时变（参数变化实时写回 URL，见下）。
@@ -422,12 +444,25 @@ class ComposeInterface(QWidget):
         self.response_stack.addWidget(self.response_pane)
         self.response_stack.addWidget(self.empty_hint)
         self.response_stack.setCurrentWidget(self.empty_hint)
+        self.websocket_history = WebSocketHistory(self)
+        self.websocket_response = TabPanel(self)
+        self.websocket_response.setTabFontSize(12)
+        self.websocket_response.close_button.hide()
+        self.websocket_handshake = ResponsePane(self, with_raw=False)
+        self.websocket_response.addTab(
+            "Messages", self.websocket_history, self.tr("消息")
+        )
+        self.websocket_response.addTab(
+            "Handshake", self.websocket_handshake, self.tr("握手响应")
+        )
+        self.response_stack.addWidget(self.websocket_response)
 
     def __init_layout(self):
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(8)
         top.addWidget(self.library_btn)
+        top.addWidget(self.protocol_combo)
         top.addWidget(self.method_combo)
         top.addWidget(self.url_edit, stretch=1)
         top.addWidget(self.send_btn)
@@ -476,6 +511,11 @@ class ComposeInterface(QWidget):
         self.library_panel.hide()
 
     def __connect_signal_to_slot(self):
+        self.protocol_combo.currentIndexChanged.connect(self._on_protocol_changed)
+        self.websocket_editor.changed.connect(self._mark_dirty)
+        self.websocket_editor.sendRequested.connect(self._on_websocket_send)
+        self.websocket.changed.connect(self._on_websocket_changed)
+        self.websocket.failed.connect(self._on_websocket_failed)
         self.send_btn.clicked.connect(self._on_send)
         self.paste_curl_btn.clicked.connect(self._on_paste_curl)
         self.save_btn.clicked.connect(self._on_save)
@@ -529,6 +569,9 @@ class ComposeInterface(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        if self._protocol == "websocket":
+            self.websocket.refresh()
+            self._on_websocket_changed(self.websocket.snapshot)
         # 只在首次可见时平分一次：singleShot 等布局把这页的真实宽度定下来，
         # 之后用户手动拖过分隔条，再切页回来不再打扰。
         if not self._splitter_normalized:
@@ -636,6 +679,8 @@ class ComposeInterface(QWidget):
             name=name,
             folder=folder,
             method=self.method_combo.currentText(),
+            protocol=self._protocol,
+            websocket=self.websocket_editor.saved(),
             # URL 栏保存整串；参数是可编辑投影，装载时不重编码原始 query。
             url=url,
             params=params,
@@ -661,7 +706,9 @@ class ComposeInterface(QWidget):
         folder = current.folder if current is not None else ""
         if current is None or save_as:
             summary = SavedRequest(
-                method=self.method_combo.currentText(), url=self.url_edit.text()
+                method=self.method_combo.currentText(),
+                url=self.url_edit.text(),
+                protocol=self._protocol,
             ).summary()
             dialog = SaveRequestDialog(
                 name,
@@ -691,6 +738,9 @@ class ComposeInterface(QWidget):
         return True
 
     def _can_replace_form(self) -> bool:
+        if self.websocket.active:
+            self._show_disconnect_required()
+            return False
         if self._sending:
             return False
         # 工具栏与外部 prefill 不保证抢走单元格焦点；先提交编辑器再判断脏状态。
@@ -727,14 +777,19 @@ class ComposeInterface(QWidget):
         self._load_saved(request)
 
     def _load_saved(self, request: SavedRequest) -> None:
+        self.websocket.reset()
+        self.websocket_history.reset()
+        self._ws_detail = {}
         self._loading_form = True
         try:
+            self._set_protocol(request.protocol)
             self._set_method(request.method)
             self.url_edit.setText(request.url)
             self.params_card.set_items(self._query_pairs(request.url))
             self.headers_card.set_items(list(request.headers))
             self.headers_card.restore_managed_rows(request.managed_headers)
             self.body_editor.load_saved(request.body)
+            self.websocket_editor.load(request.websocket)
             self.record_btn.setChecked(request.record)
             self._url_dirty = False
             self._params_dirty = False
@@ -747,6 +802,7 @@ class ComposeInterface(QWidget):
         self._update_save_state()
         self.response_stack.setCurrentWidget(self.empty_hint)
         self._set_waiting(False)
+        self._apply_protocol()
 
     @staticmethod
     def _query_pairs(url: str) -> list[tuple[str, str]]:
@@ -851,16 +907,173 @@ class ComposeInterface(QWidget):
             self.method_combo.addItem(method)
         self.method_combo.setCurrentText(method)
 
-    def prefill(self, edit: RequestEdit) -> bool:
+    def _set_protocol(self, protocol: str) -> None:
+        self._protocol = protocol
+        with QSignalBlocker(self.protocol_combo):
+            self.protocol_combo.setCurrentIndex(1 if protocol == "websocket" else 0)
+        self._apply_protocol()
+
+    @Slot(int)
+    def _on_protocol_changed(self, index: int) -> None:
+        if self.websocket.active or self._sending:
+            with QSignalBlocker(self.protocol_combo):
+                self.protocol_combo.setCurrentIndex(
+                    1 if self._protocol == "websocket" else 0
+                )
+            if self.websocket.active:
+                self._show_disconnect_required()
+            return
+        protocol = "websocket" if index == 1 else "http"
+        self.websocket.reset()
+        self.websocket_history.reset()
+        self._ws_detail = {}
+        self._set_protocol(protocol)
+        # Keep the destination when changing transport, including raw query bytes.
+        url = self.url_edit.text()
+        replacements = (("https://", "wss://"), ("http://", "ws://"))
+        for http, websocket in replacements:
+            old, new = (
+                (http, websocket) if protocol == "websocket" else (websocket, http)
+            )
+            if url.startswith(old):
+                with QSignalBlocker(self.url_edit):
+                    self.url_edit.setText(new + url[len(old) :])
+                break
+        self._mark_dirty()
+
+    def _apply_protocol(self) -> None:
+        websocket = self._protocol == "websocket"
+        self.method_combo.setVisible(not websocket)
+        self.url_edit.setPlaceholderText(
+            "wss://example.com/socket" if websocket else "https://example.com/api"
+        )
+        self.request_panel.setTabVisible("WebSocket", websocket)
+        self.request_panel.setTabVisible("Body", not websocket)
+        self.body_editor.setEnabled(not websocket)
+        if websocket:
+            self.request_panel.setCurrentTab("WebSocket")
+            self.response_stack.setCurrentWidget(self.websocket_response)
+            self._on_websocket_changed(self.websocket.snapshot)
+        else:
+            self.response_stack.setCurrentWidget(self.empty_hint)
+            self.send_btn.setText(self.tr("发送"))
+            self.send_btn.setIcon(FluentIcon.SEND)
+            self.send_btn.setToolTip(self.tr("发送这条请求"))
+            self.send_btn.setEnabled(not self._sending)
+            for widget in (
+                self.url_edit,
+                self.params_card,
+                self.headers_card,
+                self.record_btn,
+            ):
+                widget.setEnabled(not self._sending)
+
+    def _show_disconnect_required(self) -> None:
+        show_error(
+            self.tr("连接仍在使用"),
+            self.tr("请先断开 WebSocket 连接，再切换请求或协议。"),
+            self,
+        )
+
+    @Slot()
+    def _on_websocket_connect(self) -> None:
+        if self.websocket.active:
+            self.websocket.close()
+            return
+        try:
+            spec = WebSocketSpec(
+                url=self._collect_url(),
+                headers=tuple(self._collect_headers()),
+                subprotocols=self.websocket_editor.subprotocols(),
+                record=self.record_btn.isChecked(),
+            )
+        except ValueError as exc:
+            self._on_websocket_failed(self.tr("连接失败"), str(exc))
+            return
+        self._ws_detail = {}
+        self.websocket_handshake.set_data({})
+        self.websocket_response.setCurrentTab("Messages")
+        self.websocket.open_connection(spec)
+
+    @Slot()
+    def _on_websocket_send(self) -> None:
+        try:
+            content, is_text = self.websocket_editor.payload()
+        except (ValueError, UnicodeError) as exc:
+            self._on_websocket_failed(self.tr("消息发送失败"), str(exc))
+            return
+        self.websocket.send(content, is_text=is_text)
+
+    @Slot(object)
+    def _on_websocket_changed(self, snapshot: WebSocketSnapshot | None) -> None:
+        if self._protocol != "websocket":
+            return
+        state = snapshot.state if snapshot is not None else None
+        if snapshot is None:
+            self.websocket_handshake.set_data({})
+        active = self.websocket.active
+        for widget in (
+            self.url_edit,
+            self.params_card,
+            self.headers_card,
+            self.record_btn,
+        ):
+            widget.setDisabled(active)
+        self.websocket_editor.set_connection_state(state)
+        self.send_btn.setEnabled(state != WebSocketState.CLOSING)
+        if state == WebSocketState.CONNECTING:
+            self.send_btn.setText(self.tr("取消连接"))
+            self.send_btn.setIcon(FluentIcon.CANCEL)
+        elif state in (WebSocketState.OPEN, WebSocketState.CLOSING):
+            self.send_btn.setText(self.tr("断开连接"))
+            self.send_btn.setIcon(FluentIcon.CLOSE)
+        else:
+            self.send_btn.setText(self.tr("连接"))
+            self.send_btn.setIcon(FluentIcon.LINK)
+        self.send_btn.setToolTip(self.send_btn.text())
+        # The controller remains subscribed while this page is hidden. Skip
+        # expensive list/detail rendering and catch up from its snapshot on show.
+        if snapshot is not None and self.isVisible():
+            self.websocket_history.messages.set_export_available(
+                self.websocket.recorded
+            )
+            self.websocket_history.set_snapshot(snapshot)
+            if snapshot.detail and snapshot.detail != self._ws_detail:
+                self._ws_detail = snapshot.detail
+                self.websocket_handshake.set_data(snapshot.detail)
+
+    @Slot(str, str)
+    def _on_websocket_failed(self, title: str, content: str) -> None:
+        show_error(title, content, self)
+
+    def prefill(self, edit: RequestEdit | WebSocketSpec) -> bool:
         """把一份请求草稿灌进表单（右键「Edit in Compose」/ cURL 导入）。
 
         替换前确认未保存修改；发送与文件准备期间保留当前请求和响应的对应关系。
         """
         if not self._can_replace_form():
             return False
+        if isinstance(edit, WebSocketSpec):
+            self._load_saved(
+                SavedRequest(
+                    protocol="websocket",
+                    method="GET",
+                    url=edit.url,
+                    headers=edit.headers,
+                    record=edit.record,
+                    websocket=SavedWebSocket(subprotocols=edit.subprotocols),
+                )
+            )
+            self.request_panel.setCurrentTab("WebSocket")
+            return True
+        self.websocket.reset()
+        self.websocket_history.reset()
+        self.websocket_editor.load(SavedWebSocket())
+        self._ws_detail = {}
         # 程序化装载：setText 的 textChanged 不算用户编辑，脏标记全部归零。
         self._loading_form = True
         try:
+            self._set_protocol("http")
             self._set_method(edit.method)
             self.url_edit.setText(edit.url)
             # query 拆进参数页（断点面板 `RequestPanel.load` 同款）：URL 栏留整串，
@@ -884,6 +1097,9 @@ class ComposeInterface(QWidget):
 
     @Slot()
     def _on_paste_curl(self) -> None:
+        if self.websocket.active:
+            self._show_disconnect_required()
+            return
         if self._sending:
             return
         text = QApplication.clipboard().text().strip()
@@ -909,6 +1125,9 @@ class ComposeInterface(QWidget):
     @Slot()
     def _on_send(self):
         if self._sending:
+            return
+        if self._protocol == "websocket":
+            self._on_websocket_connect()
             return
         method = self.method_combo.currentText().strip()
         try:
@@ -978,6 +1197,7 @@ class ComposeInterface(QWidget):
             self.save_btn,
             self.request_panel,
             self.method_combo,
+            self.protocol_combo,
             self.url_edit,
             self.record_btn,
         ):

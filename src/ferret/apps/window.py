@@ -249,7 +249,7 @@ class MainWindow(FluentWindow):
             self.gateway_controller.add_host_rule
         )
         # 同上：apps/capture 不必认识 apps/compose。提取在 mitm 线程上跑
-        # （facade.request_edit），prefill 与切页都在主线程。
+        # （facade.compose_draft），prefill 与切页都在主线程。
         self.captures_interface.edit_in_compose_requested.connect(
             self.__edit_in_compose
         )
@@ -354,12 +354,12 @@ class MainWindow(FluentWindow):
     @Slot(str)
     def __edit_in_compose(self, flow_id: str) -> None:
         try:
-            edit = self.captures_interface.controller.request_edit(flow_id)
-        except (ValueError, RuntimeError) as exc:
+            edit = self.runtime.mitm.compose_draft(flow_id)
+        except (ValueError, RuntimeError, TimeoutError) as exc:
             show_warning(self.tr("编辑请求失败"), str(exc), self)
             return
-        self.compose_interface.ensure().prefill(edit)
-        self.switchTo(self.compose_interface)
+        if self.compose_interface.ensure().prefill(edit):
+            self.switchTo(self.compose_interface)
 
     @Slot()
     def __on_activated(self, reason: QSystemTrayIcon.ActivationReason):

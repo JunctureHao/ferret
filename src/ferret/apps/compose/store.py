@@ -79,8 +79,8 @@ class ComposeRequestStore(QObject):
         except (ValueError, UnicodeError):
             self._preserve_source()
             return
-        version = data.get("version", SCHEMA_VERSION)
-        if type(version) is not int or version != SCHEMA_VERSION:
+        version = data.get("version", 1)
+        if type(version) is not int or version not in (1, SCHEMA_VERSION):
             self._write_blocked = QCoreApplication.translate(
                 "ComposeLibrary", "请求库版本不受支持，已保留原文件并暂停保存：{}"
             ).format(version)
@@ -100,6 +100,11 @@ class ComposeRequestStore(QObject):
         seen: set[str] = set()
         for item in raw_requests:
             try:
+                if version == 1 and isinstance(item, dict):
+                    # Old libraries contain HTTP drafts, including manually
+                    # entered Upgrade headers. Never turn them into active WS
+                    # connections by guessing from their URLs or headers.
+                    item = {**item, "protocol": "http", "websocket": {}}
                 request = SavedRequest.from_dict(item)
             except (ValueError, TypeError):
                 damaged = True
@@ -113,6 +118,8 @@ class ComposeRequestStore(QObject):
                 self._folders.append(request.folder)
         if damaged:
             self._preserve_source()
+        elif version == 1:
+            self._defer_save()
 
     def _preserve_source(self) -> None:
         # Never replace a partially readable library until a recovery copy exists.

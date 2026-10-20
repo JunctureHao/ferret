@@ -191,6 +191,10 @@ from mitmproxy.version import FLOW_FORMAT_VERSION
 from mitmproxy.websocket import WebSocketData, WebSocketMessage
 from mitmproxy_rs import process_info as rs_process_info
 from mitmproxy_rs import wireguard as rs_wireguard
+from wsproto import WSConnection
+from wsproto import events as ws_events
+from wsproto.connection import ConnectionState as WSConnectionState
+from wsproto.connection import ConnectionType as WSConnectionType
 from wsproto.frame_protocol import Opcode
 
 tlsconfig_module: Any = _tlsconfig_module
@@ -385,6 +389,9 @@ __all__ = [
     "UpstreamAuth",
     "UpstreamMode",
     "View",
+    "WSConnection",
+    "WSConnectionState",
+    "WSConnectionType",
     "WebSocketData",
     "WebSocketMessage",
     "WireGuardServerInstance",
@@ -411,4 +418,5 @@ __all__ = [
     "signals",
     "status_codes",
     "tlsconfig_module",
+    "ws_events",
 ]

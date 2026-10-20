@@ -53,6 +53,7 @@ from ferret.core.mitm.rows import flow_row
 from ferret.core.mitm.scripts import ScriptEntry
 from ferret.core.mitm.ui_events import UiEventQueue
 from ferret.core.mitm.view import FerretView
+from ferret.core.mitm.websocket_client import WebSocketClientAddon
 from ferret.core.mitm.wireguard import (
     WireGuardDevice,
     validate_wireguard_devices,
@@ -432,6 +433,9 @@ class _MitmThread(QThread):
         # 编辑页发送结果的回报桥：与 gateway.on_suspend_changed 同一个接法，
         # 回调只做一次 Signal.emit，由 Qt 队列连接跨线程。
         master.compose.on_result = self.runtime.compose_result.emit
+        master.websocket_client.on_changed = lambda session_id: (
+            self.runtime.post_ui_event("compose_websocket_changed", session_id)
+        )
         # SSE tee 的信号桥同理（master 装配时 runtime 还不存在，只能在这里补）。
         master.sse.bridge = self.runtime
         self.master = master
@@ -441,6 +445,10 @@ class _MitmThread(QThread):
         try:
             await master.run()
         finally:
+            # Native startup failures may bypass done(). Always close owned
+            # loopback sockets and release any gateway-held handshake as well.
+            await master.websocket_client.done()
+            master.websocket_client.on_cancel = None
             # 原生 Master.run() 在 setup_servers 阶段见到 should_exit 就直接
             # return，这条早退不在保证 done() 的 try/finally 之内 —— 启动期 stop、
             # UAC 等待中停止、监听失败都到不了 done()，断连不能只押在它上面。
@@ -450,6 +458,9 @@ class _MitmThread(QThread):
             # FerretMaster 装配时把 sse 也接到了同一条共享 view 上（装配方与
             # 拆解方必须对称），一并拔掉。
             master.view.sig_store_remove.disconnect(master.sse.flow_removed)
+            master.view.sig_store_remove.disconnect(
+                master.websocket_client.flow_removed
+            )
             self.master = None
             self.loop = None
 
@@ -786,6 +797,7 @@ class MitmRuntime(QObject):
     messages_changed = Signal(str, str, int)
     # 编辑页手工发送的落地结果：ComposeResult 值对象（见 core/mitm/compose.py）。
     compose_result = Signal(object)
+    compose_websocket_changed = Signal(str)
     # 脚本装载状态变更：path + ScriptStatus 值对象（core/mitm/scripts.py），
     # 由 FerretScriptAddon.on_status 回调经本信号跨线程送达（与 compose_result 同形）。
     script_status_changed = Signal(str, object)
@@ -896,6 +908,9 @@ class MitmRuntime(QObject):
         self._state = MitmRuntimeState.STOPPED
         self._thread: _MitmThread | None = None
         self._master: FerretMaster | None = None
+        # Retain only the latest client's native history after stop; it is read
+        # through the facade and replaced on the next explicit connect.
+        self._websocket_client: WebSocketClientAddon | None = None
         self._last_error = ""
         self._generation = 0
         self.gateway_rules: list[GatewayRule] = []

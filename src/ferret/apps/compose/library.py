@@ -200,7 +200,8 @@ class ComposeLibraryPanel(QWidget):
             if not query
             or query in request.name.lower()
             or query in request.url.lower()
-            or query in request.method.lower()
+            or query in request.display_method.lower()
+            or query in request.protocol.lower()
         ]
         folders = self._store.folders()
         self._expanded_folders = set(folders) if expanded is None else expanded
@@ -238,9 +239,9 @@ class ComposeLibraryPanel(QWidget):
 
     def _make_request_item(self, request: SavedRequest) -> QTreeWidgetItem:
         item = QTreeWidgetItem()
-        item.setText(0, f"{request.method}  {request.name}")
+        item.setText(0, f"{request.display_method}  {request.name}")
         item.setData(0, _ROLE, ("request", request.id))
-        item.setToolTip(0, f"{request.method}  {request.name}\n{request.url}")
+        item.setToolTip(0, f"{request.display_method}  {request.name}\n{request.url}")
         self._request_items[request.id] = item
         return item
 
@@ -254,7 +255,7 @@ class ComposeLibraryPanel(QWidget):
             request = self._store.get(key) if key is not None else None
             if item is not None and request is not None:
                 marker = " *" if key == request_id and dirty else ""
-                item.setText(0, f"{request.method}  {request.name}{marker}")
+                item.setText(0, f"{request.display_method}  {request.name}{marker}")
         current = (
             self._request_items.get(request_id) if request_id is not None else None
         )

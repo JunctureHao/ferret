@@ -3,7 +3,7 @@
 落盘格式 ``compose_requests.json``（Roaming，见
 ``core.settings.get_compose_requests_file``）::
 
-    {"version": 1, "folders": [...], "requests": [...]}
+    {"version": 2, "folders": [...], "requests": [...]}
 
 模型不依赖 QtWidgets，也不引用 mitmproxy 活对象：序列化与 ``RequestEdit``
 同一原则——纯数据才能安全地在线程与进程重启之间搬运。``from_dict`` 的
@@ -24,7 +24,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlsplit
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 TEXT_KINDS = frozenset({"json", "text", "html", "xml"})
 BODY_KINDS = TEXT_KINDS | {"none", "raw", "urlencoded", "multipart", "file"}
@@ -36,6 +36,7 @@ __all__ = [
     "SavedBody",
     "SavedFormField",
     "SavedRequest",
+    "SavedWebSocket",
     "duplicate",
 ]
 
@@ -200,6 +201,46 @@ class SavedBody:
 
 
 @dataclass(frozen=True)
+class SavedWebSocket:
+    """Connection options and editable message drafts, never a live session.
+
+    Keep unfinished hex input so saving a draft does not require sending it.
+    Text and binary documents survive switching the message editor's mode.
+    """
+
+    subprotocols: tuple[str, ...] = ()
+    kind: str = "text"
+    text: str = ""
+    binary_hex: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "subprotocols": list(self.subprotocols),
+            "kind": self.kind,
+            "text": self.text,
+            "binary_hex": self.binary_hex,
+        }
+
+    @staticmethod
+    def from_dict(data: Any) -> SavedWebSocket:
+        if not isinstance(data, dict):
+            raise ValueError("websocket must be an object")  # noqa: TRY004
+        protocols = data.get("subprotocols", [])
+        if not isinstance(protocols, list) or not all(
+            isinstance(item, str) for item in protocols
+        ):
+            raise ValueError("websocket subprotocols must be a list of strings")
+        kind = data.get("kind", "text")
+        if not isinstance(kind, str) or kind not in ("text", "json", "binary"):
+            raise ValueError("unsupported websocket message kind")
+        text = data.get("text", "")
+        binary_hex = data.get("binary_hex", "")
+        if not isinstance(text, str) or not isinstance(binary_hex, str):
+            raise ValueError("websocket drafts must be strings")  # noqa: TRY004
+        return SavedWebSocket(tuple(protocols), kind, text, binary_hex)
+
+
+@dataclass(frozen=True)
 class SavedRequest:
     """一条已保存请求：列表寻址以 ``id`` 为唯一依据，名称可重复。
 
@@ -219,6 +260,8 @@ class SavedRequest:
     body: SavedBody = field(default_factory=SavedBody)
     record: bool = True  # 「记录流量」勾选随草稿保存
     updated_at: float = 0.0
+    protocol: str = "http"
+    websocket: SavedWebSocket = field(default_factory=SavedWebSocket)
 
     @staticmethod
     def create(
@@ -232,6 +275,8 @@ class SavedRequest:
         body: SavedBody | None = None,
         record: bool = True,
         folder: str = "",
+        protocol: str = "http",
+        websocket: SavedWebSocket | None = None,
     ) -> SavedRequest:
         return SavedRequest(
             id=uuid.uuid4().hex,
@@ -245,11 +290,17 @@ class SavedRequest:
             body=body if body is not None else SavedBody(),
             record=record,
             updated_at=time.time(),
+            protocol=protocol,
+            websocket=websocket if websocket is not None else SavedWebSocket(),
         )
 
     def touched(self, **changes: Any) -> SavedRequest:
         """原地语义的不变更新：改字段同时刷新 ``updated_at``，id 不动。"""
         return replace(self, **changes, updated_at=time.time())
+
+    @property
+    def display_method(self) -> str:
+        return "WS" if self.protocol == "websocket" else self.method
 
     def summary(self) -> str:
         """保存对话框里的只读摘要，如 ``POST /api/orders``。"""
@@ -258,7 +309,7 @@ class SavedRequest:
         except ValueError:
             path = self.url
         path = path or "/"
-        return f"{self.method} {path}"
+        return f"{self.display_method} {path}"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -273,6 +324,8 @@ class SavedRequest:
             "body": self.body.to_dict(),
             "record": self.record,
             "updated_at": self.updated_at,
+            "protocol": self.protocol,
+            "websocket": self.websocket.to_dict(),
         }
 
     @staticmethod
@@ -283,6 +336,9 @@ class SavedRequest:
         name = data.get("name")
         method = data.get("method")
         url = data.get("url")
+        protocol = data.get("protocol", "http")
+        if not isinstance(protocol, str) or protocol not in ("http", "websocket"):
+            raise ValueError("unsupported request protocol")
         if not all(
             isinstance(part, str) and part for part in (request_id, name, method)
         ):
@@ -327,6 +383,8 @@ class SavedRequest:
             body=SavedBody.from_dict(data.get("body", {})),
             record=record,
             updated_at=float(updated_at),
+            protocol=protocol,
+            websocket=SavedWebSocket.from_dict(data.get("websocket", {})),
         )
 
 

@@ -13,7 +13,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from ferret.apps.compose.models import SavedBody, SavedRequest
+from ferret.apps.compose.models import (
+    SCHEMA_VERSION,
+    SavedBody,
+    SavedRequest,
+    SavedWebSocket,
+)
 from ferret.apps.compose.store import ComposeRequestStore
 from tests.core.mitm._qt import wait_until
 
@@ -215,7 +220,7 @@ class PersistenceTests(StoreTestCase):
         self.assertFalse(store._save_pending)
 
         disk = self.read_disk()
-        self.assertEqual(disk["version"], 1)
+        self.assertEqual(disk["version"], SCHEMA_VERSION)
 
         reloaded = self.make_store()
         self.assertEqual(reloaded.requests(), store.requests())
@@ -274,6 +279,58 @@ class PersistenceTests(StoreTestCase):
         self.assertFalse(store.flush())
         self.assertTrue(store.warning)
         self.assertEqual(self.path.read_text(encoding="utf-8"), original)
+
+    def test_v1_migration_preserves_http_bytes_and_identity(self) -> None:
+        request = SavedRequest.create(
+            name="legacy",
+            method="POST",
+            url="https://example.test/?q=a%20b&x=%2f",
+            headers=(("X-Value", "first"), ("X-Value", "second")),
+            managed_headers=(1,),
+            body=SavedBody(kind="raw", raw_b64="AP8NCg=="),
+        )
+        legacy = request.to_dict()
+        # These were not protocol fields in v1 and must not change its semantics.
+        legacy["protocol"] = "websocket"
+        legacy["websocket"] = {"kind": "binary", "binary_hex": "ff"}
+        for version in (1, None):
+            with self.subTest(version=version):
+                payload = {"requests": [legacy], "folders": ["empty folder"]}
+                if version is not None:
+                    payload["version"] = version
+                self.path.write_text(json.dumps(payload), encoding="utf-8")
+                store = self.make_store()
+                self.assertEqual(store.requests(), [request])
+                self.assertFalse(store.warning)
+                self.assertTrue(store.flush())
+                self.assertEqual(self.read_disk()["version"], SCHEMA_VERSION)
+                self.assertEqual(self.make_store().requests(), [request])
+
+    def test_websocket_library_survives_reload(self) -> None:
+        request = SavedRequest.create(
+            name="socket",
+            method="GET",
+            url="wss://example.test/chat",
+            record=False,
+            protocol="websocket",
+            websocket=SavedWebSocket(("chat",), "json", "{}", "ff"),
+        )
+        store = self.make_store()
+        store.upsert(request)
+        self.assertTrue(store.flush())
+        restored = self.make_store()
+        self.assertEqual(restored.requests(), [request])
+        from ferret.apps.compose.library import ComposeLibraryPanel
+
+        panel = ComposeLibraryPanel(restored)
+        self.addCleanup(panel.deleteLater)
+        panel.apply_search("websocket")
+        self.assertEqual(panel.tree.topLevelItemCount(), 1)
+        item = panel.tree.topLevelItem(0)
+        assert item is not None
+        self.assertEqual(item.text(0), "WS  socket")
+        panel.set_current_request(request.id, dirty=True)
+        self.assertEqual(item.text(0), "WS  socket *")
 
     def test_malformed_collections_do_not_crash_or_overwrite_without_backup(
         self,

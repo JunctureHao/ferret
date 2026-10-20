@@ -17,8 +17,10 @@ from PySide6.QtWidgets import QApplication, QLineEdit
 from ferret.apps.compose.models import SavedBody, SavedFormField, SavedRequest
 from ferret.apps.compose.store import ComposeRequestStore
 from ferret.apps.compose.views import ComposeInterface
+from ferret.apps.compose.websocket_controller import ComposeWebSocketController
 from ferret.core.mitm import RequestEdit
 from ferret.core.settings import CONFIG, Layout
+from tests.apps.compose._websocket import WebSocketFacade
 
 app = QApplication.instance() or QApplication([])
 
@@ -30,6 +32,8 @@ class _Controller(QObject):
 
     def __init__(self):
         super().__init__()
+        self.websocket_facade = WebSocketFacade()
+        self.websocket = ComposeWebSocketController(self, mitm=self.websocket_facade)  # ty: ignore[invalid-argument-type]
         self.calls: list[tuple] = []
 
     def send(self, method, url, headers, body, *, record):

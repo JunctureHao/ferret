@@ -1,7 +1,10 @@
 """编辑页控制器：收 UI 的待发数据 → facade，收内核结果 → 视图。"""
 
+from __future__ import annotations
+
 from PySide6.QtCore import QObject, Signal
 
+from ferret.apps.compose.websocket_controller import ComposeWebSocketController
 from ferret.core.log import get_logger
 from ferret.core.mitm import ComposeResult, MitmFacade, MitmRuntimeState
 
@@ -19,6 +22,7 @@ class ComposeController(QObject):
         super().__init__(parent)
         self._mitm = mitm
         self._inflight_id = ""
+        self.websocket = ComposeWebSocketController(self, mitm=mitm)
         # facade 背后是 `runtime.call`（同步阻塞等 mitm 线程），但请求本身在
         # mitm 线程异步飞 —— call 只等「入队」这一步，毫秒级，不必上 FunctionTask。
         self._mitm.runtime.compose_result.connect(self._on_compose_result)

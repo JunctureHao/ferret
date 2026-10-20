@@ -11,6 +11,7 @@ from ferret.apps.compose.models import (
     SavedBody,
     SavedFormField,
     SavedRequest,
+    SavedWebSocket,
     duplicate,
 )
 
@@ -256,9 +257,47 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(request.summary(), "PUT /v1/x")
 
 
-class SchemaVersionTests(unittest.TestCase):
-    def test_schema_version_is_one(self) -> None:
-        self.assertEqual(SCHEMA_VERSION, 1)
+class WebSocketDraftTests(unittest.TestCase):
+    def test_draft_round_trip_and_duplicate_preserve_both_documents(self) -> None:
+        draft = SavedWebSocket(("chat.v2", "chat"), "binary", " hello\r\n", "00 ff a")
+        request = SavedRequest.create(
+            name="chat",
+            method="GET",
+            url="wss://example.test/chat?q=a%20b",
+            protocol="websocket",
+            websocket=draft,
+        )
+        restored = SavedRequest.from_dict(request.to_dict())
+        copied = duplicate(restored, name="copy")
+        self.assertEqual(restored, request)
+        self.assertEqual(copied.websocket, draft)
+        self.assertNotEqual(copied.id, request.id)
+        self.assertEqual(copied.protocol, "websocket")
+        self.assertEqual(copied.summary(), "WS /chat")
+        self.assertEqual(copied.method, "GET")
+
+    def test_draft_validation_does_not_require_complete_message_input(self) -> None:
+        for kind in ("text", "json", "binary"):
+            draft = SavedWebSocket(kind=kind, text="{unfinished", binary_hex="0z")
+            self.assertEqual(SavedWebSocket.from_dict(draft.to_dict()), draft)
+        for data in (
+            [],
+            {"kind": []},
+            {"kind": "file"},
+            {"text": None},
+            {"binary_hex": 2},
+            {"subprotocols": "chat"},
+            {"subprotocols": [4]},
+        ):
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                SavedWebSocket.from_dict(data)
+        data = SavedRequest.create(name="r", method="GET", url="").to_dict()
+        for value in ([], "ftp", None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                SavedRequest.from_dict({**data, "protocol": value})
+
+    def test_schema_supports_distinct_protocols(self) -> None:
+        self.assertEqual(SCHEMA_VERSION, 2)
 
 
 if __name__ == "__main__":
