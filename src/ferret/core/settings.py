@@ -187,10 +187,16 @@ class Config(QConfig):
             )
 
     def save(self) -> None:
+        path = self.file
+        if not path.is_absolute():
+            # qfw 的 QConfig 默认 file 是相对路径 config/config.json。未经
+            # Application._init_config 定向就落盘，配置会写进进程的当前工作目录
+            # （跑测试时在仓库根长出 config/）。写错位置比写失败更难发现，
+            # 按坏状态直接报错，与 save 对 OSError 的处理一致。
+            raise RuntimeError(f"Refusing to write config to a relative path: {path}")
         self._save_pending = True
         if self._save_timer is not None:
             self._save_timer.stop()
-        path = self.file
         if path.exists():
             try:
                 previous = self._read(path)

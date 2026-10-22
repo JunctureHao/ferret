@@ -16,12 +16,20 @@ from ferret.apps.capture.views import _CaptureFlowSource
 from ferret.apps.common.flow.models import FlowTableModel
 from ferret.core.mitm import FlowFile, MitmFacade, MitmRuntime
 from ferret.core.mitm.runtime import UiBridgeAddon
+from ferret.core.settings import CONFIG
 
 app = QApplication.instance() or QApplication([])
 
 
 class CaptureAdmissionTests(unittest.TestCase):
     def setUp(self):
+        # apply_filter 成功后会记搜索历史并落盘；CONFIG.file 未沙箱时是 qfw 的类
+        # 默认相对路径，会把配置写进当前工作目录。
+        self._config_dir = tempfile.TemporaryDirectory()
+        self._original_file = CONFIG.file
+        self.addCleanup(setattr, CONFIG, "file", self._original_file)
+        self.addCleanup(self._config_dir.cleanup)
+        CONFIG.file = Path(self._config_dir.name) / "config.json"
         self.runtime = MitmRuntime()
         self.facade = MitmFacade(self.runtime)
         self.controller = CaptureController(mitm=self.facade, system_proxy=Mock())

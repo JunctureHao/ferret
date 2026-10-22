@@ -169,7 +169,10 @@ class LibraryDialogLifetimeTests(unittest.TestCase):
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=30,
+                    # 与 test_column_dialog_lifetime 同一处境：子进程几乎零 CPU、纯 IO
+                    # （导入 PySide6/qfluentwidgets/mitmproxy），全量套件满载时页缓存
+                    # 紧张可拉长一个数量级；30s 会误杀，90s 兜底防挂死。
+                    timeout=90,
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

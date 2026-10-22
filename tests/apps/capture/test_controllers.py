@@ -386,11 +386,34 @@ class BlockingSystemProxy(FakeSystemProxy):
         super().attach(host, port)
 
 
-class CaptureControllerStateTests(unittest.TestCase):
+class SearchConfigSandbox(unittest.TestCase):
+    """搜索入口类用例的公共底座：CONFIG 指向临时文件。
+
+    `apply_filter` / `apply_highlight` 成功后会调 `_remember_search` →
+    `CONFIG.set(..., save=True)` 落盘。`CONFIG.file` 未沙箱时仍是 qfw 的类默认
+    相对路径 `config/config.json`，等于把配置写进跑测试的当前工作目录（仓库根
+    会长出一个 `config/`）。子类不必自己重定向。
+    """
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self) -> None:
+        self._config_dir = tempfile.TemporaryDirectory()
+        self._original_file = CONFIG.file
+        self.addCleanup(setattr, CONFIG, "file", self._original_file)
+        self.addCleanup(self._config_dir.cleanup)
+        CONFIG.file = Path(self._config_dir.name) / "config.json"
+
+    def make_controller(self):
+        runtime = FakeRuntime()
+        facade = FakeFacade(runtime)
+        proxy = FakeSystemProxy()
+        return CaptureController(mitm=facade, system_proxy=proxy), facade  # type: ignore
+
+
+class CaptureControllerStateTests(SearchConfigSandbox):
     ITEMS = (
         "listen_host",
         "listen_port",
@@ -404,19 +427,15 @@ class CaptureControllerStateTests(unittest.TestCase):
 
     def setUp(self) -> None:
         # 控制器提交设置时会写 CONFIG —— 绝不能落到用户真实的 config.json 上。
-        self._config_dir = tempfile.TemporaryDirectory()
-        self._original_file = CONFIG.file
+        super().setUp()
         self._original_values = {
             name: CONFIG.get(getattr(CONFIG, name)) for name in self.ITEMS
         }
-        CONFIG.file = Path(self._config_dir.name) / "config.json"
-        self.addCleanup(self._restore_config)
+        self.addCleanup(self._restore_values)
 
-    def _restore_config(self) -> None:
+    def _restore_values(self) -> None:
         for name, value in self._original_values.items():
             CONFIG.set(getattr(CONFIG, name), value, save=False)
-        CONFIG.file = self._original_file
-        self._config_dir.cleanup()
 
     def make_controller(
         self,
@@ -1339,19 +1358,9 @@ class CaptureControllerStateTests(unittest.TestCase):
         self.assertEqual(seen, [{}])
 
 
-class ApplyFilterRawTests(unittest.TestCase):
+class ApplyFilterRawTests(SearchConfigSandbox):
     """原生 flowfilter 表达式的唯一校验点在 controller（`docs/design.md#ui`）：合法上屏并清错误态，非法沿用上次有效结果并回传错误、绝不把半截表达式
     打到内核层。"""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.app = QApplication.instance() or QApplication([])
-
-    def make_controller(self):
-        runtime = FakeRuntime()
-        facade = FakeFacade(runtime)
-        proxy = FakeSystemProxy()
-        return CaptureController(mitm=facade, system_proxy=proxy), facade  # type: ignore
 
     def test_a_valid_raw_expression_reaches_the_kernel_and_clears_the_error(
         self,
@@ -1399,19 +1408,9 @@ class ApplyFilterRawTests(unittest.TestCase):
         self.assertEqual(facade.removed_marked_calls, 1)
 
 
-class ApplyHighlightTests(unittest.TestCase):
+class ApplyHighlightTests(SearchConfigSandbox):
     """搜索高亮：复用 flowfilter 的编译与校验，但命中集只回给调用方、不动 View 过滤
     （`docs/design.md#ui`）。空表达式空转，非法沿用错误契约回空集。"""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.app = QApplication.instance() or QApplication([])
-
-    def make_controller(self):
-        runtime = FakeRuntime()
-        facade = FakeFacade(runtime)
-        proxy = FakeSystemProxy()
-        return CaptureController(mitm=facade, system_proxy=proxy), facade  # type: ignore
 
     def test_a_valid_expression_returns_the_facade_match_set(self) -> None:
         controller, facade = self.make_controller()
@@ -1448,26 +1447,15 @@ class ApplyHighlightTests(unittest.TestCase):
         self.assertEqual(getattr(facade, "match_calls", 0), 0)  # 坏表达式不下发
 
 
-class SearchHistoryTests(unittest.TestCase):
+class SearchHistoryTests(SearchConfigSandbox):
     """搜索历史（capture 桶）：合法表达式成功应用后进历史；非法/空串不进。
     CONFIG.set 的写回恒为新 list（merge_history 契约），不与旧值共享引用。"""
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.app = QApplication.instance() or QApplication([])
-
     def setUp(self) -> None:
+        super().setUp()
         self._saved = list(CONFIG.get(CONFIG.search_history_capture))
         CONFIG.set(CONFIG.search_history_capture, [], save=False)
-
-    def tearDown(self) -> None:
-        CONFIG.set(CONFIG.search_history_capture, self._saved, save=False)
-
-    def make_controller(self):
-        runtime = FakeRuntime()
-        facade = FakeFacade(runtime)
-        proxy = FakeSystemProxy()
-        return CaptureController(mitm=facade, system_proxy=proxy), facade  # type: ignore
+        self.addCleanup(CONFIG.set, CONFIG.search_history_capture, self._saved, False)
 
     def test_valid_filter_is_recorded_mru(self) -> None:
         controller, _facade = self.make_controller()

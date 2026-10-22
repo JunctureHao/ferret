@@ -232,6 +232,22 @@ class ConfigRecoveryTests(unittest.TestCase):
         self.assertEqual(runtime.mitm_runtime.dns_name_servers, [])
         self.assertEqual(runtime.mitm_runtime.ssl_trusted_ca_files, [])
 
+    def test_relative_config_path_is_refused_instead_of_writing_to_cwd(self) -> None:
+        """qfw 的 QConfig 默认 file 是相对路径；未经定向就落盘会写进当前工作目录。
+
+        这类调用是编程错误，save 必须报错而不是静默在 CWD 下建 config/。
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        previous = os.getcwd()
+        os.chdir(directory.name)
+        self.addCleanup(os.chdir, previous)
+
+        self.config.file = Path("config") / "config.json"
+        with self.assertRaises(RuntimeError):
+            self.config.save()
+        self.assertFalse((Path(directory.name) / "config").exists())
+
     def test_deferred_write_failure_is_retried_by_exit_flush(self) -> None:
         self.config.save()
         before = self.path.read_bytes()
