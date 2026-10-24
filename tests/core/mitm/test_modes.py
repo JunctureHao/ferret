@@ -87,24 +87,21 @@ class CaptureModeSpecTests(unittest.TestCase):
     def test_enabled_channels_are_appended_in_order(self) -> None:
         self.assertEqual(
             capture_mode_specs(use_local=True, local_spec="curl", use_wireguard=True),
-            ["regular", "local:curl@127.0.0.1:0", wireguard_mode_spec()],
+            ["regular", "local:curl", wireguard_mode_spec()],
         )
 
     def test_local_spec_is_stripped_and_empty_means_everything(self) -> None:
-        self.assertEqual(local_mode_spec(""), "local@127.0.0.1:0")
-        self.assertEqual(local_mode_spec("  "), "local@127.0.0.1:0")
-        self.assertEqual(
-            local_mode_spec(" curl , python "), "local:curl , python@127.0.0.1:0"
-        )
+        self.assertEqual(local_mode_spec(""), "local")
+        self.assertEqual(local_mode_spec("  "), "local")
+        self.assertEqual(local_mode_spec(" curl , python "), "local:curl , python")
 
-    def test_local_spec_carries_the_duplicate_address_dodge(self) -> None:
-        """上游 #7063：查重把全局默认端口顶进 local（default_port=None 被覆盖），
-        裸 ``local`` 会被算成与 regular 同听 ``*:8080`` 而拒启动。显式
-        ``@127.0.0.1:0`` 让查重读到唯一地址；该地址永远不会被真正绑定
-        （``LocalRedirectorInstance.listen_addrs = ()``）。这里用上游同款查重
-        算法钉住回归。
+    def test_bare_local_spec_does_not_collide_with_regular(self) -> None:
+        """裸 ``local`` 不撞 regular：``LocalMode.default_port is None``，上游
+        ≥12.3 的查重对无端口模式回 ``None``（#8471 修复 #7063 的「全局
+        listen_port 顶替无端口模式」误报），local 不再被算成与 regular 同听
+        ``*:8080``。这里用上游同款查重算法钉住回归；ferret 曾给 local 挂
+        ``@127.0.0.1:0`` 占位绕过该误报，升级后占位已移除。
         """
-        from ferret.core.mitm.modes import LOCAL_DUP_DODGE
 
         for listen_host in ("127.0.0.1", "0.0.0.0"):
             for listen_port in (8080, 9123):
@@ -128,9 +125,9 @@ class CaptureModeSpecTests(unittest.TestCase):
                     )
                 with self.subTest(listen_host=listen_host, listen_port=listen_port):
                     self.assertEqual(len(addrs), len(set(addrs)), addrs)
-        # 占位符确实长在 local spec 上，且解析后 data 不受影响。
+        # 无监听端口、过滤串原样保留。
         mode = ProxyMode.parse(local_mode_spec("curl"))
-        self.assertTrue(mode.full_spec.endswith(LOCAL_DUP_DODGE))
+        self.assertIsNone(mode.listen_port(8080))
         self.assertEqual(mode.data, "curl")
 
     def test_wireguard_spec_binds_lan_reachable_udp_port(self) -> None:
@@ -490,7 +487,7 @@ class ReverseModeSpecTests(unittest.TestCase):
             "regular",
         )
         self.assertTrue(specs[1].startswith("reverse:"), specs)
-        self.assertIn("local:curl@127.0.0.1:0", specs)
+        self.assertIn("local:curl", specs)
         self.assertIn(wireguard_mode_spec(), specs)
 
     def test_empty_reverse_target_does_not_emit_a_spec(self) -> None:
@@ -634,7 +631,7 @@ class UpstreamModeSpecTests(unittest.TestCase):
     def test_upstream_coexists_with_the_other_three_channels(self) -> None:
         """上游 + local + wireguard + reverse 的完整列表能过原生校验，且
         ``(host, port, proto)`` 三元组无重复（姿势照抄
-        ``test_local_spec_carries_the_duplicate_address_dodge``）。
+        ``test_bare_local_spec_does_not_collide_with_regular``）。
 
         首槽不带 ``@``，回退的正是全局 ``listen_host:listen_port`` —— 与 regular
         占的是同一个地址，所以这条用例真正验的是「换掉之后查重依然干净」。

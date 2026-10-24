@@ -16,7 +16,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import brotli
-import zstandard
+from backports import zstd
 from mitmproxy.net import encoding
 from mitmproxy.test import tflow
 
@@ -41,7 +41,7 @@ def _compressed_flow(content: bytes, codec: str = "gzip"):
     elif codec == "br":
         compressed = brotli.compress(content)
     elif codec == "zstd":
-        compressed = zstandard.ZstdCompressor().compress(content)
+        compressed = zstd.compress(content)
     else:
         raise AssertionError(codec)
     flow.response.raw_content = compressed

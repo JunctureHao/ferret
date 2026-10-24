@@ -291,13 +291,17 @@ def _decode_with_budget(encoded, encoding: str, errors: str = "strict"):
             if not encoded:
                 return b""
             try:
-                # Same streaming decoder as upstream, with a bounded read and
-                # an 8 MiB window ceiling (bytes in the installed C backend).
+                # Bounded read plus an 8 MiB window ceiling (window_log_max=23);
+                # frames that demand a larger window raise ZstdError here instead
+                # of letting the C backend allocate it. One decompress() call stops
+                # at the first frame boundary — trailing concatenated frames stay
+                # in unused_data, which preview trimming already handles.
                 decoder = _native_encoding.zstd.ZstdDecompressor(
-                    max_window_size=8 * 1024 * 1024
+                    options={
+                        _native_encoding.zstd.DecompressionParameter.window_log_max: 23
+                    }
                 )
-                with decoder.stream_reader(encoded, read_across_frames=True) as reader:
-                    return reader.read(budget.limit + 1)
+                return decoder.decompress(encoded, budget.limit + 1)
             except _native_encoding.zstd.ZstdError:
                 raise PreviewDecodingUnavailable(name) from None
         if name == "br":

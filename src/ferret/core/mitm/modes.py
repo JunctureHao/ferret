@@ -55,24 +55,15 @@ WIREGUARD_HOST = ANY_HOST
 WIREGUARD_PORT = 51820
 """WireGuard 默认端口（上游 ``WireGuardMode.default_port``）。"""
 
-LOCAL_DUP_DODGE = "@127.0.0.1:0"
-"""给 local spec 挂的显式 ``@`` 地址，绕开上游重复地址误报。
-
-上游 #7063（12.2.3 未修）：``proxyserver.configure`` 的查重对每个模式取
-``listen_port(ctx.options.listen_port)``，local 的 ``default_port=None`` 会被
-全局默认端口（非 None）顶掉，于是 local 被「算成」和 regular 一样监听
-``*:8080``，三通道并存必报 ``Cannot spawn multiple servers on the same address``。
-给 local 显式 ``@127.0.0.1:0`` 后，查重读到唯一的 ``(127.0.0.1, 0)``；而
-``LocalRedirectorInstance.listen_addrs = ()``（空类属性）意味着这个地址**永远不会
-被真正绑定**，纯属查重占位。上游修复后本常量与拼接处可整体移除。
-"""
-
-
 def local_mode_spec(local_spec: str) -> str:
-    """拼 ``local`` 模式串。过滤串留空 = 截全部本机进程（自身 PID 由上游自动排除）。"""
+    """拼 ``local`` 模式串。过滤串留空 = 截全部本机进程（自身 PID 由上游自动排除）。
+
+    local 不绑端口（``LocalMode.default_port is None``），mitmproxy ≥12.3 的
+    查重对无端口模式回 ``None``，不再把全局 ``listen_port`` 顶进来（上游
+    #8471 修复 #7063 的重复地址误报），spec 因此不带监听段。
+    """
     cleaned = local_spec.strip()
-    head = "local" if not cleaned else f"local:{cleaned}"
-    return head + LOCAL_DUP_DODGE
+    return "local" if not cleaned else f"local:{cleaned}"
 
 
 def wireguard_mode_spec(
@@ -91,9 +82,9 @@ def reverse_mode_spec(target: str, listen_host: str, listen_port: int) -> str:
 
     ``@`` 地址必须显式：不带时上游回退全局 ``listen_host``/``listen_port``，
     与 regular 撞同一地址被 ``proxyserver.configure`` 查重拒（查重键是
-    ``(host, port, proto)``，reverse https 是 tcp+udp 双侧）。这与 local 挂
-    ``@127.0.0.1:0`` 绕上游 #7063 的动机不同——这里是**主动**要独立端口，
-    上游修复后也**不能**随 local 一起移除。目标串只进 ``<target>`` 段，
+    ``(host, port, proto)``，reverse https 是 tcp+udp 双侧）。与 socks5 带
+    ``@`` 同一动机——**主动**要独立端口，别与 local 的「压根不绑端口」混同。
+    目标串只进 ``<target>`` 段，
     ``http(s)://`` 前缀与坏 host 交给 ``validate_mode_specs`` 过原生解析器。
     """
     return f"reverse:{target.strip()}@{listen_host}:{listen_port}"
@@ -197,8 +188,8 @@ def capture_mode_specs(
 
     ``listen_host`` 缺省 ``""`` 时是上游 ``ProxyMode.parse`` 的「绑所有地址」语义，
     与 options.listen_host 的回退一致。真实调用（``MitmRuntime._mode_specs``）恒传
-    self.listen_host；测试里使用空串的等价性由 ``test_local_spec_carries_the_
-    duplicate_address_dodge`` 一类用例的 (host, port, proto) 三元组断言覆盖。
+    self.listen_host；测试里使用空串的等价性由 ``test_bare_local_spec_does_
+    not_collide_with_regular`` 一类用例的 (host, port, proto) 三元组断言覆盖。
     ``reverse_target`` 为空时不开 reverse——避免「勾上但目标没填」误把
     ``reverse:@127.0.0.1:8081`` 这种空 spec 推进内核（ProxyMode.parse 会拒）。
     ``upstream_target`` 为空时同理保持 ``regular``：空目标换槽位只会让系统代理这条
