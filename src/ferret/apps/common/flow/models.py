@@ -66,6 +66,29 @@ def is_suspended(row: FlowRow) -> bool:
     return row.gateway_policy in _SUSPEND_MARKS
 
 
+# WebSocket 行在方法列显示协议短标，不显示握手用的 GET —— 与 TCP/UDP/DNS 行在
+# 同一列显示 `type_label` 一个口径，列表里一眼能挑出 WS 流量。协议名不进翻译。
+_WEBSOCKET_LABEL = "WS"
+
+
+def is_websocket_row(row: FlowRow) -> bool:
+    """这条流量是否是**已确认升级**的 WebSocket。
+
+    判据是行 URL 的方案：内核只在 `flow.websocket` 建好之后才把展示 URL 换成
+    ws/wss（`core/mitm/detail.py::display_url`）。所以方案前缀就是「升级已确认」
+    的等价信号 —— 握手请求本身仍是 http(s)，状态码 101 只说明握手被接受，不能
+    当判据（同 `apps/common/flow/messages.py::is_websocket`）。
+    """
+    return row.url.startswith(("ws://", "wss://"))
+
+
+def _method_label(row: FlowRow) -> str:
+    """方法列的展示值：WS 行给协议短标，其余给真实方法。"""
+    if is_websocket_row(row):
+        return _WEBSOCKET_LABEL
+    return row.method
+
+
 class FlowSource(Protocol):
     """流量表的数据源：形状即 mitmproxy ``View``（Sequence + clear + remove）。
 
@@ -179,9 +202,9 @@ class FlowTableModel(QAbstractTableModel):
 
     @staticmethod
     def _type_mime(row: FlowRow) -> str:
-        # 内核只在确认升级后将展示 URL 改为 ws/wss；Type 按消息流展示为 text。
-        # 原始 MIME 仍由 _mime 提供，不能把握手头或二进制帧内容改成文本。
-        if row.url.startswith(("ws://", "wss://")):
+        # Type 按消息流展示为 text；原始 MIME 仍由 _mime 提供，不能把握手头或
+        # 二进制帧内容改成文本。WS 判据与方法列共用 is_websocket_row。
+        if is_websocket_row(row):
             return "text/plain"
         return FlowTableModel._mime(row)
 
@@ -408,7 +431,7 @@ def flow_cell(row: FlowRow, column_name: str, role: int):
         if column_name == "Mark":
             return marker_glyph(row.marked)
         if column_name == "Method":
-            return row.method
+            return _method_label(row)
         if column_name == "URL":
             return row.url
         if column_name == "Status":
@@ -433,7 +456,8 @@ def flow_cell(row: FlowRow, column_name: str, role: int):
             # 短码字符串本身：空串与有值天然分堆，同类短码聚族。
             return row.marked
         if column_name == "Method":
-            return row.method.upper()
+            # 按展示值排序：WS 行与 TCP/UDP 行一样聚成一堆，不散在 GET 里。
+            return _method_label(row).upper()
         if column_name == "URL":
             return row.url.lower()
         if column_name == "Status":

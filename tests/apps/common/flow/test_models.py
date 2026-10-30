@@ -243,6 +243,28 @@ class FlowTableModelTests(unittest.TestCase):
 
         self.assertEqual(seen, [])
 
+    def test_websocket_rows_show_the_ws_label_in_the_method_column(self) -> None:
+        """WS 行方法列给协议短标（同 TCP/UDP 行给 type_label 的口径），
+        不显示握手用的 GET；Type 列仍按消息流展示 text，两处共用一个判据。"""
+        ws, plain = flow_row(tflow.twebsocketflow()), self.completed_row()
+        model = self.model_with(ws, plain)
+        method, type_column = logical_index("method"), logical_index("type")
+
+        self.assertEqual(model.data(model.index(0, method)), "WS")
+        self.assertEqual(model.data(model.index(0, method), SORT_ROLE), "WS")
+        self.assertEqual(model.data(model.index(0, type_column)), "text")
+        self.assertEqual(model.data(model.index(1, method)), plain.method)
+
+    def test_a_handshake_that_was_not_upgraded_keeps_its_method(self) -> None:
+        """101 只说明握手请求被接受：没有 `flow.websocket` 的 101 不是 WS 行，
+        方法列照旧显示真实方法（同 `messages.py::is_websocket` 的判据）。"""
+        flow = self.completed_flow()
+        assert flow.response is not None
+        flow.response.status_code = 101
+        model = self.model_with(flow_row(flow))
+
+        self.assertEqual(model.data(model.index(0, logical_index("method"))), "GET")
+
     def test_the_mark_column_sits_right_after_the_row_number(self) -> None:
         """表头文案「标记」与详情字段、筛选字段同名；列名 Mark 是取值不是文案。"""
         model = FlowTableModel(None)  # type: ignore

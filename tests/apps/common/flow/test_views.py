@@ -801,7 +801,10 @@ class FlowViewerPaneTests(unittest.TestCase):
 
         model = self.viewer.table.source_model
         url_index = model.index(0, logical_index("url"))
+        method_index = model.index(0, logical_index("method"))
         self.assertEqual(model.data(url_index), flow.request.pretty_url)
+        # 握手阶段还没有 flow.websocket：方法列照旧是真实方法。
+        self.assertEqual(model.data(method_index), "GET")
         self.assertEqual(overview_url(), flow.request.pretty_url)
         self.assertEqual(panel.datas["Scheme"], "https")
         self.controller.requests.clear()
@@ -821,6 +824,8 @@ class FlowViewerPaneTests(unittest.TestCase):
 
         expected_url = "wss://example.com/ws?token=a%2Fb"
         self.assertEqual(model.data(url_index), expected_url)
+        # 升级确认后方法列换成协议短标，列表里一眼能挑出 WS 流量。
+        self.assertEqual(model.data(method_index), "WS")
         self.assertEqual(overview_url(), expected_url)
         self.assertEqual(panel.datas["URL"], expected_url)
         self.assertEqual(panel.datas["Scheme"], "wss")
